@@ -2271,6 +2271,9 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .device-info-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .device-info-actions [hidden] { display: none; }
+.about-log-actions { margin: 4px 0 8px; }
+.info-row[data-file-logging] { cursor: pointer; }
+.info-row[data-file-logging] input { accent-color: var(--accent); width: 18px; height: 18px; margin: 0; cursor: pointer; }
 
 /* settings drawer */
 .drawer {

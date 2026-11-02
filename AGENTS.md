@@ -1739,10 +1739,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
    only callers of `restartIo`/`reconnect` from the UI) and two switches:
    **Logging**
    (runtime gate on the shell log writer, `set_logging_enabled` /
-   `LOG_ENABLED` in lib.rs; persisted in localStorage `velta-logging`,
-   default OFF on both sides — V-09/#66: the log mirrors message content
-   outside the account db, and the renderer pushes the persisted choice at
-   boot so the shell never logs before that unless the user opted in — the
+   `LOG_ENABLED` in log.rs; persisted in localStorage `velta-logging`,
+   default OFF on both sides — V-09/#66/#196: the log mirrors message
+   content outside the account db. About Velta (Tauri) has the same
+   on/off switch plus Copy log / Share of the last 512 KB of `velta.log`
+   (`read_log_file`). `boot:` heartbeats always write so a stuck splash
+   still has a trail. The renderer pushes the persisted choice at boot
+   so the shell never logs the rest unless the user opted in — the
    Diagnostics chat itself keeps working when off, it never passes through
    `log()`) and **DevTools** (`set_devtools`: desktop opens/closes the
    WebView inspector, Android flips `WebView.setWebContentsDebuggingEnabled`

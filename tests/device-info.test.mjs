@@ -80,7 +80,9 @@ test("About wires a native <details> with Copy/Share and a wrapping <pre>", () =
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
   assert.match(ui, /<details class="device-info" data-device-info>\s*<summary>\$\{escapeHtml\(t\("Show device info"\)\)\}<\/summary>/);
   assert.match(ui, /data-device-copy/);
-  assert.match(ui, /shareBtn\.hidden = !canShareLink\(/);
+  assert.match(ui, /shareBtn\.hidden = !canShareLink\(shareOpts\)/);
+  assert.match(ui, /data-file-logging-sw/);
+  assert.match(ui, /data-log-copy/);
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   assert.match(css, /\.device-info-text \{[^}]*white-space: pre-wrap; overflow-wrap: anywhere;/);
 });

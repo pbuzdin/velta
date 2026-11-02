@@ -2,9 +2,10 @@
 //!
 //! The writer thread is fed by a `sync_channel(8192)` with `try_send`. A
 //! full channel drops the NEW message (drop-newest) and increments a
-//! counter; the next successful line carries `dropped=N`. Logging defaults
-//! ON; the Diagnostics switch can freeze the writer. Heartbeat lines
-//! (`boot:`) skip redaction and the rate limit.
+//! counter; the next successful line carries `dropped=N`. File logging
+//! defaults OFF; About / Diagnostics opt in (`velta-logging` = "1").
+//! Heartbeat lines (`boot:`) always write and skip redaction and the
+//! rate limit.
 
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -16,14 +17,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const CHANNEL_CAP: usize = 8192;
 const RATE_PER_SEC: u64 = 50;
 const QUOTE_MAX: usize = 80;
+const TAIL_MAX: u64 = 512 * 1024;
 
 static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static MIRROR_LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static LOG_TX: Mutex<Option<SyncSender<String>>> = Mutex::new(None);
-// Default ON (#196): redaction + rate-limit make a disk log safe enough
-// that a fresh profile is not blind. The Diagnostics switch can still
-// freeze the writer (`velta-logging` = "0").
-static LOG_ENABLED: AtomicBool = AtomicBool::new(true);
+// Default OFF: velta.log is opt-in (About / Diagnostics). `boot:` lines
+// still write so a stuck splash has a trail without eating disk for
+// everyone. Explicit "1" in localStorage turns the rest on.
+static LOG_ENABLED: AtomicBool = AtomicBool::new(false);
 static DROP_COUNT: AtomicU64 = AtomicU64::new(0);
 static RATE_DROP_COUNT: AtomicU64 = AtomicU64::new(0);
 /// Packed rate window: high 32 bits = unix seconds, low 32 bits = count.
@@ -112,11 +114,47 @@ pub fn set_logging_enabled(enabled: bool) {
     LOG_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
+/// Last `TAIL_MAX` bytes of `velta.log` (empty if the file is missing).
+/// A truncated read skips a leading partial line so the clipboard gets
+/// whole records.
+pub fn read_tail() -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    let path = log_dir().join("velta.log");
+    let mut f = match std::fs::File::open(&path) {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+    let len = match f.metadata() {
+        Ok(m) => m.len(),
+        Err(_) => return String::new(),
+    };
+    let start = len.saturating_sub(TAIL_MAX);
+    if start > 0 && f.seek(SeekFrom::Start(start)).is_err() {
+        return String::new();
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return String::new();
+    }
+    if start > 0 {
+        let mut i = 0;
+        while i < buf.len() && (buf[i] & 0xc0) == 0x80 {
+            i += 1;
+        }
+        if let Some(nl) = buf[i..].iter().position(|&b| b == b'\n') {
+            i += nl + 1;
+        }
+        buf.drain(..i);
+    }
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
 pub fn log(msg: &str) {
-    // Runtime gate (Diagnostics chat "Logging" switch): when off, velta.log
-    // and its mirror freeze. The in-app Diagnostics chat keeps working —
-    // its rows live in the frontend and never pass through here.
-    if !LOG_ENABLED.load(Ordering::Relaxed) {
+    // Runtime gate (About / Diagnostics "Logging"): when off, velta.log
+    // and its mirror freeze except `boot:` heartbeats. The in-app
+    // Diagnostics chat keeps working — its rows live in the frontend
+    // and never pass through here.
+    if !msg.starts_with("boot:") && !LOG_ENABLED.load(Ordering::Relaxed) {
         return;
     }
     if !allow_rate(msg) {
@@ -417,5 +455,52 @@ mod tests {
         assert!(!LOG_ENABLED.load(Ordering::Relaxed));
         set_logging_enabled(true);
         assert!(LOG_ENABLED.load(Ordering::Relaxed));
+        set_logging_enabled(false);
+    }
+
+    #[test]
+    fn boot_writes_when_logging_off() {
+        let _gate = TEST_GATE.lock().unwrap();
+        set_logging_enabled(false);
+        let (tx, rx) = mpsc::sync_channel(8);
+        let prev = {
+            let mut guard = LOG_TX.lock().unwrap();
+            let prev = guard.clone();
+            *guard = Some(tx);
+            prev
+        };
+        log("regular line must drop");
+        log("boot: stage x");
+        *LOG_TX.lock().unwrap() = prev;
+        let got: Vec<String> = rx.try_iter().collect();
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(
+            got[0].contains("boot: stage x"),
+            "boot heartbeat must write while the gate is off: {got:?}"
+        );
+    }
+
+    #[test]
+    fn read_tail_returns_file_contents() {
+        let _gate = TEST_GATE.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "velta-log-tail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("velta.log"), "hello\nworld\n").unwrap();
+        let prev = {
+            let mut guard = LOG_DIR.lock().unwrap();
+            std::mem::replace(&mut *guard, Some(dir.clone()))
+        };
+        let text = read_tail();
+        *LOG_DIR.lock().unwrap() = prev;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(text.contains("hello"), "{text}");
+        assert!(text.contains("world"), "{text}");
     }
 }
