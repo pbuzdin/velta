@@ -45,7 +45,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── icons/                # PWA/Tauri icons, including source asset
 │   ├── locales/              # #129 UI packs (fr.json, ru.json): key is the English source; blank keeps English
 │   ├── js/                   # application logic
-│   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relay status line, multi-relay manager, modals, PWA lifecycle
+│   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relay status line, multi-relay manager, modals, PWA lifecycle; cold settings surfaces (identity-backup) lazy-loaded (#207)
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── boot-net.js       # pre-app.js error/unhandledrejection net: Diagnostics sink once app.js lives, #boot-error banner before
 │   │   ├── chat-view.js      # message history, composer, selection actions, webxdc cards, bot command chips
@@ -69,7 +69,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, pairing, group modals (Tauri only)
 │   │   ├── web-push.js       # PWA Web Push: drawer <details> switch, Notification permission, pushManager.subscribe(VAPID_KEY = notifier key, pinned to UnifiedPushService.kt), token webpush:<endpoint>|<p256dh>|<auth> → wasm set_push_device_token (all accounts), re-registered every boot; iOS 16.4+/home-screen hint (docs/agents/web-push.md)
-│   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push (shell push_status/push_select/push_off → UnifiedPushBridge.kt)
+│   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push, registrationFailed (#204) (shell push_status/push_select/push_off in push.rs → UnifiedPushBridge.kt)
 │   │   ├── proxy.js          # native SOCKS5 proxies: strict v1/v2 links, drawer/settings, QR sharing, chat cards, diagnostics — docs/socks5-proxy-link.md
 │   │   ├── ws-transport.js   # WebSocket transport (Android/Windows): saved proxies, velta://ws links with signed invite tokens, settings sheet — docs/websocket-transport.md
 │   │   ├── scheduled.js      # scheduled messages ("Send later"): document ops (mirrored in src-tauri scheduled_store.rs), presets, ScheduledRunner (claim → send → done; no double send) — docs/scheduled-messages.md
@@ -133,7 +133,11 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       ├── capabilities/     # Tauri v2 ACL (default.json, mobile.json)
 │       ├── gen/android/      # generated Android project (cargo tauri android)
 │       ├── src/
-│       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core
+│       │   ├── lib.rs        # Tauri commands + Android in-process core (Windows sidecar lives in sidecar.rs)
+│       │   ├── sidecar.rs    # Windows/macOS rpc-server spawn + stdout JSON-RPC routing (#201/#205)
+│       │   ├── push.rs       # UnifiedPush JNI: endpoint, wakeup, registrationFailed in status() (#204/#205)
+│       │   ├── db_key.rs     # VELTA_DB_KEY install_env + Android/desktop DEK (#202)
+│       │   ├── log.rs        # bounded drop-newest logger; LOG_ENABLED default OFF; boot: always writes (#196/#197)
 │       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
 │       │   ├── proxy.rs      # saved SOCKS5 proxies + shared proxy_url keeper; backup detachment; WS mutual exclusion; stale DNS-listener cleanup
 │       │   ├── proxy_android.rs / proxy_desktop.rs / proxy_store.rs # in-process / sidecar platform layers + several saved proxies, one or none active
@@ -2473,11 +2477,12 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 179 files, 1236 tests as of 2026-11-02 (5 skipped without
-python3+websockets: `tests/ws-proxy-auth.test.mjs`; CI installs it so
-those run on Linux; Windows path uses `fileURLToPath`). Includes SOCKS5
-proxy, relay pause/autorelay, native
-attachment encryption, and Android lock-screen contracts from the 2026-11-02
+whole set — 188 files, 1264 tests as of 2026-11-02 (6 skipped: 5 without
+python3+websockets in `tests/ws-proxy-auth.test.mjs`; 1 when the sidecar
+binary is absent in `tests/release-version-pins.test.mjs`. CI installs
+python3+websockets so those run on Linux; Windows path uses `fileURLToPath`).
+Includes SOCKS5 proxy, relay pause/autorelay, native attachment encryption,
+Android lock-screen contracts, and logging opt-in from the 2026-11-02
 PR stack. 1.4.86: diagnostics bar
 leaves with the chat, history stays on screen after a send, row height is
 read after replace.
@@ -2821,11 +2826,15 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   the biometric prompt accepts `BIOMETRIC_STRONG | DEVICE_CREDENTIAL` on
   API 30+ (no negative button then; API 28-29 strong biometric only).
   The native lock overlay (`VeltaLock.showLock`) keeps a persistent
-  **Unlock with biometrics** action; **Use PIN** is only shown at cold
-  start (`allowPinFallback` while the core is keyless). Auto-lock over a
-  running core never offers it — that button only `hideLock()`s and would
-  bypass the gate. A cancelled prompt leaves the Unlock action; it
-  re-auths when the core is running and unwraps the DEK when keyless.
+  **Unlock with biometrics** action. **Use PIN** is offered on both lock
+  screens when the Velta PIN is on: cold start (`allowPinFallback` while
+  the core is keyless) dismisses to the WebView PIN gate; auto-lock over
+  a running core verifies in place via `VeltaCore.verifyAppLockPin` /
+  JNI `verifyAppPin` (Argon2id + GCM against `dbkey.pin.wrap`, no DEK
+  handover — the running core already holds the key; shared backoff with
+  the cold-start gate). Auto-lock never `hideLock()`s on that button.
+  A cancelled biometric prompt leaves the Unlock action; it re-auths when
+  the core is running and unwraps the DEK when keyless.
   The prompt must run on the main thread (`runOnUiThread`); every unlock
   DEK goes through `db_key::prepare` (migration) before the core opens;
   failures carry the BiometricPrompt code+message to the toast, Diagnostics
@@ -2971,7 +2980,7 @@ talks to Google.
   nowhere) → distributor sends the endpoint → `UnifiedPushService.onNewEndpoint`
   serializes it as `webpush:<endpoint>|<pubkey>|<auth>` (the format the
   chatmail push relay parses, same as the upstream Delta Chat UnifiedPush
-  flavor) → JNI `pushEndpointReceived` (lib.rs) applies it via
+  flavor) → JNI `pushEndpointReceived` (push.rs) applies it via
   `Accounts::set_push_device_token` → the core registers it with the relay
   automatically (IMAP METADATA `/private/devicetoken`, core `push.rs` +
   `imap.rs register_token`; token is OpenPGP-encrypted to the relay's
@@ -3061,15 +3070,18 @@ talks to Google.
   a push-only mode is possible now that a push can cold-start the core,
   but not built. A headless start ignores the page's "sync only the
   active account" (localStorage) and starts every account. (2) The VAPID
-  key in `UnifiedPushService.kt` is the upstream chatmail notifier key — a
-  self-hosted relay with its own notifier keypair needs it updated. (3) The
+  key is `BuildConfig.VAPID_KEY` from Gradle `veltaVapidKey` /
+  `VELTA_VAPID_KEY` (`app/build.gradle.kts`, #203) — default is the
+  upstream chatmail notifier key; a self-hosted relay with its own
+  notifier keypair passes `-PveltaVapidKey=...` at APK build. (3) The
   relay must run a chatmail version whose notifier understands `webpush:`
   tokens (verify per deployment).
 - **Settings → Push notifications (#140)** — Android-only native
   `<details class="drawer-details" data-push-section>` in the drawer
   (`app/js/push-settings.js`, filled on every `toggle` open). Shell
   commands `push_status` (JSON: distributors+labels, saved, optedOut,
-  lastPush ms) / `push_select{package}` / `push_off` (lib.rs) call
+  lastPush ms, registration ok|failed|none + registrationError — #204)
+  / `push_select{package}` / `push_off` (push.rs) call
   `UnifiedPushBridge.kt` via the cached-class JNI pattern. Prefs file
   `velta_push`: `opted_out` (explicit Off — `maybeRegister` returns early,
   never auto-registers over it; picking a distributor clears it) and
@@ -3413,6 +3425,8 @@ do-not-regress rules; dates mark when the lesson was learned.
   fallback) — a missing conf version ships the APK as versionCode 1 /
   versionName "1.0" (the v1.4.58 regression). Desktop builds and
   `release.yml` use Cargo.toml. Each release commit notes both.
+  Then hand-update `velta-app/README.md` "Current stable version" to match
+  (`tests/release-version-pins.test.mjs`, #200) — bump.mjs does not touch it.
   README/velta.cc download links are version-less and NOT bumped:
   `release.yml` also uploads stable-named copies `Velta-android-arm64.apk`,
   `Velta-macos-universal.dmg`, `Velta-windows-x64-setup.exe`, linked as

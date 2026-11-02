@@ -1407,7 +1407,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 
 - **In-app browser (Android)** — message links open without leaving Velta, through a three-step chain. (1) A Chrome Custom Tab using your real browser session: the tab is launched from the Activity context (launching from the application context crashed on a missing `FLAG_ACTIVITY_NEW_TASK` — modern androidx stopped adding it) and targets an explicit provider, chosen by your default browser first (since 1.4.14: if your default browser can host a Custom Tab it is used, so links no longer land in a non-default browser like Chrome Dev just because it sorts earlier; previously any visible `CustomTabsService` provider was picked by package order, with `CustomTabsClient.getPackageName` as backup) — a bare intent would resolve like `ACTION_VIEW`, so devices whose default browser has no Custom Tabs support (e.g. vivo.browser) opened a full browser task instead. (2) Devices with no provider at all get a native second-`WebView` overlay (`openWebView`, driven by the `open_webview_browser` command): a fullscreen in-app browser with a dark bar (host, open-external, close), BACK-driven history, JS + domStorage on, file/content access off and no bridges exposed. Being a top-level browsing context it is immune to X-Frame-Options, and plain-http sites render (cleartext permitted — see media notes). (3) Only old shells fall back to the JS iframe overlay. The overlay's sandboxed iframe cannot show sites that send X-Frame-Options / frame-ancestors (Chromium blocks with `net::ERR_BLOCKED_BY_RESPONSE`) — the bar's external-open button is the escape hatch. The Custom Tab class (`org.velta.InAppBrowser`) is cached as a JNI global ref at startup (`setApplicationContext` in `lib.rs`) because `find_class` for app classes is unreliable from Rust worker threads. The page title in the overlay is fetched separately by the shell (`fetch_page_title`, 5 s timeout, 256 KB cap).
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
-- Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
+- File logging to `velta.log` is **off by default**. Turn it on from Velta Diagnostics or About Velta (Copy log / Share of the last 512 KB). `boot:` heartbeats still write so a stuck splash has a trail. Use the status pill and browser/Tauri dev tools for everyday diagnosis.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
 - On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. Since 1.4.50 a persisted 15-minute scheduled fetch also wakes the core when the OS freezes the backgrounded process (up to that cadence, deliveries wait for the next app open or a push wake-up; installing a UnifiedPush distributor restores instant delivery).
 
@@ -1472,8 +1472,10 @@ lock settings for the whole app, not per profile:
   also the phone's screen-lock PIN, pattern or password, so phones without
   enrolled biometrics can use it. It can be combined with the Velta PIN.
   The lock overlay keeps **Unlock with biometrics** on screen. **Use PIN**
-  appears only at cold start, when the page behind is the real PIN gate.
-  After auto-lock the core is already running, so that button is hidden.
+  is offered on both lock screens when the Velta PIN is on: at cold start
+  it opens the real PIN gate; after auto-lock it checks the PIN in place
+  (the core is already running) and never dismisses the overlay without
+  a match.
 - **Lock when hidden** — off / 1 / 5 / 15 minutes.
 
 The screen also shows volume encryption (Android file-based encryption;
@@ -1553,7 +1555,11 @@ by value with their integration notes — lives in
 │       ├── tauri.android.conf.json
 │       ├── gen/android/        # generated Android project
 │       └── src/
-│           ├── lib.rs          # sidecar + Android in-process core glue
+│           ├── lib.rs          # Tauri commands + Android in-process core
+│           ├── sidecar.rs      # Windows/macOS rpc-server spawn + JSON-RPC routing
+│           ├── push.rs         # UnifiedPush JNI (endpoint, wakeup, status)
+│           ├── db_key.rs       # VELTA_DB_KEY install_env + DEK
+│           ├── log.rs          # bounded logger; default off; boot: always writes
 │           ├── p2p.rs          # local chat engine (iroh QUIC pairing + 1:1 chat)
 │           ├── proxy.rs        # saved SOCKS5 proxies + shared proxy_url keeper
 │           ├── bin/p2p-hub.rs  # headless terminal hub (debug helper)

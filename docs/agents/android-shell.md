@@ -307,17 +307,20 @@ background checks"), radio picker of all `UnifiedPush.getDistributors`
 (app labels) + Off, relay push support (relay-push.js cache), last push
 time, and a "Get a push app (ntfy)" link when none is installed. JS:
 `app/js/push-settings.js`; shell: `push_status`/`push_select`/`push_off`
-(lib.rs) → `UnifiedPushBridge.kt`; explicit Off persisted in prefs
+(push.rs) → `UnifiedPushBridge.kt` (`status()` includes registration
+ok|failed|none + registrationError, #204); explicit Off persisted in prefs
 `velta_push/opted_out` and honoured by `UnifiedPushService.maybeRegister`.
-See AGENTS.md §9.4.
+VAPID public key is `BuildConfig.VAPID_KEY` from Gradle `veltaVapidKey` /
+`VELTA_VAPID_KEY` (#203). See AGENTS.md §9.4.
 
 ## Lock overlay (VeltaLock)
 
 `showLock(activity, allowPinFallback)` paints the dark lock overlay.
 **Unlock with biometrics** stays on screen and retries: `reAuth` when the
 core is running, `requestUnlock` (DEK unwrap) when it is keyless. **Use
-PIN** is visible only at cold start (`allowPinFallback && pinOn`) — the
-WebView behind is the real PIN gate. Auto-lock never shows it; that
-button only calls `hideLock()` and would open the unlocked app. Pinned by
-`tests/android-lock-screen-design.test.mjs` and
+PIN** is offered on both screens when the Velta PIN is on. Cold start
+(`allowPinFallback && pinOn`): the WebView behind is the real PIN gate.
+Auto-lock verifies in place via `VeltaCore.verifyAppLockPin` (no DEK
+handover; shared backoff with the cold-start wrap) and never
+`hideLock()`s. Pinned by `tests/android-lock-screen-design.test.mjs` and
 `tests/privacy-security.test.mjs`.

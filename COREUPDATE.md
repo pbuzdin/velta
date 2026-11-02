@@ -215,7 +215,7 @@ exactly one waiter; response survives a client-side timeout) are load-bearing
       the drawer footer also self-corrects at runtime via `get_system_info`.
 - [ ] Clean working tree; note the app version you will release with.
 - [ ] Baseline on the OLD core, so failures later are attributable:
-      core tests under nextest in WSL (§4) and `node --test tests/` (both
+      core tests under nextest in WSL (§4) and `node --test tests/**/*.test.mjs` (both
       must pass before you start; don't chase pre-existing failures
       mid-upgrade).
 
@@ -225,7 +225,7 @@ exactly one waiter; response survives a client-side timeout) are load-bearing
 wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/core && \
   cargo nextest run --workspace --locked"   # core tests, process-per-test
 cd core && scripts/clippy.sh && scripts/deny.sh   # CI quality gates
-node --test tests/                   # frontend contract suites (repo root)
+node --test tests/**/*.test.mjs      # frontend contract suites (repo root; Node 24 cannot scan tests/)
 ```
 
 `deny.sh` needs `cargo-deny`, which is not installed in the WSL distro

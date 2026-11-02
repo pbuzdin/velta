@@ -316,7 +316,7 @@ if Velta ever adds calls/P2P WebRTC on top of `p2p.js` local chat.
    are invisible today. Add a test to the frontend suites mirroring
    `rpc-event-poll.test.mjs` style: event → single coalesced refresh.
 3. **Mock core parity** — update `mock-core.js` in the same commit so
-   `node --test tests/` exercises the new transport shape; the mock is the
+   `node --test tests/**/*.test.mjs` exercises the new transport shape; the mock is the
    contract twin that keeps the frontend suites meaningful across upgrades.
 
 ### 4.3 Standalone Velta optimizations (no core dependency)

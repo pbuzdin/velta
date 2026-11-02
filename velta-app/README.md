@@ -4,8 +4,23 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.4.90` (copied from `src-tauri/tauri.conf.json`)  
+**Current stable version:** `1.5.0` (copied from `src-tauri/tauri.conf.json`)  
 **Bundled core:** `deltachat-core-rust 2.66.0` (copied from `../core/Cargo.toml`)
+
+## What's new in 1.5
+
+- **SOCKS5 proxy** replaces the archived DNS tunnel: save and switch
+  proxies, share them as `velta://proxy` links / QR / chat cards.
+- **Native attachments encrypted at rest** (VLTA). Profile databases were
+  already encrypted on Android in 1.4.89.
+- **Pause a relay** without deleting it; **Add relays automatically** is
+  opt-in (default off).
+- **App-lock PIN** also unlocks the auto-lock screen (in-place verify,
+  shared backoff with the cold-start gate).
+- **File logging off by default.** About Velta and Velta Diagnostics have
+  the on/off switch plus Copy log / Share. `boot:` heartbeats still write.
+- **Push notifications** in Settings show when UnifiedPush registration
+  failed, with the distributor's reason.
 
 ## What's new in 1.4.x
 
