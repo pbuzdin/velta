@@ -2407,9 +2407,11 @@ fn call_audio_stop() -> Result<(), String> {
     Err("call audio routing is only on Android".into())
 }
 
-/// #140: UnifiedPush state for Settings → Push notifications, as the JSON
-/// string UnifiedPushBridge.status builds (distributors with app labels,
-/// saved distributor, explicit Off, last push / endpoint time in ms).
+/// #140/#204: UnifiedPush state for Settings → Push notifications, as the
+/// JSON string UnifiedPushBridge.status builds (distributors with app labels,
+/// saved distributor, explicit Off, last push / endpoint time in ms,
+/// registration ok|failed|none + registrationError). The settings UI reads
+/// only this object.
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn push_status() -> Result<String, String> {

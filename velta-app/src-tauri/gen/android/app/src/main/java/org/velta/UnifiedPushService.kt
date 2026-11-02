@@ -38,7 +38,9 @@ class UnifiedPushService : PushService() {
         // UnifiedPush client); the core treats the token as opaque and
         // registers it with the relay itself (core push.rs / imap.rs).
         UnifiedPushBridge.prefs(this).edit()
-            .putLong(UnifiedPushBridge.KEY_LAST_ENDPOINT, System.currentTimeMillis()).apply()
+            .putLong(UnifiedPushBridge.KEY_LAST_ENDPOINT, System.currentTimeMillis())
+            .putString(UnifiedPushBridge.KEY_REG_FAILED, "")
+            .apply()
         val token = "webpush:${endpoint.url}|${key.pubKey}|${key.auth}"
         VeltaCore.ensureStarted(this)
         try {
@@ -66,6 +68,9 @@ class UnifiedPushService : PushService() {
 
     override fun onRegistrationFailed(reason: FailedReason, instance: String) {
         Log.w(TAG, "UnifiedPush registration failed: ${reason.name}")
+        UnifiedPushBridge.prefs(this).edit()
+            .putString(UnifiedPushBridge.KEY_REG_FAILED, reason.name)
+            .apply()
     }
 
     override fun onUnregistered(instance: String) {

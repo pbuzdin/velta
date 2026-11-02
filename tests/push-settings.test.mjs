@@ -8,10 +8,22 @@ const ntfy = { pkg: "io.heckel.ntfy", label: "ntfy" };
 const np = { pkg: "org.unifiedpush.nextpush", label: "NextPush" };
 
 test("parsePushStatus tolerates junk", () => {
-  assert.deepEqual(parsePushStatus("not json"), { distributors: [], saved: "", savedLabel: "", optedOut: false, lastPush: 0 });
+  assert.deepEqual(parsePushStatus("not json"), { distributors: [], saved: "", savedLabel: "", optedOut: false, lastPush: 0, registration: "none", registrationError: "" });
   const s = parsePushStatus(JSON.stringify({ distributors: [ntfy, { pkg: "" }, null], saved: "io.heckel.ntfy", optedOut: true, lastPush: 5 }));
   assert.equal(s.distributors.length, 1);
   assert.equal(s.lastPush, 5);
+  assert.equal(s.registration, "none");
+  assert.equal(s.registrationError, "");
+});
+
+test("parsePushStatus reads registration fields; unknown values default", () => {
+  const ok = parsePushStatus({ registration: "ok", registrationError: "" });
+  assert.equal(ok.registration, "ok");
+  const failed = parsePushStatus({ registration: "failed", registrationError: "NETWORK" });
+  assert.equal(failed.registration, "failed");
+  assert.equal(failed.registrationError, "NETWORK");
+  assert.equal(parsePushStatus({ registration: "weird" }).registration, "none");
+  assert.equal(parsePushStatus({ registrationError: 9 }).registrationError, "");
 });
 
 test("state line + selection", () => {
@@ -51,6 +63,24 @@ test("last push line", () => {
   assert.match(describeLastPush(Date.now()), /^Last push: /);
 });
 
+test("failed registration is the headline, last push stays secondary", () => {
+  const s = parsePushStatus({
+    distributors: [ntfy],
+    saved: ntfy.pkg,
+    lastPush: Date.now(),
+    registration: "failed",
+    registrationError: "NETWORK",
+  });
+  assert.equal(describePushState(s), "Registration failed: NETWORK");
+  assert.doesNotMatch(describePushState(s), /Last push/);
+  assert.doesNotMatch(describePushState(s), /^Using /);
+  const html = pushBodyHtml(s);
+  assert.match(html, /data-push-state[^>]*>Registration failed: NETWORK/);
+  assert.match(html, /data-push-last[^>]*>Last push:/);
+  const bare = parsePushStatus({ distributors: [ntfy], saved: ntfy.pkg, registration: "failed" });
+  assert.equal(describePushState(bare), "Registration failed");
+});
+
 test("drawer section is a native <details>, Android-only, wired in app.js; shell commands exist", () => {
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
   assert.match(ui, /const androidApp = IS_ANDROID && inTauri/);
@@ -62,4 +92,19 @@ test("drawer section is a native <details>, Android-only, wired in app.js; shell
   const svc = readFileSync(new URL("../velta-app/src-tauri/gen/android/app/src/main/java/org/velta/UnifiedPushService.kt", import.meta.url), "utf8");
   assert.match(svc, /UnifiedPushBridge\.optedOut\(context\)/);
   assert.match(svc, /KEY_LAST_PUSH/);
+  assert.match(svc, /KEY_REG_FAILED/);
+  const newEndpoint = svc.slice(svc.indexOf("override fun onNewEndpoint"), svc.indexOf("override fun onMessage"));
+  assert.match(newEndpoint, /KEY_REG_FAILED/);
+  const failed = svc.slice(svc.indexOf("override fun onRegistrationFailed"), svc.indexOf("override fun onUnregistered"));
+  assert.match(failed, /reason\.name/);
+  assert.match(failed, /KEY_REG_FAILED/);
+  const bridge = readFileSync(new URL("../velta-app/src-tauri/gen/android/app/src/main/java/org/velta/UnifiedPushBridge.kt", import.meta.url), "utf8");
+  assert.match(bridge, /KEY_REG_FAILED/);
+  assert.match(bridge, /"registration"/);
+  assert.match(bridge, /"registrationError"/);
+  const select = bridge.slice(bridge.indexOf("fun select("), bridge.indexOf("fun off("));
+  assert.match(select, /KEY_REG_FAILED/);
+  const js = readFileSync(new URL("../app/js/push-settings.js", import.meta.url), "utf8");
+  assert.match(js, /invoke\("push_status"\)/);
+  assert.doesNotMatch(js, /invoke\("push_(?:opted_out|last_push|reg_failed)"\)/);
 });

@@ -1126,6 +1126,8 @@
   "No other paired devices. Pair with a device first (Local chat → Add contact).": "Aucun autre appareil associé. Associez d'abord un appareil (Discussion locale → Ajouter un contact).",
   "Couldn't add: {why}": "Impossible d'ajouter : {why}",
   "No push app installed — using periodic background checks": "Aucune appli push installée — vérifications périodiques en arrière-plan",
+  "Registration failed": "Échec de l'enregistrement",
+  "Registration failed: {reason}": "Échec de l'enregistrement : {reason}",
   "Using {app}": "Via {app}",
   "Off — using periodic background checks": "Désactivé — vérifications périodiques en arrière-plan",
   "Off — pick a push app below": "Désactivé — choisissez une appli push ci-dessous",
