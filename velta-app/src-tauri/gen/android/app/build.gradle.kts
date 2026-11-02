@@ -80,6 +80,12 @@ dependencies {
     // #178 phase 4: BiometricPrompt for the app lock (VeltaLock.kt).
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
+    // #198: biometric 1.1.0 can drag fragment < 1.3 (lintVital
+    // InvalidFragmentVersionForActivityResult). Pin fragment-ktx 1.8.x.
+    // ActivityResult launchers on this FragmentActivity throw "lower 16 bits
+    // for requestCode" — use a process-wide singleton or a dedicated plain
+    // Activity. Re-apply after `cargo tauri android init`.
+    implementation("androidx.fragment:fragment-ktx:1.8.6")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     // UnifiedPush connector: registration + push-event plumbing with the
     // user-selected distributor app (no Play Services involved).
