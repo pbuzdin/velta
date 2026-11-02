@@ -4292,6 +4292,10 @@ fn start_core_rpc_watchdog(
             if late >= std::time::Duration::from_millis(1500) {
                 log(&format!("core runtime stalled: watchdog tick {} ms late", late.as_millis()));
             }
+            // Core patch #22: slow SQL pool waits / connection holds (>= 2 s).
+            for line in deltachat::velta_take_slow_sql_log() {
+                log(&format!("core {line}"));
+            }
             if last_report.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_secs(10)) {
                 continue;
             }

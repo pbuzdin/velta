@@ -2275,6 +2275,257 @@ pub struct JsonrpcTransportServerMetadata {
         where="replace",
         text="    // Empty = unset.\n    t.set_ui_config(super::VELTA_SEND_TRANSPORT_KEY, Some(\"\"))\n        .await?;\n    assert_eq!(super::velta_pinned_transport(t).await?, None);\n    Ok(())\n}\n\n// Velta patch (#24, #189): pausing a transport hides it from the send\n// order and voids the pin; the roundtrip is case-insensitive and unknown\n// addresses are stored but stay inert.\n#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\nasync fn test_velta_transport_enabled() -> Result<()> {\n    let t = TestContext::new().await;\n    transport::add_pseudo_transport(&t, \"foo@example.net\").await?;\n    transport::add_pseudo_transport(&t, \"bar@example.net\").await?;\n    transport::add_pseudo_transport(&t, \"baz@example.net\").await?;\n\n    // Nothing paused initially.\n    assert!(\n        crate::transport::velta_disabled_transports(&t)\n            .await?\n            .is_empty()\n    );\n    let addrs = |v: Vec<(u32, crate::transport::ConfiguredLoginParam)>| {\n        v.into_iter()\n            .map(|(_, lp)| lp.addr.to_lowercase())\n            .collect::<Vec<_>>()\n    };\n    let before = addrs(super::sorted_transports(&t).await?);\n    assert_eq!(before.len(), 3);\n\n    // Pause one: it drops out of the send order, case-insensitively.\n    crate::transport::velta_set_transport_enabled(&t, \"Bar@Example.net\", false).await?;\n    assert!(\n        crate::transport::velta_disabled_transports(&t)\n            .await?\n            .contains(&\"bar@example.net\".to_string())\n    );\n    let after = addrs(super::sorted_transports(&t).await?);\n    assert_eq!(after, vec![\"foo@example.net\", \"baz@example.net\"]);\n\n    // A pin on a paused transport is ignored.\n    t.set_ui_config(super::VELTA_SEND_TRANSPORT_KEY, Some(\"bar@example.net\"))\n        .await?;\n    assert_eq!(super::velta_pinned_transport(&t).await?, None);\n\n    // Clear the pin before re-checking the order: it still names bar.\n    t.set_ui_config(super::VELTA_SEND_TRANSPORT_KEY, Some(\"\"))\n        .await?;\n\n    // Resume: the transport is back. Unpausing an unknown address is a\n    // no-op that must not error.\n    crate::transport::velta_set_transport_enabled(&t, \"bar@example.net\", true).await?;\n    assert_eq!(addrs(super::sorted_transports(&t).await?), before);\n    crate::transport::velta_set_transport_enabled(&t, \"gone@example.net\", true).await?;\n    assert!(\n        crate::transport::velta_disabled_transports(&t)\n            .await?\n            .is_empty()\n    );\n    Ok(())\n}\n",
     ),
+
+    # ---- VENDORISSUES #22: config cache lock held across SQL awaits ----
+    # Sql::set_raw_config held config_cache.write() across its INSERT, and a
+    # cache miss in get_raw_config held it across the SELECT. Both wait for a
+    # pool connection / the write permit; while a long SQL holder (receive,
+    # housekeeping, a heavy chatlist query on a big encrypted db) keeps them
+    # waiting, the queued writer on the fair RwLock blocks EVERY config read
+    # -- and nearly every RPC reads config (get_config, chatlist items,
+    # get_chat): the whole app froze ("rpc timeout: get_config") until the
+    # SQL holder finished. A separate config_mtx now serializes setters and
+    # cache fills; the cache lock is only taken for the in-memory get/insert.
+    # Plus slow-SQL diagnostics: Sql::call records pool waits and connection
+    # holds >= 2 s, drained into velta.log by the Android shell.
+    dict(
+        id="#22 config_mtx field (sql.rs)",
+        file="core/src/sql.rs",
+        applied="Velta #22: serializes config setters",
+        anchor="    /// Cache of `config` table.\n    pub(crate) config_cache: RwLock<HashMap<String, Option<String>>>,\n}\n",
+        where="replace",
+        text="    /// Cache of `config` table.\n    pub(crate) config_cache: RwLock<HashMap<String, Option<String>>>,\n\n    /// Velta #22: serializes config setters and cache fills, so the cache\n    /// lock itself is never held across an SQL await.\n    config_mtx: tokio::sync::Mutex<()>,\n}\n",
+    ),
+    dict(
+        id="#22 config_mtx init (sql.rs)",
+        file="core/src/sql.rs",
+        applied="            config_mtx: Default::default(),\n",
+        anchor="            is_encrypted: Default::default(),\n            config_cache: Default::default(),\n        }\n",
+        where="replace",
+        text="            is_encrypted: Default::default(),\n            config_cache: Default::default(),\n            config_mtx: Default::default(),\n        }\n",
+    ),
+    dict(
+        id="#22 set/get_raw_config without the cache lock across SQL (sql.rs)",
+        file="core/src/sql.rs",
+        applied="Velta #22: never hold config_cache across SQL",
+        anchor="""    pub async fn set_raw_config(&self, key: &str, value: Option<&str>) -> Result<()> {
+        let mut lock = self.config_cache.write().await;
+        if let Some(value) = value {
+            self.execute(
+                "INSERT OR REPLACE INTO config (keyname, value) VALUES (?, ?)",
+                (key, value),
+            )
+            .await?;
+        } else {
+            self.execute("DELETE FROM config WHERE keyname=?", (key,))
+                .await?;
+        }
+        lock.insert(key.to_string(), value.map(|s| s.to_string()));
+        drop(lock);
+
+        Ok(())
+    }
+
+    /// Get configuration options from the database.
+    pub async fn get_raw_config(&self, key: &str) -> Result<Option<String>> {
+        let lock = self.config_cache.read().await;
+        let cached = lock.get(key).cloned();
+        drop(lock);
+
+        if let Some(c) = cached {
+            return Ok(c);
+        }
+
+        let mut lock = self.config_cache.write().await;
+        let value = self
+            .query_get_value("SELECT value FROM config WHERE keyname=?", (key,))
+            .await
+            .context(format!("failed to fetch raw config: {key}"))?;
+        lock.insert(key.to_string(), value.clone());
+        drop(lock);
+
+        Ok(value)
+    }
+""",
+        where="replace",
+        text="""    pub async fn set_raw_config(&self, key: &str, value: Option<&str>) -> Result<()> {
+        // Velta #22: never hold config_cache across SQL. Setters and cache
+        // fills serialize on config_mtx instead; the cache lock is only held
+        // for the in-memory insert, so cached reads never wait for SQL.
+        let _guard = self.config_mtx.lock().await;
+        if let Some(value) = value {
+            self.execute(
+                "INSERT OR REPLACE INTO config (keyname, value) VALUES (?, ?)",
+                (key, value),
+            )
+            .await?;
+        } else {
+            self.execute("DELETE FROM config WHERE keyname=?", (key,))
+                .await?;
+        }
+        self.config_cache
+            .write()
+            .await
+            .insert(key.to_string(), value.map(|s| s.to_string()));
+
+        Ok(())
+    }
+
+    /// Get configuration options from the database.
+    pub async fn get_raw_config(&self, key: &str) -> Result<Option<String>> {
+        if let Some(c) = self.config_cache.read().await.get(key).cloned() {
+            return Ok(c);
+        }
+
+        // Velta #22: see set_raw_config. Re-check under config_mtx: a setter
+        // may have filled the key meanwhile.
+        let _guard = self.config_mtx.lock().await;
+        if let Some(c) = self.config_cache.read().await.get(key).cloned() {
+            return Ok(c);
+        }
+        let value = self
+            .query_get_value("SELECT value FROM config WHERE keyname=?", (key,))
+            .await
+            .context(format!("failed to fetch raw config: {key}"))?;
+        self.config_cache
+            .write()
+            .await
+            .insert(key.to_string(), value.clone());
+
+        Ok(value)
+    }
+""",
+    ),
+    dict(
+        id="#22 slow SQL diagnostics in Sql::call (sql.rs)",
+        file="core/src/sql.rs",
+        applied="Velta #22 diagnostics: slow pool waits / connection holds.",
+        anchor="""        let lock = self.pool.read().await;
+        let pool = lock.as_ref().context("no SQL connection")?;
+        let mut conn = pool.get(query_only).await?;
+        let res = tokio::task::block_in_place(move || function(&mut conn))?;
+        Ok(res)
+    }
+""",
+        where="replace",
+        text="""        let lock = self.pool.read().await;
+        let pool = lock.as_ref().context("no SQL connection")?;
+        // Velta #22 diagnostics: slow pool waits / connection holds.
+        let waited = std::time::Instant::now();
+        let mut conn = pool.get(query_only).await?;
+        let wait_ms = waited.elapsed().as_millis();
+        let held = std::time::Instant::now();
+        let res = tokio::task::block_in_place(move || function(&mut conn));
+        note_slow_sql(query_only, wait_ms, held.elapsed().as_millis());
+        Ok(res?)
+    }
+""",
+    ),
+    dict(
+        id="#22 slow SQL log + take_slow_sql_log (sql.rs)",
+        file="core/src/sql.rs",
+        applied="Velta #22 diagnostics: recent slow SQL calls",
+        anchor="    /// Allocates a connection and calls `function` with the connection.\n",
+        where="before",
+        text="""    /// Velta #22 diagnostics: recent slow SQL calls (oldest first), drained
+    /// by the embedding app into its log.
+    pub fn take_slow_sql_log() -> Vec<String> {
+        std::mem::take(&mut *SLOW_SQL.lock())
+    }
+
+""",
+    ),
+    dict(
+        id="#22 SLOW_SQL static (sql.rs)",
+        file="core/src/sql.rs",
+        applied="Velta #22 diagnostics: slow SQL calls since the last drain",
+        anchor="impl Sql {\n    /// Creates new SQL database.\n",
+        where="before",
+        text="""/// Velta #22 diagnostics: slow SQL calls since the last drain (bounded).
+static SLOW_SQL: parking_lot::Mutex<Vec<String>> = parking_lot::Mutex::new(Vec::new());
+
+/// Velta #22 diagnostics: records a pool wait or connection hold >= 2 s.
+fn note_slow_sql(query_only: bool, wait_ms: u128, hold_ms: u128) {
+    if wait_ms < 2000 && hold_ms < 2000 {
+        return;
+    }
+    let kind = if query_only { "read" } else { "write" };
+    let mut log = SLOW_SQL.lock();
+    if log.len() < 64 {
+        log.push(format!(
+            "slow sql: {kind} connection waited {wait_ms} ms, held {hold_ms} ms"
+        ));
+    }
+}
+
+""",
+    ),
+    dict(
+        id="#22 behavioral test: cached config reads never wait for SQL (sql_tests.rs)",
+        file="core/src/sql/sql_tests.rs",
+        applied="test_velta_config_read_not_blocked_by_sql_holder",
+        anchor="#[test]\nfn test_maybe_add_file() {\n",
+        where="before",
+        text="""/// Velta #22: a long SQL holder plus a queued set_config must not block
+/// cached config reads (they used to wait on the config cache lock the
+/// setter held across its INSERT: every RPC froze).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_velta_config_read_not_blocked_by_sql_holder() -> Result<()> {
+    let t = TestContext::new_alice().await;
+    t.sql.set_raw_config("velta_probe", Some("1")).await?;
+    // Hold the write connection for 3 s.
+    let holder = {
+        let ctx = t.ctx.clone();
+        tokio::spawn(async move {
+            ctx.sql
+                .call_write(|_conn| {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    Ok(())
+                })
+                .await
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let setter = {
+        let ctx = t.ctx.clone();
+        tokio::spawn(async move { ctx.sql.set_raw_config("velta_other", Some("2")).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let started = std::time::Instant::now();
+    let v = t.sql.get_raw_config("velta_probe").await?;
+    let took = started.elapsed();
+    assert_eq!(v.as_deref(), Some("1"));
+    assert!(
+        took < std::time::Duration::from_millis(500),
+        "cached config read waited {took:?}"
+    );
+    holder.await??;
+    setter.await??;
+    assert_eq!(
+        t.sql.get_raw_config("velta_other").await?.as_deref(),
+        Some("2")
+    );
+    let slow = Sql::take_slow_sql_log();
+    assert!(
+        slow.iter()
+            .any(|l| l.starts_with("slow sql: write connection")),
+        "{slow:?}"
+    );
+    Ok(())
+}
+
+""",
+    ),
+
+    dict(
+        id="#22 public drain for slow SQL diagnostics (lib.rs)",
+        file="core/src/lib.rs",
+        applied="Velta #22 diagnostics: drain slow SQL records",
+        anchor="pub mod headerdef;\n",
+        where="before",
+        text="/// Velta #22 diagnostics: drain slow SQL records (`sql` is private).\npub fn velta_take_slow_sql_log() -> Vec<String> {\n    sql::Sql::take_slow_sql_log()\n}\n\n",
+    ),
+
 ]
 
 

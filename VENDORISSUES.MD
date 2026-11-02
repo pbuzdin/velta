@@ -655,3 +655,19 @@ SMTP connect loop; the inbox loops and `background_fetch_any` skip them at
 on a paused relay is voided. RPCs `set_transport_enabled(addr, enabled)` and
 `list_transport_states()` (typed `VeltaTransportState`). Upstream will not take this
 (auto-philosophy, chatmail/core#8857).
+
+### 22. Config cache lock held across SQL awaits (core/src/sql.rs)
+
+**Tracker: pbuzdin/velta#229. Status: patched locally (quilt ops "#22 …").**
+`Sql::set_raw_config` held `config_cache.write()` across its INSERT, and a
+cache miss in `get_raw_config` held it across the SELECT. With a long SQL
+holder (receive, housekeeping, a heavy query on a big encrypted db) any
+`set_config` kept the lock, and the fair RwLock then queued every cached
+config read behind it. Nearly every RPC reads config, so the whole app froze
+(`rpc timeout: get_config`, chat switching). A separate `config_mtx` now
+serializes setters and cache fills; the cache lock only guards the in-memory
+map. Guard test `test_velta_config_read_not_blocked_by_sql_holder`
+(unpatched: a cached read waited 2.6 s behind a 3 s holder). Diagnostics:
+`Sql::call` records pool waits / connection holds >= 2 s
+(`velta_take_slow_sql_log`), which the Android shell logs as `core slow sql: …`.
+

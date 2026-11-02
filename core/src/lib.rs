@@ -49,6 +49,11 @@ pub mod sql;
 #[macro_use]
 mod sql;
 
+/// Velta #22 diagnostics: drain slow SQL records (`sql` is private).
+pub fn velta_take_slow_sql_log() -> Vec<String> {
+    sql::Sql::take_slow_sql_log()
+}
+
 pub mod headerdef;
 
 pub(crate) mod events;

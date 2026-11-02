@@ -62,6 +62,27 @@ pub struct Sql {
 
     /// Cache of `config` table.
     pub(crate) config_cache: RwLock<HashMap<String, Option<String>>>,
+
+    /// Velta #22: serializes config setters and cache fills, so the cache
+    /// lock itself is never held across an SQL await.
+    config_mtx: tokio::sync::Mutex<()>,
+}
+
+/// Velta #22 diagnostics: slow SQL calls since the last drain (bounded).
+static SLOW_SQL: parking_lot::Mutex<Vec<String>> = parking_lot::Mutex::new(Vec::new());
+
+/// Velta #22 diagnostics: records a pool wait or connection hold >= 2 s.
+fn note_slow_sql(query_only: bool, wait_ms: u128, hold_ms: u128) {
+    if wait_ms < 2000 && hold_ms < 2000 {
+        return;
+    }
+    let kind = if query_only { "read" } else { "write" };
+    let mut log = SLOW_SQL.lock();
+    if log.len() < 64 {
+        log.push(format!(
+            "slow sql: {kind} connection waited {wait_ms} ms, held {hold_ms} ms"
+        ));
+    }
 }
 
 impl Sql {
@@ -72,6 +93,7 @@ impl Sql {
             pool: Default::default(),
             is_encrypted: Default::default(),
             config_cache: Default::default(),
+            config_mtx: Default::default(),
         }
     }
 
@@ -293,6 +315,12 @@ impl Sql {
         Ok(())
     }
 
+    /// Velta #22 diagnostics: recent slow SQL calls (oldest first), drained
+    /// by the embedding app into its log.
+    pub fn take_slow_sql_log() -> Vec<String> {
+        std::mem::take(&mut *SLOW_SQL.lock())
+    }
+
     /// Allocates a connection and calls `function` with the connection.
     ///
     /// If `query_only` is true, allocates read-only connection,
@@ -306,9 +334,14 @@ impl Sql {
     {
         let lock = self.pool.read().await;
         let pool = lock.as_ref().context("no SQL connection")?;
+        // Velta #22 diagnostics: slow pool waits / connection holds.
+        let waited = std::time::Instant::now();
         let mut conn = pool.get(query_only).await?;
-        let res = tokio::task::block_in_place(move || function(&mut conn))?;
-        Ok(res)
+        let wait_ms = waited.elapsed().as_millis();
+        let held = std::time::Instant::now();
+        let res = tokio::task::block_in_place(move || function(&mut conn));
+        note_slow_sql(query_only, wait_ms, held.elapsed().as_millis());
+        Ok(res?)
     }
 
     /// Allocates a connection and calls given function, assuming it does write queries, with the
@@ -565,7 +598,10 @@ impl Sql {
     /// Setting `None` deletes the value.  On failure an error message
     /// will already have been logged.
     pub async fn set_raw_config(&self, key: &str, value: Option<&str>) -> Result<()> {
-        let mut lock = self.config_cache.write().await;
+        // Velta #22: never hold config_cache across SQL. Setters and cache
+        // fills serialize on config_mtx instead; the cache lock is only held
+        // for the in-memory insert, so cached reads never wait for SQL.
+        let _guard = self.config_mtx.lock().await;
         if let Some(value) = value {
             self.execute(
                 "INSERT OR REPLACE INTO config (keyname, value) VALUES (?, ?)",
@@ -576,29 +612,34 @@ impl Sql {
             self.execute("DELETE FROM config WHERE keyname=?", (key,))
                 .await?;
         }
-        lock.insert(key.to_string(), value.map(|s| s.to_string()));
-        drop(lock);
+        self.config_cache
+            .write()
+            .await
+            .insert(key.to_string(), value.map(|s| s.to_string()));
 
         Ok(())
     }
 
     /// Get configuration options from the database.
     pub async fn get_raw_config(&self, key: &str) -> Result<Option<String>> {
-        let lock = self.config_cache.read().await;
-        let cached = lock.get(key).cloned();
-        drop(lock);
-
-        if let Some(c) = cached {
+        if let Some(c) = self.config_cache.read().await.get(key).cloned() {
             return Ok(c);
         }
 
-        let mut lock = self.config_cache.write().await;
+        // Velta #22: see set_raw_config. Re-check under config_mtx: a setter
+        // may have filled the key meanwhile.
+        let _guard = self.config_mtx.lock().await;
+        if let Some(c) = self.config_cache.read().await.get(key).cloned() {
+            return Ok(c);
+        }
         let value = self
             .query_get_value("SELECT value FROM config WHERE keyname=?", (key,))
             .await
             .context(format!("failed to fetch raw config: {key}"))?;
-        lock.insert(key.to_string(), value.clone());
-        drop(lock);
+        self.config_cache
+            .write()
+            .await
+            .insert(key.to_string(), value.clone());
 
         Ok(value)
     }
