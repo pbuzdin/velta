@@ -152,7 +152,7 @@ never run Gradle on the Windows side.
 - Relays: `list_transports` → Vec<EnteredLoginParam> (sending transport
   first, quilt #11), `get_server_metadata` → map addr→metadata (quilt #15),
   `delete_transport(addr)`. ⚠️ `set_transport_enabled` does NOT exist yet
-  (proposed quilt #23, issue #189).
+  (quilt #24, issue #189).
 - Push: **`velta_set_push_device_token` is a SHIM-ONLY RPC** —
   `Accounts::set_push_device_token` is not on the JSON-RPC surface; the
   shim intercepts it before yerpc dispatch (desktop sidecar rejects it).

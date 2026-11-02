@@ -1288,6 +1288,19 @@ export class JsonRpcCore extends EventTarget {
     } catch { /* best effort: an unknown pin is ignored by the core */ }
   }
 
+  // "Disable / Enable relay" (Velta patch #24, issue #189): pause a relay
+  // without deleting it — sends exclude it immediately, fetch skips it at
+  // the next IO start. The paused list is a per-device ui.velta.* key.
+  async setTransportEnabled(addr, enabled) {
+    return this._call("set_transport_enabled", this.accountId, addr, enabled);
+  }
+
+  // Per-relay paused state. Old cores (pre-#24) lack the RPC — callers
+  // feature-detect and treat a missing method as "all enabled".
+  async listTransportStates() {
+    return this._call("list_transport_states", this.accountId);
+  }
+
   // The address Velta shows as "sending": the pin when it names a configured
   // transport, else configured_addr (cores before #8711), else the first
   // transport. `validate` checks the pin against list_transports (one more

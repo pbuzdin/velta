@@ -322,7 +322,12 @@ impl SchedulerState {
 
         let stop_token = CancellationToken::new();
         let mut set = JoinSet::new();
+        // Velta patch (#24, #189): paused transports are not fetched.
+        let velta_disabled = crate::transport::velta_disabled_transports(context).await?;
         for (transport_id, param) in ConfiguredLoginParam::load_all(context).await? {
+            if velta_disabled.contains(&param.addr.to_lowercase()) {
+                continue;
+            }
             let context = context.clone();
             let stop_token = stop_token.clone();
             set.spawn(async move {
@@ -745,7 +750,13 @@ impl Scheduler {
 
         let mut inboxes = Vec::new();
 
+        // Velta patch (#24, #189): paused transports stay down; toggling
+        // takes effect at the next IO start. Sends exclude them immediately.
+        let velta_disabled = crate::transport::velta_disabled_transports(ctx).await?;
         for (transport_id, configured_login_param) in ConfiguredLoginParam::load_all(ctx).await? {
+            if velta_disabled.contains(&configured_login_param.addr.to_lowercase()) {
+                continue;
+            }
             let (conn_state, inbox_handlers) =
                 ImapConnectionState::new(ctx, transport_id, configured_login_param.clone()).await?;
             let handle = {

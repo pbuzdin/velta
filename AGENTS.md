@@ -265,7 +265,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (99 ops, 24 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (109 ops, 24 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -283,6 +283,7 @@ intent in VENDORISSUES.MD):
 | #18 | scheduler interrupts (`interrupt_inbox/smtp/ephemeral_task/location/recently_seen`, and since 1.4.90 `interrupt_inbox_idle` + `maybe_network_lost`) use `try_read()`: never wait behind an IO start/stop holding the scheduler lock (#176) | scheduler.rs |
 | #21 | `start_io_for_all_accounts` / `stop_io_for_all_accounts` clone the contexts under a short `accounts.read()` and start/stop with NO account manager lock (stops in parallel) (#181, 1.4.90). They held `accounts.write()` across `Scheduler::stop` (up to 30 s per IMAP/SMTP task), freezing every RPC (`get_context`): the 30 s chat-open timeouts, worst with a saved DNS tunnel. Test hook `VELTA_TEST_STOP_IO_DELAY_MS` (no-op unset) for `tests/core-stall/stop_io_stall.py` | deltachat-jsonrpc/src/api.rs, scheduler.rs |
 | #23 | Automatic relay onboarding is opt-in: `init_transports` defaults `Config::Autorelay` to **false** (upstream sets true), the Relays modal toggles it ("Add relays automatically" → generic `setConfig`), and a one-time per-account JS migration (`migrateAutorelayDefault`, marker `velta-autorelay-default` in localStorage) flips legacy profiles off. Velta's "Relays you pick" is the brand — upstream's auto-onboard adds transports from a candidate list silently (#relays) | configure.rs |
+| #24 | Per-relay enable/disable (#189): `ui.velta.disabled_transports` ui-key holds paused addrs (JSON); `velta_disabled_transports/set_transport_enabled/transport_states` in transport.rs; sends exclude paused relays (smtp connect loop), inbox loops + `background_fetch_any` skip them at load (toggle applies at next IO start); a pin on a paused relay is voided. RPCs `set_transport_enabled` + `list_transport_states` (`VeltaTransportState`). 10 ops | transport.rs, smtp.rs, scheduler.rs, deltachat-jsonrpc/src/api.rs + api/types/login_param.rs, smtp/smtp_tests.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)

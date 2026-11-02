@@ -6586,6 +6586,13 @@ async function openRelaysModal() {
       }
     } catch { /* best effort */ }
     if (!accountIsCurrent(epoch)) return;
+    // Velta #24 (#189): per-relay paused state. Old cores lack the RPC —
+    // then every relay renders enabled and the toggle stays hidden.
+    let stateByAddr = new Map();
+    try {
+      for (const s of (await core.listTransportStates?.()) || []) stateByAddr.set(s.addr, s.enabled);
+    } catch { /* old core */ }
+    if (!accountIsCurrent(epoch)) return;
     // Per-relay capabilities (VENDORISSUES #15): calls/TURN, iroh, push —
     // as the relays themselves advertise over IMAP METADATA. Old cores lack
     // the RPC; the flags then stay silver ("not known yet").
@@ -6602,6 +6609,8 @@ async function openRelaysModal() {
     for (const tr of transports) {
       const row = document.createElement("div");
       const primary = state.account && tr.addr === state.account.addr;
+      // Velta #24 (#189): paused relay — dimmed card, off chip, toggle.
+      const relayOn = stateByAddr.get(tr.addr) !== false;
       const other = transports.find(x => x.addr !== tr.addr);
       const st = statusByDomain?.get((tr.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${escapeHtml(st.state === "down" ? t("unreachable — messages queue until it's back") : t("connecting…"))}</span>`;
@@ -6620,14 +6629,16 @@ async function openRelaysModal() {
         : isVia && failedOver
           ? ` <span class="relay-sending">${escapeHtml(t("· sending (failover)"))}</span>`
           : "";
+      const offMark = relayOn ? "" : ` <span class="relay-off-chip">${escapeHtml(t("off"))}</span>`;
       row.className = "relay-card";
+      if (!relayOn) row.classList.add("relay-off");
       row.innerHTML = `
         <div class="relay-line">
-          <span class="relay-addr">${escapeHtml(tr.addr)}${sendMark}${hint}</span>
+          <span class="relay-addr">${escapeHtml(tr.addr)}${sendMark}${offMark}${hint}</span>
           <span class="relay-flags">${relayFlagsHtml(tr.addr, metaByAddr?.[tr.addr] || null)}</span>
         </div>
         ${relayDetailsHtml(metaByAddr?.[tr.addr] || null, st?.quota)}
-        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>${escapeHtml(t("Use for sending"))}</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">${escapeHtml(t("Remove"))}</button></div>`;
+        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>${escapeHtml(t("Use for sending"))}</button>`}${core.setTransportEnabled ? `<button type="button" class="btn-text" data-toggle>${escapeHtml(relayOn ? t("Disable") : t("Enable"))}</button>` : ""}<button type="button" class="btn-text" data-remove style="color:var(--danger)">${escapeHtml(t("Remove"))}</button></div>`;
       // W flag: probe the relay's C3 endpoints (probeC3Relay). In the Tauri
       // shells the probe runs in Rust without a browser Origin (relays gate
       // browser origins); in the PWA it is the browser's own WebSocket, i.e.
@@ -6695,7 +6706,26 @@ async function openRelaysModal() {
         }
         refresh();
       });
+      // Velta #24 (#189): pause/resume. Sends exclude a paused relay
+      // immediately; fetch skips it at the next IO start.
+      row.querySelector("[data-toggle]")?.addEventListener("click", async () => {
+        try {
+          await core.setTransportEnabled(tr.addr, !relayOn);
+          toast(relayOn
+            ? t("Relay paused — it stops sending and fetching (fetch stops at the next reconnect)")
+            : t("Relay resumed"));
+        } catch (err) {
+          toast(String(err?.message || err));
+        }
+        refresh();
+      });
       listEl.appendChild(row);
+    }
+    if (transports.length && transports.every(tr => stateByAddr.get(tr.addr) === false)) {
+      const off = document.createElement("div");
+      off.className = "p2p-hint"; off.style.color = "var(--danger)";
+      off.textContent = t("All relays are paused — the profile is offline until one is enabled.");
+      listEl.appendChild(off);
     }
   };
   // Live refresh when the core reports a transport change (local or synced

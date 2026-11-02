@@ -322,7 +322,7 @@ MediaAndroid.kt/MediaDesktop.kt).
 
 **Slice 2 not included (deliberate):** per-relay enable/disable toggle —
 `set_transport_enabled` does not exist in the core yet (proposed quilt
-patch #23, issue #189). The W flag (C3 websocket probe) is browser/Tauri
+patch #24, issue #189). The W flag (C3 websocket probe) is browser/Tauri
 specific and skipped.
 
 **Next slices (planned):** account switcher, QR-camera scanning on mobile,

@@ -92,6 +92,13 @@ pub(crate) async fn velta_pinned_transport(context: &Context) -> Result<Option<u
     else {
         return Ok(None);
     };
+    // Velta patch (#24, #189): a paused transport is never pinned.
+    if crate::transport::velta_disabled_transports(context)
+        .await?
+        .contains(&addr)
+    {
+        return Ok(None);
+    }
     context
         .sql
         .query_get_value("SELECT id FROM transports WHERE addr=?", (addr,))
@@ -176,6 +183,10 @@ fn velta_pin_first(
 #[cfg(test)]
 async fn sorted_transports(context: &Context) -> Result<Vec<(u32, ConfiguredLoginParam)>> {
     let mut transports = upstream_sorted_transports(context).await?;
+    // Velta patch (#24, #189): paused transports are excluded, so tests
+    // exercise the send order the production path uses.
+    let velta_disabled = crate::transport::velta_disabled_transports(context).await?;
+    transports.retain(|(_, lp)| !velta_disabled.contains(&lp.addr.to_lowercase()));
     let pin = velta_pinned_transport(context).await?;
     velta_pin_first(&mut transports, pin, &Default::default());
     Ok(transports)
@@ -307,6 +318,11 @@ impl Smtp {
         let proxy_config = ProxyConfig::load(context).await?;
         // Velta patch (#11): pinned transport first unless backing off.
         let mut transports = upstream_sorted_transports(context).await?;
+        // Velta patch (#24, #189): paused transports never send. If every
+        // transport is paused, sending fails — the profile is offline by
+        // choice.
+        let velta_disabled = crate::transport::velta_disabled_transports(context).await?;
+        transports.retain(|(_, lp)| !velta_disabled.contains(&lp.addr.to_lowercase()));
         velta_pin_first(&mut transports, velta_pin, &self.velta_connect_failed);
         for (transport_id, lp) in transports {
             info!(context, "Trying to connect to transport {transport_id}.");

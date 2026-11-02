@@ -41,6 +41,7 @@ use tokio::fs;
 use tokio::sync::{Mutex, RwLock, watch};
 use types::login_param::EnteredLoginParam;
 use types::login_param::JsonrpcTransportServerMetadata;
+use types::login_param::VeltaTransportState; // Velta #24 (#189)
 use yerpc::rpc;
 
 pub mod types;
@@ -606,6 +607,33 @@ impl CommandApi {
             .map(|t| t.into())
             .collect();
         Ok(res)
+    }
+
+    /// Velta #24 (#189): pause or resume a transport. A paused transport
+    /// keeps its address and stored mail but sends nothing and is not
+    /// fetched at the next IO start. Fully reversible.
+    async fn set_transport_enabled(
+        &self,
+        account_id: u32,
+        addr: String,
+        enabled: bool,
+    ) -> Result<()> {
+        let ctx = self.get_context(account_id).await?;
+        deltachat::transport::velta_set_transport_enabled(&ctx, &addr, enabled).await
+    }
+
+    /// Velta #24 (#189): the paused state per transport address, in
+    /// list_transports order.
+    async fn list_transport_states(
+        &self,
+        account_id: u32,
+    ) -> Result<Vec<VeltaTransportState>> {
+        let ctx = self.get_context(account_id).await?;
+        Ok(deltachat::transport::velta_transport_states(&ctx)
+            .await?
+            .into_iter()
+            .map(|(addr, enabled)| VeltaTransportState { addr, enabled })
+            .collect())
     }
 
     /// Returns relay capabilities per transport address, as advertised by the
