@@ -1832,7 +1832,7 @@ export class JsonRpcCore extends EventTarget {
   // RFC 724 Message-ID and IMAP server locations. Not on the message object.
   async getMessageInfo(msgId) {
     const { accountId } = this;
-    const info = await this._call("get_message_info_object", this.accountId, msgId);
+    const info = await this._call("get_message_info_object", accountId, msgId);
     return {
       rfc724Mid: info?.rfc724Mid || "",
       serverUrls: Array.isArray(info?.serverUrls) ? info.serverUrls : [],
@@ -2182,7 +2182,7 @@ export class JsonRpcCore extends EventTarget {
   }
 
   async renameContact(contactId, name) {
-    await this._call("change_contact_name", accountId, contactId, name);
+    await this._call("change_contact_name", this.accountId, contactId, name);
   }
 
   async blockContact(contactId, blocked) {
