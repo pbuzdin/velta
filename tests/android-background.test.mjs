@@ -64,7 +64,7 @@ test("cold start: one core, shared with Tauri setup; no AppHandle needed", () =>
   assert.doesNotMatch(init, /AppHandle|app_handle/);
   assert.equal((lib.match(/Accounts::new\(/g) || []).length, 1, "one place creates Accounts");
   // A headless core starts IO itself; with the page in the process the page does.
-  assert.match(lib, /if !ACTIVITY_LAUNCHED\.load[\s\S]{0,400}start_io\(\)/);
+  assert.match(lib, /if !ACTIVITY_LAUNCHED\.load[\s\S]{0,1000}start_io\(\)/);
   assert.match(rs("scheduled.rs"), /android_core_tx\(/);
 });
 

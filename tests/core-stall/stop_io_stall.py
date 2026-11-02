@@ -191,6 +191,31 @@ def main(binary):
     _, stop_took = stop(timeout=180)
     print(f"stop_io_for_all_accounts took {stop_took:.1f}s")
     restart(timeout=180)
+
+    # Android resume cancels work started while hidden before refreshing chats.
+    # Exercise the real core API: a blackhole fetch must end on cancellation,
+    # and the first foreground read must not queue behind it (#185).
+    fetch = rpc.call_async("background_fetch", 60.0)
+    time.sleep(1)
+    try:
+        fetch(timeout=0)
+        rpc.close()
+        print("INCONCLUSIVE: background_fetch finished before cancellation")
+        return 2
+    except TimeoutError:
+        pass
+    cancel_started = time.monotonic()
+    rpc.call("stop_background_fetch", timeout=5)
+    fetch(timeout=5)
+    cancel_took = time.monotonic() - cancel_started
+    print(f"background_fetch cancellation took {cancel_took * 1000:.0f} ms")
+    if cancel_took >= READ_LIMIT_S:
+        failures.append(f"background_fetch cancellation took {cancel_took:.1f}s")
+    read = rpc.call_async("get_basic_chat_info", acc, chat)
+    _, read_took = read(timeout=5)
+    print(f"post-cancel chat read took {read_took * 1000:.0f} ms")
+    if read_took >= READ_LIMIT_S:
+        failures.append(f"post-cancel chat read took {read_took:.1f}s")
     rpc.close()
     if failures:
         print("FAIL:", "; ".join(failures))

@@ -2887,8 +2887,9 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
   kept the poller asleep while the page's parked poll held IncomingMsg until
   the next open. The page does not post its own Android
   notification — that second card doubled once the WebView kept running
-  after Home. `onStart` calls
-  `maybe_network` and emits `velta-foreground` so the page refetches.
+  after Home. `onStart` cancels any push/job `background_fetch` still running
+  from the hidden interval, then calls `maybe_network` and emits
+  `velta-foreground` so the page refetches without queueing behind that fetch.
   `CoreService` holds the default-network callback and NO wake lock (a
   permanent PARTIAL_WAKE_LOCK kept the CPU up all day; the IDLE socket wakes
   the CPU on incoming data, as in upstream's KeepAliveService).
@@ -3012,8 +3013,10 @@ talks to Google.
   `dataDir/notify-prefs.json`, refuses when background connection is off,
   then `ensure_android_core` creates THE single core (`ANDROID_CORE`
   OnceLock: RpcState + runtime) and, when no MainActivity ran in this
-  process (`ACTIVITY_LAUNCHED`), starts IO for all accounts itself. Tauri
-  setup calls the same `ensure_android_core`, so the UI reuses a core a
+  process (`ACTIVITY_LAUNCHED`), starts IO for all accounts itself. Like
+  jsonrpc patch #21, it clones the contexts under a short read lock and starts
+  them after releasing it, so an activity opening meanwhile can answer RPCs.
+  Tauri setup calls the same `ensure_android_core`, so the UI reuses a core a
   service already started (`app.manage(state.clone())`, `APP_HANDLE` set);
   nothing in the core path needs an AppHandle any more (emits go through
   `ui_app()`/`Host::emit`, tunnel/ws state through `crate::Host`). Push and
