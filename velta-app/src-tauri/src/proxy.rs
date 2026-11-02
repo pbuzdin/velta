@@ -225,6 +225,7 @@ mod imp {
     /// The WebSocket transport's proxy: stored here and written by the same
     /// keeper (a selected SOCKS5 proxy wins; normally the two are never on
     /// at once).
+    #[cfg(any(target_os = "android", windows))]
     pub fn set_ws_proxy(url: Option<String>) {
         *WS_PROXY_URL.lock().unwrap() = url;
         tauri::async_runtime::spawn(async {
@@ -235,11 +236,13 @@ mod imp {
     }
 
     /// A SOCKS5 proxy is selected in the saved list.
+    #[cfg(any(target_os = "android", windows))]
     pub fn socks_proxy_active(app: &crate::Host) -> bool {
         store::active_id(&load_store(app)).is_some()
     }
 
     /// The WebSocket transport is being turned on: deselect the proxy.
+    #[cfg(any(target_os = "android", windows))]
     pub fn deactivate_for_ws(app: &crate::Host) {
         if socks_proxy_active(app) {
             let _ = select(app, None);
@@ -376,7 +379,11 @@ mod imp {
     }
 }
 
-pub use imp::{boot, deactivate_for_ws, set_ws_proxy, socks_proxy_active};
+pub use imp::boot;
+// The WS transport's app module is the only consumer (android + windows);
+// macOS denies dead code, so these stay off that target.
+#[cfg(any(target_os = "android", windows))]
+pub use imp::{deactivate_for_ws, set_ws_proxy, socks_proxy_active};
 
 /// Points every profile at the selected proxy now (boot: before IO starts).
 /// Only the Android headless core calls this; the desktops reapply via the
