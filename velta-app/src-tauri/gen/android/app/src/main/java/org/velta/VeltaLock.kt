@@ -1,7 +1,7 @@
 package org.velta
 
 import android.content.Context
-import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -427,61 +428,61 @@ object VeltaLock {
         cipher.init(Cipher.DECRYPT_MODE, kek, GCMParameterSpec(128, blob.copyOfRange(1, 13)))
         prompt(activity, cipher, activity.getString(R.string.biometric_unlock_title)) { ok, c ->
             if (!ok || c == null) {
-                // Cancelled or errored: leave a way back to the prompt
-                // instead of a dead-end lock screen.
-                showRetry(activity)
+                // Cancelled or errored: the persistent Unlock action stays
+                // on the overlay so the user can retry without a dead end.
                 return@prompt
             }
             val dek = try {
                 c.doFinal(blob, 13, blob.size - 13)
             } catch (e: Exception) {
                 Log.e(TAG, "auth wrap decrypt failed", e)
-                showRetry(activity)
                 return@prompt
             }
             VeltaCore.startWithDek(hex(dek))
-            if (VeltaCore.running()) hideLock() else showRetry(activity)
+            if (VeltaCore.running()) hideLock()
         }
     }
 
     /** Auto-lock re-entry: a plain (no-crypto) confirmation prompt. */
     private fun reAuth(activity: FragmentActivity) {
         prompt(activity, null, activity.getString(R.string.biometric_unlock_title)) { ok, _ ->
-            if (ok) hideLock() else showRetry(activity)
-        }
-    }
-
-    private fun showRetry(activity: FragmentActivity) {
-        (lockOverlay as? ViewGroup)?.let { root ->
-            root.findViewWithTag<Button>("velta-retry")?.visibility = View.VISIBLE
+            if (ok) hideLock()
         }
     }
 
     private fun showLock(activity: FragmentActivity, allowPinFallback: Boolean) {
         if (lockOverlay != null) return
+        val density = activity.resources.displayMetrics.density
+        val dp = { value: Int -> (value * density).toInt() }
         val root = FrameLayout(activity).apply {
             tag = "velta-lock-overlay"
-            setBackgroundColor(Color.parseColor("#10131a"))
+            setBackgroundColor(ContextCompat.getColor(activity, R.color.velta_bg))
             isClickable = true
             isFocusable = true
         }
         val box = android.widget.LinearLayout(activity).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            setPadding(dp(24), dp(24), dp(24), dp(24))
         }
+        val logo = ImageView(activity).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            contentDescription = null
+        }
+        box.addView(logo, android.widget.LinearLayout.LayoutParams(dp(56), dp(56)).apply {
+            bottomMargin = dp(16)
+        })
         val title = TextView(activity).apply {
             text = activity.getString(R.string.biometric_unlock_title)
-            setTextColor(Color.WHITE)
-            textSize = 18f
+            setTextColor(ContextCompat.getColor(activity, R.color.velta_text))
+            setTypeface(typeface, Typeface.BOLD)
+            textSize = 22f
             gravity = Gravity.CENTER
-            setPadding(48, 0, 48, 32)
+            setPadding(0, 0, 0, dp(32))
         }
-        val retry = Button(activity).apply {
-            tag = "velta-retry"
-            text = activity.getString(R.string.biometric_retry)
-            visibility = View.GONE
+        val unlock = Button(activity).apply {
+            text = activity.getString(R.string.biometric_unlock_action)
             setOnClickListener {
-                it.visibility = View.GONE
                 if (VeltaLock.on(activity) && lockOverlay != null) {
                     // Core keyless: unwrap the DEK again (cold start). Core
                     // running: the screen gate only needs a fresh auth prompt.
@@ -499,23 +500,26 @@ object VeltaLock {
             visibility = if (allowPinFallback && VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
             setOnClickListener { hideLock() }
         }
-        box.addView(title)
-        // Retry + Use PIN share one row as equal columns (weight 1 each);
-        // a GONE one leaves the other the full width. Labels wrap, never cut.
-        val row = android.widget.LinearLayout(activity).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            setPadding(48, 0, 48, 0)
-        }
-        val gap = (8 * activity.resources.displayMetrics.density).toInt()
-        for ((i, b) in listOf(retry, usePin).withIndex()) {
+        for (b in listOf(unlock, usePin)) {
             b.isAllCaps = false
             b.maxLines = 3
-            row.addView(b, android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (i > 0) marginStart = gap
-            })
+            b.minHeight = dp(48)
+            b.textSize = 15f
+            b.setTypeface(b.typeface, Typeface.BOLD)
+            b.setPadding(dp(22), 0, dp(22), 0)
         }
-        box.addView(row, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        root.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        unlock.setTextColor(ContextCompat.getColor(activity, R.color.velta_on_accent))
+        unlock.setBackgroundResource(R.drawable.velta_primary_button)
+        usePin.setTextColor(ContextCompat.getColor(activity, R.color.velta_text))
+        usePin.setBackgroundResource(R.drawable.velta_secondary_button)
+        box.addView(title)
+        box.addView(unlock, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        box.addView(usePin, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(12) })
+        val boxWidth = minOf(activity.resources.displayMetrics.widthPixels, dp(360))
+        root.addView(box, FrameLayout.LayoutParams(boxWidth, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         activity.runOnUiThread {
             (activity.window.decorView as? ViewGroup)?.addView(
                 root,

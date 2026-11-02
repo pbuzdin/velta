@@ -67,9 +67,9 @@ test("Android lock: no PIN shortcut over the unlocked app (auto-lock bypass)", (
   assert.match(lock, /showLock\(activity, allowPinFallback = !VeltaCore\.running\(\)\)/);
   assert.match(lock, /showLock\(activity, allowPinFallback = false\)/);
   assert.match(lock, /if \(allowPinFallback && VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
-  // A cancelled/failed prompt must leave a way back (Retry), and Retry must
-  // match the lock kind: re-auth over the running core, DEK unwrap when keyless.
-  assert.match(lock, /if \(ok\) hideLock\(\) else showRetry\(activity\)/);
+  // A cancelled/failed prompt leaves the persistent Unlock action; that
+  // button re-auths over the running core and unwraps the DEK when keyless.
+  assert.match(lock, /if \(ok\) hideLock\(\)/);
   assert.match(lock, /if \(VeltaCore\.running\(\)\) reAuth\(activity\) else requestUnlock\(activity\)/);
 });
 

@@ -7,4 +7,12 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Native-shell counterparts of the dark tokens in app/css/main.css. -->
+    <color name="velta_bg">#FF0F0F14</color>
+    <color name="velta_text">#FFF2F2F5</color>
+    <color name="velta_accent">#FF5AA2E6</color>
+    <color name="velta_on_accent">#FF10131A</color>
+    <color name="velta_on_accent_ripple">#3310131A</color>
+    <color name="velta_bg_elev">#FF1C1C26</color>
+    <color name="velta_text_ripple">#33F2F2F5</color>
 </resources>
