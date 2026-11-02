@@ -1,13 +1,12 @@
-use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "android"))]
 use std::sync::Arc;
 use std::sync::Mutex;
 
 #[cfg(not(target_os = "android"))]
-use std::io::{BufRead, BufReader};
-#[cfg(not(target_os = "android"))]
-use std::process::{ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
+#[cfg(windows)]
+use std::process::Command;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -23,6 +22,7 @@ mod proxy;
 mod ws_transport;
 mod log;
 mod sidecar;
+mod push;
 pub use crate::log::{log, set_log_dir, set_mirror_log_dir};
 use crate::log::{log_dir, redact_chat_link};
 
@@ -120,7 +120,7 @@ pub fn maybe_extract_deeplink(arg: &str) -> Option<String> {
     None
 }
 
-fn set_sidecar_status(app: &tauri::AppHandle, status: serde_json::Value) {
+pub(crate) fn set_sidecar_status(app: &tauri::AppHandle, status: serde_json::Value) {
     *SIDECAR_STATUS.lock().unwrap() = Some(status.clone());
     app.emit("velta-sidecar-status", status).ok();
 }
@@ -197,132 +197,6 @@ async fn probe_db_lock(app: tauri::AppHandle) {
 }
 
 // ---- App lock: PIN + auto-lock (#178 phase 4, desktop) --------------------
-
-/// The live sidecar process, so a lock/unlock can respawn it (the key rides
-/// the process env, so re-keying means a new process).
-#[cfg(not(target_os = "android"))]
-static SIDECAR_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
-
-/// Spawn (or respawn) the rpc-server sidecar with `key` as its env. The
-/// reader/wait threads ride each spawn; the managed RpcState only has its
-/// stdin swapped on a respawn. `first` runs the one-time proxy
-/// boots. `probe_db_lock` is the caller's job.
-#[cfg(not(target_os = "android"))]
-fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
-    set_attachment_db_key(key.as_deref());
-    if let Some(mut child) = SIDECAR_CHILD.lock().unwrap().take() {
-        log("stopping the previous sidecar");
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    let accounts = accounts_dir(app);
-    let Some(sidecar_path) = find_sidecar(app) else {
-        log("sidecar not found; continuing with mock/remote transports available to frontend");
-        set_sidecar_status(app, serde_json::json!({"running": false, "stage": "missing", "error": "sidecar not found"}));
-        return;
-    };
-    log(&format!("starting sidecar at {}", sidecar_path.display()));
-    set_sidecar_status(app, serde_json::json!({"running": true, "stage": "starting"}));
-
-    let stderr_file = log_dir().join("sidecar-stderr.log");
-    let stderr = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&stderr_file)
-        .map(Stdio::from)
-        .unwrap_or_else(|e| {
-            log(&format!("could not open sidecar stderr log: {e}; sending stderr to null"));
-            Stdio::null()
-        });
-
-    let mut cmd = Command::new(&sidecar_path);
-    if let Some(raw) = &key {
-        cmd.env("VELTA_DB_KEY", raw);
-    }
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    match cmd
-        .current_dir(&accounts)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(stderr)
-        .spawn()
-    {
-        Ok(mut child) => {
-            let stdin = child.stdin.take().unwrap();
-            let stdout = child.stdout.take().unwrap();
-            *SIDECAR_CHILD.lock().unwrap() = Some(child);
-            match app.try_state::<RpcState>() {
-                Some(st) => {
-                    *st.stdin.lock().unwrap() = Some(stdin);
-                }
-                None => {
-                    app.manage(RpcState {
-                        wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                        bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                        web_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                        stdin: Arc::new(Mutex::new(Some(stdin))),
-                    });
-                }
-            }
-            log("boot: sidecar spawned");
-            log("boot: rpc session ready");
-            set_sidecar_status(app, serde_json::json!({"running": true, "stage": "ready"}));
-            if first {
-                // Re-apply the selected SOCKS5 proxy before the page can start IO.
-                proxy::boot(&Host::from_app(app));
-                ws_transport::boot(&Host::from_app(app));
-                log("boot: transports booted");
-            }
-
-            let app_handle = app.clone();
-            std::thread::spawn(move || {
-                log("sidecar reader thread started");
-                let reader = BufReader::new(stdout);
-                for line in reader.lines() {
-                    match line {
-                        Ok(line) => {
-                            // NOTE: do not log every line -- it's the
-                            // hot path. Route on the typed envelope id
-                            // (#201); malformed JSON is still emitted.
-                            match sidecar::route_sidecar_line(&line) {
-                                sidecar::Route::Webxdc => {
-                                    webxdc_resolve_line(&app_handle, &line);
-                                }
-                                sidecar::Route::Web => {
-                                    if !resolve_web_line(&app_handle, &line) {
-                                        app_handle.emit("velta-rpc", line).ok();
-                                    }
-                                }
-                                sidecar::Route::Emit => {
-                                    app_handle.emit("velta-rpc", line).ok();
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            log(&format!("sidecar stdout error: {e}"));
-                        }
-                    }
-                }
-                log("sidecar reader thread ended");
-                set_sidecar_status(&app_handle, serde_json::json!({"running": false, "stage": "stopped"}));
-            });
-
-            if let Some(mut child) = SIDECAR_CHILD.lock().unwrap().take() {
-                std::thread::spawn(move || {
-                    match child.wait() {
-                        Ok(status) => log(&format!("sidecar exited with {status}")),
-                        Err(e) => log(&format!("sidecar wait error: {e}"))
-                    }
-                });
-            }
-        }
-        Err(e) => {
-            log(&format!("failed to start sidecar: {e}"));
-            set_sidecar_status(app, serde_json::json!({"running": false, "stage": "error", "error": e.to_string()}));
-        }
-    }
-}
 
 /// #178 phase 5 (decision §2.5 A): what the OS tells us about disk
 /// encryption on the volume holding the app data — blobs stay plaintext by
@@ -480,7 +354,7 @@ async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), Strin
             .map_err(|e| e.to_string())??
     };
     log("boot: db key applied");
-    spawn_sidecar(&app, Some(raw), false);
+    sidecar::spawn_sidecar(&app, Some(raw), false);
     *DB_LOCK_STATUS.lock().unwrap() = None;
     probe_db_lock(app.clone()).await;
     app.emit("velta-db-unlocked", ()).ok();
@@ -510,7 +384,7 @@ async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(parent) = accounts_dir(&app).parent() {
         let _ = std::fs::remove_dir_all(parent.join("thumbs"));
     }
-    spawn_sidecar(&app, None, false);
+    sidecar::spawn_sidecar(&app, None, false);
     app.emit("velta-db-locked", serde_json::json!({ "mode": "pin" })).ok();
     Ok(())
     }
@@ -1081,7 +955,7 @@ mod db_key;
 
 static ATTACHMENT_KEY: Mutex<Option<velta_attachment::AttachmentKey>> = Mutex::new(None);
 
-fn set_attachment_db_key(raw: Option<&str>) {
+pub(crate) fn set_attachment_db_key(raw: Option<&str>) {
     let key = raw.and_then(|raw| match velta_attachment::AttachmentKey::from_db_key(raw) {
         Ok(key) => key,
         Err(err) => {
@@ -2281,66 +2155,6 @@ fn call_audio_stop() -> Result<(), String> {
     Err("call audio routing is only on Android".into())
 }
 
-/// #140/#204: UnifiedPush state for Settings → Push notifications, as the
-/// JSON string UnifiedPushBridge.status builds (distributors with app labels,
-/// saved distributor, explicit Off, last push / endpoint time in ms,
-/// registration ok|failed|none + registrationError). The settings UI reads
-/// only this object.
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn push_status() -> Result<String, String> {
-    with_android_class(&APP_UNIFIEDPUSH_CLASS, "UnifiedPushBridge", |env, context, class_ref| {
-        let out = env
-            .call_static_method(class_ref, "status", "(Landroid/content/Context;)Ljava/lang/String;", &[(&context).into()])
-            .map_err(|e| e.to_string())?;
-        let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
-        let s = env.get_string(&jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
-        Ok(s)
-    })
-}
-
-/// #140: use this distributor now (saveDistributor + register).
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn push_select(package: String) -> Result<(), String> {
-    with_android_class(&APP_UNIFIEDPUSH_CLASS, "UnifiedPushBridge", |env, context, class_ref| {
-        let jpkg = env.new_string(&package).map_err(|e| e.to_string())?;
-        env.call_static_method(class_ref, "select", "(Landroid/content/Context;Ljava/lang/String;)V", &[(&context).into(), (&jpkg).into()])
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    })
-}
-
-/// #140: explicit Off (unregister + removeDistributor, persisted so the
-/// start-up auto-register does not override it).
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn push_off() -> Result<(), String> {
-    with_android_class(&APP_UNIFIEDPUSH_CLASS, "UnifiedPushBridge", |env, context, class_ref| {
-        env.call_static_method(class_ref, "off", "(Landroid/content/Context;)V", &[(&context).into()])
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    })
-}
-
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-fn push_status() -> Result<String, String> {
-    Err("push settings are only on Android".into())
-}
-
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-fn push_select(package: String) -> Result<(), String> {
-    let _ = package;
-    Err("push settings are only on Android".into())
-}
-
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-fn push_off() -> Result<(), String> {
-    Err("push settings are only on Android".into())
-}
 
 /// #37: system share sheet for a plain-text payload (the QR screen's "Share a
 /// link"), via Share.kt. Desktop/Windows use the page's Web Share API instead.
@@ -2645,7 +2459,7 @@ fn with_android_env<R>(
 /// with_android_env plus one of the Kotlin helper classes cached at startup
 /// (setApplicationContext); `name` only feeds the not-cached error.
 #[cfg(target_os = "android")]
-fn with_android_class<R>(
+pub(crate) fn with_android_class<R>(
     class: &Mutex<Option<jni::objects::GlobalRef>>,
     name: &str,
     f: impl FnOnce(&mut jni::JNIEnv<'_>, &jni::objects::JObject<'_>, &jni::objects::GlobalRef) -> Result<R, String>,
@@ -2694,7 +2508,7 @@ static APP_SHARE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None
 // org.velta.UnifiedPushBridge — #140 Settings → Push notifications
 // (distributor list/picker, explicit Off, last push time).
 #[cfg(target_os = "android")]
-static APP_UNIFIEDPUSH_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+pub(crate) static APP_UNIFIEDPUSH_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
 // org.velta.ScheduledAlarm — scheduled messages: alarm re-arm + exact-alarm
 // permission (scheduled.rs).
@@ -2729,14 +2543,12 @@ static APP_CORE_SERVICE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::n
 // applied at the end of that function. The app handle gives the push
 // wake-up access to managed state.
 #[cfg(target_os = "android")]
-static ANDROID_ACCOUNTS: Mutex<Option<std::sync::Arc<tokio::sync::RwLock<deltachat_jsonrpc::api::Accounts>>>>
+pub(crate) static ANDROID_ACCOUNTS: Mutex<Option<std::sync::Arc<tokio::sync::RwLock<deltachat_jsonrpc::api::Accounts>>>>
     = Mutex::new(None);
-#[cfg(target_os = "android")]
-static PENDING_PUSH_TOKEN: Mutex<Option<String>> = Mutex::new(None);
 #[cfg(target_os = "android")]
 static ANDROID_RPC_TX: Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>> = Mutex::new(None);
 #[cfg(target_os = "android")]
-static APP_HANDLE: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);
+pub(crate) static APP_HANDLE: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);
 
 // Called from MainActivity.onCreate (Kotlin) with the application context.
 // Storing it lets Rust commands use the Android ContentResolver (e.g. for
@@ -2825,48 +2637,6 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     log("application context stored for Rust commands");
 }
 
-// --- UnifiedPush JNI callbacks (called from UnifiedPushService.kt) ---
-
-// onNewEndpoint: the serialized "webpush:<endpoint>|<pubkey>|<auth>" token.
-// Applied to the accounts manager immediately when the core is ready — the
-// core then registers it with the relay automatically (IMAP METADATA
-// /private/devicetoken, core push.rs + imap.rs register_token) — otherwise
-// parked in PENDING_PUSH_TOKEN and applied at the end of init_android_core.
-#[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "system" fn Java_org_velta_UnifiedPushService_pushEndpointReceived(
-    mut env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-    token: jni::objects::JString,
-) {
-    let Ok(jtoken) = env.get_string(&token) else { return };
-    let token: String = jtoken.to_string_lossy().into_owned();
-    PUSH_ENDPOINT_SET.store(true, std::sync::atomic::Ordering::SeqCst);
-    // Log the scheme only — the endpoint URL is a capability URL.
-    log(&format!(
-        "push endpoint received ({})",
-        token.split(':').next().unwrap_or("?")
-    ));
-    let accounts = ANDROID_ACCOUNTS.lock().unwrap().clone();
-    match accounts {
-        Some(accounts) => {
-            if let Err(e) = accounts.blocking_read().set_push_device_token(&token) {
-                log(&format!("push endpoint apply failed: {e}"));
-            } else {
-                log("push endpoint applied to the accounts manager");
-                log("boot: push registered");
-                if let Some(app) = APP_HANDLE.lock().unwrap().clone() {
-                    let _ = app.emit("velta-push", serde_json::json!({"stage": "endpoint"}));
-                }
-            }
-        }
-        None => {
-            *PENDING_PUSH_TOKEN.lock().unwrap() = Some(token);
-            log("push endpoint parked until the core is ready");
-        }
-    }
-}
-
 // Activity lifecycle. Home freezes the WebView without clearing
 // document.hidden, so the poller must key off this flag too. Coming back
 // interrupts a dead IDLE (opening the app is otherwise the only thing that
@@ -2933,13 +2703,6 @@ pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
 // Shared with BackgroundFetchJob (the scheduled-fetch fallback, #52 L3):
 // the job wakes the exact same path when no push distributor is installed
 // or the process was frozen between pushes.
-#[cfg(target_os = "android")]
-fn push_wakeup_impl() {
-    tauri::async_runtime::spawn(async move {
-        let _ = background_fetch_once().await;
-    });
-}
-
 /// Core-side bound of one background fetch (was 30 s).
 #[cfg(target_os = "android")]
 const BG_FETCH_TIMEOUT_SECS: f64 = 15.0;
@@ -2948,7 +2711,7 @@ const BG_FETCH_TIMEOUT_SECS: f64 = 15.0;
 /// reports the fetch finished (the JSON-RPC call resolves after
 /// AccountsBackgroundFetchDone), or Err when it could not run.
 #[cfg(target_os = "android")]
-async fn background_fetch_once() -> Result<(), String> {
+pub(crate) async fn background_fetch_once() -> Result<(), String> {
     // Drawer "Use background connection" OFF: the scheduled fetch and any
     // non-push wake are skipped entirely (push distributor wakes still
     // arrive but the gates below decide what they may post).
@@ -2992,28 +2755,6 @@ async fn background_fetch_once() -> Result<(), String> {
             Err(e)
         }
     }
-}
-
-#[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "system" fn Java_org_velta_UnifiedPushService_pushWakeup(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-) {
-    LAST_PUSH_SECS.store(unix_secs(), std::sync::atomic::Ordering::SeqCst);
-    push_wakeup_impl();
-}
-
-// onUnregistered (distributor removed, user picked Off): the reconnect
-// nudge is needed again.
-#[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "system" fn Java_org_velta_UnifiedPushService_pushUnregistered(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-) {
-    PUSH_ENDPOINT_SET.store(false, std::sync::atomic::Ordering::SeqCst);
-    LAST_PUSH_SECS.store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
 // Scheduled-fetch fallback (#52 L3): BackgroundFetchJob runs this on a
@@ -3588,7 +3329,7 @@ fn take_opened_urls() -> Vec<String> {
 }
 
 #[derive(Clone)]
-struct RpcState {
+pub(crate) struct RpcState {
     // webxdc asset serving does request/response round-trips from Rust-side
     // protocol handlers (the WebView cannot relay its own asset fetches).
     // Those requests use string ids prefixed "wxdc-" so the response
@@ -3623,6 +3364,26 @@ impl RpcState {
         {
             write_rpc_stdin(&self.stdin, request)
         }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub(crate) fn desktop(stdin: ChildStdin) -> Self {
+        Self {
+            wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            web_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            stdin: Arc::new(Mutex::new(Some(stdin))),
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub(crate) fn replace_stdin(&self, stdin: ChildStdin) {
+        *self.stdin.lock().unwrap() = Some(stdin);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub(crate) fn take_web_pending(&self, id: &str) -> Option<tokio::sync::oneshot::Sender<String>> {
+        self.web_pending.lock().unwrap().remove(id)
     }
 }
 
@@ -3760,52 +3521,7 @@ pub(crate) async fn sidecar_call(app: &tauri::AppHandle, method: &str, params: s
     Ok(v.get_mut("result").map(serde_json::Value::take).unwrap_or(serde_json::Value::Null))
 }
 
-// Resolve a parked WebView rpc response from a forwarder line (#49). Returns
-// true when the line completed a web_pending round-trip — the caller must
-// NOT emit it to the WebView in that case. Desktop only: the Android WebView
-// speaks through the VeltaBridge, not this command.
-#[cfg(not(target_os = "android"))]
-fn resolve_web_line(app: &tauri::AppHandle, line: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else { return false; };
-    let id = match value.get("id") {
-        Some(serde_json::Value::String(s)) => s.clone(),
-        Some(n) if n.is_number() => n.to_string(),
-        _ => return false,
-    };
-    let state = app.state::<RpcState>();
-    let sender = state.web_pending.lock().unwrap().remove(&id);
-    match sender {
-        Some(tx) => {
-            let _ = tx.send(line.to_string());
-            true
-        }
-        None => false,
-    }
-}
-
-// Windows ships the sidecar as a bundle resource; macOS as a Tauri
-// externalBin, which lands next to the main executable (Contents/MacOS)
-// with the target-triple suffix stripped.
-#[cfg(windows)]
-const SIDECAR_NAME: &str = "deltachat-rpc-server.exe";
-#[cfg(not(any(windows, target_os = "android")))]
-const SIDECAR_NAME: &str = "deltachat-rpc-server";
-
-#[cfg(not(target_os = "android"))]
-fn find_sidecar(app: &tauri::AppHandle) -> Option<PathBuf> {
-    use tauri::path::BaseDirectory;
-
-    let candidates = [
-        app.path().resolve(SIDECAR_NAME, BaseDirectory::Resource).ok(),
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join(SIDECAR_NAME))),
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("resources").join(SIDECAR_NAME))),
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("..").join("resources").join(SIDECAR_NAME))).map(|p| p.canonicalize().unwrap_or(p)),
-    ];
-
-    candidates.into_iter().flatten().find(|c| c.is_file())
-}
-
-fn accounts_dir(app: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn accounts_dir(app: &tauri::AppHandle) -> PathBuf {
     use tauri::path::BaseDirectory;
     app.path()
         .resolve("accounts", BaseDirectory::AppLocalData)
@@ -4374,7 +4090,7 @@ async fn init_android_core(
     // Take the token out of the mutex BEFORE awaiting — the if-let scrutinee
     // temporary (a non-Send MutexGuard) would otherwise be held across the
     // await and make this future non-Send.
-    let pending_token = PENDING_PUSH_TOKEN.lock().unwrap().take();
+    let pending_token = push::PENDING_PUSH_TOKEN.lock().unwrap().take();
     if let Some(token) = pending_token {
         if let Err(e) = accounts.read().await.set_push_device_token(&token) {
             log(&format!("parked push endpoint apply failed: {e}"));
@@ -4632,13 +4348,7 @@ fn spawn_core_rpc(method: &'static str, log_ok: bool) {
 // while UnifiedPush is delivering (bg_events::bg_kick_due). The poller does
 // not do this — it only reads events.
 #[cfg(target_os = "android")]
-static PUSH_ENDPOINT_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-// Unix seconds of the last push received in this process; 0 = none.
-#[cfg(target_os = "android")]
-static LAST_PUSH_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-#[cfg(target_os = "android")]
-fn unix_secs() -> u64 {
+pub(crate) fn unix_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
@@ -4646,11 +4356,11 @@ fn unix_secs() -> u64 {
 
 #[cfg(target_os = "android")]
 fn bg_kick_due_now() -> bool {
-    let last = LAST_PUSH_SECS.load(std::sync::atomic::Ordering::SeqCst);
+    let last = push::LAST_PUSH_SECS.load(std::sync::atomic::Ordering::SeqCst);
     let age = (last != 0).then(|| unix_secs().saturating_sub(last));
     bg_events::bg_kick_due(
         android_ui_visible(),
-        PUSH_ENDPOINT_SET.load(std::sync::atomic::Ordering::SeqCst),
+        push::PUSH_ENDPOINT_SET.load(std::sync::atomic::Ordering::SeqCst),
         age,
     )
 }
@@ -5272,7 +4982,7 @@ pub fn run() {
                 } else {
                     log("boot: db key keyless");
                 }
-                spawn_sidecar(&app_handle, db_key, true);
+                sidecar::spawn_sidecar(&app_handle, db_key, true);
                 // Once the sidecar answers, report accounts the key could not
                 // open (locked screen in the UI); probe keeps a PIN marker.
                 tauri::async_runtime::spawn(probe_db_lock(app_handle.clone()));
@@ -5310,7 +5020,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
