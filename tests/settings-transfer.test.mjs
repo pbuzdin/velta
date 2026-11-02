@@ -157,7 +157,11 @@ test("wiring: drawer button, Saved-Messages-only bubble action, confirm before a
   assert.match(APP, /onExportSettings: \(\) => exportSettingsToSaved\(\)/);
   // Self-chat: the chat list's "saved" item, else create_chat_by_contact_id(1).
   assert.match(APP, /c\.kind === "saved"[\s\S]{0,200}createChatByContactId\?\.\(1\)/);
-  assert.match(VIEW, /this\.chat\?\.kind === "saved" && m\.from === 1 && !m\.fwdFrom && !m\.originalMsgId\s*&& looksLikeSettings\(m\.text\) && parseSettings\(m\.text\)/);
+  assert.match(VIEW, /this\.chat\?\.kind === "saved" && m\.from === 1 && !m\.fwdFrom && !m\.originalMsgId\s*&& looksLikeSettings\(m\.text\)/);
+  assert.match(VIEW, /function looksLikeSettings\(/);
+  assert.doesNotMatch(VIEW, /from ["']\.\/settings-transfer\.js["']/);
+  assert.match(APP, /import\(["']\.\/settings-transfer\.js["']\)/);
+  assert.doesNotMatch(APP, /^\s*import\s+\{[^}]*\}\s*from\s+["']\.\/settings-transfer\.js["']/m);
   assert.match(APP, /if \(e\.detail\?\.chatKind !== "saved"\) return;/);
   // Apply only after the diff modal resolves true; settle before close.
   assert.match(APP, /if \(!\(await settingsDiffModal\(changes, parsed\)\)\) return;\s*const applied = applySettings\(localStorage, parsed\.values\);/);

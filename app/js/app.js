@@ -18,13 +18,12 @@ import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 import { initGroupCallUi } from "./group-call-ui.js";
 import { notePushDiagnostic, relaySupportsPush } from "./relay-push.js";
-import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
+import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState, VELTA_DEBUG, debugLog } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
-import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
+import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, notifyThrottled, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
 import { createNotifyQueue } from "./notify-queue.js";
-import { serializeSettings, parseSettings, diffSettings, applySettings, normalizeDownloadLimit } from "./settings-transfer.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -34,6 +33,35 @@ import { dontKillMyAppUrl, makerLabel, shouldAskBattery, rememberBatteryAnswer }
 // The PWA build precaches the whole dist and Tauri/Android serve app/ as is,
 // so the lazily imported files ship everywhere (tests/lazy-modules.test.mjs).
 const loadQrScan = () => import("./qr-scan.js");
+const loadSettingsTransfer = () => import("./settings-transfer.js");
+const loadWsRelaysModal = () => import("./ws-relays-modal.js");
+const loadScheduledUi = () => import("./scheduled-ui.js");
+const loadIdentityBackup = () => import("./identity-backup.js");
+const showWsRelaysModal = () => loadWsRelaysModal().then((m) => m.showWsRelaysModal());
+// Boot parse/eval marks stay cheap when debug is off; measures log only
+// with VELTA_DEBUG (localStorage velta-debug=1 or ?debug).
+function bootMark(name) {
+  try { performance.mark(name); } catch {}
+}
+function bootMeasure() {
+  if (!VELTA_DEBUG) return;
+  const log = (name) => {
+    const m = performance.getEntriesByName(name, "measure").at(-1);
+    if (m) debugLog(`${name} ${m.duration.toFixed(1)}ms`);
+  };
+  try {
+    performance.measure("velta-boot:to-imports", { start: 0, end: "velta-boot:imports" });
+    log("velta-boot:to-imports");
+  } catch {}
+  try {
+    performance.measure("velta-boot:imports-to-core", "velta-boot:imports", "velta-boot:core");
+    log("velta-boot:imports-to-core");
+  } catch {}
+  try {
+    performance.measure("velta-boot:core-to-ui", "velta-boot:core", "velta-boot:ui");
+    log("velta-boot:core-to-ui");
+  } catch {}
+}
 const acquireCode = async (opts) => (await loadQrScan()).acquireCode(opts);
 // Same handle as qr-scan.js mountScanner; calls made before the module
 // arrives are replayed (start) or cancel the mount (destroy).
@@ -60,16 +88,15 @@ import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPrevie
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
-import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
-import { pickSendTime, openScheduledList, maybeAskExactAlarm, formatDue } from "./scheduled-ui.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 
+bootMark("velta-boot:imports");
 applyDocumentLang();
 translateTree(document);
 
@@ -645,6 +672,7 @@ if (!core) {
   core = withLocalChat(new MockCore());
   core.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
 }
+bootMark("velta-boot:core");
 // Device-chat language card when the OS speaks ru/fr and the UI does not.
 import("./lang-cards.js").then(lc => lc.maybeAddLangCard(core)).catch(() => {});
 if (core?.transport?.readCoreFile) setWasmBlobReader((path) => core.transport.readCoreFile(path));
@@ -1244,6 +1272,7 @@ async function exportSettingsToSaved() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
   try {
+    const { serializeSettings } = await loadSettingsTransfer();
     const text = serializeSettings(localStorage, new Date());
     const chatId = await savedMessagesChatId();
     if (!accountIsCurrent(epoch)) return;
@@ -1275,6 +1304,7 @@ function settingsDiffModal(changes, parsed) {
   });
 }
 async function applySettingsFromMessage(text) {
+  const { parseSettings, diffSettings, applySettings } = await loadSettingsTransfer();
   const parsed = parseSettings(text);
   if (!parsed) { errToast(t("This message isn't a valid Velta settings block")); return; }
   const changes = diffSettings(localStorage, parsed.values);
@@ -4376,6 +4406,7 @@ function openProfileManagement() {
     let androidUri = "";
     if (onAndroid && !pwaExport) {
       if (!invoke) { toast(t("Backup export needs the Velta app")); return; }
+      const { backupDownloadName } = await loadIdentityBackup();
       const name = backupDownloadName(state.account?.addr, new Date().toISOString().slice(0, 10));
       try {
         const picked = await invoke("plugin:dialog|save", { options: {
@@ -5264,6 +5295,7 @@ function downloadBytes(bytes, name) {
 // offers CompressionStream (the shells' prep path decompresses before
 // import); byte-identical .tar where it doesn't.
 async function runBackupExport(pass) {
+  const { gzipBytes, backupDownloadName } = await loadIdentityBackup();
   const dir = "/backup/export";
   await core.exportBackup(dir, pass || null);
   const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
@@ -5277,6 +5309,7 @@ async function runBackupExport(pass) {
 }
 
 async function mailLoginForBackup() {
+  const { mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } = await loadIdentityBackup();
   const prefer = state.account?.addr;
   let transports = [];
   try { transports = await core.listTransports(); } catch { /* the db still has the login */ }
@@ -5300,6 +5333,7 @@ async function mailLoginForBackup() {
 
 async function runIdentityExport(pass) {
   if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
+  const { bytesToBase64, wrapIdentityBundle, buildIdentityBundle } = await loadIdentityBackup();
   // core 2.63.0 removed the legacy addr/mail_pw configs. The login is the
   // transport (flat password or the db's imap.password). Prefer the sending address.
   const login = await mailLoginForBackup();
@@ -5321,6 +5355,7 @@ async function runIdentityExport(pass) {
 
 async function runIdentityRestore(file, pass, onPhase) {
   onPhase(t("Reading backup…"));
+  const { unwrapIdentityBundle, base64ToBytes } = await loadIdentityBackup();
   // Wrong passphrase / corrupt file throw here — BEFORE any account is
   // created, so a bad file can never leave a stray behind.
   const bundle = await unwrapIdentityBundle(new Uint8Array(await file.arrayBuffer()), pass);
@@ -5524,7 +5559,7 @@ async function setMultiDevice(on, { quick = false } = {}) {
 
 function savedDownloadLimit() {
   const raw = localStorage.getItem("velta-download-limit");
-  const v = normalizeDownloadLimit(raw);
+  const v = raw == null || raw === "" ? "0" : raw === "655360" ? "1048576" : String(raw);
   if (raw != null && raw !== v) localStorage.setItem("velta-download-limit", v);
   return v;
 }
@@ -7297,6 +7332,9 @@ async function boot() {
     // No usable UI yet → the splash is the error surface (it shows this log).
     if (!uiLive && !splashSession) splashSession = showSplash();
     throw err;
+  } finally {
+    bootMark("velta-boot:ui");
+    bootMeasure();
   }
 }
 
@@ -7335,12 +7373,13 @@ function startScheduled() {
   if (chatView) {
     chatView.scheduled = {
       count: chatId => scheduledRunner.doc.items.filter(x => x.accountId === core.accountId && x.chatId === chatId).length,
-      pickTime: () => pickSendTime({ browserOnly: schedBrowserOnly() }),
-      openList: chatId => openScheduledList({ runner: scheduledRunner, accountId: core.accountId, chatId, browserOnly: schedBrowserOnly() }),
+      pickTime: async () => (await loadScheduledUi()).pickSendTime({ browserOnly: schedBrowserOnly() }),
+      openList: async chatId => (await loadScheduledUi()).openScheduledList({ runner: scheduledRunner, accountId: core.accountId, chatId, browserOnly: schedBrowserOnly() }),
       add: async ({ chatId, text, quoteId, dueAt }) => {
         try {
           const r = await scheduledRunner.op({ op: "add", item: { accountId: core.accountId, chatId, text, quoteId, dueAt } });
           if (!r?.id) throw new Error(r?.error || "rejected");
+          const { formatDue, maybeAskExactAlarm } = await loadScheduledUi();
           toast(t("Scheduled for {time}", { time: formatDue(dueAt) }));
           if (android) maybeAskExactAlarm(invoke).catch(() => {});
           return true;
@@ -7362,8 +7401,9 @@ function startScheduled() {
   } catch { /* no shell */ }
 }
 
-function openAllScheduled() {
+async function openAllScheduled() {
   if (!scheduledRunner) return;
+  const { openScheduledList } = await loadScheduledUi();
   openScheduledList({ runner: scheduledRunner, accountId: null, chatName: scheduledChatName, browserOnly: schedBrowserOnly() });
 }
 

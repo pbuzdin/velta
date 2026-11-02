@@ -25,7 +25,10 @@ function bootGraph() {
   return [...seen].map(f => relative(js, f).replaceAll("\\", "/"));
 }
 
-const LAZY = ["qr-scan.js", "large-file.js", "lufi.js", "../vendor/sjcl.js", "image-compress.js"];
+const LAZY = [
+  "qr-scan.js", "large-file.js", "lufi.js", "../vendor/sjcl.js", "image-compress.js",
+  "settings-transfer.js", "ws-relays-modal.js", "scheduled-ui.js", "identity-backup.js",
+];
 
 test("lazy features are not in the static boot graph", () => {
   const graph = bootGraph();

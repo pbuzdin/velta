@@ -11,6 +11,15 @@ import { readFileSync } from "node:fs";
 const source = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
 const stripped = source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 
+test("boot marks wrap imports, core create, and first UI", () => {
+  assert.match(source, /bootMark\("velta-boot:imports"\)/);
+  assert.match(source, /bootMark\("velta-boot:core"\)/);
+  assert.match(source, /bootMark\("velta-boot:ui"\)/);
+  assert.match(source, /try \{ performance\.mark\(name\); \} catch \{\}/);
+  assert.match(stripped, /function bootMeasure\(\)/);
+  assert.match(stripped, /if \(!VELTA_DEBUG\) return;/);
+});
+
 test("app.js definitions are not swallowed by a block comment", () => {
   for (const fn of [
     "async function askNotificationPermission()",

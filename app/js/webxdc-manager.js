@@ -8,7 +8,6 @@ import { CLOSE_SVG, toast, confirmModal } from "./ui.js";
 import { LruCache } from "./lru.js";
 import { wantsPanel } from "./webxdc-panel.js";
 import { tauriInvoke } from "./tauri.js";
-import { base64ToBytes } from "./identity-backup.js";
 import { currentGroupCall, routeRealtime, routeStatusUpdate, joinGroupCall, leaveGroupCall, setGroupCallMuted, onGroupCallChange } from "./group-call-host.js";
 import { trustedAppName } from "./xdc-trust.js";
 import { askGroupCallConsent, groupCallEnv, oneToOneCallActive, setCallScreen } from "./group-call-ui.js";
@@ -419,7 +418,10 @@ export async function serveIconRequest(data) {
   if (!ICON_PATH_RE.test(path)) throw new Error("not an icon");
   const b64 = await core.getWebxdcBlob(Number(data.msg), path);
   if (!b64) throw new Error("missing");
-  return base64ToBytes(String(b64));
+  const s = atob(String(b64));
+  const u8 = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+  return u8;
 }
 if (typeof navigator !== "undefined" && navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener("message", (e) => {
