@@ -57,16 +57,19 @@ test("Android lock: main thread, screen-lock fallback, no blind fresh key", () =
   assert.match(ks, /setIsStrongBoxBacked\(true\)\.build\(\)\)\s*return generator\.generateKey\(\)/);
 });
 
-test("Android lock: no PIN shortcut over the unlocked app (auto-lock bypass)", () => {
-  // The "Use PIN" button dismisses the lock overlay WITHOUT authenticating.
-  // It is only safe while the core is keyless (cold start): then the WebView
-  // behind the overlay shows the real PIN gate (DB_LOCK_STATUS), and Rust's
-  // unlock_with_pin verifies the PIN with backoff. Over the running core —
-  // the auto-lock screen gate — the page behind is the unlocked app, so the
-  // button would bypass the lock with one tap.
+test("Android lock: PIN over the unlocked app verifies in place (auto-lock bypass)", () => {
+  // The "Use PIN" button dismisses the overlay WITHOUT authenticating —
+  // that is only safe while the core is keyless (cold start): the WebView
+  // behind shows the real PIN gate (DB_LOCK_STATUS) and Rust's
+  // unlock_with_pin verifies with backoff. Over the running core — the
+  // auto-lock screen gate — the page behind is the unlocked app, so the
+  // button must NOT dismiss: it verifies the PIN in place via
+  // VeltaCore.verifyAppPin (same wrap, same backoff, no key material).
   assert.match(lock, /showLock\(activity, allowPinFallback = !VeltaCore\.running\(\)\)/);
   assert.match(lock, /showLock\(activity, allowPinFallback = false\)/);
-  assert.match(lock, /if \(allowPinFallback && VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
+  assert.match(lock, /visibility = if \(VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
+  assert.match(lock, /if \(allowPinFallback\) hideLock\(\) else showPinEntry\(activity\)/);
+  assert.match(lock, /VeltaCore\.verifyAppLockPin\(pin\)/);
   // A cancelled/failed prompt leaves the persistent Unlock action; that
   // button re-auths over the running core and unwraps the DEK when keyless.
   assert.match(lock, /if \(ok\) hideLock\(\)/);

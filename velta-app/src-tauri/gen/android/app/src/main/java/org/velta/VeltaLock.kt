@@ -37,13 +37,15 @@ import javax.crypto.spec.GCMParameterSpec
 // shows a full-screen lock and re-prompts. Honest limitation: the DEK
 // stays in the running core's memory, so this gates the screen, not the
 // key — the cold-start prompt above is the real boundary.
-//
-// Because the auto-lock gate sits over an UNLOCKED app, its overlay must
-// never offer a shortcut that skips authentication: the "Use PIN" fallback
-// is shown only while the core is keyless (cold start), when the WebView
-// behind the overlay shows the real PIN gate (Rust set DB_LOCK_STATUS and
-// unlock_with_pin verifies the PIN with backoff). On the auto-lock screen
-// a tap-to-dismiss "Use PIN" would bypass the lock entirely.
+// With the app-lock PIN also enabled, "Use PIN" is offered on both lock
+// screens — but the two are different mechanisms. Cold start: the core is
+// keyless and the WebView behind the overlay shows the real PIN gate (Rust
+// set DB_LOCK_STATUS; unlock_with_pin verifies with backoff), so the
+// button dismisses the overlay. The auto-lock gate sits over an UNLOCKED
+// app, where a tap-to-dismiss would bypass the lock entirely — there the
+// button swaps to an in-place PIN entry verified by VeltaCore.verifyAppPin
+// (Argon2id against the PIN wrap, no key material moves, same backoff
+// counter as the cold-start gate).
 object VeltaLock {
     private const val TAG = "velta-lock"
     private const val AUTH_KEK_ALIAS = "velta_kek_auth"
@@ -481,6 +483,7 @@ object VeltaLock {
             setPadding(0, 0, 0, dp(32))
         }
         val unlock = Button(activity).apply {
+            tag = "velta-lock-unlock"
             text = activity.getString(R.string.biometric_unlock_action)
             setOnClickListener {
                 if (VeltaLock.on(activity) && lockOverlay != null) {
@@ -490,16 +493,83 @@ object VeltaLock {
                 }
             }
         }
-        // App-lock PIN on too: the page behind shows the PIN screen — but
-        // only at cold start (allowPinFallback), when the core is keyless
-        // and Rust's unlock_with_pin verifies the PIN. On the auto-lock
-        // screen gate the app behind is fully unlocked, so this button is
-        // hidden there: showing it would bypass the lock with one tap.
+        // App-lock PIN on: offered on BOTH lock screens, but the action
+        // differs. Cold start (allowPinFallback): the core is keyless and
+        // the WebView behind shows the real PIN gate (Rust unlock_with_pin
+        // verifies with backoff), so dismissing the overlay is safe.
+        // Auto-lock over a RUNNING core: the app behind is fully unlocked,
+        // so dismissing would bypass the lock with one tap — verify the
+        // PIN right here instead (VeltaCore.verifyAppLockPin, same wrap
+        // and backoff as the cold-start gate).
         val usePin = Button(activity).apply {
+            tag = "velta-lock-use-pin"
             text = activity.getString(R.string.biometric_use_pin)
-            visibility = if (allowPinFallback && VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
-            setOnClickListener { hideLock() }
+            visibility = if (VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
+            setOnClickListener {
+                if (allowPinFallback) hideLock() else showPinEntry(activity)
+            }
         }
+        // The in-place PIN check for the auto-lock gate: input, action and
+        // a backoff/error line, hidden until "Use PIN" swaps them in.
+        val pinEntry = android.widget.LinearLayout(activity).apply {
+            tag = "velta-lock-pin-entry"
+            orientation = android.widget.LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val pinInput = android.widget.EditText(activity).apply {
+            hint = activity.getString(R.string.biometric_pin_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(ContextCompat.getColor(activity, R.color.velta_text))
+            setHintTextColor(ContextCompat.getColor(activity, R.color.velta_text))
+            isSingleLine = true
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
+        }
+        val pinError = TextView(activity).apply {
+            visibility = View.GONE
+            setTextColor(ContextCompat.getColor(activity, R.color.velta_text))
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(12), 0, 0)
+        }
+        val pinGo = Button(activity).apply {
+            text = activity.getString(R.string.biometric_pin_verify)
+            isAllCaps = false
+            maxLines = 3
+            minHeight = dp(48)
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dp(22), 0, dp(22), 0)
+            setTextColor(ContextCompat.getColor(activity, R.color.velta_on_accent))
+            setBackgroundResource(R.drawable.velta_primary_button)
+            setOnClickListener {
+                val pin = pinInput.text?.toString().orEmpty()
+                if (pin.isEmpty()) return@setOnClickListener
+                isEnabled = false
+                Thread {
+                    val verdict = VeltaCore.verifyAppLockPin(pin)
+                    activity.runOnUiThread {
+                        isEnabled = true
+                        if (verdict.isEmpty() && VeltaLock.on(activity) && lockOverlay != null) {
+                            hideLock()
+                        } else {
+                            pinError.visibility = View.VISIBLE
+                            pinError.text = if (verdict.startsWith("retry:")) {
+                                val secs = verdict.removePrefix("retry:").toLongOrNull() ?: 0L
+                                activity.getString(R.string.biometric_pin_wrong, secs)
+                            } else {
+                                activity.getString(R.string.biometric_pin_error)
+                            }
+                        }
+                    }
+                }.start()
+            }
+        }
+        pinEntry.addView(pinInput, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dp(12) })
+        pinEntry.addView(pinGo, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        pinEntry.addView(pinError, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         for (b in listOf(unlock, usePin)) {
             b.isAllCaps = false
             b.maxLines = 3
@@ -518,6 +588,10 @@ object VeltaLock {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply { topMargin = dp(12) })
+        box.addView(pinEntry, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(12) })
         val boxWidth = minOf(activity.resources.displayMetrics.widthPixels, dp(360))
         root.addView(box, FrameLayout.LayoutParams(boxWidth, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         activity.runOnUiThread {
@@ -527,6 +601,16 @@ object VeltaLock {
             )
             lockOverlay = root
         }
+    }
+
+    /** The auto-lock gate's "Use PIN": swap the actions for the in-place
+     * PIN check. Never a bare dismissal — the app behind an auto-locked
+     * overlay is unlocked, so a tap-to-dismiss would bypass the lock. */
+    private fun showPinEntry(activity: FragmentActivity) {
+        val overlay = lockOverlay ?: return
+        overlay.findViewWithTag<View>("velta-lock-unlock")?.visibility = View.GONE
+        overlay.findViewWithTag<View>("velta-lock-use-pin")?.visibility = View.GONE
+        overlay.findViewWithTag<View>("velta-lock-pin-entry")?.visibility = View.VISIBLE
     }
 
     private fun hideLock() {

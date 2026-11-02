@@ -21,6 +21,7 @@ object VeltaCore {
     private external fun startHeadless(dataDir: String, extDir: String): Boolean
     private external fun isRunning(): Boolean
     private external fun provideDek(dekHex: String): Boolean
+    private external fun verifyAppPin(pin: String): String
 
     /**
      * #178 phase 4: hands the DEK (64 hex, from the VeltaLock BiometricPrompt
@@ -35,6 +36,25 @@ object VeltaCore {
         } catch (e: Throwable) {
             Log.e(TAG, "provideDek failed", e)
             false
+        }
+    }
+
+    /**
+     * #178 phase 4: verifies an app-lock PIN against the PIN wrap for the
+     * auto-lock overlay WITHOUT moving key material (the running core
+     * already holds the DEK). "" = verified; "retry:<secs>" = wrong PIN
+     * (the wrap's backoff, shared with the cold-start PIN gate); "corrupt"
+     * = no readable wrap. Argon2id runs in the call — stay off the main
+     * thread.
+     */
+    @JvmStatic
+    fun verifyAppLockPin(pin: String): String {
+        if (!loaded) return "corrupt"
+        return try {
+            verifyAppPin(pin)
+        } catch (e: Throwable) {
+            Log.e(TAG, "verifyAppPin failed", e)
+            "corrupt"
         }
     }
 

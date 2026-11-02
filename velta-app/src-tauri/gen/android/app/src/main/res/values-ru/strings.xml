@@ -11,4 +11,8 @@
     <string name="biometric_cancel">Отмена</string>
     <string name="biometric_unlock_action">Разблокировать биометрией</string>
     <string name="biometric_use_pin">Ввести PIN-код Velta</string>
+    <string name="biometric_pin_hint">PIN-код Velta</string>
+    <string name="biometric_pin_verify">Разблокировать с кодом PIN</string>
+    <string name="biometric_pin_wrong">Неверный PIN-код. Повторите через %1$d с</string>
+    <string name="biometric_pin_error">Ключ PIN-кода нечитаем</string>
 </resources>

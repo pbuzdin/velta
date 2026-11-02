@@ -68,10 +68,22 @@ test("biometric action remains available after cancellation and handles retry", 
   assert.match(strings, /<string name="biometric_unlock_action">Unlock with biometrics<\/string>/);
 });
 
-test("PIN is a cold-start secondary action and cannot bypass auto-lock", () => {
-  assert.match(showLock, /visibility = if \(allowPinFallback && VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
-  assert.match(showLock, /setOnClickListener \{ hideLock\(\) \}/);
+test("PIN is offered on both lock screens and can never bypass auto-lock", () => {
+  // offered whenever the PIN wrap exists — cold start AND the auto-lock gate
+  assert.match(showLock, /visibility = if \(VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
+  // cold start dismisses to the WebView PIN gate; auto-lock verifies in place
+  assert.match(showLock, /if \(allowPinFallback\) hideLock\(\) else showPinEntry\(activity\)/);
+  // the auto-lock check is a real PIN verification (same wrap + backoff as
+  // the cold-start gate), never a tap-to-dismiss over an unlocked app
+  assert.match(showLock, /VeltaCore\.verifyAppLockPin\(pin\)/);
+  assert.match(showLock, /R\.string\.biometric_pin_wrong/);
   assert.match(lock, /onActivityCreated[\s\S]*?showLock\(activity, allowPinFallback = !VeltaCore\.running\(\)\)[\s\S]*?requestUnlock\(activity\)/);
   assert.match(lock, /onActivityResumed[\s\S]*?showLock\(activity, allowPinFallback = false\)[\s\S]*?reAuth\(activity\)/);
   assert.match(strings, /<string name="biometric_use_pin">Use Velta PIN<\/string>/);
+  // the overlay's PIN check is verify-only: no key material moves
+  const rust = src("velta-app/src-tauri/src/lib.rs");
+  const start = rust.indexOf("Java_org_velta_VeltaCore_verifyAppPin");
+  const end = rust.indexOf("Java_org_velta_VeltaLock_notifyResult");
+  assert.ok(start > -1 && end > start, "verifyAppPin export missing");
+  assert.doesNotMatch(rust.slice(start, end), /ANDROID_DEK_OVERRIDE/);
 });

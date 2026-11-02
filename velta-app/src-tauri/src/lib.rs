@@ -4128,6 +4128,51 @@ pub extern "system" fn Java_org_velta_VeltaCore_provideDek(
     1
 }
 
+// #178 phase 4: VeltaCore.verifyAppPin — the auto-lock gate's "Use PIN".
+// Verify-only on purpose: the running core already holds the DEK, so a
+// verified PIN unlocks the screen and nothing else — no key material moves
+// (contrast provideDek above, which feeds the keyless cold-start init).
+// It reads the same wrap as the WebView PIN gate, so the attempts/backoff
+// counter is shared: brute force through the lock overlay is exactly as
+// slow as through the gate. "" = verified; "retry:<secs>" = wrong PIN (the
+// wrap's remaining backoff); "corrupt" = no readable wrap. Argon2id runs
+// here — the Kotlin caller must stay off the main thread.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_VeltaCore_verifyAppPin(
+    mut env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    pin: jni::objects::JString,
+) -> jni::sys::jstring {
+    let verdict = match env.get_string(&pin) {
+        Ok(p) => {
+            let pin = p.to_string_lossy().into_owned();
+            match android_pin_wrap().filter(|path| path.is_file()) {
+                Some(path) => match db_key::pin_wrap_open(&path, &pin) {
+                    db_key::PinOpen::Dek(_) => {
+                        log("app-lock: PIN verified at the lock overlay");
+                        String::new()
+                    }
+                    db_key::PinOpen::Wrong { attempts, delay_secs } => {
+                        log(&format!(
+                            "app-lock: wrong PIN at the overlay (attempt {attempts}, wait {delay_secs} s)"
+                        ));
+                        format!("retry:{delay_secs}")
+                    }
+                    db_key::PinOpen::Corrupt => "corrupt".to_string(),
+                },
+                None => "corrupt".to_string(),
+            }
+        }
+        Err(_) => "corrupt".to_string(),
+    };
+    let s = match env.new_string(verdict) {
+        Ok(s) => s,
+        Err(_) => env.new_string("corrupt").expect("new_string"),
+    };
+    **s
+}
+
 // #178 phase 4: VeltaLock.notifyResult — the enable/disable prompt finished;
 // the settings row follows the velta-biometric event.
 #[cfg(target_os = "android")]
