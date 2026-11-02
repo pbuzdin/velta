@@ -2434,6 +2434,17 @@ next push or the tainted commits come back.
 - **PWA** (d4ef4f9, d1029f8, 5204178): background Web Push (docs/agents/web-push.md); velta.cc/web published by `pwa-web.yml`, never with a baked-in relay.
 - **Design system + contrast** (018f96d, 3ec2e38, 5cb7a5c): §6.4 hard rule, `e2e-contrast` in CI, token guard; Beam/Circle on bundled `velta-tokens.css`; webxdc card Start on its own row, no "tap to open" (f14252e).
 
+### 6.14 Unreleased on master since v1.5.0 (no bump/tag yet)
+
+Do not write a versioned release-notes file until the release is cut; this list is the draft.
+
+- **Core stalls** (c38a4938 #229, eadabcd3 #240, 83b2d3da #241, 55a8a393 #242–#245): core patches #22 and #25–#28 (table in §4.1), core watchdog `app/js/core-watchdog.js` (5 s `get_system_info` ping, stuck after 8 s / oldest call 10 s, banner + Restart core, auto-restart after 60 s, dead-core backoff 1/5/30 s max 3 per 10 min, skipped during transfer and 1:1 calls; restart only stops/starts IO and cannot recover a truly wedged core on desktop/Android), `app/js/load-retry.js` last-good lists. Findings, upstream issues and remaining suspects: `docs/core-stall-investigation.md`. Empty lists during stalls were app-side, not core.
+- **Profile transfer guards** (c9695708): one receive at a time, closing the dialog doesn't cancel the sender, calls wait up to 1 h, screen kept on.
+- **Transfer/export progress UI** (6b0be64d): native progress, stage text, corner pill, Android notification. Further ideas filed as #231–#238.
+- **Mention chip redesign** (0e7628ad): tinted chip, em padding, clone wrap, brutal outline; inline code muted by size only (keeps AA contrast).
+- **Call route chip** (8ae38878, c8908902, #239): "Direct" / "Via relay" from `getStats()`, right-side chevron.
+- Encryption wording rules still apply: Android shipped, desktop + PWA preview, attachments WIP, never "all platforms".
+
 ### 6.10 Pitfalls found in 1.4.73
 
 - **Code without a CI build rots silently.** d4632e7 (bridge token gate) was committed without compiling `velta-core-service` and no workflow built it, so five compile errors sat on master (fixed d80dc01), and the sidecar's tokio misuse (blocking_read in the forwarder task, `tokio::spawn` on a JNI thread) crashed it on a device (a1cf215). `core-service.yml` was added for that crate and removed with it. Every crate that ships needs a CI job; if you can't build locally, say so and don't merge until CI is green.
