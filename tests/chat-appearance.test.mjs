@@ -232,3 +232,24 @@ test("SURF / THEME_BG mirror main.css tokens per theme", () => {
   assert.equal(A.SURF.dark.chat, tok(blocks.dark, "bg-chat"));
   assert.equal(A.SURF.brutal.chat, tok(blocks.brutal, "bg-chat"));
 });
+
+// e2e-contrast regression: the mention chip lays an 8%/14% tint of the text
+// color over the bubble, so the effective background darkens WITH the text —
+// a plain ensureContrast against the bare bubble converged below AA (3.82/4.09
+// measured in CI with the yellow accent). The light derivation must clear
+// 4.5:1 against its own tinted composite, for every preset accent and the
+// CI sweep's accents.
+test("mention chip colors stay AA on their own tinted composite (light, all accents)", () => {
+  const { A } = load();
+  const accents = [...A.PRESETS.map(p => p[0]).filter(Boolean), "#f2e14c", "#1d3a8a", "#3fa34d", "#8774e1"];
+  for (const c of accents) {
+    const d = A.deriveAccent(c, "light");
+    const out = A.mix(d.bubbleOut, d.outLink, 0.14); // .msg-row.out chip bg
+    const inc = A.mix(A.SURF.light.bubbleIn, d.accentTextIn, 0.08); // in-row chip bg
+    assert.ok(A.contrast(d.outLink, out) >= 4.5, `${c} outLink ${d.outLink} on ${out} = ${A.contrast(d.outLink, out).toFixed(2)}`);
+    assert.ok(A.contrast(d.accentTextIn, inc) >= 4.5, `${c} accentTextIn ${d.accentTextIn} on ${inc} = ${A.contrast(d.accentTextIn, inc).toFixed(2)}`);
+    // No regression off the chip: buttons/links on the plain surfaces.
+    assert.ok(A.contrast(d.accentTextIn, A.SURF.light.bubbleIn) >= 4.5, `${c} accentTextIn on plain bubble`);
+    assert.ok(A.contrast(d.outLink, d.bubbleOut) >= 4.5, `${c} outLink on plain bubble`);
+  }
+});

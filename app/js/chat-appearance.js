@@ -136,16 +136,32 @@
       out.metaOut = ensureContrast(mix(c, INK_LIGHT, 0.55), bubble, 4.5, 1);
       out.outLink = ensureContrast(mix(c, INK_LIGHT, 0.82), bubble, 4.5, 1);
       out.ticksRead = ensureContrast(mix(c, INK_LIGHT, 0.35), bubble, 3, 1);
+      out.accentTextIn = accent; // inline buttons in incoming bubbles
     } else {
       // Own bubble: a light tint of the accent (default #e1f0fb ≈ 14%).
       const bubble = ensureSurface(mix(c, s.bubbleIn, 0.86), s.text, 7, 1);
       out.bubbleOut = bubble;
       out.bgActive = accent;
       out.metaOut = ensureContrast(mix(c, s.text, 0.25), bubble, 4.5, -1);
-      out.outLink = ensureContrast(mix(c, s.text, 0.55), bubble, 4.5, -1);
+      // The mention chip lays a tint of the text color OVER the bubble
+      // (8% in-rows, 14% out-rows), so the effective background darkens WITH
+      // the text and a plain ensureContrast against the bare bubble converges
+      // below AA (3.82/4.09 measured with the yellow accent). Iterate: darken
+      // until the color clears 4.5 against its own tinted composite. Clearing
+      // the darker composite clears the plain bubble a fortiori (light theme).
+      const tintStable = (start, tintRatio, bgBase) => {
+        let color = start;
+        for (let i = 0; i < 24; i++) {
+          const next = ensureContrast(color, mix(bgBase, color, tintRatio), 4.5, -1);
+          if (next === color) return color;
+          color = next;
+        }
+        return color;
+      };
+      out.outLink = tintStable(ensureContrast(mix(c, s.text, 0.55), bubble, 4.5, -1), 0.14, bubble);
       out.ticksRead = ensureContrast(c, bubble, 3, -1);
+      out.accentTextIn = tintStable(accent, 0.08, s.bubbleIn);
     }
-    out.accentTextIn = accent; // inline buttons in incoming bubbles (light)
     // Accent-colored UI text (.btn-text, status, send icon) on the app
     // surfaces: sidebar and the incoming bubble, both >= 4.6:1.
     out.accentText = [s.sidebar, s.bubbleIn, s.quote, s.raised].reduce((a, bg) => ensureContrast(a, bg, 4.6, dir), c);
