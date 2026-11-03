@@ -147,3 +147,72 @@ if (window.customElements && !customElements.get("velta-news-pager")) {
     }
   }
 })();
+
+// Home motion and the live demonstrations. Everything here is progressive:
+// without JS the page is fully visible, the demo shows both route texts,
+// and the lens stays on the full screenshot.
+(function () {
+  if (!("IntersectionObserver" in window)) return;
+
+  // Section entrances: the parts of each section arrive in reading order,
+  // staggered 60-90ms. CSS only animates html.js and honors reduced motion.
+  var parts = document.querySelectorAll(
+    "main > section > h2, main > section > .lead, main > section > div > h2," +
+    " .paths .copy, .paths-state, #features .block, #features .rows li," +
+    " .board li, .board-note, .shell, #help li, #support > div, .news-list li, .lens"
+  );
+  if (parts.length) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.classList.add("in");
+        io.unobserve(e.target);
+      });
+    }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+    // stagger within the section that is arriving, not the document
+    var seen = new Map();
+    parts.forEach(function (el) {
+      var sec = el.closest("section") || document.body;
+      var n = seen.get(sec) || 0;
+      seen.set(sec, n + 1);
+      el.style.setProperty("--d", Math.min(n * 0.07, 0.5).toFixed(2) + "s");
+      el.classList.add("reveal");
+      io.observe(el);
+    });
+  }
+
+  // The lens in #features: each capability block crops the real screenshot
+  // to the region that proves it. Without JS the full screenshot shows.
+  var lens = document.querySelector("#features .lens");
+  var blocks = document.querySelectorAll("#features .block[data-lens]");
+  if (lens && blocks.length) {
+    var lensIO = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        lens.className = "lens " + e.target.getAttribute("data-lens");
+      });
+    }, { rootMargin: "-40% 0px -40% 0px" });
+    blocks.forEach(function (b) { lensIO.observe(b); });
+  }
+
+  // The ring/chord demo in #product: the visitor chooses how the file is
+  // sent; the rail word and the route text follow. The output paragraph is
+  // aria-live, so the choice is announced. Without JS both texts show.
+  var live = document.querySelector("#product .copy.is-live");
+  var state = document.getElementById("paths-state");
+  if (live && state) {
+    var words = { beam: "The chord", relay: "The ring" };
+    var radios = live.querySelectorAll('input[name="route"]');
+    radios.forEach(function (r) {
+      r.addEventListener("change", function () {
+        var relay = r.value === "relay" && r.checked;
+        live.classList.toggle("is-relay", relay);
+        state.classList.add("swap");
+        setTimeout(function () {
+          state.textContent = words[r.value] || words.beam;
+          state.classList.remove("swap");
+        }, 180);
+      });
+    });
+  }
+})();

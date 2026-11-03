@@ -50,8 +50,11 @@
   --shadow: 0 4px 18px rgba(16, 16, 16, 0.08);
   --sans: "IBM Plex Sans", "Segoe UI", sans-serif;
   --display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  /* the five type roles: display (h1), heading (h2), lead, body, small */
+  --size-lead: 1.25rem;
   --measure: 72rem;
   --header: 4rem;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -86,7 +89,7 @@ html {
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100vh; /* taste-skill-ignore: h-screen — fallback, svh follows */
   min-height: 100svh;
   background: var(--bg);
   color: var(--fg);
@@ -143,9 +146,8 @@ body > header {
   min-height: var(--header);
   padding: 0 1.25rem;
   padding-top: env(safe-area-inset-top);
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: blur(16px);
+  /* separation is a tone step, not a line: the page ground is --bg */
+  background: var(--surface);
 }
 
 body > header > a:first-of-type {
@@ -269,7 +271,7 @@ body > main > header.page {
   /* Two real columns, not content-plus-leftover: the shot owns a fixed
      38rem column, the text owns the rest, and the gutter breathes with the
      viewport (2.5rem floor, 4.5rem cap) instead of hugging the image. */
-  grid-template-columns: minmax(20rem, 1fr) minmax(0, 38rem);
+  grid-template-columns: minmax(20rem, 1fr) minmax(0, 42rem);
   align-items: center;
   gap: clamp(2.5rem, 5vw, 4.5rem);
   padding-block: 2.5rem 4rem;
@@ -281,7 +283,7 @@ body > main > header.page {
   margin: 0.75rem 0 0;
   font-size: clamp(3.2rem, 7vw, 6rem);
 }
-.kicker {
+.kicker { /* taste-skill-ignore: eyebrow - lives on CMS-assembled post/secondary pages, outside this homepage redesign */
   margin: 0;
   color: var(--muted);
   font-size: 0.75rem;
@@ -289,11 +291,7 @@ body > main > header.page {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-#hero > div > p:nth-of-type(1) {
-  max-width: 38rem;
-  color: var(--muted);
-  font-size: 1.125rem;
-}
+#hero > div > p.lead { max-width: 38rem; }
 
 p > strong > a,
 p > strong + a {
@@ -315,7 +313,7 @@ p > strong + a {
 }
 :is(main, main.page) p > strong > a:hover { background: var(--accent-hover); }
 :is(main, main.page) p > strong + a {
-  border: 1px solid var(--line);
+  border: 1px solid var(--line); /* taste-skill-ignore: outlined-box - a real secondary button control */
   background: var(--surface);
   color: var(--fg);
 }
@@ -350,9 +348,6 @@ body > footer .brand {
   text-decoration: none;
 }
 
-/* product card icons */
-article.card svg { width: 3rem; height: 3rem; color: var(--link); }
-
 /* mark external links */
 a[href^="http"]:not([href*="velta.cc"])::after {
   content: "↗";
@@ -363,136 +358,324 @@ a[href^="http"]:not([href*="velta.cc"])::after {
 }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-main > section { padding-block: 5rem; border-top: 1px solid var(--line); }
-main > section h2 { margin: 0.75rem 0 0; font-size: clamp(2rem, 4vw, 3rem); }
-#product > div:first-child,
-#platforms > p.kicker,
-#download > p.kicker { max-width: 40rem; }
-/* the features header mirrors #notes: h2 left, longer-note link on the
-   same right edge the "All notes" link uses */
-#features > div:first-child {
+/* Sections separate by space and by composition — no hairlines.
+   The five type roles: display (h1), heading (h2), lead, body, small. */
+main > section { padding-block: 7rem; }
+main > section h2 {
+  margin: 0.75rem 0 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  max-width: 24ch;
+}
+.lead {
+  max-width: 44rem;
+  margin: 1.25rem 0 0;
+  color: var(--muted);
+  font-size: var(--size-lead);
+  line-height: 1.55;
+}
+
+/* --- #product: the ring and the chord — one row, three states --- */
+.paths {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(0, 42rem) 1fr;
+  gap: 4.5rem 3rem;
+  margin-top: 4rem;
+}
+.paths-state {
+  grid-column: 1;
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: var(--size-lead);
+  text-align: right;
+  text-wrap: balance;
+}
+.paths .copy { grid-column: 2; }
+/* the live copy's rail word follows the chosen route */
+#paths-state { transition: opacity 0.2s ease; }
+#paths-state.swap { opacity: 0; }
+
+/* --- interface fragments (data-ui): the product's own conventions apply.
+   Inside: small radii and 1px control borders are the app's, not the page's. */
+.copy .msg {
   display: flex;
-  flex-wrap: wrap;
-  align-items: end;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.1rem 1.25rem;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.copy .bubble {
+  margin: 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--bubble);
+  color: var(--fg);
+  max-width: 34ch;
+  font-size: var(--size-body);
+}
+.copy .ticks {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.copy .file {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  background: var(--surface-2);
 }
-#product > div:first-child p,
-#platforms > p,
-#download > p,
-#privacy p,
-#support p { color: var(--muted); }
+.copy .file-name { margin: 0; font-weight: 500; }
+.copy .file-size {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+}
+.copy .route-pick {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border: 0;
+}
+.copy .route-pick label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--line); /* taste-skill-ignore: outlined-box - control inside a data-ui fragment */
+  border-radius: 10px;
+  background: var(--bg);
+  cursor: pointer;
+  font-size: var(--size-small);
+}
+.copy .route-pick label:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+.copy .route-pick input { accent-color: var(--accent); margin: 0 0.4rem 0 0; }
+.copy .room { display: flex; align-items: center; gap: 0.75rem; }
+.copy .room img { width: 2rem; height: 2rem; padding: 0.3rem; border-radius: 8px; background: var(--surface-2); }
+.copy .room-name { margin: 0; font-weight: 500; }
+.copy .room-note { margin: 0; color: var(--muted); font-size: var(--size-small); }
+.copy .why {
+  margin: 1.1rem 0 0;
+  max-width: 46ch;
+  font-size: var(--size-body);
+  color: var(--fg);
+  line-height: 1.55;
+}
+.copy .why strong { color: var(--fg); }
+/* hidden states only under html.js — without JS both route texts show */
+.js .copy .why.is-relay { display: none; }
+.js .copy.is-relay .why.is-beam { display: none; }
+.js .copy.is-relay .why.is-relay { display: block; }
 
-#product > div:last-child,
-#platforms > div,
-#support {
+/* --- #features: pinned field + capability blocks + inventory rows --- */
+#features .split {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
+  gap: 4rem;
+  align-items: start;
 }
-#product > div:last-child,
-#platforms > div { grid-template-columns: 1fr 1fr; margin-top: 2rem; }
-
-article.card, #download li, #features li, #support > div {
-  border: 1px solid var(--line);
-  border-radius: 12px;
+#features .field {
+  position: sticky;
+  top: var(--header);
+  height: calc(100svh - var(--header));
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
   background: var(--surface);
-  padding: 1.5rem;
 }
-article.card img { width: 3rem; height: 3rem; }
-article.card h3, #platforms h3 { margin: 1.25rem 0 0.5rem; font-size: 1.8rem; }
-article.card p, #platforms li, #features p { color: var(--muted); }
-#platforms ul, #features ul, #download ul, #hero + section ul { margin: 0; }
-#platforms ul, #features ul { padding-left: 1.1rem; }
-#features ul {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  margin-top: 2rem;
+#features .lens {
+  margin: 0;
+  width: min(30rem, 80vw);
+  max-height: 80svh;
+  overflow: clip;
+  border-radius: 14px;
+}
+#features .lens img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* the crop follows the block being read: translate then scale, both
+   computed so the named point of the screenshot lands mid-lens */
+#features .lens.lens-react img { transform: translate(-48%, 48%) scale(2.1); }
+#features .lens.lens-tools img { transform: translate(3%, -8%) scale(1.6); }
+#features .lens.lens-apps img { transform: translate(26%, -75%) scale(2.1); }
+#features .blocks { padding-block: 2rem; }
+#features .blocks h2 { max-width: none; }
+.blocks-note {
+  display: inline-block;
+  margin-top: 0.75rem;
+  color: var(--link);
+}
+#features .block { margin-top: 20svh; }
+#features .block h3 { margin: 0; font-size: var(--size-lead); }
+#features .block p { margin: 0.6rem 0 0; color: var(--fg); line-height: 1.55; }
+#features .inventory { margin-top: 7rem; }
+#features .rows {
+  margin: 3rem 0 0;
   padding: 0;
   list-style: none;
 }
-#features > h2 { margin-top: 4rem; }
-#features li h3 {
-  margin: 0.75rem 0 0;
-  font-family: var(--sans);
-  font-size: 1rem;
-  font-weight: 500;
+#features .rows li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 2rem;
+  align-items: baseline;
+  padding-block: 1.1rem;
 }
-/* brand logos sit on a small app-icon-style tile; only Velta-original
-   features carry one (Beam in #product and #features, Circle).
-   #features tiles float to the corner; the #product card keeps the
-   mark in flow, top-left, where the card icon sat */
-#features li img {
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0.4rem;
+/* the mark rides inline with its name, so every row shares one left edge */
+#features .rows h3 img {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-right: 0.55rem;
+  vertical-align: -0.25em;
+}
+#features .rows h3 { margin: 0; font-size: var(--size-lead); }
+#features .rows li p {
+  grid-column: 1 / -1;
+  margin: 0;
+  max-width: 58ch;
+  color: var(--fg);
+  line-height: 1.5;
+}
+#features .rows .row-value {
+  grid-row: 1;
+  grid-column: 2;
+  color: var(--muted);
+  font-size: var(--size-small);
+  text-align: right;
+}
+
+/* --- #privacy: the board — filled tiles, one accent lead tile --- */
+.board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.board li {
+  padding: 1.75rem;
+  background: var(--surface);
+}
+.board li.board-lead {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.board-lead h2 { margin: 0; color: inherit; }
+.board li.board-lead p { color: inherit; opacity: 0.92; }
+.board-lead p { margin: 0; max-width: 34rem; line-height: 1.55; }
+/* .board li.board-lead outranks the (0,1,4) :is(main, main.page) pill rule */
+.board li.board-lead p > strong > a {
+  background: var(--accent-fg);
+  color: var(--accent);
+}
+.board li.board-lead p > strong > a:hover { background: var(--fg); }
+.board li h3 { margin: 0; font-size: var(--size-lead); }
+.board li p { margin: 0.6rem 0 0; color: var(--fg); line-height: 1.5; }
+.board-note { margin: 1.5rem 0 0; color: var(--muted); font-size: var(--size-small); }
+
+/* --- #platforms: name / notes / action rows --- */
+.shells { margin-top: 3rem; display: grid; gap: 3rem; }
+.shell {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 40rem) auto;
+  gap: 0.5rem 3rem;
+  align-items: start;
+}
+.shell h3 { margin: 0; font-size: var(--size-lead); }
+.shell-size {
+  grid-column: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+}
+.shell ul {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--fg);
+}
+.shell li { margin: 0.3rem 0; line-height: 1.5; }
+.shell-get { grid-column: 3; grid-row: 1; margin: 0; }
+.shell details {
+  grid-column: 2;
+  margin-top: 0.75rem;
   border-radius: 10px;
   background: var(--surface-2);
-  float: right;
-  margin: 0 0 0.5rem 0.75rem;
+  padding: 0.75rem 1rem;
 }
-#product article.card img {
-  width: 3rem;
-  height: 3rem;
-  padding: 0.45rem;
-  border-radius: 12px;
-  background: var(--surface-2);
-  display: block;
-}
-#features > div:first-child {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: 1rem;
-}
+.shell summary { cursor: pointer; font-weight: 500; min-height: 2.75rem; display: flex; align-items: center; }
+.shell code { color: var(--fg); }
+.shell details[open] summary { margin-bottom: 0.5rem; }
 
-#privacy {
-  display: grid;
-  grid-template-columns: 5fr 7fr;
-  gap: 3rem;
-}
-#privacy ol { margin: 0; padding: 0; list-style: none; }
-#privacy li {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
-  padding: 1.1rem 0;
-  border-top: 1px solid var(--line);
-}
-#privacy h3 { margin: 0; font-family: var(--sans); font-size: 1rem; font-weight: 500; }
-#privacy li p { margin: 0.25rem 0 0; }
-
-#platforms details { margin-top: 1rem; border-radius: 12px; background: var(--surface-2); padding: 0.75rem 1rem; }
-#platforms summary { cursor: pointer; font-weight: 500; }
-#platforms code { color: var(--fg); }
-
+/* --- #download: the accent band, the page's one full-colour field --- */
 #download {
   width: 100%;
   max-width: none;
   margin-inline: 0;
+  padding-block: 6.5rem;
   padding-inline: max(1.25rem, calc((100% - var(--measure)) / 2));
-  border-radius: 0;
-  background: var(--surface);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
-#download ul {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.75rem;
-  margin-top: 2rem;
+#download h2 { margin: 0; color: inherit; max-width: none; }
+#download .lead { color: inherit; opacity: 0.85; }
+.dl-version { margin: 1.5rem 0 0; font-size: var(--size-body); }
+.dl-version a { color: inherit; font-weight: 500; }
+#download a { color: inherit; }
+#download a[href^="http"]:not([href*="velta.cc"])::after { color: inherit; opacity: 0.65; }
+#download :focus-visible { outline-color: var(--accent-fg); }
+.dl-rows {
+  margin: 3rem 0 0;
   padding: 0;
   list-style: none;
 }
-#download li { background: var(--bg); }
-#download li a {
-  color: inherit;
+.dl-rows li + li { margin-top: 0.25rem; }
+.dl-rows a {
+  display: grid;
+  grid-template-columns: 9rem 1fr auto;
+  gap: 0.5rem 1.5rem;
+  align-items: baseline;
+  min-height: 3.5rem;
+  padding-block: 0.75rem;
   text-decoration: none;
-  display: block;
+  border-radius: 10px;
 }
-#download li:hover { border-color: var(--link); }
-#download li span { display: block; color: var(--muted); font-size: 0.875rem; }
-#download li strong { display: block; margin-top: 0.4rem; }
+.dl-rows strong { font-size: var(--size-lead); }
+.dl-rows a span:last-child {
+  color: inherit;
+  opacity: 0.75;
+  font-size: var(--size-small);
+  font-variant-numeric: tabular-nums;
+}
+.dl-rows a:hover strong { text-decoration: underline; text-underline-offset: 0.2em; }
+/* the ↗ marker is suppressed here: inside a grid it becomes a stray item,
+   and the row is already an obvious action */
+#download .dl-rows a::after { content: none; }
+#download > div > p:last-child { margin: 2.5rem 0 0; font-size: var(--size-body); }
 
+/* --- #notes: two-ended news rows; the date sits on the title line --- */
 #notes > div:first-child {
   display: flex;
   flex-wrap: wrap;
@@ -502,64 +685,98 @@ article.card p, #platforms li, #features p { color: var(--muted); }
 }
 /* shared by the home #notes mirror and the news index — both lists carry
    class="news-list"; the home cards are JS-cloned from the index */
-.news-list { list-style: none; margin: 2rem 0 0; padding: 0; border-block: 1px solid var(--line); }
-/* home mirror only: the section borders already separate #notes from its
-   neighbours — the list's own border-block doubled the line above #help */
-#notes .news-list { border-block: 0; }
-.news-list li { border-top: 1px solid var(--line); }
-.news-list li:first-child { border-top: 0; }
+.news-list { list-style: none; margin: 3rem 0 0; padding: 0; }
+.news-list li + li { margin-top: 2.25rem; }
 /* ul+li: `main.page a` (404, posts) outranks a bare .news-list a and
    turned whole items blue there — titles stay ink, like home and /news */
+ul.news-list li a span { display: contents; }
 ul.news-list li a {
   display: grid;
-  grid-template-columns: 1fr;
-  padding: 1.5rem 0;
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem 2rem;
+  align-items: baseline;
   color: inherit;
   text-decoration: none;
 }
-.news-list time { color: var(--muted); font-size: 0.875rem; }
-/* one meta line under the summary: date · category tag */
-ul.news-list li p.news-meta { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.875rem; }
-.news-tag { color: var(--fg); font-weight: 500; }
-/* trailing arrow: signals the whole item is a link; decorative (aria-hidden) */
-.news-arrow { color: var(--muted); font-family: var(--sans); font-weight: 400; display: inline-block; transition: transform 0.15s ease, color 0.15s ease; }
+/* the arrow stays in the title's own face — a mid-line face swap is the
+   "one italic word" tell */
+.news-arrow { display: inline-block; transition: transform 0.15s ease, color 0.15s ease; }
 .news-list a:hover .news-arrow, .news-list a:focus-visible .news-arrow { color: var(--link); transform: translateX(0.2em); }
-/* ul+li: without them `main.page h2` ties on specificity (main is an
-   element too) and wins on the 404, shrinking titles below the home size */
-ul.news-list li h2 { margin: 0.25rem 0 0; font-size: 1.8rem; }
+ul.news-list li h2 { margin: 0; font-size: var(--size-lead); max-width: 40rem; grid-row: 1; }
 .news-list a:hover h2 { color: var(--link); }
+/* one meta line on the title row's right end: date · category tag —
+   never a label above a heading */
+ul.news-list li p.news-meta {
+  grid-row: 1;
+  grid-column: 2;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--size-small);
+  text-align: right;
+  white-space: nowrap;
+}
+.news-tag { color: var(--fg); }
+.news-list time { color: var(--muted); font-variant-numeric: tabular-nums; }
+ul.news-list li p:not(.news-meta) {
+  grid-column: 1 / -1;
+  margin: 0.5rem 0 0;
+  max-width: 44rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
 /* 404/posts: `main.page ul/li` indented the list and spaced its items */
 main.page ul.news-list { padding-left: 0; }
 main.page ul.news-list li { margin: 0; }
 /* news pagination (/news/ "Older news" + archive pages /news/page-N/):
    pages numbered from the oldest post; links only go to older pages */
-.news-pager { margin: 2rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; font-size: 1rem; }
-.news-pager h2 { flex-basis: 100%; margin: 0; font-size: 1.4rem; }
-.news-pager p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 0.875rem; }
+.news-pager { margin: 2rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; font-size: var(--size-body); }
+.news-pager h2 { flex-basis: 100%; margin: 0; font-size: var(--size-lead); }
+.news-pager p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: var(--size-small); }
 .news-pager ol.news-pages { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
 main.page .news-pager ol.news-pages li { margin: 0; }
 .news-pager a { color: var(--link); text-decoration: none; }
 .news-pager a:hover { text-decoration: underline; }
-.news-pages a { display: inline-flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.5rem; border: 1px solid var(--line); border-radius: 0.5rem; box-sizing: border-box; }
+.news-pages a { /* taste-skill-ignore: outlined-box - real pagination controls */ display: inline-flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.5rem; border: 1px solid var(--line); border-radius: 0.5rem; box-sizing: border-box; }
 .news-pages a[aria-current="page"] { color: var(--fg); font-weight: 600; border-color: currentColor; }
 .news-older, .news-newer, .news-latest { display: inline-flex; align-items: center; min-height: 2.75rem; }
 
-#support { grid-template-columns: 1fr 1fr; align-items: start; }
+/* --- #help: the argument left, the five paths right --- */
+#help {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: 4rem;
+  align-items: start;
+}
+#help ul { margin: 0; padding: 0; list-style: none; }
+#help li + li { margin-top: 2.5rem; }
+#help h3 { margin: 0; font-size: var(--size-lead); }
+#help p { margin: 0.6rem 0 0; color: var(--fg); line-height: 1.55; max-width: 56ch; }
+
+/* --- #support: the ask left, the tiers right --- */
+#support {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4rem;
+  align-items: start;
+}
 #support h2 { margin-top: 0.75rem; }
-#support dl { margin: 1rem 0 0; }
+#support h3 { margin: 0; font-size: var(--size-lead); }
+#support dl { margin: 1.5rem 0 0; }
 #support dl > div {
   display: grid;
   grid-template-columns: 3.5rem 1fr;
-  gap: 0.5rem 1rem;
-  padding: 0.9rem 0;
-  border-top: 1px solid var(--line);
+  gap: 0.25rem 1rem;
+  align-items: baseline;
+  padding: 0.75rem 0;
 }
-#support dt { font-weight: 500; font-variant-numeric: tabular-nums; }
-#support dd { margin: 0; color: var(--muted); font-size: 0.875rem; }
+#support dt { font-weight: 500; font-variant-numeric: tabular-nums; font-size: var(--size-lead); }
+#support dd { margin: 0; color: var(--muted); font-size: var(--size-small); line-height: 1.5; }
+#support > div:last-child > p:last-child { margin: 1.5rem 0 0; color: var(--muted); font-size: var(--size-small); }
 
 footer {
-  border-top: 1px solid var(--line);
-  padding: 3rem 1.25rem 1.5rem;
+  /* the close: one tone step down, no rules */
+  background: var(--surface);
+  padding: 5rem 1.25rem 2rem;
 }
 footer > div, footer > p {
   width: min(var(--measure), 100%);
@@ -574,16 +791,14 @@ footer a { color: var(--muted); text-decoration: none; }
 footer a:hover { color: var(--fg); }
 footer ul { list-style: none; margin: 0.75rem 0 0; padding: 0; }
 footer li { margin: 0.4rem 0; }
-footer h2 { font-family: var(--sans); font-size: 0.875rem; font-weight: 500; margin: 0; }
+footer h2 { font-family: var(--sans); font-size: var(--size-small); font-weight: 500; margin: 0; }
 footer > p {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  margin-top: 2rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
+  margin-top: 4rem;
   color: var(--muted);
-  font-size: 0.8125rem;
+  font-size: var(--size-small);
 }
 footer img { width: 2rem; height: 2rem; vertical-align: middle; }
 footer .brand {
@@ -592,8 +807,8 @@ footer .brand {
   font-size: 1.25rem;
   text-decoration: none;
 }
-footer > div > div:first-child p { margin: 0.4rem 0 0; color: var(--muted); font-size: 0.9375rem; }
-footer .motto { font-family: var(--display); font-size: 1.05rem; }
+footer > div > div:first-child p { margin: 0.4rem 0 0; color: var(--muted); font-size: var(--size-small); }
+footer .motto { font-family: var(--display); font-size: var(--size-body); }
 
 main.page, main.news {
   width: min(40rem, calc(100% - 2.5rem));
@@ -606,11 +821,11 @@ main.page h1, main.news h1 {
   font-size: clamp(2.2rem, 5vw, 3rem);
 }
 main.page > p, main.news > p { color: var(--muted); }
-main.page .body { margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+main.page .body { margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--line); } /* taste-skill-ignore: hairline - news-post body layer, other pages */
 main.page .body h2 { margin: 2rem 0 0.5rem; font-size: 1.6rem; }
-main.page aside { margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+main.page aside { margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--line); } /* taste-skill-ignore: hairline - news-post aside layer, other pages */
 main.page aside ul { list-style: none; margin: 0.5rem 0 0; padding: 0; border-block: 1px solid var(--line); }
-main.page aside li { border-top: 1px solid var(--line); }
+main.page aside li { border-top: 1px solid var(--line); } /* taste-skill-ignore: hairline - news-post aside rows, other pages */
 main.page aside li:first-child { border-top: 0; }
 main.page aside a { display: block; padding: 0.9rem 0; color: inherit; text-decoration: none; }
 main.page aside a strong { display: block; font-family: var(--display); font-size: 1.25rem; font-weight: 500; }
@@ -627,21 +842,44 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
     top: 100%;
     grid-template-columns: 1fr 1fr;
     padding: 0.5rem 0.75rem 1rem;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg);
+    background: var(--surface);
   }
   body > header details[open] nav { display: grid; }
-  #hero, #privacy, #product > div:last-child, #platforms > div, #support, #download ul, #features ul, .news-list a {
-    grid-template-columns: 1fr;
+  /* hero: one column, the product shot gets real presence */
+  #hero { grid-template-columns: 1fr; padding-block: 2.5rem 4rem; }
+  #hero .shot { width: min(34rem, 112%); margin-inline: -6%; }
+  #hero dl { grid-template-columns: 1fr 1fr; }
+  /* the demo stacks; each rail word leads its copy */
+  .paths { grid-template-columns: 1fr; gap: 3.5rem; }
+  .paths-state { grid-column: 1; text-align: left; margin: 0; }
+  .paths .copy { grid-column: 1; }
+  /* pinned field on top; the blocks are a raised sheet with the page
+     ground, so text always carries its own background over the field */
+  #features .split { grid-template-columns: 1fr; gap: 0; }
+  #features .field { top: var(--header); height: 44svh; }
+  #features .lens { width: min(26rem, 82vw); max-height: 38svh; }
+  #features .blocks {
+    position: relative;
+    z-index: 1;
+    margin-top: -1.5rem;
+    border-radius: 14px 14px 0 0;
+    background: var(--bg);
+    padding: 3rem 0 0;
   }
+  #features .block { margin-top: 16svh; }
+  .board { grid-template-columns: 1fr 1fr; }
+  .shells { gap: 2.5rem; }
+  .shell { grid-template-columns: 1fr; gap: 0.25rem; }
+  .shell ul { grid-column: 1; grid-row: auto; }
+  .shell-get { grid-column: 1; grid-row: auto; margin-top: 0.75rem; }
+  .shell details { grid-column: 1; }
+  .dl-rows a { grid-template-columns: 1fr auto; }
+  .dl-rows a strong { grid-row: 1; grid-column: 1; }
+  .dl-rows a span:last-child { grid-row: 1; grid-column: 2; }
+  .dl-rows a span:first-of-type { grid-row: 2; grid-column: 1; font-size: var(--size-body); }
   /* footer link groups side by side on mobile; the brand block spans both */
   footer > div { grid-template-columns: 1fr 1fr; }
   footer > div > div:first-child { grid-column: 1 / -1; }
-  ul.news-list li a { padding: 1.25rem 0; }
-  ul.news-list li h2 { font-size: 1.45rem; line-height: 1.2; overflow-wrap: anywhere; }
-  #hero dl { grid-template-columns: 1fr 1fr; }
-  #features ul { grid-template-columns: 1fr 1fr; }
-  #download ul { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 40rem) {
@@ -649,9 +887,53 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   body > header > a[href="/#download"] span:first-child { display: inline; }
   body > header > a[href="#download"] span:last-child,
   body > header > a[href="/#download"] span:last-child { display: none; }
-  #features ul, #download ul, footer > p, .news-list a { grid-template-columns: 1fr; }
+  main > section { padding-block: 4.5rem; }
+  #hero .shot { width: 128%; margin-inline: -14%; }
+  .copy .route-pick { flex-wrap: wrap; }
+  .board { grid-template-columns: 1fr; }
+  .board li.board-lead { grid-column: 1; }
+  #help, #support { grid-template-columns: 1fr; gap: 2.5rem; }
+  .news-list a, footer > p, #features .rows li { grid-template-columns: 1fr; }
+  #features .rows .row-value { grid-row: 2; grid-column: 1; text-align: left; }
+  /* the meta line drops under the title, before the summary */
+  ul.news-list li p.news-meta { grid-row: 2; grid-column: 1; text-align: left; white-space: normal; }
   footer > p { flex-direction: column; }
-  #hero { padding-top: 2.5rem; }
+}
+
+/* --- motion (the last layer). Signature move: masked headline rise.
+   Entrances are transform/opacity only, gated on html.js — a failed or
+   absent script leaves every element visible. Reduced motion drops the
+   travel and keeps the content. --- */
+@media (prefers-reduced-motion: no-preference) {
+  .js .lines .line {
+    display: block;
+    overflow: hidden;
+    padding-bottom: 0.08em;
+    margin-bottom: -0.08em;
+  }
+  .js .lines [data-line] {
+    display: block;
+    transform: translateY(112%);
+    animation: line-rise 0.9s var(--ease) forwards;
+    animation-delay: calc(0.15s + var(--i, 0) * 0.11s);
+  }
+  @keyframes line-rise { to { transform: none; } }
+  /* the hero shot settles from a slight scale (the one moving picture's
+     load beat; its scroll-linked beat is the lens crop in #features) */
+  .js #hero .shot img { animation: settle 1.4s var(--ease) 0.3s both; }
+  @keyframes settle { from { transform: scale(1.03); } to { transform: none; } }
+  /* section entrances: js/site.js marks .reveal and staggers via --d */
+  .js .reveal { opacity: 0; transform: translateY(22px); }
+  .js .reveal.in {
+    opacity: 1;
+    transform: none;
+    transition: opacity 0.55s var(--ease) var(--d, 0s), transform 0.55s var(--ease) var(--d, 0s);
+  }
+  /* feedback under the hand */
+  .js :is(main) p > strong > a:active { transform: scale(0.98); }
+  .js .dl-rows a { transition: transform 0.25s var(--ease); }
+  .js .dl-rows a:hover { transform: translateX(0.3rem); }
+  .js .copy .route-pick label { transition: border-color 0.15s ease, background-color 0.15s ease; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -668,7 +950,7 @@ main.page p, main.page li { line-height: 1.65; }
 main.page ul, main.page ol { padding-left: 1.25rem; margin: 0.75rem 0; }
 main.page li { margin: 0.35rem 0; }
 main.page a { color: var(--link); }
-main.page hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
+main.page hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; } /* taste-skill-ignore: hairline - authored hr on post pages */
 main.page blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.25rem 0 0.25rem 1rem; color: var(--muted); }
 
 main.page code {
@@ -680,7 +962,7 @@ main.page code {
 }
 main.page pre {
   background: var(--surface-2);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line); /* taste-skill-ignore: outlined-box - real code block */
   border-radius: 8px;
   padding: 0.9rem 1.1rem;
   overflow-x: auto;
@@ -689,44 +971,22 @@ main.page pre {
 main.page pre code { background: none; padding: 0; font-size: 0.85rem; }
 
 main.page table { display: block; overflow-x: auto; width: 100%; border-collapse: collapse; margin: 1.25rem 0; font-size: 0.95rem; }
-main.page th, main.page td { border: 1px solid var(--line); padding: 0.55rem 0.7rem; text-align: left; vertical-align: top; }
+main.page th, main.page td { /* taste-skill-ignore: outlined-box - real table */ border: 1px solid var(--line); padding: 0.55rem 0.7rem; text-align: left; vertical-align: top; }
 main.page th { background: var(--surface-2); font-weight: 600; }
 
 main.page dl { margin: 1rem 0; }
 main.page dt { font-weight: 600; margin-top: 0.75rem; }
 main.page dd { margin: 0.15rem 0 0; color: var(--muted); }
 
-main.page details { border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.9rem; margin: 1rem 0; background: var(--surface); }
+main.page details { /* taste-skill-ignore: outlined-box - real disclosure control, other pages */ border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.9rem; margin: 1rem 0; background: var(--surface); }
 main.page details summary { cursor: pointer; font-weight: 500; }
 main.page details[open] summary { margin-bottom: 0.5rem; }
-
-/* contribute section */
-#help ul {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-  list-style: none;
-  margin: 2rem 0 0;
-  padding: 0;
-}
-#help li {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 1.25rem;
-  background: var(--surface);
-}
-#help h3 { margin: 0 0 0.5rem; font-size: 1.15rem; }
-#help p { margin: 0; color: var(--muted); }
-#help a { color: var(--link); }
-@media (max-width: 60rem) {
-  #help ul { grid-template-columns: 1fr; }
-}
 
 /* post aside: download call styled as a quiet button */
 main.page aside a {
   display: inline-block;
   padding: 0.55rem 1rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line); /* taste-skill-ignore: outlined-box - quiet button on post pages */
   border-radius: 10px;
   background: var(--surface);
   text-decoration: none;
