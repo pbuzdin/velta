@@ -58,22 +58,60 @@
   .prin { margin: 10px 0 16px; padding-left: 18px; }
   .prin li { margin: 8px 0; }
   .prin b { color: var(--accent); font-weight: 600; }
+
+  /* #182 reference-page UX: sticky controls, theme tabs, search, inherited */
+  .topbar {
+    position: sticky; top: 0; z-index: 10; background: var(--page-bg);
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 8px 0 10px; border-bottom: 1px solid var(--line);
+  }
+  .topbar input[type="search"] {
+    flex: 1 1 180px; min-width: 150px; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; color: var(--ink); font: inherit; font-size: 13px; padding: 6px 10px;
+  }
+  .vt-btn { border: 1px solid var(--line); background: var(--panel); color: var(--dim);
+    font: inherit; font-size: 12.5px; padding: 4px 12px; border-radius: 999px; cursor: pointer; }
+  .vt-btn.active { background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
+  .inh-toggle { font-size: 12.5px; color: var(--dim); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+  .search-count { font-size: 12px; color: var(--dim); }
+  h2 { top: 62px; }
+  .cols[data-tab] > .panel { display: none; }
+  .cols[data-tab="dark"] > .panel:nth-of-type(1) { display: block; }
+  .cols[data-tab="light"] > .panel:nth-of-type(2) { display: block; }
+  .cols[data-tab="brutal"] > .panel:nth-of-type(3) { display: block; }
+  .cols.searching > .panel { display: block; }
+  body.hide-inh .card:has(> .inh) { display: none; }
+  .toklink { border: 0; background: none; color: var(--accent); opacity: .3; cursor: pointer;
+    padding: 2px 3px; margin-left: 5px; vertical-align: middle; border-radius: 4px; }
+  .toklink svg { display: block; }
+  .toklink.ok { color: var(--good); opacity: 1; }
+  .card .used { color: var(--dim); font-size: 11.5px; margin-top: 4px; }
 </style>
 </head>
 <body>
 <h1 id="top">Velta Design System</h1>
 <p class="sub">Generated token reference · built from <span class="mono">app/css/main.css</span> @ <span class="mono">2bd95a99</span> · v1.5.1. · 2026-11-03 · regenerate with <span class="mono">node tools/gen-design-tokens.mjs</span> in the app repo — the suite fails when this page goes stale</p>
 <p class="sub toc">Sections:
-  <a href="#colors-dark">colors-dark</a> · <a href="#colors-light">colors-light</a> · <a href="#colors-brutal">colors-brutal</a> ·
+  <a href="#colors">colors</a> · <a href="#colors-light">colors-light</a> · <a href="#colors-brutal">colors-brutal</a> ·
   <a href="#typography">typography</a> · <a href="#spacing">spacing</a> · <a href="#radii">radii</a> ·
-  <a href="#structure">structure</a> · <a href="#components">components</a> · <a href="#principles">principles</a> · <a href="#rhythm-audit">rhythm-audit</a>
+  <a href="#structure">structure</a> · <a href="#components">components</a> · <a href="#principles">principles</a> · <a href="maintenance.html">maintenance</a>
   &nbsp;— every token has its own id: <span class="mono">#--bg</span>, <span class="mono">#--accent</span>, <span class="mono">#--nb-ink</span> …</p>
 
+<div class="topbar">
+  <input id="tok-search" type="search" autocomplete="off" placeholder="Filter tokens…" aria-label="Filter tokens">
+  <span class="vt-tabs" role="group" aria-label="Theme">
+    <button type="button" class="vt-btn active" data-vt="dark" aria-pressed="true">Dark</button>
+    <button type="button" class="vt-btn" data-vt="light" aria-pressed="false">Light</button>
+    <button type="button" class="vt-btn" data-vt="brutal" aria-pressed="false">Brutal</button>
+  </span>
+  <label class="inh-toggle"><input type="checkbox" id="inh-toggle"> show inherited</label>
+  <span class="search-count" id="search-count" aria-live="polite"></span>
+</div>
 <section id="sec-colors">
-  <h2 id="colors-dark">Colors — Dark (primary)</h2>
-  <div class="cols">
+  <h2 id="colors">Colors</h2>
+  <div class="cols" data-tab="dark">
 <div class="panel">
-      <h3>Dark (primary)</h3>
+      <h3>Dark</h3>
       <div class="card" id="--bg"><div class="swatch" style="background:#0f0f14"></div><div class="tok"><span class="name">--bg</span> <span class="val">#0f0f14 — app canvas</span></div></div>
       <div class="card" id="--bg-sidebar"><div class="swatch" style="background:#181820"></div><div class="tok"><span class="name">--bg-sidebar</span> <span class="val">#181820 — list + drawer</span></div></div>
       <div class="card" id="--bg-chat"><div class="swatch" style="background:#0b0b10"></div><div class="tok"><span class="name">--bg-chat</span> <span class="val">#0b0b10 — chat pane canvas</span></div></div>
@@ -383,20 +421,6 @@
   </table>
 </section>
 
-<section>
-  <h2 id="rhythm-audit">Rhythm audit — exceptions (amber), no third snap</h2>
-  <p class="note">Original audit checked every padding/margin/gap/size in main.css against the 2px grid; snap I landed in <span class="mono">d3526f4</span>, snap II resolved chip paddings and light-theme contrast. Odd steps on the ladder stay amber: they are optical/target exceptions, not leftover bugs. A 2026-10-14 recount of padding/margin/gap is ~89.5% even. Do not snap the rows below.</p>
-  <table>
-    <tr><th>Finding</th><th>Where</th><th>Status / suggestion</th></tr>
-    <tr><td class="ok">chip/badge paddings 0 5px → 0 4px, 3px 9px → 3px 8px</td><td>go-down badge, pin-tray count, toast chips, lc-queue chip</td><td>resolved — snap II</td></tr>
-    <tr><td class="warn">msg media margins ±5px</td><td>msg-image, msg-video, msg-audio</td><td>exception — half of the bubble's 10px padding, geometric half-bleed</td></tr>
-    <tr><td class="warn">bubble 7px 10px 6px · composer-input 13px · btn-primary 11px vertical</td><td>bubble, composer, primary buttons</td><td>exception — optical centering / 48px target; keep</td></tr>
-    <tr><td class="warn">1 / 3 / 13 / 15px micro-values</td><td>bot-chip 1.5px 4px, toast-close, meta gaps 3px, service-msg 3px, composer 13, one 15px</td><td>exception — micro-typography below the grid</td></tr>
-    <tr><td class="ok">svg icon heights 13/14/16/17/20/22/26</td><td>all icon rules</td><td>resolved — --ico-1..5 tokens (14/16/20/22/26): 13→14, 17→16, 18→20, 12→14. Global svg fallback stays 24; display graphics (30/56/168/280) and controls (checkboxes, count badge) deliberately not tokenized</td></tr>
-    <tr><td class="warn">radii: pin-tray-count 9px</td><td>18px-tall count bubble</td><td>exception — half-height circle (renders as 50%)</td></tr>
-    <tr><td class="ok">light theme contrast pass</td><td>html[data-theme="light"]</td><td>resolved — --text-dim #656a76→#5d626d (5.04 AA), --green #3d9146→#2a7032 (5.51 AA), --danger →#bf2a2a (5.33 AA); --accent-2 stays 3.40 UI-grade; raw --accent 3.01 accepted UI-only — accent text uses --accent-text. Numbers now computed in the pair table above.</td></tr>
-  </table>
-</section>
 
 <script>
 // Hash navigation: #colors-brutal highlights that heading + its section content;
@@ -448,6 +472,142 @@ applyHash();
       setTimeout(() => { b.innerHTML = svgLink; b.classList.remove('ok'); }, 1200);
     });
     h.appendChild(b);
+  });
+})();
+</script>
+
+<script>
+// #182 reference-page UX: theme tabs, token search, inherited toggle,
+// copy-token buttons and used-in references. Tab switches must precede the
+// legacy applyHash (registered above), so this listener re-runs it after
+// activating the right panel — highlight + scroll then land on a visible one.
+(function () {
+  const cols = document.querySelector(".cols");
+  const panels = [...cols.querySelectorAll(":scope > .panel")]; // dark, light, brutal
+  const countEl = document.getElementById("search-count");
+
+  function setTab(vt) {
+    cols.dataset.tab = vt;
+    document.querySelectorAll(".vt-btn").forEach(b => {
+      const on = b.dataset.vt === vt;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+  function themeOfId(id) {
+    if (/-light$/.test(id) || id === "colors-light") return "light";
+    if (/-brutal$/.test(id) || id === "colors-brutal") return "brutal";
+    if (/^--[a-z0-9-]+$/.test(id)) return "dark";
+    return null;
+  }
+  // Initial load with a token hash: activate its theme panel before the
+  // legacy highlight runs (same sequence as the hashchange path below).
+  {
+    const t0 = themeOfId(location.hash.slice(1));
+    if (t0) { setTab(t0); setTimeout(applyHash, 0); }
+  }
+  addEventListener("hashchange", () => {
+    const t = themeOfId(location.hash.slice(1));
+    if (t) setTab(t);
+    setTimeout(applyHash, 0);
+  });
+
+  document.querySelectorAll(".vt-btn").forEach(b => b.addEventListener("click", () => {
+    setTab(b.dataset.vt);
+    cols.classList.remove("searching");
+    countEl.textContent = "";
+    document.getElementById("tok-search").value = "";
+  }));
+
+  // Search: non-empty shows all three panels with only matching cards.
+  const search = document.getElementById("tok-search");
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    cols.classList.toggle("searching", q.length > 0);
+    let shown = 0;
+    panels.forEach(panel => {
+      panel.querySelectorAll(".card").forEach(card => {
+        const hit = !q.length || card.textContent.toLowerCase().includes(q);
+        card.style.display = hit ? "" : "none";
+        if (hit && q.length) shown++;
+      });
+    });
+    countEl.textContent = q.length ? shown + " match" + (shown === 1 ? "" : "es") : "";
+  });
+
+  // Inherited tokens hidden by default; the toggle persists.
+  const KEY = "velta-design-inh";
+  const box = document.getElementById("inh-toggle");
+  const showInh = (() => { try { return localStorage.getItem(KEY) === "1"; } catch { return false; } })();
+  box.checked = showInh;
+  document.body.classList.toggle("hide-inh", !showInh);
+  box.addEventListener("change", () => {
+    document.body.classList.toggle("hide-inh", !box.checked);
+    try { localStorage.setItem(KEY, box.checked ? "1" : "0"); } catch {}
+  });
+
+  // Copy-token: one button per card puts the CSS declaration on the clipboard.
+  const svgCopy = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+  const svgOk = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch {
+      const t = document.createElement("textarea");
+      t.value = text; document.body.appendChild(t); t.select();
+      let ok = false; try { ok = document.execCommand("copy"); } catch {}
+      t.remove(); return ok;
+    }
+  }
+  document.querySelectorAll(".card .tok").forEach(tok => {
+    const name = tok.querySelector(".name")?.textContent;
+    if (!name) return;
+    const val = tok.querySelector(".val")?.textContent.split(" — ")[0];
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "toklink";
+    b.setAttribute("aria-label", "Copy " + name);
+    b.innerHTML = svgCopy;
+    b.addEventListener("click", async e => {
+      e.stopPropagation();
+      const ok = await copyText(name + ": " + val + ";");
+      b.innerHTML = ok ? svgOk : svgCopy;
+      b.classList.toggle("ok", ok);
+      setTimeout(() => { b.innerHTML = svgCopy; b.classList.remove("ok"); }, 1200);
+    });
+    tok.appendChild(b);
+  });
+
+  // Used-in: hand-curated pointers from the app's own CSS (#182 review ask).
+  const USED = {
+    "accent": ".btn-primary fills, links, active chips",
+    "accent-text": ".btn-text, accent UI text",
+    "accent-text-in": "accent text on incoming bubbles",
+    "focus-ring": "every :focus-visible outline",
+    "selection-bg": ".chat-item.active",
+    "accent-tint": "selected message rows, read-marker, reaction chips",
+    "bg-hover": "row and menu hover overlays",
+    "bg-active": "pressed fills, schedule hover",
+    "on-accent": "ink on filled accent buttons",
+    "bg-bubble-in": "incoming message bubbles",
+    "bg-bubble-out": "outgoing message bubbles",
+    "text-dim": "secondary rows, placeholders, meta",
+    "out-link": "links on outgoing bubbles",
+    "green": "presence dot, verified, call accept",
+    "danger": "destructive .btn-text, call decline",
+    "border": "hairlines, inputs, panels",
+    "nb-ink": "brutal borders and hard shadows",
+    "nb-main": "brutal main yellow",
+    "nb-main-ink": "text on brutal yellow",
+    "ticks-read": "read receipt ticks",
+  };
+  document.querySelectorAll(".card").forEach(card => {
+    const name = card.querySelector(".name")?.textContent.replace("--", "");
+    const where = USED[name];
+    if (where) {
+      const d = document.createElement("div");
+      d.className = "used";
+      d.textContent = "used in: " + where;
+      card.appendChild(d);
+    }
   });
 })();
 </script>

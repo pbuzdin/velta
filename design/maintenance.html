@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Velta Design System — maintenance — Velta</title>
+<style>
+  :root { color-scheme: dark;
+    --page-bg: #0f0f14; --panel: #181820; --ink: #f2f2f5; --dim: #8b8b96; --line: rgba(244,244,244,.09); --accent: #5aa2e6; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--page-bg); color: var(--ink); padding: 40px 5vw 80px; }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .sub { color: var(--dim); font-size: 13.5px; margin-bottom: 18px; }
+  h2 { font-size: 18px; margin: 26px 0 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  td.mono, .mono { font: 12.5px ui-monospace, Consolas, monospace; }
+  .ok { color: #4fae4f; } .warn { color: #e0a03a; }
+  .note { color: var(--dim); font-size: 13px; margin-bottom: 14px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>Design maintenance</h1>
+<p class="sub">Governance notes moved off the reference page (#182) · <a href="index.html">← token reference</a></p>
+<h2 id="rhythm-audit">Rhythm audit — exceptions (amber), no third snap</h2>
+  <p class="note">Original audit checked every padding/margin/gap/size in main.css against the 2px grid; snap I landed in <span class="mono">d3526f4</span>, snap II resolved chip paddings and light-theme contrast. Odd steps on the ladder stay amber: they are optical/target exceptions, not leftover bugs. A 2026-10-14 recount of padding/margin/gap is ~89.5% even. Do not snap the rows below.</p>
+  <table>
+    <tr><th>Finding</th><th>Where</th><th>Status / suggestion</th></tr>
+    <tr><td class="ok">chip/badge paddings 0 5px → 0 4px, 3px 9px → 3px 8px</td><td>go-down badge, pin-tray count, toast chips, lc-queue chip</td><td>resolved — snap II</td></tr>
+    <tr><td class="warn">msg media margins ±5px</td><td>msg-image, msg-video, msg-audio</td><td>exception — half of the bubble's 10px padding, geometric half-bleed</td></tr>
+    <tr><td class="warn">bubble 7px 10px 6px · composer-input 13px · btn-primary 11px vertical</td><td>bubble, composer, primary buttons</td><td>exception — optical centering / 48px target; keep</td></tr>
+    <tr><td class="warn">1 / 3 / 13 / 15px micro-values</td><td>bot-chip 1.5px 4px, toast-close, meta gaps 3px, service-msg 3px, composer 13, one 15px</td><td>exception — micro-typography below the grid</td></tr>
+    <tr><td class="ok">svg icon heights 13/14/16/17/20/22/26</td><td>all icon rules</td><td>resolved — --ico-1..5 tokens (14/16/20/22/26): 13→14, 17→16, 18→20, 12→14. Global svg fallback stays 24; display graphics (30/56/168/280) and controls (checkboxes, count badge) deliberately not tokenized</td></tr>
+    <tr><td class="warn">radii: pin-tray-count 9px</td><td>18px-tall count bubble</td><td>exception — half-height circle (renders as 50%)</td></tr>
+    <tr><td class="ok">light theme contrast pass</td><td>html[data-theme="light"]</td><td>resolved — --text-dim #656a76→#5d626d (5.04 AA), --green #3d9146→#2a7032 (5.51 AA), --danger →#bf2a2a (5.33 AA); --accent-2 stays 3.40 UI-grade; raw --accent 3.01 accepted UI-only — accent text uses --accent-text. Numbers now computed in the pair table above.</td></tr>
+  </table>
+<p class="note" style="margin-top:26px">The token cards and the contrast pair table are generated — see the stamp on the <a href="index.html">reference page</a>; regenerate with <span class="mono">node tools/gen-design-tokens.mjs</span> in the app repo, where a test fails on stale output.</p>
+</body>
+</html>
