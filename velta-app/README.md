@@ -4,8 +4,17 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.5.1` (copied from `src-tauri/tauri.conf.json`)  
+**Current stable version:** `1.5.2` (copied from `src-tauri/tauri.conf.json`)  
 **Bundled core:** `deltachat-core-rust 2.66.0` (copied from `../core/Cargo.toml`)
+
+## What's new in 1.5.2
+
+- **Windows Hello** (Windows) can hold the database key. Turning it on
+  removes the Credential Manager copy. Cold start stays locked until Hello
+  succeeds. The app-lock PIN can stay as the other way in.
+- **Large chats** no longer freeze the app on the reply count. Restart
+  core does not stack, and stopping mail gives up after 15 seconds.
+- Light theme keyboard focus uses a darker ring (`#1a68b8`).
 
 ## What's new in 1.5
 

@@ -138,6 +138,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   ├── sidecar.rs    # Windows/macOS rpc-server spawn + stdout JSON-RPC routing (#201/#205)
 │       │   ├── push.rs       # UnifiedPush JNI: endpoint, wakeup, registrationFailed in status() (#204/#205)
 │       │   ├── db_key.rs     # VELTA_DB_KEY install_env + Android/desktop DEK (#202)
+│       │   ├── win_hello.rs  # Windows Hello NGC wrap of the desktop DEK (1.5.2, Windows only)
 │       │   ├── log.rs        # bounded drop-newest logger; LOG_ENABLED default OFF; boot: always writes (#196/#197)
 │       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
 │       │   ├── proxy.rs      # saved SOCKS5 proxies + shared proxy_url keeper; backup detachment; WS mutual exclusion; stale DNS-listener cleanup
@@ -160,6 +161,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │                              onboarding, security-triage, large-file, calls, web-push;
 │                              dns-tunnel.md is archival — SOCKS5 replaced it) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
+├── docs/design-tokens.html       # generated swatches + WCAG pairs (tools/gen-design-tokens.mjs, #182 slice 2a)
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
 ├── docs/modals-audit-and-plan.md # modal/overlay/popup inventory + native <dialog> plan
@@ -274,7 +276,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (187 ops, 37 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (188 ops, 37 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -284,7 +286,7 @@ intent in VENDORISSUES.MD):
 | #11 | "Use for sending" pin: `ui.velta.send_transport` first, upstream recency failover, 5-min dead-pin backoff; since 2.64 a server-rejected send (upstream `smtp_failure`) backs the pin off too, so upstream's fallback wins until the backoff expires / the pin connects / a send on it succeeds | smtp.rs, smtp_tests.rs |
 | #12 | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (#42/#25 P8) | context.rs |
 | #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
-| #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`, hidden rows excluded (`replies.hidden=0`, 1.4.84: send_edit_request's own hidden copy quotes the original, so an edited caption counted as a reply); thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No index/migration (per-chat scan via the chat_id index; a dbversion bump would collide with upstream migrations) | chat.rs, deltachat-jsonrpc/src/api.rs |
+| #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`, hidden rows excluded (`replies.hidden=0`, 1.4.84: send_edit_request's own hidden copy quotes the original, so an edited caption counted as a reply); thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No schema change (a dbversion bump would collide with upstream migrations). Since 1.5.2, #29 forces `msgs_index1` (`CROSS JOIN` on `rfc724_mid`, `+quoted.chat_id`); the old join used the chat_id index on both sides and scanned the chat twice | chat.rs, deltachat-jsonrpc/src/api.rs |
 | #15 | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from IMAP METADATA the scheduler already fetches. 6 ops | transport.rs, deltachat-jsonrpc api.rs + types/login_param.rs |
 | #17 | jsonrpc `maybe_network` clones the contexts under `accounts.read()` and awaits scheduler interrupts AFTER releasing it (#175, 1.4.85): a queued `start_io`/`stop_io` writer behind a stuck IO restart (dead proxy, up to 30 s per task) blocked every UI RPC, so chat switching "did nothing" on Android after a send. `proxy_android::maybe_network` does the same | deltachat-jsonrpc/src/api.rs |
 | #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
@@ -300,6 +302,7 @@ intent in VENDORISSUES.MD):
 | #26 | `get_raw_config` cache miss takes no `config_mtx` (#22 serialized it behind setters waiting on the write connection: uncached `get_config` timed out). `Sql::config_gen` (AtomicU64) is bumped by set/uncache/import BEFORE the write; a miss fills the cache only if the generation is unchanged, so a late read never overwrites a newer write (#241) | sql.rs, sql_tests.rs |
 | #27 | #18's `try_read` misses are no longer lost: `interrupt_inbox_idle` / `maybe_network_lost` / `interrupt_inbox` / `interrupt_smtp` set `SchedulerState::velta_wake_pending`; `start` (running or `do_start`, incl. pause resume) swaps it and interrupts inbox + SMTP (#241) | scheduler.rs |
 | #28 | `get_connectivity_html` uses `try_read` on the scheduler state and answers "Connecting…" during an IO start/stop instead of waiting up to 30 s (`get_connectivity` already reads the lock-free connectivities list). Tests: connectivity.rs `test_velta_scheduler_lock_held_no_wait_no_lost_wake`; `tests/core-stall/stop_io_stall.py` also asserts uncached `get_config`, `get_connectivity_html`, `get_server_metadata` < 1 s (#241) | scheduler/connectivity.rs |
+| #29 | `get_reply_counts` lookup by `rfc724_mid` (#249/#250, 1.5.2): one replace op, `CROSS JOIN msgs quoted ON quoted.rfc724_mid = …` and `+quoted.chat_id=?`. The unary plus stops the chat filter from becoming the access path. A running statement is still not cancelled — `Sql::call` waits out `block_in_place`, and `sqlite3_interrupt` is not wired (it would roll back the write transaction on that connection). Add it only when `core slow sql` shows a statement that still owns a pool slot after Restart returns | chat.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)
@@ -2445,11 +2448,17 @@ Release notes: `.github/release-notes/v1.5.1.md`. The list below is the work rec
 - **Call route chip** (8ae38878, c8908902, #239): "Direct" / "Via relay" from `getStats()`, right-side chevron.
 - Encryption wording rules still apply: Android shipped, desktop + PWA preview, attachments WIP, never "all platforms".
 
-### 6.15 Unreleased on master since v1.5.1 (no bump/tag yet)
+### 6.15 Release 1.5.2 (2026-11-03): Windows Hello, reply-count stall, restart bound
 
-Do not write a versioned release-notes file until the release is cut; this list is the draft.
+Release notes: `.github/release-notes/v1.5.2.md`. News: `https://velta.cc/news/v1-5-2.html`.
 
-- **Design system #182, slice 1 — tokens and focus contract** (`tests/design-tokens.test.mjs` pins the structure): `--selection-bg` is its own token (the chat-list selection no longer reads `--bg-active`, and `deriveAccent` emits it so selection and the outgoing bubble can drift apart); `--accent-tint` is now defined per theme (light `#3390ec`, brutal `#8f7ff0`) instead of inheriting the dark blue in light/brutal; a shared `--focus-ring` token replaces 22 scattered accent outlines (`currentColor` inside bubbles and `--text` on the core banner stay deliberate). Rendered changes, all reviewed: light focus ring darkens `#3390ec`→`#1a68b8` (3.0→5.1:1, focus-indicator bar), light translucent fills shift `#5aa2e6`→`#3390ec`, brutal translucent fills follow the violet accent instead of blue. Remaining #182 work: generated design-page docs + stale check (website), component contracts, reference-page UX, 44px touch-target and 8.5px label reviews.
+- **Reply-count wedge** (2bd95a99, #249/#250, quilt #29): `get_reply_counts` self-joined `msgs` on `chat_id`, so a large chat held one of the three pooled connections for minutes. Overlapping chat-view calls filled the pool and `get_chat`, `start_io`, and config reads waited behind them. #29 is `CROSS JOIN` on `rfc724_mid` plus `+quoted.chat_id` so the planner uses `msgs_index1`. The chat view runs one reply-count query at a time and folds a burst into one rerun (`chat-view.js`). A process already inside the old query is not reached by this build — quit that process.
+- **Restart core** (same commit): one restart at a time (`coreRestartInFlight` in app.js). `restartIo` gives `stop_io_for_all_accounts` 15 s, then starts I/O anyway. `stop_io` still only stops IMAP and SMTP. A SQLite statement that has already started still runs to completion (`Sql::call` → `block_in_place`). `Connection::get_interrupt_handle()` can cancel it, and it rolls back an in-flight write transaction; it is not wired. Add it when a `core slow sql` line still owns a pool slot after Restart returns.
+- **Watchdog false stalls** (#247): `LONG_RPC_METHODS` (backup, relay add, calls, connectivity HTML, …) never raise the banner. A tick gap of 15 s or more is treated as a resume (the app was frozen; ages count from the last resume). A timed-out RPC with no late answer stops counting after 2 min.
+- **Core banner** (#248): `top: calc(10px + env(safe-area-inset-top))` so it sits below the Android status bar.
+- **Design system #182, slice 1** (49f467fa, `tests/design-tokens.test.mjs`): `--selection-bg` is its own token (selection no longer reads `--bg-active`); `--accent-tint` is defined per theme (light `#3390ec`, brutal `#8f7ff0`); `--focus-ring` replaces the scattered accent outlines (`currentColor` inside bubbles and `--text` on the core banner stay deliberate). Light focus ring `#3390ec`→`#1a68b8` (5.1:1).
+- **Design system #182, slice 2a** (91179cea): `tools/gen-design-tokens.mjs` emits `docs/design-tokens.html` (a card per color token, plus a WCAG pair table with computed ratios). `tests/design-tokens-doc.test.mjs` regenerates in memory and fails when the committed fragment is stale. The website `/design/` page does not embed that fragment yet (slice 2b). Remaining #182: that embed, component contracts, reference-page UX, 44 px touch targets, 8.5 px labels.
+- **Windows Hello** (desktop only): Privacy & security wraps the install DEK in an NGC RSA-2048 key (`win_hello.rs`, Passport provider, key name `chat.velta.dbkey`) and removes the Credential Manager copy. Ciphertext is `<data>/dbkey.wrap.hello` (`VLTHW`). Decrypt prompts; encrypt does not. The button is shown only when Hello is enrolled (`NgcGetDefaultDecryptionKeyName`). The PIN wrap can stay as the other root. Cold start stays locked until Hello or the PIN succeeds. Details in the data-at-rest bullet below.
 
 
 
@@ -2502,7 +2511,7 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 195 files, 1317 tests as of 2026-11-03 (5 skip without
+whole set — 198 files, 1332 tests as of 2026-11-03 (5 skip without
 python3+websockets in `tests/ws-proxy-auth.test.mjs`; 1 more when the sidecar
 binary is absent in `tests/release-version-pins.test.mjs`. CI installs
 python3+websockets so those run on Linux; Windows path uses `fileURLToPath`).
@@ -2834,11 +2843,27 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   256-bit DEK per install opens every account's SQLCipher database; it
   reaches the core as the `VELTA_DB_KEY` env var (core quilt patch #20,
   read in `Accounts::load_accounts`/`add_account`). Custody per platform:
-  desktop keychain (`keyring`, `chat.velta.dbkey`) or the app-lock PIN —
-  the PIN REPLACES the keychain as the key root (Argon2id wrap in
-  `<data>/dbkey.wrap`, `db_key.rs`; a PIN session STARTS LOCKED: the
-  sidecar spawns keyless, `unlock_with_pin` re-migrates and respawns it
-  keyed, `spawn_sidecar` owns the child so lock/unlock can respawn);
+  desktop keychain (`keyring`, `chat.velta.dbkey`), the app-lock PIN, or
+  Windows Hello. Either wrap REPLACES the keychain as the key root. The
+  PIN is Argon2id in `<data>/dbkey.wrap`. Windows Hello (1.5.2, `cfg(windows)`,
+  `win_hello.rs`) is an RSA-2048 key in "Microsoft Passport Key Storage
+  Provider" named `chat.velta.dbkey`: usage decrypt|signing, `NgcCacheType`
+  auth-mandatory, reject `NCRYPT_ALLOW_KEY_IMPORT`. PKCS#1 encrypt does not
+  prompt; decrypt does (`PinCacheIsGestureRequired`, parent HWND from the
+  `main` window). The wrap is `<data>/dbkey.wrap.hello` (`VLTHW` + version +
+  ciphertext). `hello_set` decrypts once before the file is written and the
+  keychain item is deleted; a cancelled prompt deletes the NGC key and
+  leaves the keychain. Both wraps may be set. Removing one leaves the
+  other. Removing the last writes the keychain first, then deletes the
+  file. Do not put a consent popup in front of DPAPI — any process running
+  as the user can skip it. `hello_supported` is enrollment
+  (`NgcGetDefaultDecryptionKeyName`), not merely Windows; the button stays
+  hidden otherwise. A wrap session STARTS LOCKED: the sidecar spawns
+  keyless, `unlock_with_pin` / `unlock_with_hello` re-migrates and respawns
+  it keyed (`spawn_sidecar` owns the child). The lock screen is Hello when
+  that wrap exists, and the PIN form as well when `dbkey.wrap` exists.
+  `lock_now` emits the same shape. `probe_db_lock` must copy both `mode`
+  and `pin` or the PIN form disappears on cold start;
   Android Keystore (`org.velta.VeltaKeystore`) with the optional biometric
   lock (`org.velta.VeltaLock`: an auth-bound KEK `velta_kek_auth` wraps the
   DEK into `dbkey.wrap.auth`, the plain wrap is removed, and

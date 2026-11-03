@@ -237,10 +237,12 @@ quotes, forward labels and reactions scale with it), a **message corners** slide
 cards follow it), an **accent color** (8 presets plus a custom color picker)
 and **hyphenation** for English and Russian. A live preview with an incoming
 and an outgoing bubble sits on top, and Reset to defaults puts everything
-back. The accent drives links, buttons, switches, focus rings and your own
-bubbles; the hover/pressed shades and the text colors on top of it are
-derived automatically and held at WCAG AA (4.5 : 1) in both light and dark
-(the Brutal theme keeps its own palette). Settings are per device and apply
+back. The accent drives links, buttons, switches and your own
+bubbles. Keyboard focus uses the theme's own focus ring; since 1.5.2 the
+light theme's ring is a darker blue (`#1a68b8`, 5.1:1) instead of the
+accent itself. The hover/pressed shades and the text colors on top of the
+accent are derived automatically and held at WCAG AA (4.5 : 1) in both
+light and dark (the Brutal theme keeps its own palette). Settings are per device and apply
 before first paint, like the interface scale. Message text is tagged `ru` or
 `en` per message so the engine hyphenates with the right dictionary; links,
 e-mail addresses and hashtags are never hyphenated.
@@ -1444,6 +1446,24 @@ regression test with the real core runs in CI on every core change.
 </details>
 
 <details>
+<summary>Large-chat stall (1.5.2)</summary>
+
+Opening a large chat could freeze the whole app. The "N replies" count
+joined the message table to itself and scanned the chat twice, and each
+open started another copy. Three of those filled the database pool, so
+opening chats and restarting mail waited behind them. 1.5.2 looks the
+quoted message up by its id index, and the chat view runs only one of
+those counts at a time.
+
+**Restart core** no longer stacks on itself. Stopping mail connections
+gives up after 15 seconds and starts them again anyway. A database
+statement that has already started still runs to the end — quit an app
+that is already stuck on an older build. A new build does not enter that
+query.
+
+</details>
+
+<details>
 <summary>Profile data encryption &amp; app lock (since 1.4.89)</summary>
 
 **Android:** each profile's message database is encrypted at rest
@@ -1468,6 +1488,12 @@ lock settings for the whole app, not per profile:
 - **App-lock PIN** (desktop, Android, PWA) — 6+ characters; Velta asks for
   it at every start. The PIN replaces the keychain/Keystore as the key's
   root (Argon2id), with growing delays after wrong attempts.
+- **Windows Hello** (Windows desktop, 1.5.2) — PIN, face, or fingerprint
+  unwraps the database key. Turning it on removes the Credential Manager
+  copy. Cold start stays locked until Hello succeeds. It can sit beside
+  the app-lock PIN; either one unlocks. The button is hidden when Hello
+  is not set up on this Windows account (remote desktop, some virtual
+  machines). Android's biometric lock is unchanged.
 - **Biometric lock** (Android 9+) — fingerprint/face, and on Android 11+
   also the phone's screen-lock PIN, pattern or password, so phones without
   enrolled biometrics can use it. It can be combined with the Velta PIN.

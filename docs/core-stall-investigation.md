@@ -1,11 +1,12 @@
 # Core stall investigation (after 1.5.0)
 
-Status: open. Tracks the "app freezes / empty lists" reports on 1.5.0 and the
-work landed on master since (unreleased). Related: #229, #240, #241, #242–#245;
+Status: the 1.5.0 freeze reports that had a fix are shipped. 1.5.1 is the
+watchdog, last-good lists, and patches #22 and #25–#28. 1.5.2 is the
+reply-count wedge (#249). Related: #229, #240, #241, #242–#245;
 of the progress/loader ideas #231–#238, #233 (first-sync strip) and #238
 (search sweep bar) landed in 2bf3ce90, the rest are still open.
 
-## What landed (unreleased, master after v1.5.0)
+## What landed in 1.5.1
 
 - **Core patch #22** (c38a4938, #229): `set_config` / `get_raw_config` no longer
   hold the config cache lock across the DB write. Slow-SQL diagnostics are
@@ -33,7 +34,7 @@ of the progress/loader ideas #231–#238, #233 (first-sync strip) and #238
   network; uncached `get_config` not blocked by a setter (generation counter);
   wake-pending flag so skipped wakes aren't lost; `get_connectivity_html`
   answers "Connecting…" during an IO restart. `tests/core-stall/stop_io_stall.py`
-  extended. Quilt now 187 ops / 37 files.
+  extended. Quilt is 188 ops / 37 files after #29 (1.5.2).
 
 ## Upstream findings
 
@@ -53,10 +54,14 @@ of the progress/loader ideas #231–#238, #233 (first-sync strip) and #238
 
 ## Next step
 
-Awaiting Pavel's device test of CI run 41491324296 and a velta.log with the
-watchdog lines. Do not release until it is read.
+1.5.1 and 1.5.2 are tagged. A process already wedged on a pre-1.5.2 binary
+still has to be quit — the new query is not loaded into that process.
+`sqlite3_interrupt` (rusqlite `Connection::get_interrupt_handle()`) was
+looked at and not added: the statement that filled the pool is gone, and an
+interrupt rolls back the write transaction on that connection. Wire it when
+a `core slow sql` line still owns a pool slot after Restart returns.
 
-## #249: get_reply_counts wedge (Nov 3)
+## #249: get_reply_counts wedge (shipped in 1.5.2)
 
 - `get_reply_counts` (patch #14) self-joined `msgs` via the `chat_id` index on
   both sides: O(n²) per chat. A few overlapping calls held all 3 pool
