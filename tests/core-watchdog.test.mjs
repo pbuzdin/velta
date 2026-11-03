@@ -46,6 +46,19 @@ test("an old in-flight RPC alone marks the core stalled", () => {
   assert.equal(s.status, "stalled");
 });
 
+test("a healthy ping does not recover while another RPC remains stuck", () => {
+  let r = run([
+    tick(10000, { oldest: { method: "get_config", ms: 10000 } }),
+    { type: "pong", now: 12000, oldest: { method: "get_config", ms: 12000 } },
+  ]);
+  assert.equal(r.s.status, "stalled");
+  assert.ok(!r.actions.some(a => a.type === "hide"));
+  assert.ok(!r.logs.some(l => /recovered/.test(l)));
+  r = run([{ type: "pong", now: 15000, oldest: null }], r.s);
+  assert.equal(r.s.status, "healthy");
+  assert.ok(r.actions.some(a => a.type === "hide"));
+});
+
 test("hung core is not killed early; auto-restart only after HUNG_RESTART_MS", () => {
   const o = { method: "get_chatlist_items_by_entries", ms: 10000 };
   let r = run([tick(10000, { oldest: o }), tick(30000, { oldest: { ...o, ms: 30000 } })]);
@@ -132,6 +145,34 @@ test("driver: pings get_system_info, shows/hides banner, logs oldest in-flight",
   for (const req of transport.sent) transport.receive(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: {} }));
   await new Promise(r => setTimeout(r, 0));
   assert.deepEqual(ui, ["show:stalled", "hide"]);
+});
+
+test("a client-timed-out RPC stays visible to the watchdog until its late answer", async () => {
+  const transport = { sent: [], setReceiver(fn) { this.receive = fn; }, send(l) { this.sent.push(JSON.parse(l)); } };
+  const core = new JsonRpcCore(transport);
+  transport.setReceiver(core._onLine);
+  core._rpcLog = () => {};
+  const call = core._callWithTimeout(5, "get_config", 1, "configured_addr");
+  await assert.rejects(call, /rpc timeout: get_config/);
+  assert.equal(core.pending.size, 0);
+  assert.equal(core.oldestInFlight().method, "get_config");
+  const req = transport.sent[0];
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: null }));
+  assert.equal(core.oldestInFlight(), null);
+});
+
+test("reconnect forgets timed-out RPCs from the old connection", async () => {
+  const transport = { reconnect: async () => true, setReceiver() {}, send() {} };
+  const core = new JsonRpcCore(transport);
+  core.accountId = 1;
+  core._timedOut.set(99, { method: "get_config", started: Date.now() - 30000 });
+  core._applyVeltaStrings = async () => {};
+  core._call = async () => {};
+  core._startIo = async () => {};
+  core._invalidateChat = () => {};
+  assert.equal(await core.reconnect(), true);
+  assert.equal(core._timedOut.size, 0);
+  assert.equal(core.oldestInFlight(), null);
 });
 
 test("app wires the banner, busy guards and the shared restart path", () => {

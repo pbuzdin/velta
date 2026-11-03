@@ -54,7 +54,7 @@ function busyReason(busy) {
 /**
  * input types:
  *  tick    { now, pingPendingMs, oldest: {method, ms}|null, busy: {transfer, call} }
- *  pong    { now }                 a ping (or any RPC) answered
+ *  pong    { now, oldest }         a ping answered; oldest is the oldest unresolved RPC
  *  dead    { now, reason }         transport / worker / channel gone
  *  resume  { now }                 app back in the foreground
  *  restarted { now, ok, error }    outcome of a restart action
@@ -74,7 +74,9 @@ export function step(state, input, W = WATCHDOG) {
       break;
 
     case "pong":
-      if (s.status === "stalled") {
+      // The ping avoids account DBs and scheduler locks, so it can answer
+      // while the RPC that exposed the stall is still stuck.
+      if (s.status === "stalled" && (input.oldest?.ms ?? 0) < W.RPC_STALL_MS) {
         log(`recovered after ${sec(now - s.since)}`);
         Object.assign(s, { status: "healthy", since: now, suppressedLogged: false });
         out.push({ type: "hide" });
@@ -209,8 +211,11 @@ export function startCoreWatchdog({ core, isBusy, restarts = [], restart, onShow
     // Long client timeout: the watchdog judges by age, the call only needs
     // to settle eventually so the next ping can go out.
     core._callWithTimeout(W.PING_TIMEOUT_MS, PING_METHOD)
-      .then(() => { pingStarted = 0; apply({ type: "pong", now: now() }); },
-            () => { pingStarted = 0; });
+      .then(() => {
+        pingStarted = 0;
+        const t = now();
+        apply({ type: "pong", now: t, oldest: core.oldestInFlight?.(t) || null });
+      }, () => { pingStarted = 0; });
   };
   const tick = () => {
     if (!visible()) return;
