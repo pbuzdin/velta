@@ -180,8 +180,13 @@
       </li>
       <li>
         <h3><img src="/circle-logo.svg" alt="" width="20" height="20">Velta Circle</h3>
-        <p>Group audio calls for up to six people, set up through the encrypted chat. The ring only sounds while the app is open.</p>
+        <p>Group audio calls for up to six people. The call posts as a card in the encrypted chat, so nothing rings.</p>
         <span class="row-value">six on a call</span>
+      </li>
+      <li>
+        <h3>Audio and video calls</h3>
+        <p>One to one, beta, end-to-end encrypted like everything else. A call rings only while the app is open; a backgrounded app shows it as missed. Groups call with Velta Circle.</p>
+        <span class="row-value">beta · one to one</span>
       </li>
       <li>
         <h3>Locked when you walk away</h3>
@@ -213,7 +218,7 @@
     <li><h3>Your mailbox, not ours</h3><p>Chatmail relays hold ciphertext. Velta does not operate them and cannot read the mail.</p></li>
     <li><h3>The app loads itself</h3><p>A strict content security policy. Pages inside a message do not share the app’s origin.</p></li>
     <li><h3>Links stay clean</h3><p>Previews can be off, sent as a picture, or loaded on the device. Tracking parameters are stripped.</p></li>
-    <li><h3>Tunnel is opt-in</h3><p>Android can use a DNS tunnel on a blocked network. It stays off until you enable it.</p></li>
+    <li><h3>Proxy is opt-in</h3><p>Android can route mail through a SOCKS5 proxy on a blocked network. It stays off until you enable it.</p></li>
     <li><h3>You can leave</h3><p>Export the profile. Delete it. The license is GPL-3.0, so the client can be forked.</p></li>
   </ol>
   <p class="board-note">This website measures its own visits cookielessly, in aggregate. The app has no telemetry and never phones home.</p>
@@ -225,18 +230,18 @@
   <div class="shells">
     <div class="shell">
       <h3>Android</h3>
-      <p class="shell-size">49 MB · arm64</p>
+      <p class="shell-size">~49 MB · arm64</p>
       <ul>
         <li>Needs an arm64 phone.</li>
         <li>The chat core runs inside the app, with a foreground service so sync continues after you leave.</li>
         <li>Push notifications through UnifiedPush, with no Google services in the loop.</li>
-        <li>Optional DNS tunnel when a network blocks mail. Off until you turn it on.</li>
+        <li>Optional SOCKS5 proxy when a network blocks mail. Off until you turn it on.</li>
       </ul>
       <p class="shell-get"><strong><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk">Download APK</a></strong></p>
     </div>
     <div class="shell">
       <h3>Windows</h3>
-      <p class="shell-size">13 MB · x64</p>
+      <p class="shell-size">~15 MB · x64</p>
       <ul>
         <li>x64 installer. The core ships beside the app.</li>
         <li>One-click updates when a newer build is published.</li>
@@ -246,7 +251,7 @@
     </div>
     <div class="shell">
       <h3>macOS</h3>
-      <p class="shell-size">36 MB · universal test build</p>
+      <p class="shell-size">~41 MB · universal test build</p>
       <ul>
         <li>Apple Silicon and Intel, macOS 10.15 or newer.</li>
         <li>Ad-hoc signed, not notarized. The first open needs an extra approval.</li>
