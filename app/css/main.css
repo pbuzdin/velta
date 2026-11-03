@@ -147,6 +147,13 @@ body {
   overflow: hidden;
 }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+/* #182: the shared focus contract — every button and link gets the 2px
+   --focus-ring outline even where no per-component rule exists (modal feet,
+   icon buttons, ctx items without their own). Per-component focus rules with
+   custom offsets keep winning over this base. */
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--focus-ring); outline-offset: 2px;
+}
 input, textarea { font: inherit; color: inherit; }
 svg { width: 24px; height: 24px; display: block; }
 
