@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.5.2 unlocks with Windows Hello and stops large chats from freezing the app — Velta</title>
+  <meta name="description" content="Windows desktop can unlock the database key with Windows Hello. Opening a large chat no longer fills the database and freezes the app, and Restart core no longer stacks.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=18">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.5.2 unlocks with Windows Hello and stops large chats from freezing the app</h1>
+    <p><time>3 November 2026</time> · 3 min read</p>
+    <p>Windows desktop can unlock the database key with Windows Hello. Opening a large chat no longer fills the database and freezes the app, and Restart core no longer stacks.</p>
+    <div class="body">
+<p>Two things that made the app feel stuck are in this release: a large chat that froze everything, and a Windows machine that kept the database key in Credential Manager with no way to ask for you at startup.</p>
+<h2>Windows Hello</h2>
+<p>On Windows, Privacy &amp; security can hand the database key to Windows Hello. A PIN, face, or fingerprint unwraps it. Turning Hello on removes the copy that lived in Credential Manager, and a cold start stays locked until Hello succeeds. The app-lock PIN can stay beside it — either one unlocks, and turning the last one off puts the key back in Credential Manager.</p>
+<p>The button is hidden when this Windows account has no Hello set up, which is common on a remote desktop or some virtual machines. Android's biometric lock is unchanged.</p>
+<h2>Large chats</h2>
+<p>Opening a large chat could freeze the whole app. The "N replies" count joined the message table to itself and scanned the chat twice, and every open started another copy. Three of those filled the database, so opening another chat and restarting mail both waited behind them. 1.5.2 looks the quoted message up by its id, and the chat view runs only one of those counts at a time.</p>
+<p>If the app is already frozen on an older build, install this one and quit that process. A build that is already inside the old query does not pick up the new one until it exits.</p>
+<h2>Restart core</h2>
+<p><strong>Restart core</strong> no longer stacks on itself. Stopping mail connections gives up after 15 seconds and starts them again anyway. A database statement that has already started still runs to the end — that is the same reason a process already stuck on an older build has to be quit.</p>
+<h2>A quieter watchdog</h2>
+<p>The core watchdog no longer treats a backup, a relay add, or a call as a stall. Those calls are slow on purpose. If the clock jumps — the laptop slept, the phone froze — the app treats that as coming back, not as every call being minutes old. A call that timed out and never answered stops counting after two minutes.</p>
+<p>On Android the banner sits below the status bar, so it is not drawn under the clock.</p>
+<h2>Also in this release</h2>
+<ul>
+<li>Keyboard focus in the light theme uses a darker blue ring, so the outline stays readable on a white surface. Text selection uses its own color instead of the pressed-row color.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.2">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.5.1...v1.5.2">Compare 1.5.1 with 1.5.2</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client, built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=7"></script>
+</body>
+</html>
