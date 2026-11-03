@@ -5042,8 +5042,8 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
         .query_map_vec(
             "SELECT quoted.id, COUNT(replies.id) \
              FROM msgs replies \
-             JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \
-             WHERE replies.chat_id=? AND quoted.chat_id=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \
+             CROSS JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \
+             WHERE replies.chat_id=? AND +quoted.chat_id=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \
              AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' AND replies.hidden=0 \
              AND replies.mime_in_reply_to IS NOT NULL AND replies.mime_in_reply_to != '' \
              GROUP BY quoted.id",

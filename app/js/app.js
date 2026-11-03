@@ -233,7 +233,24 @@ function renderInitialDiagnosticsChat() {
 
 // The one "Restart: Core" path (Diagnostics button, watchdog banner, #240
 // auto-restart). kind: "manual" | "hung" | "dead". Resolves true on success.
-async function restartCore(kind = "manual") {
+// #249: one restart at a time. The watchdog, the banner button and the UI
+// reconnect used to start overlapping restarts that failed each other
+// ("reconnecting", "requested during startup"); a second request now joins
+// the running one.
+let coreRestartInFlight = null;
+function restartCore(kind = "manual") {
+  if (coreRestartInFlight) {
+    diagnostics.append("info", `Core restart (${kind}) joined the one already running`);
+    return coreRestartInFlight;
+  }
+  const p = restartCoreOnce(kind);
+  coreRestartInFlight = p;
+  const clear = () => { if (coreRestartInFlight === p) coreRestartInFlight = null; };
+  p.then(clear, clear);
+  return p;
+}
+
+async function restartCoreOnce(kind = "manual") {
   if (!core) {
     diagnostics.append("warning", "Core is still starting; reloading the UI to retry initialization");
     setTimeout(() => location.reload(), 150);
@@ -333,8 +350,15 @@ function bindEarlyRecoveryActions() {
       return;
     }
     try {
-      const ok = await core.reconnect?.();
-      if (!ok) throw new Error("Transport reconnect is unavailable");
+      // #249: a reconnect fails every pending call ("reconnecting"),
+      // including a restart already running — let that one finish instead.
+      if (coreRestartInFlight) {
+        diagnostics.append("info", "UI reconnect waits for the running core restart");
+        await coreRestartInFlight;
+      } else {
+        const ok = await core.reconnect?.();
+        if (!ok) throw new Error("Transport reconnect is unavailable");
+      }
       core.backend.connected = true;
       await refreshChatList();
       diagnostics.append("info", "UI reconnected successfully");
