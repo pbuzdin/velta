@@ -21,7 +21,7 @@ import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 import { initGroupCallUi } from "./group-call-ui.js";
 import { notePushDiagnostic, relaySupportsPush } from "./relay-push.js";
-import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState, VELTA_DEBUG, debugLog } from "./diagnostics.js";
+import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, diagnosticLine, normalizeDiagLevel, parseDiagnosticsLink, diagnosticsShareLink, isSendFailureDiagnostic, createRelaySendErrorState, VELTA_DEBUG, debugLog } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
@@ -127,6 +127,9 @@ let diagnosticsOpen = false;
 // bar): events keep being recorded into the store while paused, only the
 // rendering freezes; resuming re-renders to catch up.
 let diagnosticsPaused = false;
+// Which levels the open Diagnostics chat draws. A velta://diagnostics link
+// replaces this; the checkboxes follow it. Default is everything.
+let diagnosticsFilter = new Set(["error", "warning", "info"]);
 const DIAG_ICON_PAUSE = ICON.pause;
 const DIAG_ICON_PLAY = ICON.playDiag;
 let chatView = null;
@@ -202,11 +205,34 @@ window.addEventListener("unhandledrejection", e => appLog(`JS unhandled rejectio
 // take a moment while it probes for the background service.
 const $ = (id) => document.getElementById(id);
 
-function renderDiagnosticsMessages() {
+function shownDiagnostics() {
+  return diagnostics.messages.filter(m => diagnosticsFilter.has(normalizeDiagLevel(m.level)));
+}
+
+function syncDiagnosticsFilterChecks() {
+  for (const input of document.querySelectorAll("[data-diag-level]")) {
+    input.checked = diagnosticsFilter.has(input.dataset.diagLevel);
+  }
+}
+
+async function copyShownDiagnostics() {
+  const text = shownDiagnostics().map(diagnosticLine).join("\n");
+  if (!text) { toast(t("No matching diagnostics")); return false; }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t("Diagnostics copied — paste them to share"));
+    return true;
+  } catch {
+    toast(t("Couldn't copy"));
+    return false;
+  }
+}
+
+function renderDiagnosticsMessages({ force = false } = {}) {
   // Single choke point for every render path (open, live "changed" events,
   // resume): while paused the chat shows a frozen snapshot — the store keeps
-  // recording, resuming re-renders to catch up.
-  if (!diagnosticsOpen || diagnosticsPaused) return;
+  // recording, resuming re-renders to catch up. A filter change still redraws.
+  if (!diagnosticsOpen || (diagnosticsPaused && !force)) return;
   const history = $("history");
   if (!history) return;
   const scroll = $("history-scroll");
@@ -215,7 +241,7 @@ function renderDiagnosticsMessages() {
   // view away mid-read.
   const pinned = !scroll ||
     scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
-  history.replaceChildren(...diagnostics.messages.map(diagnosticRow));
+  history.replaceChildren(...shownDiagnostics().map(diagnosticRow));
   if (pinned) {
     requestAnimationFrame(() => {
       if (scroll) scroll.scrollTop = scroll.scrollHeight;
@@ -430,6 +456,35 @@ function openDiagnosticsChat() {
       }
     });
   }
+  syncDiagnosticsFilterChecks();
+  for (const input of document.querySelectorAll("[data-diag-level]")) {
+    if (input.dataset.bound) continue;
+    input.dataset.bound = "1";
+    input.addEventListener("change", () => {
+      if (input.checked) diagnosticsFilter.add(input.dataset.diagLevel);
+      else diagnosticsFilter.delete(input.dataset.diagLevel);
+      renderDiagnosticsMessages({ force: true });
+    });
+  }
+  const copyBtn = $("btn-diag-copy");
+  if (copyBtn && !copyBtn.dataset.bound) {
+    copyBtn.dataset.bound = "1";
+    copyBtn.addEventListener("click", () => { copyShownDiagnostics(); });
+  }
+  const linkBtn = $("btn-diag-link");
+  if (linkBtn && !linkBtn.dataset.bound) {
+    linkBtn.dataset.bound = "1";
+    linkBtn.addEventListener("click", async () => {
+      const link = diagnosticsShareLink(diagnosticsFilter);
+      if (!link) { toast(t("No matching diagnostics")); return; }
+      try {
+        await navigator.clipboard.writeText(link);
+        toast(t("Link copied"));
+      } catch {
+        toast(t("Couldn't copy"));
+      }
+    });
+  }
   const pauseBtn = $("btn-diag-pause");
   if (pauseBtn && !pauseBtn.dataset.bound) {
     pauseBtn.dataset.bound = "1";
@@ -451,6 +506,13 @@ function openDiagnosticsChat() {
   renderDiagnosticsMessages();
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId: DIAGNOSTICS_CHAT_ID }, "");
   renderChatList();
+}
+
+async function openDiagnosticsFromLink(link) {
+  if (state.accountChanging) return;
+  diagnosticsFilter = new Set(link.levels);
+  openDiagnosticsChat();
+  if (link.copy) await copyShownDiagnostics();
 }
 
 diagnostics.addEventListener("changed", () => {
@@ -5071,6 +5133,7 @@ async function createAccountFromRelayInvite(host, token) {
      • #/addrelay/<urlencoded dcaccount link>
      • velta://invite?url=<url-encoded i.delta.chat link>  (Windows custom scheme)
      • velta://chat?account=<id>&chat=<id>&t=<token>  (notification tap, issues #20/#23)
+     • velta://diagnostics?show=error&copy=1  (open the local log, copy those lines)
    A dcaccount: invite asks whether to add the relay to the current profile
    or create a new profile on it. Relay-adding needs a real core; in demo
    mode it tells the user instead. */
@@ -5188,6 +5251,12 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
     if (state.account?.configured) toast(t("You already have a profile — paste the invite into Add profile"), 5000);
     else await createAccountFromRelayInvite(relayInvite.host, relayInvite.token);
+    return true;
+  }
+  const diagLink = parseDiagnosticsLink(rawUrl);
+  if (diagLink) {
+    if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
+    await openDiagnosticsFromLink(diagLink);
     return true;
   }
   const chatLink = extractChatLink(rawUrl);

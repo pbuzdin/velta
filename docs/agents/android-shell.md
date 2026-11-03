@@ -221,8 +221,12 @@ Notification taps use the same queue (Android `Opened`, Windows toast
 `app/js/share-in.js` classifies the payload. `data:text/plain` is share
 text. `content://`, `file://`, a Windows path, a UNC path, or an absolute
 `/` path is a file. `velta://`, `dcaccount:`, `dclogin:`, `dcbackup:` and `openpgp4fpr:` are
-not shares. `handleDeeplinkFromUrl` returns true when it consumed a chat,
-tunnel, backup, or invite link (a chat link with a bad token still counts); other
+not shares. `velta://diagnostics?show=error&copy=1` is one of those:
+the Android intent host is `diagnostics` (next to `proxy` and `ws`). It
+opens the local diagnostics chat and, with `copy=1`, copies the shown
+lines. It does not switch profiles and carries no install token.
+`handleDeeplinkFromUrl` returns true when it consumed a chat,
+tunnel, backup, invite, or diagnostics link (a chat link with a bad token still counts); other
 https, and any other scheme tao passed through because the text parsed as a
 URL ("Re: x"), becomes share text.
 

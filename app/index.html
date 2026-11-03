@@ -170,6 +170,13 @@
         </button>
       </div>
 
+      <div id="article-draft" class="media-preview" hidden>
+        <div data-article-body class="lp-draft-body"></div>
+        <button id="btn-article-dismiss" class="icon-btn" type="button" aria-label="Don't send this article" data-i18n-aria="Don't send this article">
+          <svg data-icon="close"></svg>
+        </button>
+      </div>
+
       <div id="voice-rec" class="media-preview" hidden>
         <span class="voice-rec-dot" aria-hidden="true"></span>
         <span id="voice-rec-label" data-i18n="Recording 0:00">Recording 0:00</span>
@@ -181,6 +188,13 @@
         <button id="btn-diag-pause" class="icon-btn" type="button" title="Pause diagnostics" aria-label="Pause diagnostics" data-i18n-label="Pause diagnostics" aria-pressed="false">
           <svg data-icon="pause"></svg>
         </button>
+        <div class="diag-filter" role="group" aria-label="Show" data-i18n-aria="Show">
+          <label class="diag-switch"><input type="checkbox" data-diag-level="error" checked> <span aria-hidden="true">❌</span> <span data-i18n="Errors">Errors</span></label>
+          <label class="diag-switch"><input type="checkbox" data-diag-level="warning" checked> <span aria-hidden="true">⚠️</span> <span data-i18n="Warnings">Warnings</span></label>
+          <label class="diag-switch"><input type="checkbox" data-diag-level="info" checked> <span aria-hidden="true">ℹ️</span> <span data-i18n="Info">Info</span></label>
+        </div>
+        <button id="btn-diag-copy" class="btn-text" type="button" data-i18n="Copy">Copy</button>
+        <button id="btn-diag-link" class="btn-text" type="button" data-i18n="Copy link">Copy link</button>
         <label class="diag-switch"><input type="checkbox" id="sw-logging"> <span data-i18n="Logging">Logging</span></label>
         <label class="diag-switch"><input type="checkbox" id="sw-devtools"> <span data-i18n="DevTools">DevTools</span></label>
         <div class="btn-group" role="group" aria-label="Restart" data-i18n-aria="Restart">

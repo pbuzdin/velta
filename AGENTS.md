@@ -54,7 +54,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── chat-media.js     # chat info Apps/Photos/Videos/Audio/Files <details>: get_chat_media counts, lazy batched loads, virtual list/grid, search; scoped by chatId — contact profiles resolve the 1:1 chat via getChatIdByContactId and a null chatId is refused (the core reads null as ALL chats, #159)
 │   │   ├── tauri.js          # the one Tauri-shell bridge: tauriInvoke()/invoke(), isTauri(), isAndroid() (case-insensitive), rustLog(); lazy lookups
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
-│   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
+│   │   ├── diagnostics.js    # diagnostics chat store, level filter, velta://diagnostics share link, shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, short-link expansion, invite cards, settings modal
 │   │   ├── invite-cards.js   # in-chat invite cards (chat/group/relay/WS-proxy/SOCKS5 links) + native relay-invite signup in Add account — docs/invite-cards.md
 │   │   ├── icons.js          # shared inline SVG icon set (outline, stroke 2, round caps, aria-hidden); every UI icon comes from here; drawer icons have no fills (dots = zero-length round-cap strokes, `h.01`), invite = qr glyph; only the Velta Loop brand mark (LOOP_SVG) is filled — tests/icons.test.mjs
@@ -76,6 +76,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── scheduled-ui.js   # Send later sheet (presets + datetime-local), per-chat / global scheduled list, Android exact-alarm prompt
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
 │   │   ├── app-browser.js    # #137 attach-menu recent apps/commands + webxdc catalog mirrors (localStorage)
+│   │   ├── article.js        # #252 article card: plain-text title, opening, and one https URL; painted like a webxdc row, not an .xdc
 │   │   ├── i18n.js           # #129 UI language: English source, fr/ru packs, localStorage velta-lang
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
@@ -135,6 +136,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       ├── gen/android/      # generated Android project (cargo tauri android)
 │       ├── src/
 │       │   ├── lib.rs        # Tauri commands + Android in-process core (Windows sidecar lives in sidecar.rs)
+│       │   ├── article.rs    # #252 tag scan for fetch_article (https, 768 KB, 12 s); not a Readability parser
 │       │   ├── sidecar.rs    # Windows/macOS rpc-server spawn + stdout JSON-RPC routing (#201/#205)
 │       │   ├── push.rs       # UnifiedPush JNI: endpoint, wakeup, registrationFailed in status() (#204/#205)
 │       │   ├── db_key.rs     # VELTA_DB_KEY install_env + Android/desktop DEK (#202)
@@ -162,6 +164,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │                              dns-tunnel.md is archival — SOCKS5 replaced it) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
 ├── docs/design-tokens.html       # generated swatches + WCAG pairs (tools/gen-design-tokens.mjs, #182 slice 2a)
+├── docs/design-components.html   # generated component preview (tools/gen-design-components.mjs, #182 phase 2a)
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
 ├── docs/modals-audit-and-plan.md # modal/overlay/popup inventory + native <dialog> plan
@@ -1765,7 +1768,16 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
    `log()`) and **DevTools** (`set_devtools`: desktop opens/closes the
    WebView inspector, Android flips `WebView.setWebContentsDebuggingEnabled`
    via JNI for chrome://inspect; persisted in `velta-devtools`, applied at
-   boot).
+   boot). The same bar has **Errors / Warnings / Info** checkboxes
+   (default all on; `warn` rows count as warnings), **Copy** (the lines
+   still on screen), and **Copy link**. The link is
+   `velta://diagnostics?show=error,warning&copy=1` for the checked levels.
+   Opening it sets those checkboxes and, with `copy=1`, copies the lines.
+   Unlike `velta://chat` it has no install token: it only shows this
+   device's log and does not switch profiles. Android registers the
+   `diagnostics` host next to `proxy` and `ws`. The PWA has no `velta:`
+   scheme, so there the checkboxes and Copy are the path.
+   Tests: `tests/diagnostics-filter.test.mjs`.
 - `app/js/media.js` resolves local paths to WebView-safe media URLs:
   blobfile probe → loopback HTTP → asset protocol, with one-shot error
   fallbacks per element. In the wasm dist, after those fail, `/accounts/`
@@ -1832,6 +1844,26 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   never sees it. http(s) opens go through `openHttp()` (strip trackers,
   then Android in-app browser / desktop `openExternal()` =
   `plugin:opener|open_url`). See §5.5.
+- `app/js/article.js` + `article.rs` (#252) — send the opening of an
+  https page as plain text, painted like a webxdc row. It is not an
+  `.xdc` and there is no model. Attach → **Article** (shell only:
+  `tauriInvoke()`; the PWA hides it, same as Large file). If the composer
+  already holds one https URL, that URL is used; otherwise a paste
+  field. `fetch_article` uses the link-preview agent and the same
+  fail-closed proxy, with its own cap: 768 KB and 12 s. Link previews
+  stay 256 KB / 5 s. The extractor is a tag scan (`<p>` text inside
+  `<article>` or `<main>`, else the page). Under ~80 characters of
+  opening it returns nothing and nothing is sent. The message is one
+  title line, a blank line, the opening (≤1200 characters), a blank
+  line, and exactly one https URL. Velta paints that shape as a card
+  (host, title, opening, **Read**, **Open site**). Stock Delta Chat
+  shows the text. **Read** shows the opening that arrived and does not
+  fetch. **Open site** is `openHttp`. Painting the card does not fetch.
+  A link-preview card can grow a shell-only **Read** that fetches the
+  same way and does not send. Picture mode does not bake an image when
+  the composer text parses as an article. A quote-fragment prefix
+  breaks the shape, so that send stays plain text. Tests:
+  `tests/article.test.mjs`.
 - `app/js/trackers.js` — drop known tracking query params (#89). Drawer
   “Strip tracking from links” (localStorage `velta-strip-trackers`,
   missing = on, `"0"` = off). Paste into the composer and opening an
@@ -1868,6 +1900,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   AppLocalData root (accounts/ AND uploads/ are both under it), strips
   the `\\?\` canonical prefix before returning paths — convertFileSrc
   percent-encodes the prefix into asset.localhost URLs that 404.
+  `encrypt_upload` must strip that prefix on the uploads directory too
+  (`upload_contains`) before `starts_with`. A stripped file path does
+  not start with a verbatim `\\?\` directory, so clipboard paste (and
+  any other write through `resolve_upload_path`) died with "path
+  outside uploads". The picker path used to catch that error and send
+  the original file unencrypted.
   - The dead poster commands `poster_cache_path`/`write_poster` were
   removed; `read_media_bytes` stays (`attachmentBytes` in chat-view.js).
 - `app/js/ui.js` — drawer, modals, context menus, toasts, update banner,
@@ -2457,8 +2495,10 @@ Release notes: `.github/release-notes/v1.5.2.md`. News: `https://velta.cc/news/v
 - **Watchdog false stalls** (#247): `LONG_RPC_METHODS` (backup, relay add, calls, connectivity HTML, …) never raise the banner. A tick gap of 15 s or more is treated as a resume (the app was frozen; ages count from the last resume). A timed-out RPC with no late answer stops counting after 2 min.
 - **Core banner** (#248): `top: calc(10px + env(safe-area-inset-top))` so it sits below the Android status bar.
 - **Design system #182, slice 1** (49f467fa, `tests/design-tokens.test.mjs`): `--selection-bg` is its own token (selection no longer reads `--bg-active`); `--accent-tint` is defined per theme (light `#3390ec`, brutal `#8f7ff0`); `--focus-ring` replaces the scattered accent outlines (`currentColor` inside bubbles and `--text` on the core banner stay deliberate). Light focus ring `#3390ec`→`#1a68b8` (5.1:1).
-- **Design system #182, slice 2a** (91179cea): `tools/gen-design-tokens.mjs` emits `docs/design-tokens.html` (a card per color token, plus a WCAG pair table with computed ratios). `tests/design-tokens-doc.test.mjs` regenerates in memory and fails when the committed fragment is stale. The website `/design/` page does not embed that fragment yet (slice 2b). Remaining #182: that embed, component contracts, reference-page UX, 44 px touch targets, 8.5 px labels.
+- **Design system #182, slice 2a** (91179cea): `tools/gen-design-tokens.mjs` emits `docs/design-tokens.html` (a card per color token, plus a WCAG pair table with computed ratios). `tests/design-tokens-doc.test.mjs` regenerates in memory and fails when the committed fragment is stale. The website `/design/` page does not embed that fragment yet (slice 2b).
+- **Design system #182, phase 2a** (ccb1b7ab): `tools/gen-design-components.mjs` emits `docs/design-components.html` (the real button, tab, menu, chip, field, and dialog rules from `main.css`, scoped under `.vc`, with class-forced hover, pressed, and focus). `tests/design-components-doc.test.mjs` fails when that fragment is stale. The website does not embed it yet. Remaining #182: those embeds, reference-page UX, 44 px touch targets, 8.5 px labels.
 - **Windows Hello** (desktop only): Privacy & security wraps the install DEK in an NGC RSA-2048 key (`win_hello.rs`, Passport provider, key name `chat.velta.dbkey`) and removes the Credential Manager copy. Ciphertext is `<data>/dbkey.wrap.hello` (`VLTHW`). Decrypt prompts; encrypt does not. The button is shown only when Hello is enrolled (`NgcGetDefaultDecryptionKeyName`). The PIN wrap can stay as the other root. Cold start stays locked until Hello or the PIN succeeds. Details in the data-at-rest bullet below.
+- **macOS release** (7c73c606): the first `v1.5.2` tag build passed Windows and Android, then `macos / build-macos` died on unused `hello_wrap_path` and `hello_wrap_ct` (`RUSTFLAGS=-D warnings`). Those helpers are `#[cfg(windows)]` and `#[cfg(any(windows, test))]`. No GitHub release existed, so the lightweight tag was moved onto that commit. Same failure class as `docs/agents/release-ci.md` incident 2.
 
 
 
@@ -2511,10 +2551,11 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 198 files, 1332 tests as of 2026-11-03 (5 skip without
+whole set — 201 files, 1343 tests as of 2026-11-03 (5 skip without
 python3+websockets in `tests/ws-proxy-auth.test.mjs`; 1 more when the sidecar
-binary is absent in `tests/release-version-pins.test.mjs`. CI installs
-python3+websockets so those run on Linux; Windows path uses `fileURLToPath`).
+binary is absent in `tests/release-version-pins.test.mjs`. A sidecar that is
+present but older than vendored core fails that pin instead of skipping.
+CI installs python3+websockets so those run on Linux; Windows path uses `fileURLToPath`).
 Includes SOCKS5 proxy, relay pause/autorelay, native attachment encryption,
 Android lock-screen contracts, and logging opt-in from the 2026-11-02
 PR stack. 1.4.86: diagnostics bar
@@ -2851,7 +2892,10 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   auth-mandatory, reject `NCRYPT_ALLOW_KEY_IMPORT`. PKCS#1 encrypt does not
   prompt; decrypt does (`PinCacheIsGestureRequired`, parent HWND from the
   `main` window). The wrap is `<data>/dbkey.wrap.hello` (`VLTHW` + version +
-  ciphertext). `hello_set` decrypts once before the file is written and the
+  ciphertext). `hello_wrap_path` is `#[cfg(windows)]` and `hello_wrap_ct`
+  is `#[cfg(any(windows, test))]`: a macOS release build denies unused
+  functions (`-D warnings`), and an ungated helper fails the DMG the way
+  v1.4.44's `chat_link_with_token` did. `hello_set` decrypts once before the file is written and the
   keychain item is deleted; a cancelled prompt deletes the NGC key and
   leaves the keychain. Both wraps may be set. Removing one leaves the
   other. Removing the last writes the keychain first, then deletes the

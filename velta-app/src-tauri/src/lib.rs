@@ -749,28 +749,36 @@ fn link_preview_proxy(proxy: Option<&str>) -> Result<Option<String>, String> {
     Ok(Some(format!("{scheme}://{rest}")))
 }
 
-/// GET `url` with `agent` and return at most the first 256 KB as lossy
-/// UTF-8. Shared by fetch_page_title, expand_invite_link and
-/// fetch_link_preview; a transport error is Err("fetch failed") and each
-/// caller maps it to its own semantics. The agent decides direct vs proxy
+/// GET `url` and return at most `max_bytes` as lossy UTF-8. A transport
+/// error is Err("fetch failed"). The agent decides direct vs proxy
 /// (link_preview_agent: never a direct fallback when a proxy is set).
-fn fetch_capped(agent: &ureq::Agent, url: &str) -> Result<String, String> {
+fn fetch_capped_n(agent: &ureq::Agent, url: &str, max_bytes: u64) -> Result<String, String> {
     use std::io::Read;
     let resp = agent.get(url).call().map_err(|_| "fetch failed".to_string())?;
     let mut body = Vec::new();
-    let _ = resp.into_reader().take(256 * 1024).read_to_end(&mut body);
+    let _ = resp.into_reader().take(max_bytes).read_to_end(&mut body);
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
-/// The ureq agent for fetch_link_preview: direct without a proxy, through it
+/// First 256 KB. Shared by fetch_page_title, expand_invite_link and
+/// fetch_link_preview. fetch_article uses fetch_capped_n so this cap stays.
+fn fetch_capped(agent: &ureq::Agent, url: &str) -> Result<String, String> {
+    fetch_capped_n(agent, url, 256 * 1024)
+}
+
+/// The ureq agent for shell page fetches: direct without a proxy, through it
 /// otherwise. Err (no agent at all) when the proxy can't be used.
-fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
-    let mut builder = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(5));
+fn link_preview_agent_timeout(proxy: Option<&str>, secs: u64) -> Result<ureq::Agent, String> {
+    let mut builder = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(secs));
     if let Some(p) = link_preview_proxy(proxy)? {
         let p = ureq::Proxy::new(&p).map_err(|_| "unsupported proxy for link previews".to_string())?;
         builder = builder.proxy(p);
     }
     Ok(builder.build())
+}
+
+fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
+    link_preview_agent_timeout(proxy, 5)
 }
 
 /// Relay signup invite claim (docs/invite-cards.md): GET
@@ -924,6 +932,26 @@ async fn fetch_link_preview(url: String, proxy: Option<String>) -> Result<serde_
     .map_err(|e| e.to_string())?
 }
 
+/// Article opening for a chat card (#252). Same fail-closed proxy as link
+/// previews, a larger HTML window, and a longer timeout. The card is the
+/// text this returns; painting it does not fetch again.
+#[tauri::command]
+async fn fetch_article(url: String, proxy: Option<String>) -> Result<serde_json::Value, String> {
+    if !url.starts_with("https://") {
+        return Err("only https URLs are supported".into());
+    }
+    let agent = link_preview_agent_timeout(proxy.as_deref(), 12)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let html = fetch_capped_n(&agent, &url, 768 * 1024)?;
+        match article::extract(&html) {
+            Some(a) => Ok(serde_json::json!({ "title": a.title, "opening": a.opening })),
+            None => Err("no article text".into()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // bounded read helper: returns false when the cap was hit mid-stream (truncated image)
 fn read_bounded(resp: ureq::Response, buf: &mut Vec<u8>) -> bool {
     use std::io::Read;
@@ -978,7 +1006,9 @@ async fn encrypt_upload(app: tauri::AppHandle, path: String) -> Result<(), Strin
         let canon = scoped_accounts_path(&app, &path)?;
         let uploads = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("uploads");
         let uploads = std::fs::canonicalize(&uploads).map_err(|e| e.to_string())?;
-        if !canon.starts_with(uploads) {
+        // scoped_accounts_path strips \\?\; a raw canonicalize of uploads still
+        // has it, and Path::starts_with treats those as different prefixes.
+        if !upload_contains(&canon, &uploads) {
             return Err("path outside uploads".into());
         }
         encrypt_upload_blocking(&canon)
@@ -1044,6 +1074,7 @@ fn allow_picked_path(app: tauri::AppHandle, path: String) -> Result<(), String> 
 
 mod webxdc_serve;
 mod picked;
+mod article;
 pub mod builtin_xdc;
 pub mod lufi;
 pub mod cryptex;
@@ -1560,6 +1591,19 @@ fn media_base_url() -> String {
 
 // ---------- scoped media paths ----------
 
+/// `canonicalize` on Windows keeps the `\\?\` prefix. Compare both sides
+/// without it: a stripped path does not `starts_with` a verbatim one.
+fn without_verbatim(path: &std::path::Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    PathBuf::from(s.strip_prefix(r"\\?\").unwrap_or(s.as_ref()))
+}
+
+fn upload_contains(file: &std::path::Path, uploads: &std::path::Path) -> bool {
+    let file = without_verbatim(file);
+    let uploads = without_verbatim(uploads);
+    file.starts_with(&uploads)
+}
+
 fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, String> {
     // The core returns paths RELATIVE to the accounts dir (e.g.
     // accounts\\<uuid>\\dc.db-blobs\\<hash>.mp4) while the process CWD is the
@@ -1592,9 +1636,22 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
     // Strip the \\?\ prefix before returning: paths handed to the frontend
     // go through convertFileSrc, which percent-encodes it into asset URLs
     // (asset.localhost/%2F%2F%3F%2F... -> 404).
-    let stripped = canon.to_string_lossy();
-    let cleaned = stripped.strip_prefix(r"\\?\").map(String::from).unwrap_or_else(|| stripped.to_string());
-    Ok(PathBuf::from(cleaned))
+    Ok(without_verbatim(&canon))
+}
+
+#[cfg(test)]
+mod upload_path_tests {
+    use super::{upload_contains, without_verbatim};
+
+    #[test]
+    fn stripped_clipboard_file_is_inside_verbatim_uploads() {
+        let uploads = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let file = without_verbatim(&uploads.join("image-1.png"));
+        assert!(
+            upload_contains(&file, &uploads),
+            "{file:?} should sit under {uploads:?}"
+        );
+    }
 }
 
 // read_media_bytes hands a full in-memory copy of the media to the WebView --
@@ -5170,7 +5227,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, fetch_article, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

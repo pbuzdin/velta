@@ -56,6 +56,15 @@ not set that flag, so its job passed.
 Any new function used from a single platform's code needs that `cfg` too,
 or the next macOS (or Windows) release fails the same way.
 
+The same failure hit the first `v1.5.2` tag (`41622053781`): Windows and
+Android passed, `macos / build-macos` rejected unused `hello_wrap_path`
+and `hello_wrap_ct` in `db_key.rs`. No GitHub release had been published,
+so the lightweight tag was moved to `7c73c606`, which compiles
+`hello_wrap_path` on Windows only and `hello_wrap_ct` on Windows and in
+tests. The tag push started rebuild `41631815133`.
+
+
+
 ## Windows sidecar rebuild (local, verified on 2026-09-22 for core 2.61.0)
 
 1. Toolchain, vendored locally (gitignored, ~150 MB total):

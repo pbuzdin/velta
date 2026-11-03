@@ -661,6 +661,7 @@ Velta can open invite and account-setup links directly instead of making the use
 | Android | `dclogin:…` | Chooser: add the (existing) relay account to the current profile. |
 | Android | `DCBACKUP2:…` (second-device code) | Opens Velta's "Receive a profile" transfer flow directly. |
 | Android / desktop | `velta://proxy…` (SOCKS5 setup, v1 or v2) | Shows the server, credential and trust warnings, then adds the proxy only after confirmation (see "SOCKS5 proxy"). |
+| Android / desktop | `velta://diagnostics?show=error&copy=1` | Opens the Velta Diagnostics chat with those levels checked (error, warning, info) and copies the lines that are on screen. Paste them to share. No profile switch. |
 | Desktop (Windows/Linux) | `velta://invite?url=<encoded i.delta.chat URL>` | Opens Velta and joins the 1:1 or group chat. |
 | Desktop (Windows/Linux) | `velta://account?url=<encoded dcaccount URL>` | Opens Velta and offers the relay/new-profile chooser. |
 
@@ -754,7 +755,7 @@ space** on (the default, same drawer section), big JPEG/WebP photos - and
 opaque PNGs the core would recompress anyway - are re-encoded to lossy WebP
 before sending when that makes them at least 10% smaller (or fit the limit
 above); this also drops location/camera info from those photos. Small
-photos, GIFs, animated or transparent images and files are never touched. From the attachment menu you
+photos, GIFs, animated or transparent images and files are never touched. A pasted screenshot is written under the app's `uploads/` folder and encrypted there before send. **Article** (desktop and Android app only, not the browser) takes an https link from the composer or a paste field, reads the page through the same proxy rules as link previews, and sends the title, the opening, and the URL as a normal text message. Velta shows that message as a card with **Read** and **Open site**. Other Delta Chat apps show the text. **Read** shows the text that was sent and does not contact the site again. From the attachment menu you
 can send:
 
 **Voice message** (not offered in local groups) records from the
@@ -1111,7 +1112,13 @@ log (`velta.log`, default off; `boot:` heartbeats still write), and
 debugging (`chrome://inspect` over USB) on Android. About Velta has the
 same logging switch plus Copy log / Share. The same bar offers a
 "Restart: Core | UI" recovery group and a pause/play toggle that freezes
-the live log (events keep being recorded while paused).
+the live log (events keep being recorded while paused). **Errors**,
+**Warnings**, and **Info** checkboxes hide the other lines. **Copy**
+puts the lines still on screen on the clipboard. **Copy link** copies a
+`velta://diagnostics?show=error&copy=1` link for the boxes that are
+checked. The person who opens that link lands in this chat with the
+same filter, and the matching lines are copied so they can paste them
+back.
 
 </details>
 
