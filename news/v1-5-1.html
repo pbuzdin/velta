@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.5.1: a watchdog for the core and lists that keep their word — Velta</title>
+  <meta name="description" content="When the core stalls, the Relays screen and chat list keep their last good state behind a Retry banner, a watchdog restarts a stuck core, and transfers, search and first sync finally show progress.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=18">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.5.1: a watchdog for the core and lists that keep their word</h1>
+    <p><time>3 November 2026</time> · 3 min read</p>
+    <p>When the core stalls, the Relays screen and chat list keep their last good state behind a Retry banner, a watchdog restarts a stuck core, and transfers, search and first sync finally show progress.</p>
+    <div class="body">
+<p>This one is about honesty under load. The reports behind <a href="/news/v1-5.html">1.5</a> all shared one symptom: the app went quiet — a frozen screen, an empty list — and nothing said why. 1.5.1 makes the app say why, and fixes what it could at the source.</p>
+<h2>Lists that keep their word</h2>
+<p>A timed-out request used to be drawn as an empty result. The Relays screen went blank, the Bots chip dropped to zero, and none of it was true. Now a failed load keeps the last good data on screen and admits the failure with a <strong>“Couldn't load — Retry”</strong> banner. The same banner appears over the chat list when a refresh fails: the stale rows stay, the app says they are stale.</p>
+<h2>A watchdog for the core</h2>
+<p>Desktop and Android now ping the core every few seconds. When it stops answering — every call stuck behind one held lock — a banner appears with <strong>Restart core</strong>, and after a minute the app restarts it on its own. The restart only stops and starts the mail connections; queued messages and stored data are untouched. The watchdog stays out of the way during a profile transfer and during calls.</p>
+<h2>The locks that caused it</h2>
+<p>The stalls themselves had a cause in the mail core: a handful of locks were held across network calls and database writes, so one slow relay connection could park every other operation. Six such waits are gone (patches #22 and #25–#28 in our vendored core): metadata and config locks no longer span network, skipped scheduler wake-ups are no longer lost, and the connectivity page answers during an IO restart.</p>
+<h2>Progress you can see</h2>
+<p>After a fresh login or restore, the empty chat list now says <strong>“Fetching messages…”</strong> until the first sync completes, switching to “Updating…” while messages actively arrive. In-chat search shows a thin loading bar while results are being fetched. Profile export, second-device transfer and import got a real progress display — on screen and as an Android notification.</p>
+<h2>Direct or via relay?</h2>
+<p>During a call, a small chip now says whether media flows straight to the other device or through a relay. A relay is normal and the call stays end-to-end encrypted either way — the chip is for understanding call quality, not for worrying about it.</p>
+<h2>Mention chips, regrown</h2>
+<p>@mentions moved into a soft tinted chip that grows with its glyphs: long names, Й and Д, combining marks and emoji no longer get clipped, and a name that wraps gets a chip per line. The tint is derived to keep WCAG AA contrast in every theme, including with a custom accent color.</p>
+<h2>Also in this release</h2>
+<ul>
+<li>Second-device transfer: one receive at a time, and closing the receive dialog no longer cancels the sender.</li>
+<li>Renaming a contact works again; message info honors the selected profile.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.1">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.5.0...v1.5.1">Compare 1.5.0 with 1.5.1</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client, built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=7"></script>
+</body>
+</html>
