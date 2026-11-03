@@ -2445,6 +2445,14 @@ Release notes: `.github/release-notes/v1.5.1.md`. The list below is the work rec
 - **Call route chip** (8ae38878, c8908902, #239): "Direct" / "Via relay" from `getStats()`, right-side chevron.
 - Encryption wording rules still apply: Android shipped, desktop + PWA preview, attachments WIP, never "all platforms".
 
+### 6.15 Unreleased on master since v1.5.1 (no bump/tag yet)
+
+Do not write a versioned release-notes file until the release is cut; this list is the draft.
+
+- **Design system #182, slice 1 — tokens and focus contract** (`tests/design-tokens.test.mjs` pins the structure): `--selection-bg` is its own token (the chat-list selection no longer reads `--bg-active`, and `deriveAccent` emits it so selection and the outgoing bubble can drift apart); `--accent-tint` is now defined per theme (light `#3390ec`, brutal `#8f7ff0`) instead of inheriting the dark blue in light/brutal; a shared `--focus-ring` token replaces 22 scattered accent outlines (`currentColor` inside bubbles and `--text` on the core banner stay deliberate). Rendered changes, all reviewed: light focus ring darkens `#3390ec`→`#1a68b8` (3.0→5.1:1, focus-indicator bar), light translucent fills shift `#5aa2e6`→`#3390ec`, brutal translucent fills follow the violet accent instead of blue. Remaining #182 work: generated design-page docs + stale check (website), component contracts, reference-page UX, 44px touch-target and 8.5px label reviews.
+
+
+
 ### 6.10 Pitfalls found in 1.4.73
 
 - **Code without a CI build rots silently.** d4632e7 (bridge token gate) was committed without compiling `velta-core-service` and no workflow built it, so five compile errors sat on master (fixed d80dc01), and the sidecar's tokio misuse (blocking_read in the forwarder task, `tokio::spawn` on a JNI thread) crashed it on a device (a1cf215). `core-service.yml` was added for that crate and removed with it. Every crate that ships needs a CI job; if you can't build locally, say so and don't merge until CI is green.

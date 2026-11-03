@@ -133,6 +133,9 @@
       const bubble = ensureSurface(mix(c, s.chat, 0.5), s.text, 7, -1);
       out.bubbleOut = bubble;
       out.bgActive = bubble;
+      // #182: selection is its own concept — it follows the bubble today, but
+      // --selection-bg lets the two drift apart without a rename.
+      out.selectionBg = bubble;
       out.metaOut = ensureContrast(mix(c, INK_LIGHT, 0.55), bubble, 4.5, 1);
       out.outLink = ensureContrast(mix(c, INK_LIGHT, 0.82), bubble, 4.5, 1);
       out.ticksRead = ensureContrast(mix(c, INK_LIGHT, 0.35), bubble, 3, 1);
@@ -142,6 +145,7 @@
       const bubble = ensureSurface(mix(c, s.bubbleIn, 0.86), s.text, 7, 1);
       out.bubbleOut = bubble;
       out.bgActive = accent;
+      out.selectionBg = accent; // #182: the light selected-chat fill is the accent itself
       out.metaOut = ensureContrast(mix(c, s.text, 0.25), bubble, 4.5, -1);
       // The mention chip lays a tint of the text color OVER the bubble
       // (8% in-rows, 14% out-rows), so the effective background darkens WITH
@@ -173,8 +177,8 @@
   }
   const VAR_NAMES = {
     accent: "--accent", accentHover: "--accent-hover", accentActive: "--accent-active", onAccent: "--on-accent",
-    accentTint: "--accent-tint", bubbleOut: "--bg-bubble-out", bgActive: "--bg-active", metaOut: "--text-meta-out",
-    outLink: "--out-link", ticksRead: "--ticks-read", onAccentChip: "--on-accent-chip",
+    accentTint: "--accent-tint", bubbleOut: "--bg-bubble-out", bgActive: "--bg-active", selectionBg: "--selection-bg",
+    metaOut: "--text-meta-out", outLink: "--out-link", ticksRead: "--ticks-read", onAccentChip: "--on-accent-chip",
     accentTextIn: "--accent-text-in", quoteName: "--quote-name", accentText: "--accent-text",
   };
   const BRUTAL_KEYS = ["accent", "accentHover", "accentActive", "onAccent", "accentTint", "onAccentChip", "accentText"];

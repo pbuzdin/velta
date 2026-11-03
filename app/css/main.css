@@ -18,6 +18,10 @@
   --bg-chat: #0b0b10;
   --bg-hover: rgba(244,244,244,.055);
   --bg-active: #2b5278;
+  /* Selected-chat fill (#182): its own token, not --bg-active — selection and
+     pressed/active are different states, and the outgoing bubble must be free
+     to change without dragging the chat-list selection along. */
+  --selection-bg: #2b5278;
   --bg-bubble-in: #1c1c26;
   --bg-bubble-out: #2b5278;
   --bg-reply: rgba(244,244,244,.06);
@@ -44,6 +48,7 @@
      colors; a custom accent replaces them per theme with derived values
      that keep every text pair at WCAG AA (chat-appearance.js deriveAccent). */
   --accent-tint: #5aa2e6; /* translucent selection/pressed fills */
+  --focus-ring: var(--accent); /* #182: one ring color per theme; light overrides below (raw light --accent is ~3:1, below the focus-indicator bar) */
   --accent-hover: color-mix(in srgb, var(--accent) 90%, #f4f4f4);
   --accent-active: color-mix(in srgb, var(--accent) 88%, #0b0b10);
   --on-accent: #10131a; /* ink on accent fills: #f4f4f4 on #5aa2e6 was 2.6:1, on #3390ec 3.1:1 */
@@ -94,10 +99,13 @@ html[data-theme="light"] {
   --bg-chat: #e7ebf0;
   --bg-hover: rgba(16,16,16,.05);
   --bg-active: #5aa2e6;
+  --selection-bg: #5aa2e6;
   --bg-bubble-in: #f4f4f4;
   --bg-bubble-out: #e1f0fb;
   --bg-reply: rgba(16,16,16,.05);
   --accent: #3390ec;
+  --accent-tint: #3390ec; /* #182: derived per theme — was inherited dark blue */
+  --focus-ring: #1a68b8; /* focus indicator at text-accent strength: raw --accent is ~3:1 on light */
   --text: #16181d;
   --text-dim: #5d626d; /* 5.0:1 on #e9e9e9 chips (was #656a76) */
   --text-meta-in: #676d7a; /* 4.72:1 on #f4f4f4 (was #9aa0ab, 2.39) */
@@ -828,9 +836,9 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
 /* Join/leave notices: involved contacts as profile chips (serviceChipsHtml). */
 .service-msg .svc-chip { font: inherit; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border: 0; border-radius: 999px; padding: 0 .45em; margin: 0 .05em; cursor: pointer; }
 .service-msg .svc-chip:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
-.service-msg .svc-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.service-msg .svc-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .service-msg.webxdc-info { cursor: pointer; }
-.service-msg.webxdc-info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.service-msg.webxdc-info:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .service-msg .webxdc-info-icon { width: 1.25em; height: 1.25em; border-radius: 4px; object-fit: cover; vertical-align: -0.25em; margin-right: .35em; }
 .diag-copy {
   position: absolute; top: 5px; right: 7px;
@@ -983,7 +991,7 @@ html .invite-card .invite-main:active { background: var(--bg-hover); }
 @media (hover: hover) and (pointer: fine) {
   html .invite-card button.invite-main:hover { background: var(--bg-hover); }
 }
-.invite-main:focus-visible, .invite-copy:focus-visible { outline: 2px solid var(--accent-text-in); outline-offset: -3px; }
+.invite-main:focus-visible, .invite-copy:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -3px; }
 html .invite-card .invite-line, html .invite-card .invite-line b { color: var(--text); }
 .invite-line b { font-weight: 700; }
 .invite-sub {
@@ -1067,7 +1075,7 @@ html .ivc .ivc-btn.ivc-primary:not([disabled]):active { background: var(--accent
   html .ivc .ivc-btn:not([disabled]):hover { background: var(--bg-hover); }
   html .ivc .ivc-btn.ivc-primary:not([disabled]):hover { background: var(--accent-hover); }
 }
-.ivc-btn:focus-visible { outline: 2px solid var(--accent-text-in); outline-offset: 2px; }
+.ivc-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 html .ivc .ivc-btn[disabled] { cursor: not-allowed; background: transparent; border-color: var(--border); color: var(--ivc-dim); }
 .ivc-link {
   display: block; padding: 6px 8px; border-radius: 6px;
@@ -1162,7 +1170,7 @@ html .invite-card.invite-pending .invite-sub { color: color-mix(in srgb, var(--t
 .msg-thread-btn { place-items: end center; }
 .msg-thread-btn svg { grid-area: 1 / 1; position: relative; width: 16px; height: 16px; margin-bottom: 8px; }
 .msg-thread-btn:focus-visible { outline: none; }
-.msg-thread-btn:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
+.msg-thread-btn:focus-visible::before { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
   .msg-thread-btn:hover::before { background: color-mix(in srgb, var(--text) 8%, var(--bg-bubble-in)); }
 }
@@ -1716,7 +1724,7 @@ velta-chat-item { display: block; }
 @media (hover: hover) and (pointer: fine) {
   .chat-item:hover { background: var(--bg-hover); }
 }
-.chat-item.active { background: var(--bg-active); }
+.chat-item.active { background: var(--selection-bg); }
 .chat-item.active .ci-time, .chat-item.active .ci-last, .chat-item.active .ci-mute { color: rgba(244,244,244,.75); }
 /* Off-screen stand-in for a not-yet-mounted chat row (#44): one real row's
    height (48px avatar + 2×10px padding); the IntersectionObserver swaps in
@@ -1732,7 +1740,7 @@ velta-chat-item { display: block; }
 .archived-link-icon { display: inline-flex; width: 48px; justify-content: center; }
 .archived-link-icon svg { width: 22px; height: 22px; }
 @media (hover: hover) and (pointer: fine) { .archived-link:hover { background: var(--bg-hover); color: var(--text); } }
-.archived-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.archived-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .ci-main { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
@@ -1860,7 +1868,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ca-swatch input:checked, .ca-custom input[data-active] {
   box-shadow: 0 0 0 2px var(--bg-sidebar), 0 0 0 4px var(--text);
 }
-.ca-swatch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.ca-swatch input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 5px; }
 .ca-custom { background: var(--ca-rainbow); } /* set from PRESETS in ui.js */
 .ca-custom input[type="color"] {
   -webkit-appearance: none; appearance: none; position: absolute; inset: 4px;
@@ -1924,7 +1932,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 .msg-emoji-back { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; }
 .msg-emoji-back svg { width: 18px; height: 18px; }
-.msg-emoji-back:focus-visible, .msg-emoji:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.msg-emoji-back:focus-visible, .msg-emoji:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 /* Inline delete confirm: Cancel + one or two red choices in the Delete row.
    Labels wrap at 320px rather than truncate. */
 .msg-del-confirm { display: flex; gap: 8px; animation: delConfirmIn .14s ease-out; }
@@ -1936,10 +1944,10 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .msg-del-confirm[data-count="3"] .ctx-item { flex-direction: column; gap: 4px; }
 .msg-del-confirm[data-count="2"] .ctx-item { flex-direction: row; justify-content: flex-start; text-align: left; gap: 10px; padding: 8px 12px; }
 .msg-del-confirm .ctx-item svg { width: 20px; height: 20px; flex: none; }
-.msg-del-confirm .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.msg-del-confirm .ctx-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @keyframes delConfirmIn { from { opacity: 0; transform: scale(.97); } }
 @media (prefers-reduced-motion: reduce) { .msg-del-confirm { animation: none; } }
-.msg-sheet-grab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.msg-sheet-grab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .ctx-menu.msg-sheet .msg-reacts { touch-action: none; } /* top strip drags the sheet */
 @media (prefers-reduced-motion: reduce) { .ctx-menu.msg-sheet { animation: none; } }
 .msg-reacts {
@@ -1964,7 +1972,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 .msg-tile span { font-size: 13px; line-height: 1.2; overflow-wrap: anywhere; }
 .msg-tile svg { width: 24px; height: 24px; flex: none; }
-.msg-actions .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.msg-actions .ctx-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 /* Light: the sheet and --bg are both #f4f4f4 — lift the tiles so their cells read. */
 html[data-theme="light"] .msg-actions .ctx-item { background: #fff; box-shadow: inset 0 0 0 1px rgba(16,16,16,.08); }
 .msg-actions .ctx-item {
@@ -2183,7 +2191,7 @@ html[data-theme="brutal"] .lang-card .lang-card-on { border: 2px solid var(--nb-
    link is not told apart by color alone (WCAG 1.4.1). */
 .bat-prompt-text { font-size: 15px; line-height: 1.45; margin: 0 0 10px; }
 .bat-dkma { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
-.bat-dkma:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
+.bat-dkma:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
 .btn-text:has(> svg) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .btn-text > svg { width: 18px; height: 18px; flex: none; }
 /* Diagnostics chat switches (Logging / DevTools): same size and tone as the
@@ -2244,7 +2252,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* Contact relay list: each address copies on click/Enter; the primary
    (sending) address carries a badge. Theme tokens only (AA in every theme). */
 .info-row.contact-addr { cursor: pointer; }
-.info-row.contact-addr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.info-row.contact-addr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .info-row.contact-addr .v { font-weight: 500; }
 .info-row.contact-addr-head + .contact-addr .k:empty,
 .info-row.contact-addr .k:empty { display: none; }
@@ -2816,7 +2824,7 @@ html[data-theme="light"] .acct-pop .ctx-item {
 .call-net-chip svg.call-net-chevron { width: 1em; height: 1em; margin-left: -2px; transition: transform .2s; }
 .call-net[open] .call-net-chevron { transform: rotate(180deg); }
 .call-net-chip svg { width: 16px; height: 16px; flex: none; }
-.call-net-chip:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.call-net-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .call-net-chip.flash { box-shadow: 0 0 0 2px var(--accent-text); background: color-mix(in srgb, var(--accent-text) 16%, var(--call-bg)); }
 .call-net-detail {
   margin-top: 6px; padding: 8px 10px; border-radius: 10px; max-width: 320px;
@@ -2885,7 +2893,7 @@ html[data-theme="light"] .acct-pop .ctx-item {
 .call-btn.on { background: var(--call-btn-on); color: var(--call-btn-on-fg); }
 .call-btn.danger { background: var(--call-danger); color: var(--call-danger-fg); }
 .call-btn.accept { background: var(--call-accept); color: var(--call-accept-fg); }
-.call-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.call-btn:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 430px) {
   /* Six buttons (mute, camera, end, speaker, earpiece, flip) fit 320px. */
   .call-actions { gap: 6px; }
@@ -3187,10 +3195,13 @@ html[data-theme="brutal"] {
   --bg-chat: #1b1b22;
   --bg-hover: rgba(244, 244, 244, .07);
   --bg-active: #e0b52f;
+  --selection-bg: #e0b52f;
   --bg-bubble-in: #2d2d38;
   --bg-bubble-out: #e0b52f;
   --bg-reply: rgba(18, 16, 22, .08);
   --accent: #8f7ff0;
+  --accent-tint: #8f7ff0; /* #182: derived per theme — translucent fills followed the dark blue here */
+  --focus-ring: var(--accent-text);
   --accent-2: #4fd1c5;
   --text: #f2f0e9;
   --text-dim: #a3a0ad;
@@ -3449,7 +3460,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .member-scroll { position: relative; }
 .member-row { display: flex; align-items: center; gap: 10px; padding: 0 6px; box-sizing: border-box; cursor: pointer; border-radius: 8px; }
 .member-row:hover { background: var(--hover); }
-.member-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.member-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .member-row velta-avatar { flex: 0 0 auto; }
 .member-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .member-name, .member-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -3470,7 +3481,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-video .media-play-glyph { position: relative; z-index: 1; display: grid; place-items: center; line-height: 0; }
 .media-video .media-play-glyph svg { width: 28px; height: 28px; }
 .media-video .media-dur { z-index: 1; line-height: 1.4; white-space: nowrap; position: absolute; right: 4px; bottom: 3px; font-size: 11px; background: rgba(0,0,0,.55); padding: 0 4px; border-radius: 4px; }
-.media-open:focus-visible, .media-goto:focus-visible, .media-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.media-open:focus-visible, .media-goto:focus-visible, .media-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .media-app-icon { width: 36px; height: 36px; flex: none; border-radius: 8px; object-fit: cover; }
 .media-app-letter { display: grid; place-items: center; background: var(--bg-elev); font-weight: 600; }
 .media-play { flex: none; }
@@ -3606,7 +3617,7 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 .tunnel-acts { display: flex; align-items: center; flex: none; }
 .tunnel-acts .btn-text { min-height: 40px; padding: 0 10px; }
 .tunnel-acts .icon-btn { width: 40px; height: 40px; }
-.tunnel-acts button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tunnel-acts button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 /* ===== Scheduled messages ("Send later", app/js/scheduled-ui.js) ===== */
 .sched-chip {
@@ -3619,7 +3630,7 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 .sched-chip svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
 .sched-chip:hover { background: var(--bg-hover); }
 .sched-chip:focus-visible, .sched-preset:focus-visible, .sched-row .btn-text:focus-visible, .sched-dt:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 2px;
+  outline: 2px solid var(--focus-ring); outline-offset: 2px;
 }
 .sched-pick { display: flex; flex-direction: column; gap: 8px; min-width: min(340px, calc(var(--vw) - 48px)); }
 .sched-presets { display: flex; flex-direction: column; }
@@ -3655,7 +3666,7 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
   color: var(--text-dim); background: var(--bg-hover); cursor: pointer;
 }
 .domain-tab[aria-selected="true"] { background: var(--accent); color: var(--on-accent-chip); }
-.domain-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.domain-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
   .domain-tab:hover:not([aria-selected="true"]) { color: var(--text); }
 }
@@ -3717,7 +3728,7 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
   background: transparent; color: var(--text); font-size: 20px; cursor: pointer;
 }
 #db-key-notice .db-key-notice-close:hover { background: var(--bg-hover); }
-#db-key-notice .db-key-notice-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#db-key-notice .db-key-notice-close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* Profile export / transfer / import progress (transfer-progress.js) */
 .xfer { display: grid; gap: 6px; margin-top: 10px; }
@@ -3732,7 +3743,7 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 .xfer.is-failed .xfer-bar::-webkit-progress-value { background: var(--danger); }
 .xfer.is-failed .xfer-bar::-moz-progress-bar { background: var(--danger); }
 .xfer-pill { position: fixed; z-index: 900; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-sidebar); color: var(--text); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; box-shadow: 0 4px 16px rgba(0,0,0,.25); cursor: pointer; }
-.xfer-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.xfer-pill:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .xfer-pill[hidden] { display: none; }
 
 /* ===== #240 Core watchdog banner: non-blocking, top of the chat pane.
