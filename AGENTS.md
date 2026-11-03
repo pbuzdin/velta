@@ -2434,9 +2434,9 @@ next push or the tainted commits come back.
 - **PWA** (d4ef4f9, d1029f8, 5204178): background Web Push (docs/agents/web-push.md); velta.cc/web published by `pwa-web.yml`, never with a baked-in relay.
 - **Design system + contrast** (018f96d, 3ec2e38, 5cb7a5c): §6.4 hard rule, `e2e-contrast` in CI, token guard; Beam/Circle on bundled `velta-tokens.css`; webxdc card Start on its own row, no "tap to open" (f14252e).
 
-### 6.14 Unreleased on master since v1.5.0 (no bump/tag yet)
+### 6.14 Release 1.5.1 (2026-11-03): stall resilience, progress surfaces, watchdog
 
-Do not write a versioned release-notes file until the release is cut; this list is the draft.
+Release notes: `.github/release-notes/v1.5.1.md`. The list below is the work record.
 
 - **Core stalls** (c38a4938 #229, eadabcd3 #240, 83b2d3da #241, 55a8a393 #242–#245): core patches #22 and #25–#28 (table in §4.1), core watchdog `app/js/core-watchdog.js` (5 s `get_system_info` ping, stuck after 8 s / oldest call 10 s, banner + Restart core, auto-restart after 60 s, dead-core backoff 1/5/30 s max 3 per 10 min, skipped during transfer and 1:1 calls; restart only stops/starts IO and cannot recover a truly wedged core on desktop/Android), `app/js/load-retry.js` last-good lists. Findings, upstream issues and remaining suspects: `docs/core-stall-investigation.md`. Empty lists during stalls were app-side, not core. Watchdog false recovery fixed (4a6aec42…, PR #246, a2b39fb8): `get_system_info` avoids the account locks, so a pong no longer clears `stalled` while an account RPC is still overdue — recovery needs `oldestInFlight()` under the stall threshold, and client-timed-out RPCs stay visible there until their late answer (cleared on reconnect). The merge also fixed `getMessageInfo`/`renameContact` wrapper account scoping (febc7081).
 - **Profile transfer guards** (c9695708): one receive at a time, closing the dialog doesn't cancel the sender, calls wait up to 1 h, screen kept on.
