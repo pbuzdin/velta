@@ -50,6 +50,13 @@
   --shadow: 0 4px 18px rgba(16, 16, 16, 0.08);
   --sans: "IBM Plex Sans", "Segoe UI", sans-serif;
   --display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  /* the one full-colour field (download band, privacy lead tile):
+     light carries the accent itself; dark mixes it deep into the ground
+     so a full-bleed slab never outshines the content it closes */
+  --field-bg: var(--accent);
+  --field-ink: var(--accent-fg);
+  --field-pill-bg: var(--accent-fg);
+  --field-pill-ink: var(--accent);
   /* the five type roles: display (h1), heading (h2), lead, body, small */
   --size-lead: 1.25rem;
   --measure: 72rem;
@@ -72,6 +79,10 @@
     --line: rgba(244, 244, 244, 0.1);
     --bubble: #2b5278;
     --shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+    --field-bg: color-mix(in srgb, var(--accent) 18%, var(--bg));
+    --field-ink: var(--fg);
+    --field-pill-bg: var(--accent);
+    --field-pill-ink: var(--accent-fg);
   }
 }
 
@@ -577,18 +588,22 @@ main > section h2 {
   flex-direction: column;
   align-items: flex-start;
   gap: 1rem;
-  background: var(--accent);
-  color: var(--accent-fg);
+  background: var(--field-bg);
+  color: var(--field-ink);
 }
 .board-lead h2 { margin: 0; color: inherit; }
 .board li.board-lead p { color: inherit; opacity: 0.92; }
 .board-lead p { margin: 0; max-width: 34rem; line-height: 1.55; }
-/* .board li.board-lead outranks the (0,1,4) :is(main, main.page) pill rule */
+/* .board li.board-lead outranks the (0,1,4) :is(main, main.page) pill rule;
+   the pill inverts per scheme via the field tokens */
 .board li.board-lead p > strong > a {
-  background: var(--accent-fg);
-  color: var(--accent);
+  background: var(--field-pill-bg);
+  color: var(--field-pill-ink);
 }
 .board li.board-lead p > strong > a:hover { background: var(--fg); }
+@media (prefers-color-scheme: dark) {
+  .board li.board-lead p > strong > a:hover { background: var(--accent-hover); }
+}
 .board li h3 { margin: 0; font-size: var(--size-lead); }
 .board li p { margin: 0.6rem 0 0; color: var(--fg); line-height: 1.5; }
 .board-note { margin: 1.5rem 0 0; color: var(--muted); font-size: var(--size-small); }
@@ -636,8 +651,8 @@ main > section h2 {
   margin-inline: 0;
   padding-block: 6.5rem;
   padding-inline: max(1.25rem, calc((100% - var(--measure)) / 2));
-  background: var(--accent);
-  color: var(--accent-fg);
+  background: var(--field-bg);
+  color: var(--field-ink);
 }
 #download h2 { margin: 0; color: inherit; max-width: none; }
 #download .lead { color: inherit; opacity: 0.85; }
@@ -645,7 +660,7 @@ main > section h2 {
 .dl-version a { color: inherit; font-weight: 500; }
 #download a { color: inherit; }
 #download a[href^="http"]:not([href*="velta.cc"])::after { color: inherit; opacity: 0.65; }
-#download :focus-visible { outline-color: var(--accent-fg); }
+#download :focus-visible { outline-color: var(--field-ink); }
 .dl-rows {
   margin: 3rem 0 0;
   padding: 0;
