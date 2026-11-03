@@ -48,3 +48,16 @@ progress/loader ideas #231–#238.
 
 Awaiting Pavel's device test of CI run 41491324296 and a velta.log with the
 watchdog lines. Do not release until it is read.
+
+## #249: get_reply_counts wedge (Nov 3)
+
+- `get_reply_counts` (patch #14) self-joined `msgs` via the `chat_id` index on
+  both sides: O(n²) per chat. A few overlapping calls held all 3 pool
+  connections for minutes; `start_io` and chat opens then timed out, so an IO
+  restart could not help. Fixed by core patch #29 (#250) and a single-flight
+  reply-count refresh in the chat view.
+- Restarts are single-flight; `stop_io` is bounded (15 s), then start anyway.
+- Still open: a real process restart. Desktop could respawn the sidecar
+  (`sidecar::spawn_sidecar`); Android runs the core in-process, so recovery
+  there means relaunching the app process (or moving the core to its own
+  `:core` process).

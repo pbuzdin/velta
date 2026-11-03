@@ -2689,6 +2689,17 @@ async fn test_velta_config_read_not_blocked_by_sql_holder() -> Result<()> {
         where='replace',
         text='/// Velta #26 (#241): an UNCACHED config read must not queue behind a\n/// setter that waits for the write connection; and a cache-miss read that\n/// raced a write never leaves the old value in the cache.\n#[tokio::test(flavor = "multi_thread", worker_threads = 4)]\nasync fn test_velta_uncached_config_read_not_blocked_by_setter() -> Result<()> {\n    let t = TestContext::new_alice().await;\n    t.sql.set_raw_config("velta_cold", Some("1")).await?;\n    t.sql.uncache_raw_config("velta_cold").await;\n    let holder = {\n        let ctx = t.ctx.clone();\n        tokio::spawn(async move {\n            ctx.sql\n                .call_write(|_conn| {\n                    std::thread::sleep(std::time::Duration::from_secs(3));\n                    Ok(())\n                })\n                .await\n        })\n    };\n    tokio::time::sleep(std::time::Duration::from_millis(200)).await;\n    let setter = {\n        let ctx = t.ctx.clone();\n        tokio::spawn(async move { ctx.sql.set_raw_config("velta_cold2", Some("2")).await })\n    };\n    tokio::time::sleep(std::time::Duration::from_millis(200)).await;\n    let started = std::time::Instant::now();\n    let v = t.sql.get_raw_config("velta_cold").await?;\n    let took = started.elapsed();\n    assert_eq!(v.as_deref(), Some("1"));\n    assert!(\n        took < std::time::Duration::from_millis(500),\n        "uncached config read waited {took:?}"\n    );\n    holder.await??;\n    setter.await??;\n\n    // A write that lands after a cache-miss read started wins.\n    t.sql.uncache_raw_config("velta_cold").await;\n    let generation = t.sql.config_gen.load(std::sync::atomic::Ordering::SeqCst);\n    t.sql.set_raw_config("velta_cold", Some("3")).await?;\n    assert_ne!(\n        generation,\n        t.sql.config_gen.load(std::sync::atomic::Ordering::SeqCst)\n    );\n    assert_eq!(\n        t.sql.get_raw_config("velta_cold").await?.as_deref(),\n        Some("3")\n    );\n    for _ in 0..50 {\n        let (a, b) = tokio::join!(\n            t.sql.get_raw_config("velta_race"),\n            t.sql.set_raw_config("velta_race", Some("new"))\n        );\n        a?;\n        b?;\n        assert_eq!(\n            t.sql.get_raw_config("velta_race").await?.as_deref(),\n            Some("new")\n        );\n        t.sql.set_raw_config("velta_race", None).await?;\n        t.sql.uncache_raw_config("velta_race").await;\n    }\n    Ok(())\n}\n\n/// Velta #22: a long SQL holder plus a queued set_config must not block\n',
     ),
+    # ---- #29 (#250, Refs #249): get_reply_counts was O(n^2) per chat — the
+    # planner used the chat_id index for both sides of the self-join, so a big
+    # chat held a pool connection for minutes and wedged the account DB.
+    dict(
+        id='#29 get_reply_counts looks up the quoted message by rfc724_mid (chat.rs)',
+        file='core/src/chat.rs',
+        applied='CROSS JOIN msgs quoted ON quoted.rfc724_mid',
+        anchor="             JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \\\n             WHERE replies.chat_id=? AND quoted.chat_id=? AND",
+        where='replace',
+        text="             CROSS JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \\\n             WHERE replies.chat_id=? AND +quoted.chat_id=? AND",
+    ),
 ]
 
 
