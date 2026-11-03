@@ -775,11 +775,13 @@ pub fn pin_unlock(data_dir: &Path, accounts_root: &Path, pin: &str) -> Result<St
 // File layout: `VLTHW | u8 ver=1 | PKCS#1 ciphertext` of the 32-byte DEK.
 // The private key lives in the Passport provider (`win_hello.rs`).
 
+#[cfg(windows)]
 pub fn hello_wrap_path(data_dir: &Path) -> PathBuf {
     data_dir.join("dbkey.wrap.hello")
 }
 
 /// Ciphertext inside a well-formed Hello wrap. Wrong magic is not a wrap.
+#[cfg(any(windows, test))]
 pub fn hello_wrap_ct(bytes: &[u8]) -> Option<&[u8]> {
     if bytes.len() < 7 || bytes.len() > 6 + 512 || &bytes[0..5] != b"VLTHW" || bytes[5] != 1 {
         return None;
