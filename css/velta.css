@@ -671,22 +671,40 @@ main > section h2 {
   display: grid;
   grid-template-columns: 9rem 1fr auto;
   gap: 0.5rem 1.5rem;
-  align-items: baseline;
+  align-items: center;
   min-height: 3.5rem;
   padding-block: 0.75rem;
   text-decoration: none;
   border-radius: 10px;
 }
 .dl-rows strong { font-size: var(--size-lead); }
+/* the action is a real pill — the page's one button shape — so the row
+   reads as clickable at rest, not only under the hand */
+.dl-rows a span:first-of-type {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 12px;
+  background: var(--field-pill-bg);
+  color: var(--field-pill-ink);
+  font-weight: 500;
+}
+.dl-rows a:hover span:first-of-type,
+.dl-rows a:focus-visible span:first-of-type { background: var(--fg); }
+@media (prefers-color-scheme: dark) {
+  .dl-rows a:hover span:first-of-type,
+  .dl-rows a:focus-visible span:first-of-type { background: var(--accent-hover); }
+}
 .dl-rows a span:last-child {
   color: inherit;
   opacity: 0.75;
   font-size: var(--size-small);
   font-variant-numeric: tabular-nums;
 }
-.dl-rows a:hover strong { text-decoration: underline; text-underline-offset: 0.2em; }
 /* the ↗ marker is suppressed here: inside a grid it becomes a stray item,
-   and the row is already an obvious action */
+   and the pill already names the action */
 #download .dl-rows a::after { content: none; }
 #download > div > p:last-child { margin: 2.5rem 0 0; font-size: var(--size-body); }
 
@@ -891,7 +909,7 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   .dl-rows a { grid-template-columns: 1fr auto; }
   .dl-rows a strong { grid-row: 1; grid-column: 1; }
   .dl-rows a span:last-child { grid-row: 1; grid-column: 2; }
-  .dl-rows a span:first-of-type { grid-row: 2; grid-column: 1; font-size: var(--size-body); }
+  .dl-rows a span:first-of-type { grid-row: 2; grid-column: 1; min-height: 2.75rem; }
   /* footer link groups side by side on mobile; the brand block spans both */
   footer > div { grid-template-columns: 1fr 1fr; }
   footer > div > div:first-child { grid-column: 1 / -1; }
