@@ -203,3 +203,8 @@ bake an image when the composer text is an article. Tests:
   cleartext traffic stays the loopback media server.
 - Attachment size limits and large-message download flow: README
   "Downloading large messages" / "Attachment size limit".
+
+Article detection (#252) is a strict text shape (`parseArticleMessage`), not a
+marker: a hidden header/param needs a core send-API change, and an invisible
+character in the text would leak into other clients. The link-preview ghost
+card has a **Send article** button (shell only) next to dismiss.

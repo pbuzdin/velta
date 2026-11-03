@@ -64,7 +64,7 @@ test("chat-view sends an article as text and does not fetch to paint it", () => 
   const src = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
   const html = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
   const lp = readFileSync(new URL("../app/js/link-preview.js", import.meta.url), "utf8");
-  assert.match(src, /if \(tauriInvoke\(\)\) \{\s*attachItems\.push\(\{ label: "Article"/);
+  assert.match(src, /if \(tauriInvoke\(\)\) \{\s*attachItems\.push\(\{ label: "Send article"/);
   const textAt = src.indexOf("if (m.text && !article)");
   const cardAt = src.indexOf("else if (article)");
   const callAt = src.indexOf('else if (m.viewtype === "call")', cardAt);
@@ -79,4 +79,15 @@ test("chat-view sends an article as text and does not fetch to paint it", () => 
   assert.match(src, /parseArticleMessage\(text\) \? null : senderPreviewUrl/);
   assert.match(html, /id="article-draft"/);
   assert.doesNotMatch(lp, /data-read-link|read-article/);
+});
+
+test("Send article: attach menu and link-preview ghost card, shell only (#252)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const r = f => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  const cv = r("app/js/chat-view.js"), html = r("app/index.html");
+  assert.match(cv, /label: "Send article", icon: ICO\.article/);
+  assert.match(html, /id="btn-lp-article"[^>]*hidden/);
+  assert.match(cv, /btn-lp-article"\)\?\.addEventListener\("click", \(\) => this\._composeArticle\(\)\)/);
+  assert.match(cv, /sendArticle\.hidden = !tauriInvoke\(\)/);
+  for (const l of ["ru", "fr"]) assert.ok(JSON.parse(r(`app/locales/${l}.json`))["Send article"], l);
 });

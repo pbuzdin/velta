@@ -2,6 +2,11 @@
 // line, the opening, a blank line, and one https URL on the last line.
 // Velta paints that shape as a card. Other clients show the text.
 // A short "see this\n\nhttps://…" note does not match.
+//
+// Detection: strict text shape, no marker. A marker other clients ignore
+// needs a custom header or param on the message, which the core's send API
+// does not expose for text (core change). An invisible character in the
+// text would be shown, copied, or stripped unpredictably by other clients.
 import { escapeHtml, escapeAttr } from "./components.js";
 import { t } from "./i18n.js";
 import { shellProxy } from "./link-preview.js";

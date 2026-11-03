@@ -343,6 +343,7 @@ const ICO = {
   // stroke and currentColor as the outlined attach icons so it reads at 20px.
   circle: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4.70 2.60L5.05 2.60" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M9.14 5.26L10.70 8.26" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M13.43 8.23L14.91 5.28" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M18.95 2.60L19.30 2.60" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M20.60 5.25L13.49 18.75" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M10.67 18.76L3.42 5.24" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><circle cx="2.00" cy="2.60" r="1.8" fill="currentColor"/><circle cx="7.75" cy="2.60" r="1.8" fill="currentColor"/><circle cx="12.09" cy="10.92" r="1.8" fill="currentColor"/><circle cx="16.25" cy="2.60" r="1.8" fill="currentColor"/><circle cx="22.00" cy="2.60" r="1.8" fill="currentColor"/><circle cx="12.09" cy="21.40" r="1.8" fill="currentColor"/></svg>`,
   file: ICON.file,
+  article: ICON.article,
   // Large file (#138, Lufi upload): the file outline carrying an L.
   fileL: ICON.fileLarge,
   webxdc: ICON.webxdc,
@@ -4158,6 +4159,8 @@ export class ChatView {
     document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this.editingMsg = null; this._renderReplyPreview(); this._scheduleLinkPreview(); });
     document.getElementById("btn-voice-cancel")?.addEventListener("click", () => this._stopVoice(false));
     document.getElementById("btn-voice-send")?.addEventListener("click", () => this._stopVoice(true));
+    // #252: turn the previewed link into an article card (shell only).
+    document.getElementById("btn-lp-article")?.addEventListener("click", () => this._composeArticle());
     document.getElementById("btn-lp-dismiss")?.addEventListener("click", () => {
       if (this._lpPreview?.url) this._lpDismissed = this._lpPreview.url;
       this._lpPreview = null;
@@ -4203,7 +4206,7 @@ export class ChatView {
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
       if (tauriInvoke()) {
-        attachItems.push({ label: "Article", icon: ICO.file, onClick: () => this._composeArticle() });
+        attachItems.push({ label: "Send article", icon: ICO.article, onClick: () => this._composeArticle() });
       }
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
@@ -4496,6 +4499,8 @@ export class ChatView {
     this._lpPreview = { url, preview };
     const body = bar.querySelector("[data-lp-body]");
     if (body) body.innerHTML = linkPreviewCardHtml(preview, url, { link: false });
+    const sendArticle = document.getElementById("btn-lp-article");
+    if (sendArticle) sendArticle.hidden = !tauriInvoke();
     bar.hidden = false;
   }
 

@@ -69,6 +69,7 @@ export const P = {
   selectText: '<path d="M4 8.5h5.5M4 12h3.5M4 15.5h5.5M18 4.5v15M16 4.5h4M16 19.5h4"/>',
   selectCircle: '<circle cx="12" cy="12" r="9"/>' + CHECK_INNER,
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
+  article: '<path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   fileLarge: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M10 10v6.5h4.5"/>',
   webxdc: '<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><path d="M17.5 13.5v6m-3-3h6"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/>',
