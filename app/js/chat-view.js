@@ -1761,7 +1761,23 @@ export class ChatView {
     this._coreReplyTimer = setTimeout(() => { this._refreshCoreReplyCounts(); }, 300);
   }
 
+  // One query at a time (#249): each call holds one of the core's three DB
+  // connections, so stacking them on every new message starved the account.
+  // A refresh asked for while one runs is folded into a single rerun.
   async _refreshCoreReplyCounts() {
+    if (this._coreReplyInFlight) { this._coreReplyAgain = true; return; }
+    this._coreReplyInFlight = true;
+    try {
+      do {
+        this._coreReplyAgain = false;
+        await this._refreshCoreReplyCountsOnce();
+      } while (this._coreReplyAgain);
+    } finally {
+      this._coreReplyInFlight = false;
+    }
+  }
+
+  async _refreshCoreReplyCountsOnce() {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
     let counts = null;

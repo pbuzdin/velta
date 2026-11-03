@@ -319,8 +319,14 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
-  async restartIo() {
-    await this._call("stop_io_for_all_accounts");
+  // #249: a stop that does not finish (IO tasks stuck behind a wedged DB)
+  // must not keep the restart from trying a start; both are bounded.
+  async restartIo({ stopTimeoutMs = 15000 } = {}) {
+    try {
+      await this._callWithTimeout(stopTimeoutMs, "stop_io_for_all_accounts");
+    } catch (e) {
+      this._emit("diagnostic", { level: "warning", message: `Core I/O stop did not finish: ${e?.message || e}; starting anyway` });
+    }
     await this._startIo();
     await this._call("maybe_network");
     this._emit("diagnostic", { level: "info", message: "Core network I/O restarted" });
