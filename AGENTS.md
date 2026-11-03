@@ -172,6 +172,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/accessibility-and-keybindings.md # DC Desktop shortcut reference, Velta keyboard/a11y audit + plan (K1–K8, N1–N13)
 ├── docs/iroh-layer-plan.md        # iroh second layer over chatmail: iroh folder + chip, link protocol, dedup, calls, phases (proposal)
 ├── docs/research/iroh-layer-research.md # what core 2.62's iroh exposes (webxdc realtime, backup), keys, calls, upstream, wasm — file:line cites
+├── docs/research/android-native-hybrid-ui.md # Android native chat list/history + WebView for the rest: options, cost, WebView hotspots, recommendation (research)
 ├── PLAN-PWA-WEBSOCKET.MD         # PWA + restricted-WS-relay plan; §4b = Architecture C track (OQ-1 decided = C)
 ├── PLAN-UNIFIEDPUSH.MD           # Google-free background push for Android (ntfy + UnifiedPush distributor): verified core token path (push.rs → /private/devicetoken IMAP metadata), notifier-key swap, relay state, work items — issue #110
 ├── docs/research/wasm-core-mail-proxy-spike.md    # wasm spike log, day-by-day — status header = current state
