@@ -861,6 +861,7 @@ core.addEventListener("account-changing", () => {
   state.chatListError = null;
   state.contactBotsError = null;
   state.query = "";
+  renderSyncBar(); // the new profile starts its own first-fetch window
   closeChatUI();
   closeAllPopups();
   // Side views (search, contacts, archived, …) hold the old profile's rows
@@ -1083,6 +1084,7 @@ async function refreshRelayStatusInner() {
       relayDownSince = 0;
     }
     renderRelayLine();
+    renderSyncBar();
   } catch { /* old cores without get_connectivity */ }
   // Per-relay segments (best effort — an old core or a stopped scheduler
   // leaves relaySegments empty and the line falls back to the combined view).
@@ -1874,6 +1876,7 @@ function setListView(view) {
   stopQrScanner();
   const wasQr = listView === "qr";
   listView = listView === view ? "chats" : view;
+  renderSyncBar(); // the strip only ever shows on the chats view
   if (listView === "qr" && !wasQr) qrTab = "mine"; // a fresh visit starts on the code
   for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
     b.classList.toggle("active", b.dataset.view === listView);
@@ -2280,6 +2283,30 @@ function renderChatList() {
   }
   syncArchivedLink();
   watchChatItemGhosts(list);
+  renderSyncBar();
+}
+
+// #233: first sync after login/restore — an empty chat list must not read as
+// broken. A slim strip between the category chips and the list, driven by the
+// same connectivity value the relay line uses: visible while the profile is
+// relay-configured, the list has no real chats yet and the core has not
+// finished its first fetch (connectivity < 4000). The text upgrades to
+// "Updating…" while the core is actively working (3000-3999, desktop
+// ConnectivityToast parity). Old cores without get_connectivity keep the
+// strip hidden (null) rather than stuck on forever.
+function renderSyncBar() {
+  const el = $("sync-bar");
+  if (!el) return;
+  const realChats = state.chats.some(c => c.id !== DIAGNOSTICS_CHAT_ID);
+  const show = listView === "chats" &&
+    core?.backend?.kind !== "mock" &&
+    !realChats &&
+    state.account?.configured !== false &&
+    relayConnectivity != null && relayConnectivity < 4000;
+  el.hidden = !show;
+  if (!show) return;
+  el.querySelector("[data-sync-text]").textContent =
+    t(relayConnectivity >= 3000 ? "Updating…" : "Fetching messages…");
 }
 
 // Delta Chat's "Archived chats (N)" row, last in the main list. Only the
@@ -3766,8 +3793,14 @@ function bindChatHeadMenu() {
     input.placeholder = p2p ? t("Search in loaded messages…") : t("Search in chat…");
     const results = document.createElement("div");
     results.className = "modal-list";
+    // #238: the FTS query can take seconds on big accounts (or hang on a
+    // stall) — a thin sweep strip under the input shows the modal is alive.
+    // The P2P path filters loaded rows synchronously and never shows it.
+    const bar = document.createElement("progress");
+    bar.className = "search-load-bar";
+    bar.setAttribute("aria-label", t("Searching…"));
     const wrap = document.createElement("div");
-    wrap.append(input, results);
+    wrap.append(input, bar, results);
     const emptyHint = p2p
       ? t("Nothing found in loaded history.")
       : t("Nothing found.");
@@ -3790,15 +3823,19 @@ function bindChatHeadMenu() {
         const q = input.value.trim().toLowerCase();
         const mySeq = ++seq;
         results.replaceChildren();
-        if (q.length < 2) return;
+        if (q.length < 2) { bar.removeAttribute("data-on"); return; }
+        if (!p2p) bar.setAttribute("data-on", "");
         let hits = [];
         try {
           hits = await runSearch(q);
         } catch (e) {
+          if (mySeq !== seq) return; // a newer run owns the bar
+          bar.removeAttribute("data-on");
           results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">${escapeHtml(t("Search failed:"))} ${escapeHtml(String(e?.message || e))}</p>`;
           return;
         }
         if (mySeq !== seq || !accountIsCurrent(epoch)) return;
+        bar.removeAttribute("data-on");
         for (const m of hits) {
           const b = document.createElement("button");
           b.type = "button";

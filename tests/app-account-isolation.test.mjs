@@ -134,6 +134,9 @@ function setup(t) {
       replaceState(value) { this.state = value; },
     },
     DIAGNOSTICS_CHAT_ID: -1,
+    // renderSyncBar (#233) rides the relay-status module var; the strip's own
+    // behavior is covered in first-sync-and-search-bar.test.mjs.
+    relayConnectivity: null,
     diagnostics: {
       preview: "Diagnostics",
       getChat() { return { id: -1, name: this.preview }; },
