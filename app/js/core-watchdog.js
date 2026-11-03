@@ -14,7 +14,21 @@ export const WATCHDOG = Object.freeze({
   BACKOFF_MS: [1000, 5000, 30000], // automatic restart delays, by attempt
   MAX_RESTARTS: 3,            // automatic restarts allowed per window
   RESTART_WINDOW_MS: 600000,  // 10 min
+  TIMER_JUMP_MS: 15000,       // a tick gap this long = the app was frozen (Android doze/background)
+  FORGET_TIMED_OUT_MS: 120000, // a timed-out RPC whose answer never came stops counting
 });
+
+// Slow by design (network round trips, backups, key transfer): their age
+// says nothing about a wedged core, so they never raise the banner. The
+// ping still catches a core that is really stuck behind them.
+export const LONG_RPC_METHODS = new Set([
+  "add_or_update_transport", "add_transport_from_qr", "configure", "set_config_from_qr",
+  "secure_join", "get_http_response", "get_connectivity_html", "check_qr",
+  "import_backup", "export_backup", "get_backup", "provide_backup", "get_backup_qr",
+  "import_self_keys", "export_self_keys", "accounts_background_fetch",
+  "send_webxdc_realtime_advertisement", "send_webxdc_realtime_data", "ice_servers",
+  "place_outgoing_call", "accept_incoming_call",
+]);
 
 // The liveness ping: get_system_info answers from build constants and never
 // touches an account database, so only a wedged core/runtime delays it.
@@ -205,6 +219,17 @@ export function startCoreWatchdog({ core, isBusy, restarts = [], restart, onShow
     }
   };
   const visible = () => !doc || doc.visibilityState !== "hidden";
+  // Ages count from the last resume: while the app was hidden or frozen
+  // (Android background, doze, screen off) neither the core nor the timers
+  // ran, so calls started before that would look minutes old.
+  let resumedAt = 0, lastTick = 0;
+  const oldest = t => core.oldestInFlight?.(t, { skip: LONG_RPC_METHODS, since: resumedAt,
+    forgetMs: W.FORGET_TIMED_OUT_MS }) || null;
+  const resume = t => {
+    resumedAt = t;
+    if (pingStarted) pingStarted = t;
+    apply({ type: "resume", now: t });
+  };
   const ping = () => {
     if (pingStarted) return;
     pingStarted = now();
@@ -214,18 +239,20 @@ export function startCoreWatchdog({ core, isBusy, restarts = [], restart, onShow
       .then(() => {
         pingStarted = 0;
         const t = now();
-        apply({ type: "pong", now: t, oldest: core.oldestInFlight?.(t) || null });
+        apply({ type: "pong", now: t, oldest: oldest(t) });
       }, () => { pingStarted = 0; });
   };
   const tick = () => {
-    if (!visible()) return;
+    if (!visible()) { lastTick = 0; return; }
     const t = now();
+    if (lastTick && t - lastTick >= W.TIMER_JUMP_MS) resume(t);
+    lastTick = t;
     apply({ type: "tick", now: t, pingPendingMs: pingStarted ? t - pingStarted : null,
-      oldest: core.oldestInFlight?.(t) || null, busy: isBusy() });
+      oldest: oldest(t), busy: isBusy() });
     if (state.status === "healthy" || state.status === "stalled") ping();
   };
   doc?.addEventListener?.("visibilitychange", () => {
-    if (visible()) { apply({ type: "resume", now: now() }); tick(); }
+    if (visible()) { resume(now()); lastTick = 0; tick(); }
   });
   const timer = setIntervalFn(tick, W.PING_EVERY_MS);
   return {

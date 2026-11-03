@@ -407,11 +407,19 @@ export class JsonRpcCore extends EventTarget {
   // Core watchdog (#240): the oldest unresolved call (event long poll
   // excluded — it parks by design), including client-timed-out calls still
   // awaiting a late response, or null.
-  oldestInFlight(now = Date.now()) {
+  // opts (watchdog false positives): skip = Set of methods that are slow by
+  // design (network/backup), since = ages count from here at most (app
+  // resume: frozen timers must not age calls), forgetMs = a timed-out call
+  // whose answer never came stops counting after this long.
+  oldestInFlight(now = Date.now(), { skip = null, since = 0, forgetMs = Infinity } = {}) {
     let best = null;
-    for (const e of [...this.pending.values(), ...this._timedOut.values()]) {
+    const live = [...this.pending.values()].map(e => [e, false]);
+    const late = [...this._timedOut.values()].map(e => [e, true]);
+    for (const [e, timedOut] of [...live, ...late]) {
       if (!e.method || !e.started || e.method === this._eventPollMethod) continue;
-      const ms = now - e.started;
+      if (skip?.has(e.method)) continue;
+      if (timedOut && now - e.started >= forgetMs) continue;
+      const ms = now - Math.max(e.started, since);
       if (!best || ms > best.ms) best = { method: e.method, ms };
     }
     return best;

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { step, initialState, WATCHDOG as W, PING_METHOD, startCoreWatchdog } from "../app/js/core-watchdog.js";
+import { step, initialState, WATCHDOG as W, PING_METHOD, startCoreWatchdog, LONG_RPC_METHODS } from "../app/js/core-watchdog.js";
 import { JsonRpcCore } from "../app/js/rpc-core.js";
 
 const idle = { transfer: false, call: false };
@@ -187,4 +187,54 @@ test("app wires the banner, busy guards and the shared restart path", () => {
     const d = JSON.parse(readFileSync(new URL(`../app/locales/${l}.json`, import.meta.url), "utf8"));
     for (const k of ["Core not responding", "Restart core", "Core stopped — restarting…", "Core stopped and could not be restarted"]) assert.ok(d[k], `${l}: ${k}`);
   }
+});
+
+function fakeCore() {
+  const transport = { sent: [], setReceiver(fn) { this.receive = fn; }, send(l) { this.sent.push(JSON.parse(l)); } };
+  const core = new JsonRpcCore(transport);
+  transport.setReceiver(core._onLine);
+  core._rpcLog = () => {};
+  return { core, transport };
+}
+
+test("slow-by-design RPCs (network, backup) do not raise the banner", () => {
+  const { core } = fakeCore();
+  const t0 = Date.now();
+  core.pending.set(-1, { method: "add_or_update_transport", started: t0, resolve() {}, reject() {} });
+  core.pending.set(-2, { method: "get_http_response", started: t0, resolve() {}, reject() {} });
+  assert.equal(core.oldestInFlight(t0 + 30000, { skip: LONG_RPC_METHODS }), null);
+  assert.equal(core.oldestInFlight(t0 + 30000).method, "add_or_update_transport");
+});
+
+test("a timed-out RPC whose answer never comes stops counting", async () => {
+  const { core } = fakeCore();
+  await core._callWithTimeout(5, "get_config", 1, "x").catch(() => {});
+  const t = Date.now();
+  assert.equal(core.oldestInFlight(t + 60000, { forgetMs: 120000 }).method, "get_config");
+  assert.equal(core.oldestInFlight(t + 130000, { forgetMs: 120000 }), null);
+});
+
+test("driver: a frozen app (Android background / timer jump) is a resume, not a stall", async () => {
+  const { core, transport } = fakeCore();
+  let off = 0;
+  const ui = [], logs = [];
+  const wd = startCoreWatchdog({ core, isBusy: () => idle, restart: async () => true,
+    onShow: s => ui.push("show:" + s), onHide: () => ui.push("hide"), log: m => logs.push(m),
+    doc: null, setIntervalFn: () => 0, now: () => Date.now() + off, W: { ...W, PING_TIMEOUT_MS: 50 } });
+  core.pending.set(-1, { method: "get_chatlist_entries", started: Date.now(), resolve() {}, reject() {} });
+  wd.tick();                 // ping goes out
+  off = 300000; wd.tick();   // 5 min later: timers were frozen
+  const pong = async () => { for (const r of transport.sent) if (r.method === PING_METHOD) transport.receive(JSON.stringify({ jsonrpc: "2.0", id: r.id, result: {} })); await new Promise(r => setTimeout(r, 0)); };
+  await pong();              // the ping parked while frozen answers on resume
+  off = 305000; wd.tick(); await pong();
+  off = 309000; wd.tick(); await pong();
+  assert.deepEqual(ui, [], "no banner after resume from a frozen state: " + logs.join("; "));
+  for (off = 314000; off <= 324000; off += 5000) { wd.tick(); await pong(); } // stuck 24 s after resume counts
+  assert.deepEqual(ui, ["show:stalled"]);
+});
+
+test("core banner sits below the Android status bar (safe-area-inset-top)", async () => {
+  const css = (await import("node:fs")).readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  const rule = css.slice(css.indexOf(".core-banner {"), css.indexOf("}", css.indexOf(".core-banner {")));
+  assert.match(rule, /top:\s*calc\([^;]*env\(safe-area-inset-top/);
 });
