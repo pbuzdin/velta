@@ -2,7 +2,8 @@
 
 Status: open. Tracks the "app freezes / empty lists" reports on 1.5.0 and the
 work landed on master since (unreleased). Related: #229, #240, #241, #242–#245;
-progress/loader ideas #231–#238.
+of the progress/loader ideas #231–#238, #233 (first-sync strip) and #238
+(search sweep bar) landed in 2bf3ce90, the rest are still open.
 
 ## What landed (unreleased, master after v1.5.0)
 
@@ -15,6 +16,12 @@ progress/loader ideas #231–#238.
   "Restart core"; a hung core is auto-restarted after 60 s. Dead-core restarts
   back off 1 / 5 / 30 s, at most 3 per 10 min. Skipped during a profile
   transfer and during a 1:1 call.
+  False recovery fixed (PR #246, a2b39fb8): the ping avoids the account DB and
+  scheduler locks, so it can answer while an account RPC is still stuck — a
+  pong now clears `stalled` only when `oldestInFlight()` is under the stall
+  threshold, and client-timed-out RPCs stay visible to the watchdog until
+  their late answer arrives (entries are cleared on reconnect: they belong to
+  the old connection).
   **Limit:** restart only stops/starts IO; it cannot recover a truly wedged
   core process on desktop/Android.
 - **Stall-safe lists** (83b2d3da, #241, `app/js/load-retry.js`): relays screen,

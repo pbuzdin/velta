@@ -2438,10 +2438,10 @@ next push or the tainted commits come back.
 
 Do not write a versioned release-notes file until the release is cut; this list is the draft.
 
-- **Core stalls** (c38a4938 #229, eadabcd3 #240, 83b2d3da #241, 55a8a393 #242–#245): core patches #22 and #25–#28 (table in §4.1), core watchdog `app/js/core-watchdog.js` (5 s `get_system_info` ping, stuck after 8 s / oldest call 10 s, banner + Restart core, auto-restart after 60 s, dead-core backoff 1/5/30 s max 3 per 10 min, skipped during transfer and 1:1 calls; restart only stops/starts IO and cannot recover a truly wedged core on desktop/Android), `app/js/load-retry.js` last-good lists. Findings, upstream issues and remaining suspects: `docs/core-stall-investigation.md`. Empty lists during stalls were app-side, not core.
+- **Core stalls** (c38a4938 #229, eadabcd3 #240, 83b2d3da #241, 55a8a393 #242–#245): core patches #22 and #25–#28 (table in §4.1), core watchdog `app/js/core-watchdog.js` (5 s `get_system_info` ping, stuck after 8 s / oldest call 10 s, banner + Restart core, auto-restart after 60 s, dead-core backoff 1/5/30 s max 3 per 10 min, skipped during transfer and 1:1 calls; restart only stops/starts IO and cannot recover a truly wedged core on desktop/Android), `app/js/load-retry.js` last-good lists. Findings, upstream issues and remaining suspects: `docs/core-stall-investigation.md`. Empty lists during stalls were app-side, not core. Watchdog false recovery fixed (4a6aec42…, PR #246, a2b39fb8): `get_system_info` avoids the account locks, so a pong no longer clears `stalled` while an account RPC is still overdue — recovery needs `oldestInFlight()` under the stall threshold, and client-timed-out RPCs stay visible there until their late answer (cleared on reconnect). The merge also fixed `getMessageInfo`/`renameContact` wrapper account scoping (febc7081).
 - **Profile transfer guards** (c9695708): one receive at a time, closing the dialog doesn't cancel the sender, calls wait up to 1 h, screen kept on.
-- **Transfer/export progress UI** (6b0be64d): native progress, stage text, corner pill, Android notification. Further ideas filed as #231–#238.
-- **Mention chip redesign** (0e7628ad): tinted chip, em padding, clone wrap, brutal outline; inline code muted by size only (keeps AA contrast).
+- **Transfer/export progress UI** (6b0be64d): native progress, stage text, corner pill, Android notification. Further ideas filed as #231–#238; first two landed (2bf3ce90): first-sync strip on an empty chat list ("Fetching messages…" below connectivity 4000, "Updating…" at 3000–3999, hidden on mock/local mode and cores without `get_connectivity`, `renderSyncBar` in app.js) and a thin sweep bar in the in-chat search modal (`.search-load-bar`, seq-guarded, never on the synchronous P2P path — the search screen's name filter is local and instant, so #238's bar lives in the only streaming search).
+- **Mention chip redesign** (0e7628ad): tinted chip, em padding, clone wrap, brutal outline; inline code muted by size only. Follow-up (1be00780): the chip's `color-mix(currentColor …)` tint darkens the effective background WITH the text, so the light derivation converged below AA on custom accents (CI contrast red since 0e7628ad, 4.09/3.82 with the yellow accent) — `deriveAccent` light branch now iterates until the color clears 4.5:1 against its own tinted composite; dark/brutal untouched (brutal's chip is outline-only).
 - **Call route chip** (8ae38878, c8908902, #239): "Direct" / "Via relay" from `getStats()`, right-side chevron.
 - Encryption wording rules still apply: Android shipped, desktop + PWA preview, attachments WIP, never "all platforms".
 
@@ -2494,8 +2494,8 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 188 files, 1264 tests as of 2026-11-02 (6 skipped: 5 without
-python3+websockets in `tests/ws-proxy-auth.test.mjs`; 1 when the sidecar
+whole set — 195 files, 1317 tests as of 2026-11-03 (5 skip without
+python3+websockets in `tests/ws-proxy-auth.test.mjs`; 1 more when the sidecar
 binary is absent in `tests/release-version-pins.test.mjs`. CI installs
 python3+websockets so those run on Linux; Windows path uses `fileURLToPath`).
 Includes SOCKS5 proxy, relay pause/autorelay, native attachment encryption,
