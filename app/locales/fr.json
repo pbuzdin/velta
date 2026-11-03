@@ -1599,5 +1599,15 @@
   "Core stopped and could not be restarted": "Le cœur s’est arrêté et n’a pas pu redémarrer",
   "Couldn't load — the core is busy.": "Chargement impossible — le cœur est occupé.",
   "Couldn't load.": "Chargement impossible.",
-  "Showing the last loaded list.": "Dernière liste chargée affichée."
+  "Showing the last loaded list.": "Dernière liste chargée affichée.",
+  "Unlock with Windows Hello": "Déverrouiller avec Windows Hello",
+  "Turn off Windows Hello": "Désactiver Windows Hello",
+  "Windows Hello protects this device's database key and is required at every start.": "Windows Hello protège la clé de la base de données de cet appareil et est demandé à chaque démarrage.",
+  "Windows Hello or the app-lock PIN protects this device's database key.": "Windows Hello ou le code PIN de verrouillage protège la clé de la base de données de cet appareil.",
+  "The database key lives in the OS keychain. Add a PIN or Windows Hello to require it at every start and to enable auto-lock.": "La clé de la base est dans le trousseau du système. Ajoutez un code PIN ou Windows Hello pour l'exiger à chaque démarrage et activer le verrouillage automatique.",
+  "Windows Hello is on.": "Windows Hello est activé.",
+  "Windows Hello is off.": "Windows Hello est désactivé.",
+  "Set up Windows Hello in Windows settings first.": "Configurez d'abord Windows Hello dans les paramètres Windows.",
+  "Windows Hello was cancelled.": "Windows Hello a été annulé.",
+  "Couldn't change Windows Hello: ": "Impossible de modifier Windows Hello : "
 }

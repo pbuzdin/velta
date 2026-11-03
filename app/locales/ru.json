@@ -1599,5 +1599,15 @@
   "Core stopped and could not be restarted": "Ядро остановилось, перезапустить не удалось",
   "Couldn't load — the core is busy.": "Не удалось загрузить — ядро занято.",
   "Couldn't load.": "Не удалось загрузить.",
-  "Showing the last loaded list.": "Показан последний загруженный список."
+  "Showing the last loaded list.": "Показан последний загруженный список.",
+  "Unlock with Windows Hello": "Разблокировать через Windows Hello",
+  "Turn off Windows Hello": "Выключить Windows Hello",
+  "Windows Hello protects this device's database key and is required at every start.": "Windows Hello защищает ключ базы этого устройства и запрашивается при каждом запуске.",
+  "Windows Hello or the app-lock PIN protects this device's database key.": "Windows Hello или PIN блокировки защищает ключ базы этого устройства.",
+  "The database key lives in the OS keychain. Add a PIN or Windows Hello to require it at every start and to enable auto-lock.": "Ключ базы лежит в связке ключей системы. Добавьте PIN или Windows Hello, чтобы спрашивать его при каждом запуске и включить автоблокировку.",
+  "Windows Hello is on.": "Windows Hello включён.",
+  "Windows Hello is off.": "Windows Hello выключен.",
+  "Set up Windows Hello in Windows settings first.": "Сначала настройте Windows Hello в параметрах Windows.",
+  "Windows Hello was cancelled.": "Windows Hello отменён.",
+  "Couldn't change Windows Hello: ": "Не удалось изменить Windows Hello: "
 }

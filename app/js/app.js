@@ -548,24 +548,53 @@ if (window.__TAURI__) {
       // #178 phase 4: an app-lock PIN session starts locked — the sidecar is
       // up but keyless; unlock_with_pin respawns it keyed. No reload button:
       // a reload would add nothing.
-      if (payload?.mode === "pin") {
+      if (payload?.mode === "pin" || payload?.mode === "hello") {
         if (document.getElementById("db-locked")) return;
+        const hello = payload.mode === "hello";
+        const pin = !hello || payload.pin === true;
         const el = document.createElement("div");
         el.id = "db-locked";
+        const lead = hello && pin
+          ? "Unlock with Windows Hello, or enter your app-lock PIN. Nothing was reset."
+          : hello
+            ? "Unlock with Windows Hello to open this device's profiles. Nothing was reset."
+            : "Enter your app-lock PIN to unlock this device's profiles. Nothing was reset.";
         el.innerHTML = `
           <div class="db-locked-card">
             <h2>Velta is locked</h2>
-            <p>Enter your app-lock PIN to unlock this device's profiles. Nothing was reset.</p>
-            <form class="db-pin-form">
+            <p>${lead}</p>
+            ${hello ? `<button class="btn-primary db-hello-go" type="button">Unlock with Windows Hello</button>` : ""}
+            ${pin ? `<form class="db-pin-form">
               <input class="text-field db-pin-input" type="password" required autocomplete="current-password" placeholder="PIN">
               <button class="btn-primary db-pin-go" type="submit">Unlock</button>
-            </form>
+            </form>` : ""}
             <p class="db-locked-hint db-pin-status" hidden></p>
           </div>`;
         document.body.appendChild(el);
         const status = el.querySelector(".db-pin-status");
+        const helloGo = el.querySelector(".db-hello-go");
+        if (helloGo) {
+          helloGo.addEventListener("click", async () => {
+            helloGo.disabled = true;
+            try {
+              await invoke("unlock_with_hello");
+              location.reload();
+            } catch (err) {
+              const msg = String(err?.message || err || "");
+              status.textContent = msg.includes("cancelled")
+                ? "Windows Hello was cancelled."
+                : msg.includes("hello-unavailable")
+                  ? "Windows Hello is not set up. Use your PIN, or set it up in Windows settings."
+                  : `Couldn't unlock: ${msg}`;
+              status.hidden = false;
+              helloGo.disabled = false;
+            }
+          });
+        }
         const go = el.querySelector(".db-pin-go");
-        el.querySelector(".db-pin-form").addEventListener("submit", async (e) => {
+        const form = el.querySelector(".db-pin-form");
+        if (!form) return;
+        form.addEventListener("submit", async (e) => {
           e.preventDefault();
           go.disabled = true;
           try {
@@ -590,7 +619,7 @@ if (window.__TAURI__) {
             }
           }
         });
-        el.querySelector(".db-pin-input").focus();
+        el.querySelector(".db-pin-input")?.focus();
         return;
       }
       const locked = Array.isArray(payload?.locked) ? payload.locked.length : 0;
@@ -717,8 +746,11 @@ if (window.__TAURI__) {
   try {
     const invoke = tauriInvoke();
     if (invoke) {
-      invoke("get_db_pin_state").then((pinOn) => {
-        if (!pinOn) return;
+      Promise.all([
+        invoke("get_db_pin_state").catch(() => false),
+        invoke("get_db_hello_state").catch(() => false),
+      ]).then(([pinOn, helloOn]) => {
+        if (!pinOn && !helloOn) return;
         let armed = false;
         let timer = 0;
         document.addEventListener("visibilitychange", () => {
@@ -5975,7 +6007,7 @@ function openPrivacySecurity() {
         <button class="btn-text" type="button" data-pin-edit>${escapeHtml(t("Change PIN"))}</button>
         <button class="btn-text" type="button" data-pin-remove style="color:var(--danger)">${escapeHtml(t("Remove PIN"))}</button>
       </div>
-        ${isAndroid() ? `<button class="btn-text" type="button" data-bio-toggle></button>` : ""}
+        ${isAndroid() ? `<button class="btn-text" type="button" data-bio-toggle></button>` : `<button class="btn-text" type="button" data-hello-toggle hidden></button>`}
       </div>
       <label class="pm-hint" style="display:grid;gap:4px">
         <span>${escapeHtml(t("Lock when hidden"))}</span>
@@ -6064,17 +6096,33 @@ function openPrivacySecurity() {
     // "set" (no PIN yet), "change", "remove" — the current PIN is asked for
     // whenever one is set; the Rust side re-verifies it anyway.
     let formMode = "set";
+    let helloOn = false;
+    const helloBtn = applockBox.querySelector("[data-hello-toggle]");
     const refresh = async () => {
       let on = false;
       try { on = await shell("get_db_pin_state"); } catch {}
+      helloOn = false;
+      let helloOk = false;
+      if (!isAndroid() && shell) {
+        try { helloOk = await shell("hello_supported"); } catch {}
+        try { helloOn = await shell("get_db_hello_state"); } catch {}
+      }
+      if (helloBtn) {
+        helloBtn.hidden = !helloOk;
+        helloBtn.textContent = helloOn ? t("Turn off Windows Hello") : t("Unlock with Windows Hello");
+      }
       // Android: the Velta PIN and the biometric / screen lock are both
       // key roots for the same database key; either one unlocks.
       if (isAndroid()) statusEl.textContent = on
         ? t("App-lock PIN is on: Velta asks for it at every start. The biometric lock can be added for quicker unlocks.")
         : t("Add a Velta app-lock PIN, or use the biometric lock (fingerprint or screen lock), to require it at every start. Either protects the database key of all profiles at rest.");
+      else if (helloOn && on) statusEl.textContent = t("Windows Hello or the app-lock PIN protects this device's database key.");
+      else if (helloOn) statusEl.textContent = t("Windows Hello protects this device's database key and is required at every start.");
       else statusEl.textContent = on
         ? t("App-lock PIN is on. The PIN — not the OS keychain — protects this profile's database key at rest, and auto-lock can re-lock the app.")
-        : t("The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.");
+        : helloOk
+          ? t("The database key lives in the OS keychain. Add a PIN or Windows Hello to require it at every start and to enable auto-lock.")
+          : t("The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.");
       pinForm.hidden = true;
       pinOffRow.hidden = on;
       pinRows.hidden = !on;
@@ -6085,24 +6133,71 @@ function openPrivacySecurity() {
     const openForm = (mode) => {
       formMode = mode;
       pinForm.reset();
-      pinNew.hidden = mode === "remove";
-      pinNew2.hidden = mode === "remove";
-      pinNew.required = mode !== "remove";
-      pinNew2.required = mode !== "remove";
+      const pinOnly = mode === "remove" || mode === "hello";
+      pinNew.hidden = pinOnly;
+      pinNew2.hidden = pinOnly;
+      pinNew.required = !pinOnly;
+      pinNew2.required = !pinOnly;
+      pinCur.hidden = mode === "set";
+      pinCur.required = mode !== "set";
       pinOffRow.hidden = true;
       pinRows.hidden = true;
+      if (helloBtn) helloBtn.hidden = true;
+      pinForm.querySelector("[data-pin-save]").textContent = mode === "hello"
+        ? t("Unlock with Windows Hello")
+        : t("Save PIN");
       pinForm.hidden = false;
-      (mode === "remove" ? pinCur : pinNew).focus();
+      (mode === "set" ? pinNew : pinCur).focus();
     };
     pinForm.addEventListener("submit", (e) => { e.preventDefault(); pinForm.querySelector("[data-pin-save]").click(); });
     applockBox.querySelector("[data-pin-add]").addEventListener("click", () => openForm("set"));
     applockBox.querySelector("[data-pin-edit]").addEventListener("click", () => openForm("change"));
     applockBox.querySelector("[data-pin-remove]").addEventListener("click", () => openForm("remove"));
     applockBox.querySelector("[data-pin-cancel]").addEventListener("click", refresh);
+    if (helloBtn) {
+      helloBtn.addEventListener("click", async () => {
+        if (helloOn) {
+          try {
+            await shell("clear_db_hello");
+            toast(t("Windows Hello is off."));
+            await refresh();
+          } catch (err) {
+            const msg = String(err?.message || err || "");
+            errToast(msg.includes("cancelled")
+              ? t("Windows Hello was cancelled.")
+              : msg.includes("hello-unavailable")
+                ? t("Set up Windows Hello in Windows settings first.")
+                : t("Couldn't change Windows Hello: ") + msg);
+          }
+          return;
+        }
+        if (!pinOffRow.hidden) {
+          try {
+            await shell("set_db_hello", { pin: null });
+            toast(t("Windows Hello is on."));
+            await refresh();
+          } catch (err) {
+            const msg = String(err?.message || err || "");
+            errToast(msg.includes("cancelled")
+              ? t("Windows Hello was cancelled.")
+              : msg.includes("hello-unavailable")
+                ? t("Set up Windows Hello in Windows settings first.")
+                : msg.includes("no-key")
+                  ? t("This profile has no database key yet — nothing for a PIN to protect.")
+                  : t("Couldn't change Windows Hello: ") + msg);
+          }
+          return;
+        }
+        openForm("hello");
+      });
+    }
     pinForm.querySelector("[data-pin-save]").addEventListener("click", async () => {
       if (!pinForm.reportValidity()) return;
       try {
-        if (formMode === "remove") {
+        if (formMode === "hello") {
+          await shell("set_db_hello", { pin: pinCur.value });
+          toast(t("Windows Hello is on."));
+        } else if (formMode === "remove") {
           await shell("clear_db_pin", { pin: pinCur.value });
           toast(t("PIN removed."));
         } else {
@@ -6116,6 +6211,12 @@ function openPrivacySecurity() {
         const wait = msg.startsWith("retry:") ? Number(msg.slice(6)) || 0 : 0;
         errToast(wait > 0
           ? t("Too many attempts — wait {n} s.", { n: wait })
+          : formMode === "hello"
+            ? (msg.includes("cancelled")
+              ? t("Windows Hello was cancelled.")
+              : msg.includes("hello-unavailable")
+                ? t("Set up Windows Hello in Windows settings first.")
+                : t("Couldn't change Windows Hello: ") + msg)
           : t("Couldn't save the PIN: ") + (msg.includes("no-key")
             ? (isAndroid() ? t("Database encryption isn't set up on this device yet. Restart Velta to finish it, then turn on the lock.") : t("This profile has no database key yet — nothing for a PIN to protect."))
             : msg.includes("keychain-unavailable")

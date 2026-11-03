@@ -185,11 +185,14 @@ async fn probe_db_lock(app: tauri::AppHandle) {
         return;
     }
     let mut status = serde_json::json!({ "locked": locked });
-    // Keep an app-lock PIN marker if the session started locked — the PIN
-    // screen must win over the generic retry.
+    // Keep the app-lock marker. Hello plus a PIN sets `pin` as well —
+    // dropping it hides the PIN form on the lock screen.
     if let Some(prev) = DB_LOCK_STATUS.lock().unwrap().as_ref() {
         if let Some(mode) = prev.get("mode") {
             status["mode"] = mode.clone();
+            if let Some(pin) = prev.get("pin") {
+                status["pin"] = pin.clone();
+            }
         }
     }
     *DB_LOCK_STATUS.lock().unwrap() = Some(status.clone());
@@ -362,8 +365,8 @@ async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), Strin
     }
 }
 
-/// Auto-lock (PIN sessions only): kill the keyed sidecar and respawn
-/// keyless — accounts close, the PIN screen returns. The data on disk was
+/// Auto-lock (PIN or Windows Hello): kill the keyed sidecar and respawn
+/// keyless — accounts close, the lock screen returns. The data on disk was
 /// already encrypted; nothing else to wipe.
 #[tauri::command]
 async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
@@ -374,10 +377,16 @@ async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
     }
     #[cfg(not(target_os = "android"))]
     {
-    if !db_key::pin_locked(&accounts_dir(&app)) {
-        return Err("no app-lock PIN is set".to_string());
+    let dir = accounts_dir(&app);
+    let hello = db_key::hello_locked(&dir);
+    if !hello && !db_key::pin_locked(&dir) {
+        return Err("no app-lock is set".to_string());
     }
-    *DB_LOCK_STATUS.lock().unwrap() = Some(serde_json::json!({ "mode": "pin" }));
+    let mut status = serde_json::json!({ "mode": if hello { "hello" } else { "pin" } });
+    if hello && db_key::pin_locked(&dir) {
+        status["pin"] = serde_json::json!(true);
+    }
+    *DB_LOCK_STATUS.lock().unwrap() = Some(status.clone());
     // #178 phase 5: the thumbnail cache is a flat gallery of derived
     // plaintext images — it must not sit at rest while the session is
     // locked; it regenerates on demand after the unlock reload.
@@ -385,8 +394,105 @@ async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
         let _ = std::fs::remove_dir_all(parent.join("thumbs"));
     }
     sidecar::spawn_sidecar(&app, None, false);
-    app.emit("velta-db-locked", serde_json::json!({ "mode": "pin" })).ok();
+    app.emit("velta-db-locked", status).ok();
     Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn window_hwnd(app: &tauri::AppHandle) -> isize {
+    let Some(window) = app.get_webview_window("main") else { return 0 };
+    match window.hwnd() {
+        Ok(hwnd) => hwnd.0 as isize,
+        Err(_) => 0,
+    }
+}
+
+/// Windows only. False on every other platform, and when Hello is not enrolled.
+#[tauri::command]
+fn hello_supported() -> bool {
+    #[cfg(windows)]
+    {
+        win_hello::available()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+fn get_db_hello_state(app: tauri::AppHandle) -> bool {
+    #[cfg(windows)]
+    {
+        db_key::hello_locked(&accounts_dir(&app))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        false
+    }
+}
+
+/// Turn Windows Hello on. `pin` is required when the app-lock PIN currently
+/// holds the DEK. The running session keeps the same key.
+#[tauri::command]
+async fn set_db_hello(app: tauri::AppHandle, pin: Option<String>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let dir = accounts_dir(&app);
+        let hwnd = window_hwnd(&app);
+        tauri::async_runtime::spawn_blocking(move || db_key::hello_set(&dir, pin.as_deref(), hwnd))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, pin);
+        Err("not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+async fn clear_db_hello(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let dir = accounts_dir(&app);
+        let hwnd = window_hwnd(&app);
+        tauri::async_runtime::spawn_blocking(move || db_key::hello_clear(&dir, hwnd))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err("not supported on this platform".to_string())
+    }
+}
+
+/// Prompt Windows Hello and re-key the session, same as `unlock_with_pin`.
+#[tauri::command]
+async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let dir = accounts_dir(&app);
+        let hwnd = window_hwnd(&app);
+        let raw = tauri::async_runtime::spawn_blocking(move || {
+            db_key::hello_unlock(&dir, &dir.join("accounts"), hwnd)
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        log("boot: db key applied");
+        sidecar::spawn_sidecar(&app, Some(raw), false);
+        *DB_LOCK_STATUS.lock().unwrap() = None;
+        probe_db_lock(app.clone()).await;
+        app.emit("velta-db-unlocked", ()).ok();
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err("not supported on this platform".to_string())
     }
 }
 
@@ -952,6 +1058,8 @@ mod scheduled_store;
 // keychain (keyring) and passes it to the sidecar; Android keeps it in the
 // Keystore (VeltaKeystore.kt via JNI) and sets it in-process.
 mod db_key;
+#[cfg(windows)]
+mod win_hello;
 
 // ---------- blobfile:// -- Range-aware media serving ----------
 
@@ -5009,10 +5117,15 @@ pub fn run() {
                 // untouched while sqlcipher_export runs. An app-lock PIN wrap
                 // starts the session LOCKED: the sidecar spawns keyless and
                 // unlock_with_pin respawns it keyed after the PIN is entered.
-                let (db_key, key_issue, pin_locked) = db_key::startup(&accounts);
+                let (db_key, key_issue, app_locked) = db_key::startup(&accounts);
                 set_db_key_issue(key_issue);
-                if pin_locked {
-                    *DB_LOCK_STATUS.lock().unwrap() = Some(serde_json::json!({ "mode": "pin" }));
+                if app_locked {
+                    let hello = db_key::hello_locked(&accounts);
+                    let mut status = serde_json::json!({ "mode": if hello { "hello" } else { "pin" } });
+                    if hello && db_key::pin_locked(&accounts) {
+                        status["pin"] = serde_json::json!(true);
+                    }
+                    *DB_LOCK_STATUS.lock().unwrap() = Some(status);
                 }
                 if db_key.is_some() {
                     log("boot: db key applied");
@@ -5057,7 +5170,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
