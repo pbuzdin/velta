@@ -76,7 +76,6 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── scheduled-ui.js   # Send later sheet (presets + datetime-local), per-chat / global scheduled list, Android exact-alarm prompt
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
 │   │   ├── app-browser.js    # #137 attach-menu recent apps/commands + webxdc catalog mirrors (localStorage)
-│   │   ├── article.js        # #252 article card: plain-text title, opening, and one https URL; painted like a webxdc row, not an .xdc
 │   │   ├── i18n.js           # #129 UI language: English source, fr/ru packs, localStorage velta-lang
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
@@ -136,7 +135,6 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       ├── gen/android/      # generated Android project (cargo tauri android)
 │       ├── src/
 │       │   ├── lib.rs        # Tauri commands + Android in-process core (Windows sidecar lives in sidecar.rs)
-│       │   ├── article.rs    # #252 tag scan for fetch_article (https, 768 KB, 12 s); not a Readability parser
 │       │   ├── sidecar.rs    # Windows/macOS rpc-server spawn + stdout JSON-RPC routing (#201/#205)
 │       │   ├── push.rs       # UnifiedPush JNI: endpoint, wakeup, registrationFailed in status() (#204/#205)
 │       │   ├── db_key.rs     # VELTA_DB_KEY install_env + Android/desktop DEK (#202)
@@ -1847,26 +1845,6 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   never sees it. http(s) opens go through `openHttp()` (strip trackers,
   then Android in-app browser / desktop `openExternal()` =
   `plugin:opener|open_url`). See §5.5.
-- `app/js/article.js` + `article.rs` (#252) — send the opening of an
-  https page as plain text, painted like a webxdc row. It is not an
-  `.xdc` and there is no model. Attach → **Article** (shell only:
-  `tauriInvoke()`; the PWA hides it, same as Large file). If the composer
-  already holds one https URL, that URL is used; otherwise a paste
-  field. `fetch_article` uses the link-preview agent and the same
-  fail-closed proxy, with its own cap: 768 KB and 12 s. Link previews
-  stay 256 KB / 5 s. The extractor is a tag scan (`<p>` text inside
-  `<article>` or `<main>`, else the page). Under ~80 characters of
-  opening it returns nothing and nothing is sent. The message is one
-  title line, a blank line, the opening (≤1200 characters), a blank
-  line, and exactly one https URL. Velta paints that shape as a card
-  (host, title, opening, **Read**, **Open site**). Stock Delta Chat
-  shows the text. **Read** shows the opening that arrived and does not
-  fetch. **Open site** is `openHttp`. Painting the card does not fetch.
-  A link-preview card can grow a shell-only **Read** that fetches the
-  same way and does not send. Picture mode does not bake an image when
-  the composer text parses as an article. A quote-fragment prefix
-  breaks the shape, so that send stays plain text. Tests:
-  `tests/article.test.mjs`.
 - `app/js/trackers.js` — drop known tracking query params (#89). Drawer
   “Strip tracking from links” (localStorage `velta-strip-trackers`,
   missing = on, `"0"` = off). Paste into the composer and opening an

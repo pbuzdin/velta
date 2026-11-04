@@ -190,9 +190,7 @@ test("page title and invite expansion share fetch_capped and the proxy policy", 
   assert.match(rs, /async fn fetch_page_title\(url: String, proxy: Option<String>\)/);
   assert.match(rs, /async fn expand_invite_link\(url: String, proxy: Option<String>\)/);
   assert.equal((rs.match(/fetch_capped\(&agent, &url\)/g) || []).length, 3);
-  assert.match(rs, /fetch_capped_n\(agent, url, 256 \* 1024\)/);
-  assert.match(rs, /fetch_capped_n\(&agent, &url, 768 \* 1024\)/);
-  assert.equal((rs.match(/\.take\(max_bytes\)/g) || []).length, 1);
+  assert.equal((rs.match(/take\(256 \* 1024\)/g) || []).length, 1);
   for (const f of ["inapp-browser.js", "invites.js"]) {
     const js = readFileSync(new URL(`../app/js/${f}`, import.meta.url), "utf8");
     assert.match(js, /shellProxy\(\)/, f);
