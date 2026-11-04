@@ -182,23 +182,6 @@ try {
       const fileMarker = marker + '-file'
       const payload = new Uint8Array(4096)
       for (let i = 0; i < payload.length; i++) payload[i] = (i * 31 + 7) & 255
-      const fileArrived = new Promise((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error('timeout waiting for attachment delivery')),
-          120_000,
-        )
-        listeners.push(async (ev) => {
-          if (ev.contextId !== bobId) return
-          if (!ev.event || ev.event.kind !== 'IncomingMsg') return
-          const msgId = ev.event.msgId ?? ev.event.msg_id
-          if (msgId == null) return
-          const msg = await rpc('get_message', [bobId, msgId])
-          if (msg.text && msg.text.includes(fileMarker)) {
-            clearTimeout(timer)
-            resolve(msg)
-          }
-        })
-      })
       const src = '/tmp/e2e-attachment.bin'
       window.core.fs_write(src, payload)
       const sentId = await rpc('send_msg', [
@@ -206,16 +189,25 @@ try {
         chatId,
         { text: fileMarker, file: src, filename: 'e2e-attachment.bin', viewtype: 'File' },
       ])
-      const fileMsg = await fileArrived.catch(async (e) => {
+      // Poll bob's chats: the second message in a contact-request chat does
+      // not reliably raise IncomingMsg (run 41838489673 saw it stored, no event).
+      const bobMsgs = async () => {
+        const out = []
+        for (const c of await rpc('get_chatlist_entries', [bobId, null, null, null]))
+          for (const id of await rpc('get_message_ids', [bobId, c, false, false]))
+            out.push(await rpc('get_message', [bobId, id]))
+        return out
+      }
+      let fileMsg = null
+      for (let t = Date.now(); !fileMsg && Date.now() - t < 120_000; ) {
+        fileMsg = (await bobMsgs()).find((m) => m.text?.includes(fileMarker)) ?? null
+        if (!fileMsg) await new Promise((r) => setTimeout(r, 2000))
+      }
+      if (!fileMsg) {
         const sent = await rpc('get_message', [aliceId, sentId]).catch((x) => x)
-        const seen = []
-        for (const c of await rpc('get_chatlist_entries', [bobId, null, null, null]).catch(() => []))
-          for (const id of await rpc('get_message_ids', [bobId, c, false, false]).catch(() => [])) {
-            const m = await rpc('get_message', [bobId, id]).catch((x) => ({ error: JSON.stringify(x) }))
-            seen.push(`${id}:${m.viewType ?? m.viewtype}:${(m.text ?? '').slice(0, 40)}:file=${!!m.file}:err=${m.error ?? ''}`)
-          }
-        throw new Error(`${e.message}; alice msg state=${sent?.state} error=${sent?.error ?? ''}; bob msgs=[${seen.join(' | ')}]`)
-      })
+        const seen = (await bobMsgs()).map((m) => `${m.id}:${m.viewType}:${(m.text ?? '').slice(0, 40)}`)
+        throw new Error(`timeout waiting for attachment delivery; alice msg state=${sent?.state}; bob msgs=[${seen.join(' | ')}]`)
+      }
       if (!fileMsg.file) throw new Error('attachment arrived without a file')
       const got = window.core.fs_read(fileMsg.file)
       if (got.length !== payload.length || payload.some((b, i) => got[i] !== b))
