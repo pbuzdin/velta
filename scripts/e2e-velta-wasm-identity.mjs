@@ -116,7 +116,9 @@ try {
       window.core.fs_write(`/identity/import/${name}`, bytes)
     }
     await rpc('import_self_keys', [id2, '/identity/import', PASS])
-    const configuredAddr = await rpc('get_config', [id2, 'configured_addr'])
+    // core 2.66 dropped the configured_addr key; addr + is_configured cover it.
+    const configured = await rpc('is_configured', [id2])
+    const configuredAddr = configured ? await rpc('get_config', [id2, 'addr']) : null
     return { configuredAddr }
   }, { email, password })
 
