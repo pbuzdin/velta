@@ -161,8 +161,19 @@ struct Header {
 /// A plaintext view over either a legacy file or an encrypted attachment.
 /// Encrypted chunks are independently addressable, so Seek and Range reads do
 /// not decrypt the prefix and never create plaintext temporary files.
+///
+/// The byte source is a real file natively; on wasm32 (no std::fs in the
+/// browser) it is memfs bytes handed over by the caller — see
+/// [`AttachmentReader::from_memfs_bytes`] and core's `open_blob`. All reads
+/// and seeks go through [`std::io::Read`]/[`std::io::Seek`], so the impls
+/// are source-agnostic.
+#[cfg(not(target_arch = "wasm32"))]
+type FileReader = File;
+#[cfg(target_arch = "wasm32")]
+type FileReader = std::io::Cursor<Vec<u8>>;
+
 pub struct AttachmentReader {
-    file: File,
+    file: FileReader,
     len: u64,
     position: u64,
     encrypted: Option<Header>,
@@ -182,9 +193,37 @@ impl AttachmentReader {
     /// Opens a blob. VLTA files fail closed when the key is absent or wrong;
     /// all other files are legacy plaintext and pass through unchanged.
     pub fn open(path: &Path, key: Option<&AttachmentKey>) -> Result<Self> {
-        let mut file = File::open(path)
-            .with_context(|| format!("failed to open attachment {}", path.display()))?;
-        let physical_len = file.metadata()?.len();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let file = File::open(path)
+                .with_context(|| format!("failed to open attachment {}", path.display()))?;
+            let physical_len = file.metadata()?.len();
+            Self::from_reader(file, physical_len, key)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (path, key);
+            bail!("std::fs is unavailable on wasm32 — read the blob from the memfs shim and use AttachmentReader::from_memfs_bytes");
+        }
+    }
+
+    /// wasm32 entry: the caller reads the blob through the tokio wasm
+    /// facade's memfs shim and hands the bytes over (the browser has no
+    /// std::fs). VLTA headers still fail closed: the wasm build has no
+    /// profile key, so an encrypted attachment must never surface its
+    /// ciphertext as plaintext.
+    #[cfg(target_arch = "wasm32")]
+    pub fn from_memfs_bytes(bytes: Vec<u8>, key: Option<&AttachmentKey>) -> Result<Self> {
+        let physical_len = bytes.len() as u64;
+        Self::from_reader(std::io::Cursor::new(bytes), physical_len, key)
+    }
+
+    /// Shared open path over an opaque byte source.
+    fn from_reader(
+        mut file: FileReader,
+        physical_len: u64,
+        key: Option<&AttachmentKey>,
+    ) -> Result<Self> {
         let mut magic = [0u8; 4];
         let read = file.read(&mut magic)?;
         file.rewind()?;

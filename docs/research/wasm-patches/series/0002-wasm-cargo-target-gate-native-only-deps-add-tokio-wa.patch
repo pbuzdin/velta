@@ -15,6 +15,14 @@ feature on wasm32), astral-tokio-tar 0.7.0 (pinned =0.6.4 vendored in
 dev-only upstream now - wasm32 keeps a path dep for the JS clock.
 Upstream dropped sdp/tracing deps - not re-added.
 
+2.66 refresh (#260/#261): #22 added velta-attachment (path dep, kept
+ungated: std::fs stubs compile on wasm32 and the wasm build never holds
+a key) + runtime tempfile; upstream gave tokio-util an io feature.
+Cargo hunks regenerated against that state — including the workspace
+rusqlite 0.37 -> 0.40 bump and the [target] tables re-homed to the
+[dependencies] boundary (the old hunks' layout collided with #22's
+dep insertions).
+
 rusqlite 0.37 -> 0.40 (+ "fallible_uint") is required for the
 sqlite-wasm-rs backend. NOTE: this also bumps NATIVE builds:
 libsqlite3-sys 0.35 -> 0.38, bundled SQLCipher 4.6.1 (SQLite 3.46.1) ->
@@ -39,10 +47,10 @@ index e2e5fa9..e443b86 100644
 +[target.wasm32-unknown-unknown]
 +rustflags = ["--cfg", 'getrandom_backend="wasm_js"']
 diff --git a/Cargo.toml b/Cargo.toml
-index 3764dc0..1d7549d 100644
+index 928326e..87185ab 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -44,9 +44,7 @@ anyhow = { workspace = true }
+@@ -45,9 +45,7 @@ anyhow = { workspace = true }
  async-broadcast = "0.7.2"
  async-channel = { workspace = true }
  async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio", "compress"] }
@@ -52,7 +60,7 @@ index 3764dc0..1d7549d 100644
  base64 = { workspace = true }
  blake3 = "1.8.2"
  brotli = { version = "8", default-features=false, features = ["std"] }
-@@ -55,15 +53,10 @@ chrono = { workspace = true, features = ["alloc", "clock", "std"] }
+@@ -56,15 +54,10 @@ chrono = { workspace = true, features = ["alloc", "clock", "std"] }
  colorutils-rs = { version = "0.8.0", default-features = false }
  data-encoding = "2.9.0"
  escaper = "0.1"
@@ -68,7 +76,7 @@ index 3764dc0..1d7549d 100644
  image = { version = "0.25.6", default-features=false, features = ["gif", "jpeg", "ico", "png", "pnm", "webp", "bmp"] }
  iroh-gossip = { version = "0.35", default-features = false, features = ["net"] }
  iroh = { version = "0.35", default-features = false }
-@@ -84,13 +77,12 @@ quick-xml = { version = "0.41", features = ["escape-html"] }
+@@ -85,13 +78,12 @@ quick-xml = { version = "0.41", features = ["escape-html"] }
  rand-old = { package = "rand", version = "0.8" }
  rand = { workspace = true }
  regex = { workspace = true }
@@ -83,7 +91,7 @@ index 3764dc0..1d7549d 100644
  smallvec = "1.15.1"
  strum = "0.28"
  strum_macros = "0.28"
-@@ -98,17 +90,51 @@ tagger = "4.3.4"
+@@ -100,17 +92,51 @@ tempfile = { workspace = true }
  textwrap = "0.16.2"
  thiserror = { workspace = true }
  tokio-io-timeout = "1.2.1"
@@ -93,17 +101,17 @@ index 3764dc0..1d7549d 100644
 +# Velta wasm port: tokio facade (real tokio on native, browser shims on wasm32).
 +# Path relative to the apply-on-copy layout <dest>/{core,crates,vendor-crates}.
 +tokio = { package = "velta-tokio-wasm", path = "../crates/velta-tokio-wasm" }
- tokio-util = { workspace = true }
+ tokio-util = { workspace = true, features = ["io"] }
 -tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }
 +# tar via vendored fork that routes through the shim (see [patch.crates-io])
 +astral-tokio-tar = { version = "0.7.0", default-features = false }
-+
  toml = "0.9"
  url = "2"
  uuid = { version = "1", features = ["serde", "v4"] }
  walkdir = "2.5.0"
  webpki-roots = "1.0.10"
  
++
 +[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 +async-native-tls = { version = "0.6", default-features = false, features = ["runtime-tokio"] }
 +async_zip = { version = "0.0.18", default-features = false, features = ["deflate", "tokio-fs"] }
@@ -139,7 +147,7 @@ index 3764dc0..1d7549d 100644
  [dev-dependencies]
  anyhow = { workspace = true, features = ["backtrace"] } # Enable `backtrace` feature in tests.
  criterion = { version = "0.8.1", features = ["async_tokio"] }
-@@ -192,7 +218,7 @@ nu-ansi-term = "0.50"
+@@ -194,7 +220,7 @@ nu-ansi-term = "0.50"
  num-traits = "0.2"
  rand = "0.9"
  regex = "1.12"

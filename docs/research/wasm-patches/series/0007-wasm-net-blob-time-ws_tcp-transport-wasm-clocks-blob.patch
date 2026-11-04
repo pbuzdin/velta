@@ -13,6 +13,13 @@ Subject: [PATCH] wasm(net,blob,time): ws_tcp transport, wasm clocks, blob
   byte-for-byte identical recode output - avatar golden unchanged).
 - deltachat-ratelimit uses the wasm-safe clock.
 
+2.66 refresh (#260/#261): blob.rs hunks re-ported onto the #22-rewritten
+blob (attachment encryption): sync_fs facade re-installed over the new
+std::fs sites, and open_blob cfg-routes wasm32 through memfs bytes +
+AttachmentReader::from_memfs_bytes (VLTA still fails closed; wasm has no
+raw DEK). file_hash/check_or_recode/image_metadata need NO hunks anymore:
+they all read through open_blob, which is wasm-functional now. The old
+generic BufReadSeek refactor is obsolete.
 2.63 refresh (#112): check_or_recode_to_size re-based onto upstream
 81140d51 (native WebP has_animation() check; the vendored animated-WebP
 patch #7 retired, so the old separate sniff and its two hunks are
@@ -78,7 +85,7 @@ index 497cc83..bef63c4 100644
      }
  
      /// Returns a new rate limiter with given current time for testing purposes.
-@@ -58,7 +63,7 @@ fn can_send_at(&self, now: SystemTime) -> bool {
+@@ -58,7 +63,7 @@ impl Ratelimit {
      ///
      /// This method takes mutable reference
      pub fn can_send(&self) -> bool {
@@ -87,7 +94,7 @@ index 497cc83..bef63c4 100644
      }
  
      fn send_at(&mut self, now: SystemTime) {
-@@ -72,7 +77,7 @@ fn send_at(&mut self, now: SystemTime) {
+@@ -72,7 +77,7 @@ impl Ratelimit {
      /// by the user and should not be rate limited. However, sending messages when over quota
      /// further postpones the time when it will be allowed to send low priority messages.
      pub fn send(&mut self) {
@@ -96,7 +103,7 @@ index 497cc83..bef63c4 100644
      }
  
      fn until_can_send_at(&self, now: SystemTime) -> Duration {
-@@ -88,7 +93,7 @@ fn until_can_send_at(&self, now: SystemTime) -> Duration {
+@@ -88,7 +93,7 @@ impl Ratelimit {
  
      /// Calculates the time until `can_send` will return `true`.
      pub fn until_can_send(&self) -> Duration {
@@ -114,153 +121,6 @@ index 497cc83..bef63c4 100644
  
          let mut ratelimit = Ratelimit::new_at(Duration::new(60, 0), 3.0, now);
          assert!(ratelimit.can_send_at(now));
-diff --git a/src/blob.rs b/src/blob.rs
-index 183ce2f..8320fef 100644
---- a/src/blob.rs
-+++ b/src/blob.rs
-@@ -25,6 +25,26 @@
- use crate::message::Viewtype;
- use crate::tools::sanitize_filename;
- 
-+/// Synchronous filesystem ops used from `block_in_place` contexts.
-+/// `std::fs` is unsupported on wasm32-unknown-unknown,
-+/// so the in-memory `tokio::fs` shim is used there instead.
-+#[cfg(not(target_arch = "wasm32"))]
-+mod sync_fs {
-+    pub use std::fs::{copy, create_dir_all, rename, write};
-+}
-+#[cfg(target_arch = "wasm32")]
-+mod sync_fs {
-+    pub use tokio::fs::{
-+        sync_copy as copy, sync_create_dir_all as create_dir_all, sync_read as read,
-+        sync_rename as rename, sync_write as write,
-+    };
-+}
-+
-+/// Object-safe reader used by [`BlobObject::check_or_recode_to_size`]
-+/// so the same code can read from a file (native) or the in-memory fs (wasm).
-+trait BufReadSeek: std::io::BufRead + std::io::Seek {}
-+impl<T: std::io::BufRead + std::io::Seek> BufReadSeek for T {}
-+
- /// Represents a file in the blob directory.
- ///
- /// The object has a name, which will always be valid UTF-8.  Having a
-@@ -79,10 +99,10 @@ pub fn create_and_deduplicate(
-                     "Source file not in blobdir. Copying instead of moving in order to prevent moving a file that was still needed."
-                 );
-                 temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
--                if std::fs::copy(src, &temp_path).is_err() {
-+                if sync_fs::copy(src, &temp_path).is_err() {
-                     // Maybe the blobdir didn't exist
--                    std::fs::create_dir_all(blobdir).log_err(context).ok();
--                    std::fs::copy(src, &temp_path).context("Copying new blobfile failed")?;
-+                    sync_fs::create_dir_all(blobdir).log_err(context).ok();
-+                    sync_fs::copy(src, &temp_path).context("Copying new blobfile failed")?;
-                 };
-                 &temp_path
-             };
-@@ -107,7 +127,7 @@ pub fn create_and_deduplicate(
- 
-             // This will also replace an already-existing file.
-             // Renaming is atomic, so this will avoid race conditions.
--            std::fs::rename(src_in_blobdir, &new_path)?;
-+            sync_fs::rename(src_in_blobdir, &new_path)?;
- 
-             context.emit_event(EventType::NewBlobFile(blob.as_name().to_string()));
-             Ok(blob)
-@@ -131,10 +151,10 @@ pub fn create_and_deduplicate_from_bytes(
-         task::block_in_place(|| {
-             let blobdir = context.get_blobdir();
-             let temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
--            if std::fs::write(&temp_path, data).is_err() {
-+            if sync_fs::write(&temp_path, data).is_err() {
-                 // Maybe the blobdir didn't exist
--                std::fs::create_dir_all(blobdir).log_err(context).ok();
--                std::fs::write(&temp_path, data).context("writing new blobfile failed")?;
-+                sync_fs::create_dir_all(blobdir).log_err(context).ok();
-+                sync_fs::write(&temp_path, data).context("writing new blobfile failed")?;
-             };
- 
-             BlobObject::create_and_deduplicate(context, &temp_path, Path::new(original_name))
-@@ -337,13 +357,27 @@ fn check_or_recode_to_size(
-         let original_name = name.clone();
-         let vt = &mut *viewtype;
-         let res: Result<String> = tokio::task::block_in_place(move || {
--            let mut file = std::fs::File::open(self.to_abs_path())?;
--            let (nr_bytes, exif) = image_metadata(&file)?;
-+            let abs_path = self.to_abs_path();
-+            #[cfg(target_arch = "wasm32")]
-+            let file_bytes = sync_fs::read(&abs_path)?;
-+            let open_reader = || -> Result<(u64, Box<dyn BufReadSeek>)> {
-+                #[cfg(not(target_arch = "wasm32"))]
-+                {
-+                    let file = std::fs::File::open(&abs_path)?;
-+                    let nr_bytes = file.metadata()?.len();
-+                    Ok((nr_bytes, Box::new(std::io::BufReader::new(file))))
-+                }
-+                #[cfg(target_arch = "wasm32")]
-+                {
-+                    let nr_bytes = file_bytes.len() as u64;
-+                    Ok((nr_bytes, Box::new(Cursor::new(file_bytes.clone()))))
-+                }
-+            };
-+            let (nr_bytes, mut file) = open_reader()?;
-+            let exif = image_metadata(&mut file)?;
-             *no_exif_ref = exif.is_none();
--            // It's strange that BufReader modifies a file position while it takes a non-mut
--            // reference. Ok, just rewind it.
-             file.rewind()?;
--            let imgreader = ImageReader::new(std::io::BufReader::new(&file))
-+            let imgreader = ImageReader::new(file)
-                 .with_guessed_format()
-                 .context("Failed to guess image format due to I/O error")?;
-             let fmt = imgreader.format().context("Unknown format")?;
-@@ -542,25 +576,34 @@ fn file_hash(src: &Path) -> Result<blake3::Hash> {
-         "Use `get_abs_path()` to get the absolute path of the blobfile"
-     );
-     let mut hasher = blake3::Hasher::new();
--    let mut src_file = std::fs::File::open(src)
--        .with_context(|| format!("Failed to open file {}", src.display()))?;
--    hasher
--        .update_reader(&mut src_file)
--        .context("update_reader")?;
-+    #[cfg(not(target_arch = "wasm32"))]
-+    {
-+        let mut src_file = std::fs::File::open(src)
-+            .with_context(|| format!("Failed to open file {}", src.display()))?;
-+        hasher
-+            .update_reader(&mut src_file)
-+            .context("update_reader")?;
-+    }
-+    #[cfg(target_arch = "wasm32")]
-+    {
-+        let data =
-+            sync_fs::read(src).with_context(|| format!("Failed to open file {}", src.display()))?;
-+        hasher.update(&data);
-+    }
-     let hash = hasher.finalize();
-     Ok(hash)
- }
- 
--/// Returns image file size and Exif.
--fn image_metadata(file: &std::fs::File) -> Result<(u64, Option<exif::Exif>)> {
--    let len = file.metadata()?.len();
--    let mut bufreader = std::io::BufReader::new(file);
-+/// Returns image Exif.
-+fn image_metadata<R: std::io::BufRead + std::io::Seek>(
-+    reader: &mut R,
-+) -> Result<Option<exif::Exif>> {
-     let exif = exif::Reader::new()
-         .continue_on_error(true)
--        .read_from_container(&mut bufreader)
-+        .read_from_container(reader)
-         .or_else(|e| e.distill_partial_result(|_errors| {}))
-         .ok();
--    Ok((len, exif))
-+    Ok(exif)
- }
- 
- fn exif_orientation(exif: &exif::Exif, context: &Context) -> Orientation {
 diff --git a/src/context.rs b/src/context.rs
 index 7f7cdb5..40f3ef6 100644
 --- a/src/context.rs

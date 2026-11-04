@@ -144,10 +144,14 @@ def prepare_copy(dest_root: Path) -> Path:
     print(f"Copying support crates → {dest_root}")
     _copy_tree(SUPPORT / "crates", dest_root / "crates")
     _copy_tree(SUPPORT / "vendor-crates", dest_root / "vendor-crates")
-    wrapper_src = ROOT / "packages" / "velta-wasm"
-    if wrapper_src.is_dir():
-        print(f"Copying packages/velta-wasm → {dest_root / 'packages' / 'velta-wasm'}")
-        _copy_tree(wrapper_src, dest_root / "packages" / "velta-wasm")
+    # Mirror the out-of-core workspace members master core/ path-depends on,
+    # so `../packages/...` resolves inside the copy (#260/#261: the #22
+    # attachment-encryption crate joined core's Cargo.toml).
+    for pkg in ("velta-wasm", "attachment-crypto"):
+        src = ROOT / "packages" / pkg
+        if src.is_dir():
+            print(f"Copying packages/{pkg} → {dest_root / 'packages' / pkg}")
+            _copy_tree(src, dest_root / "packages" / pkg)
     return core_dst
 
 
@@ -397,9 +401,13 @@ def cmd_verify_copy(dest: Path) -> int:
     if missing:
         die("verify-copy FAILED, missing:\n  " + "\n  ".join(missing), code=2)
     if not marker.is_file():
-        print("warning: marker .velta-wasm-patches-applied missing (patches may have been applied manually)")
-    else:
-        print(marker.read_text())
+        # #260: the tool only writes the marker after the WHOLE series
+        # applies — a copy without it is a partial (failed) apply, and the
+        # three files above all come from early patches, so their presence
+        # proves nothing about the tail. Half-patched copies must not
+        # verify OK.
+        die("verify-copy FAILED: marker .velta-wasm-patches-applied missing (partial apply?)", code=2)
+    print(marker.read_text())
     # support layout
     root = core.parent
     shim = root / "crates" / "velta-tokio-wasm" / "Cargo.toml"

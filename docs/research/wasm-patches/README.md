@@ -30,6 +30,22 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py`;
 13 ops at the series’ 2.62 baseline, 21 ops at core 2.63.0, 23 ops at core 2.64.0, 25 ops at core 2.65.0).
 
+> **Refreshed for 2.66.0 (2026-11-04, #260/#261).** 0007's blob.rs hunks
+> re-ported onto the #22 attachment-encryption blob: sync_fs facade
+> re-installed over the new std::fs sites, and `open_blob` cfg-routes
+> wasm32 through memfs bytes + `AttachmentReader::from_memfs_bytes`
+> (packages/attachment-crypto gained a `FileReader` alias; VLTA still
+> fails closed — wasm has no raw DEK). file_hash / check_or_recode /
+> image_metadata need NO hunks anymore (all read through open_blob).
+> 0009 dropped (the #22 quilt ops already updated blob_tests).
+> 0002 Cargo hunks regenerated (velta-attachment/tempfile in master,
+> tokio-util io feature, wasm tables at the section boundary);
+> 0004/0006 re-anchored. apply-on-copy now also mirrors
+> packages/attachment-crypto into the copy; verify-copy fails hard on a
+> missing series marker (partial apply). Locks re-pinned via refresh-lock
+> (wasm-bindgen moved 0.2.129 -> 0.2.130; CI installs the matching
+> bindgen-cli from PROVENANCE, so the pin stays self-consistent).
+
 > **Refreshed for 2.65.0 (2026-10-23).** 0002/0004/0006/0008 regenerated
 > (Cargo.toml context only: upstream webpki-roots 1.0.10 bump shifted the
 > hunks; no content change); others unchanged; locks re-pinned via

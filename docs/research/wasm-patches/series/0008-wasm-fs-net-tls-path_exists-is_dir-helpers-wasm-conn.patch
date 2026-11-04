@@ -12,7 +12,9 @@ clock; [patch.crates-io] mail-builder 1.0.0 (vendored, web-time).
 Unblocks Accounts::new / blobdir / add_account and SystemTime panics in
 mail-builder during configure+send on wasm32.
 
-WASM-CORE: prototype 0004/0006 leftovers (MPL ideas). Native impact:
+2.66 refresh (#260/#261): message.rs save-file routes the memfs
+branch (no into_std on the facade; the sync blob reader copies through
+memory). WASM-CORE: prototype 0004/0006 leftovers (MPL ideas). Native impact:
 call-site refactors only; mail-builder version equals stock (1.0.0,
 #112 refresh).
 ---
@@ -212,4 +214,31 @@ index 1856fe8..f7663bd 100644
              Err(err) => {
 -- 
 2.43.0
-
+diff --git a/src/message.rs b/src/message.rs
+index 9949754..02d5f80 100644
+--- a/src/message.rs
++++ b/src/message.rs
+@@ -693,9 +693,20 @@ impl Message {
+             .write(true)
+             .create_new(true)
+             .open(path)
+-            .await?
+-            .into_std()
+-            .await;
++            .await?;
++        #[cfg(not(target_arch = "wasm32"))]
++        let mut dst = dst.into_std().await;
++        #[cfg(target_arch = "wasm32")]
++        {
++            // The facade's memfs file is the real thing (no std side); the
++            // blob reader is sync std::io, so copy through memory.
++            use std::io::Read as _;
++            use tokio::io::AsyncWriteExt as _;
++            let mut bytes = Vec::new();
++            src.read_to_end(&mut bytes)?;
++            dst.write_all(&bytes).await?;
++        }
++        #[cfg(not(target_arch = "wasm32"))]
+         tokio::task::spawn_blocking(move || std::io::copy(&mut src, &mut dst)).await??;
+         Ok(())
+     }

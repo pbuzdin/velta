@@ -16,10 +16,10 @@ WASM-CORE: prototype 0004 (MPL idea). Native impact: none.
  2 files changed, 8 insertions(+), 1 deletion(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 717103a..7382138 100644
+index ee2f2e6..1037b03 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -134,6 +134,7 @@ wasm-bindgen = "0.2"
+@@ -136,6 +136,7 @@ wasm-bindgen = "0.2"
  wasm-bindgen-futures = "0.4"
  web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "Headers", "RequestInit", "RequestRedirect", "Response", "WorkerGlobalScope"] }
  ws_stream_wasm = "0.7"
@@ -28,18 +28,18 @@ index 717103a..7382138 100644
  [dev-dependencies]
  anyhow = { workspace = true, features = ["backtrace"] } # Enable `backtrace` feature in tests.
 diff --git a/src/blob.rs b/src/blob.rs
-index a605d69..183ce2f 100644
+index ef3bece..b19022e 100644
 --- a/src/blob.rs
 +++ b/src/blob.rs
-@@ -14,6 +14,7 @@
+@@ -14,6 +14,7 @@ use image::{DynamicImage, GenericImage, GenericImageView, ImageFormat, Pixel, Rg
  use image::{codecs::jpeg::JpegEncoder, metadata::Orientation};
  use num_traits::{FromPrimitive, cast};
  use tokio::{fs, task};
 +#[cfg(not(target_arch = "wasm32"))]
  use tokio_stream::wrappers::ReadDirStream;
  
- use crate::config::Config;
-@@ -589,7 +590,12 @@ pub(crate) struct BlobDirContents<'a> {
+ use crate::attachment::{self, AttachmentReader};
+@@ -669,7 +670,12 @@ pub(crate) struct BlobDirContents<'a> {
  impl<'a> BlobDirContents<'a> {
      pub(crate) async fn new(context: &'a Context) -> Result<BlobDirContents<'a>> {
          let readdir = fs::read_dir(context.get_blobdir()).await?;
@@ -53,6 +53,3 @@ index a605d69..183ce2f 100644
              .filter_map(|entry| async move {
                  match entry {
                      Ok(entry) => Some(entry),
--- 
-2.43.0
-

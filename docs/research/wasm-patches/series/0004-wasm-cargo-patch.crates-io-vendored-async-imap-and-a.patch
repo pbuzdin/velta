@@ -23,15 +23,11 @@ diff --git a/Cargo.toml b/Cargo.toml
 index b4ecafb..717103a 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -95,7 +95,7 @@ tokio-io-timeout = "1.2.1"
- tokio = { package = "velta-tokio-wasm", path = "../crates/velta-tokio-wasm" }
- tokio-util = { workspace = true }
+@@ -99,3 +99,3 @@
  # tar via vendored fork that routes through the shim (see [patch.crates-io])
 -astral-tokio-tar = { version = "0.7.0", default-features = false }
 +astral-tokio-tar = { version = "=0.6.4", default-features = false }
- 
  toml = "0.9"
- url = "2"
 @@ -238,3 +238,9 @@ vendored = [
  
  [lints.rust]
