@@ -310,6 +310,33 @@ impl Smtp {
             self.disconnect();
         }
 
+        // Velta patch (#24, #189): paused transports never send. If every
+        // transport is paused, sending fails — the profile is offline by
+        // choice.
+        let velta_disabled = crate::transport::velta_disabled_transports(context).await?;
+        // Velta patch (#24, #260): pausing a relay closes its LIVE connection
+        // too — the candidate filter below only stops new connects, so
+        // queued mail kept flowing through the paused relay until the
+        // stale-connection timeout (60 s of no successful send) closed it.
+        let bound_addr = upstream_sorted_transports(context)
+            .await?
+            .into_iter()
+            .find(|(id, _)| {
+                self.connection
+                    .as_ref()
+                    .is_some_and(|c| c.transport_id == *id)
+            })
+            .map(|(_, lp)| lp.addr.to_lowercase());
+        if self.is_connected()
+            && let Some(addr) = bound_addr
+            && velta_disabled.contains(&addr)
+        {
+            info!(
+                context,
+                "Velta: bound send transport is paused, closing the connection."
+            );
+            self.disconnect();
+        }
         if self.is_connected() {
             return Ok(());
         }
@@ -318,10 +345,6 @@ impl Smtp {
         let proxy_config = ProxyConfig::load(context).await?;
         // Velta patch (#11): pinned transport first unless backing off.
         let mut transports = upstream_sorted_transports(context).await?;
-        // Velta patch (#24, #189): paused transports never send. If every
-        // transport is paused, sending fails — the profile is offline by
-        // choice.
-        let velta_disabled = crate::transport::velta_disabled_transports(context).await?;
         transports.retain(|(_, lp)| !velta_disabled.contains(&lp.addr.to_lowercase()));
         velta_pin_first(&mut transports, velta_pin, &self.velta_connect_failed);
         for (transport_id, lp) in transports {

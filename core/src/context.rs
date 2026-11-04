@@ -462,7 +462,16 @@ impl Context {
     /// Changes encrypted database passphrase.
     /// Deprecated 2025-11, see [`ContextBuilder::with_password()`] for reasoning.
     pub async fn change_passphrase(&self, passphrase: String) -> Result<()> {
-        self.sql.change_passphrase(passphrase).await?;
+        self.sql.change_passphrase(passphrase.clone()).await?;
+        // Velta #22 (#260): the attachment key is derived from the DB key,
+        // so a passphrase change must re-derive it — the stale pre-change
+        // key would encrypt new blobs in a way the next restart (which
+        // derives from the new key) cannot open. shortcut: blobs written
+        // under the previous passphrase key are not re-wrapped yet; a
+        // caller of change_passphrase (none today: the jsonrpc API does not
+        // expose it) must ship the re-wrap migration with its feature.
+        let key = AttachmentKey::from_db_key(&passphrase)?;
+        *self.attachment_key.write() = key;
         Ok(())
     }
 

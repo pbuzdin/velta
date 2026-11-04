@@ -2700,6 +2700,90 @@ async fn test_velta_config_read_not_blocked_by_sql_holder() -> Result<()> {
         where='replace',
         text="             CROSS JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \\\n             WHERE replies.chat_id=? AND +quoted.chat_id=? AND",
     ),
+    # ---- #22 (#260): change_passphrase re-derives the attachment key.
+    # #22 derives AttachmentKey from the DB key inside open(); the
+    # passphrase-change path re-keyed SQLCipher without re-deriving, so new
+    # blobs encrypted under the stale pre-change key and failed closed
+    # (header auth) after the next restart.
+    dict(
+        id='#22 change_passphrase re-derives the attachment key (context.rs)',
+        file='core/src/context.rs',
+        applied='Velta #22 (#260): the attachment key is derived from the DB key,',
+        anchor='    pub async fn change_passphrase(&self, passphrase: String) -> Result<()> {\n        self.sql.change_passphrase(passphrase).await?;\n        Ok(())\n    }',
+        where='replace',
+        text='    pub async fn change_passphrase(&self, passphrase: String) -> Result<()> {\n        self.sql.change_passphrase(passphrase.clone()).await?;\n        // Velta #22 (#260): the attachment key is derived from the DB key,\n        // so a passphrase change must re-derive it — the stale pre-change\n        // key would encrypt new blobs in a way the next restart (which\n        // derives from the new key) cannot open. shortcut: blobs written\n        // under the previous passphrase key are not re-wrapped yet; a\n        // caller of change_passphrase (none today: the jsonrpc API does not\n        // expose it) must ship the re-wrap migration with its feature.\n        let key = AttachmentKey::from_db_key(&passphrase)?;\n        *self.attachment_key.write() = key;\n        Ok(())\n    }',
+    ),
+    # ---- #24 (#260): pausing a relay closes its live SMTP connection. The
+    # candidate filter below only stops NEW connects; a connected relay kept
+    # sending until the 60 s stale-connection timeout closed it — exactly the
+    # "stop a misbehaving relay now" case the feature was built for.
+    dict(
+        id='#24 pause closes a connected relay (smtp.rs)',
+        file='core/src/smtp.rs',
+        applied='Velta patch (#24, #260): pausing a relay closes its LIVE connection',
+        anchor='        if self.is_connected() {\n            return Ok(());\n        }\n\n        self.connectivity.set_connecting(context);\n        let proxy_config = ProxyConfig::load(context).await?;\n        // Velta patch (#11): pinned transport first unless backing off.\n        let mut transports = upstream_sorted_transports(context).await?;\n        // Velta patch (#24, #189): paused transports never send. If every\n        // transport is paused, sending fails — the profile is offline by\n        // choice.\n        let velta_disabled = crate::transport::velta_disabled_transports(context).await?;\n        transports.retain(|(_, lp)| !velta_disabled.contains(&lp.addr.to_lowercase()));',
+        where='replace',
+        text='        // Velta patch (#24, #189): paused transports never send. If every\n        // transport is paused, sending fails — the profile is offline by\n        // choice.\n        let velta_disabled = crate::transport::velta_disabled_transports(context).await?;\n        // Velta patch (#24, #260): pausing a relay closes its LIVE connection\n        // too — the candidate filter below only stops new connects, so\n        // queued mail kept flowing through the paused relay until the\n        // stale-connection timeout (60 s of no successful send) closed it.\n        let bound_addr = upstream_sorted_transports(context)\n            .await?\n            .into_iter()\n            .find(|(id, _)| self.connection.as_ref().is_some_and(|c| c.transport_id == *id))\n            .map(|(_, lp)| lp.addr.to_lowercase());\n        if self.is_connected()\n            && let Some(addr) = bound_addr\n            && velta_disabled.contains(&addr)\n        {\n            info!(\n                context,\n                "Velta: bound send transport is paused, closing the connection."\n            );\n            self.disconnect();\n        }\n        if self.is_connected() {\n            return Ok(());\n        }\n\n        self.connectivity.set_connecting(context);\n        let proxy_config = ProxyConfig::load(context).await?;\n        // Velta patch (#11): pinned transport first unless backing off.\n        let mut transports = upstream_sorted_transports(context).await?;\n        transports.retain(|(_, lp)| !velta_disabled.contains(&lp.addr.to_lowercase()));',
+    ),
+    # ---- #26 (#260): set_raw_config re-checks config_gen before caching.
+    # The setter inserted its value unconditionally after the SQL write; an
+    # uncache_raw_config()/Sql::import that ran meanwhile had bumped the
+    # generation and cleared the cache, and the late insert permanently
+    # cached the stale value (upstream serialized this with the old
+    # config_cache write lock held across the write).
+    dict(
+        id='#26 set_raw_config only caches an uninvalidated value (sql.rs)',
+        file='core/src/sql.rs',
+        applied='Velta #26 (#260): only cache when no uncache_raw_config()/import',
+        anchor='        self.config_cache\n            .write()\n            .await\n            .insert(key.to_string(), value.map(|s| s.to_string()));\n\n        Ok(())',
+        where='replace',
+        text='        // Velta #26 (#260): only cache when no uncache_raw_config()/import\n        // bumped config_gen while the SQL write ran — an unconditional\n        // insert could resurrect a value the invalidation just cleared and\n        // keep a stale value cached for good. Re-checked while holding the\n        // cache write lock, same pattern as the #26 read path.\n        let generation = self.config_gen.load(std::sync::atomic::Ordering::SeqCst);\n        let mut cache = self.config_cache.write().await;\n        if self.config_gen.load(std::sync::atomic::Ordering::SeqCst) == generation {\n            cache.insert(key.to_string(), value.map(|s| s.to_string()));\n        }\n\n        Ok(())',
+    ),
+    # ---- #27 (#260): the three remaining #18 try_read guards remember their
+    # skipped wake too (ephemeral/location/recently_seen), and the #27 start
+    # arms deliver interrupt_ephemeral_task — a disappearing-message timer
+    # shortened exactly during an IO restart no longer waits for the next
+    # unrelated interrupt.
+    dict(
+        id='#27 start delivers a skipped ephemeral wake (scheduler.rs)',
+        file='core/src/scheduler.rs',
+        applied='Velta #27 (#260): the running start delivers skipped ephemeral wakes too.',
+        anchor='                if self.velta_wake_pending.swap(false, Ordering::SeqCst) {\n                    scheduler.interrupt_inbox();\n                    scheduler.interrupt_smtp();\n                }\n            }\n            InnerSchedulerState::Stopped => Self::do_start(&mut inner, context).await,',
+        where='replace',
+        text='                if self.velta_wake_pending.swap(false, Ordering::SeqCst) {\n                    scheduler.interrupt_inbox();\n                    scheduler.interrupt_smtp();\n                    // Velta #27 (#260): the running start delivers skipped ephemeral wakes too.\n                    scheduler.interrupt_ephemeral_task();\n                }\n            }\n            InnerSchedulerState::Stopped => Self::do_start(&mut inner, context).await,',
+    ),
+    dict(
+        id='#27 do_start delivers a skipped ephemeral wake (scheduler.rs)',
+        file='core/src/scheduler.rs',
+        applied='Velta #27 (#260): the restart delivers skipped ephemeral wakes too.',
+        anchor='                {\n                    scheduler.interrupt_inbox();\n                    scheduler.interrupt_smtp();\n                }\n                *inner = InnerSchedulerState::Started(scheduler);',
+        where='replace',
+        text='                {\n                    scheduler.interrupt_inbox();\n                    scheduler.interrupt_smtp();\n                    // Velta #27 (#260): the restart delivers skipped ephemeral wakes too.\n                    scheduler.interrupt_ephemeral_task();\n                }\n                *inner = InnerSchedulerState::Started(scheduler);',
+    ),
+    dict(
+        id='#27 interrupt_ephemeral_task records a skipped wake (scheduler.rs)',
+        file='core/src/scheduler.rs',
+        applied='// Velta #27 (interrupt_ephemeral_task): remember the wake for the next start.',
+        anchor='        // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };',
+        where='replace',
+        text='        // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            // Velta #27 (interrupt_ephemeral_task): remember the wake for the next start.\n            self.velta_wake_pending.store(true, Ordering::SeqCst);\n            return;\n        };',
+    ),
+    dict(
+        id='#27 interrupt_location records a skipped wake (scheduler.rs)',
+        file='core/src/scheduler.rs',
+        applied='// Velta #27 (interrupt_location): remember the wake for the next start.',
+        anchor='        // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };',
+        where='replace',
+        text='        // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            // Velta #27 (interrupt_location): remember the wake for the next start.\n            self.velta_wake_pending.store(true, Ordering::SeqCst);\n            return;\n        };',
+    ),
+    dict(
+        id='#27 interrupt_recently_seen records a skipped wake (scheduler.rs)',
+        file='core/src/scheduler.rs',
+        applied='// Velta #27 (interrupt_recently_seen): remember the wake for the next start.',
+        anchor='        // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };',
+        where='replace',
+        text='        // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            // Velta #27 (interrupt_recently_seen): remember the wake for the next start.\n            self.velta_wake_pending.store(true, Ordering::SeqCst);\n            return;\n        };',
+    ),
 ]
 
 

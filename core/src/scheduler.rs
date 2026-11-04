@@ -67,6 +67,8 @@ impl SchedulerState {
                 if self.velta_wake_pending.swap(false, Ordering::SeqCst) {
                     scheduler.interrupt_inbox();
                     scheduler.interrupt_smtp();
+                    // Velta #27 (#260): the running start delivers skipped ephemeral wakes too.
+                    scheduler.interrupt_ephemeral_task();
                 }
             }
             InnerSchedulerState::Stopped => Self::do_start(&mut inner, context).await,
@@ -95,6 +97,8 @@ impl SchedulerState {
                 {
                     scheduler.interrupt_inbox();
                     scheduler.interrupt_smtp();
+                    // Velta #27 (#260): the restart delivers skipped ephemeral wakes too.
+                    scheduler.interrupt_ephemeral_task();
                 }
                 *inner = InnerSchedulerState::Started(scheduler);
                 context.emit_event(EventType::ConnectivityChanged);
@@ -310,6 +314,8 @@ impl SchedulerState {
     pub(crate) async fn interrupt_ephemeral_task(&self) {
         // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
+            // Velta #27 (interrupt_ephemeral_task): remember the wake for the next start.
+            self.velta_wake_pending.store(true, Ordering::SeqCst);
             return;
         };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
@@ -320,6 +326,8 @@ impl SchedulerState {
     pub(crate) async fn interrupt_location(&self) {
         // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
+            // Velta #27 (interrupt_location): remember the wake for the next start.
+            self.velta_wake_pending.store(true, Ordering::SeqCst);
             return;
         };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
@@ -330,6 +338,8 @@ impl SchedulerState {
     pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {
         // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
+            // Velta #27 (interrupt_recently_seen): remember the wake for the next start.
+            self.velta_wake_pending.store(true, Ordering::SeqCst);
             return;
         };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {

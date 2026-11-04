@@ -156,7 +156,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── windows-x86_64/
 │   └── android-arm64/
 │
-├── signing/                  # local signing keystore (untracked)
+├── (signing material moved 2026-11-04 out of the repo tree:
+│   │                           C:\Users\pave\secrets\velta — CI recreates
+│   │                           signing/ fresh from repo secrets)
 ├── design/                   # token snapshot of app/css/main.css (HTML + SVG); restamp header with APP_VERSION
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
@@ -280,7 +282,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (188 ops, 37 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (196 ops, 37 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -299,12 +301,12 @@ intent in VENDORISSUES.MD):
 | #20 | keyed SQLCipher open: `VELTA_DB_KEY` (`x'<64 hex>'`) in `Accounts::load_accounts`/`add_account` (#178). Unset env keeps upstream empty-passphrase behavior. 3 ops | accounts.rs |
 | #21 | `start_io_for_all_accounts` / `stop_io_for_all_accounts` clone the contexts under a short `accounts.read()` and start/stop with NO account manager lock (stops in parallel) (#181, 1.4.90). They held `accounts.write()` across `Scheduler::stop` (up to 30 s per IMAP/SMTP task), freezing every RPC (`get_context`): the 30 s chat-open timeouts, worst with a saved DNS tunnel. Test hook `VELTA_TEST_STOP_IO_DELAY_MS` (no-op unset) for `tests/core-stall/stop_io_stall.py` | deltachat-jsonrpc/src/api.rs, scheduler.rs |
 | #22 | `set_raw_config` / `get_raw_config` no longer hold `config_cache` across SQL (setters + cache fills serialize on `config_mtx`): a long SQL holder plus any `set_config` froze every RPC via the fair RwLock (#229, after 1.5.0). Slow-SQL diagnostics: `velta_take_slow_sql_log()` → velta.log `core slow sql: …` (Android watchdog) | sql.rs, lib.rs, sql_tests.rs |
-| #22 | Native attachment encryption (#178): the shared `velta-attachment` crate derives a profile key from the raw DEK, wraps a random key per blob, and authenticates independent 64 KiB chunks for seek/Range reads. Core encrypts writes and legacy blobs, hashes plaintext for dedup, decrypts all consumers, and exports standard plaintext backup entries. 40 ops | Cargo.toml/lock, blob.rs + tests, context.rs, imex.rs + transfer.rs, message.rs, mimefactory.rs, net/http.rs, webxdc.rs and other plaintext readers |
+| #22 | Native attachment encryption (#178): the shared `velta-attachment` crate derives a profile key from the raw DEK, wraps a random key per blob, and authenticates independent 64 KiB chunks for seek/Range reads. Core encrypts writes and legacy blobs, hashes plaintext for dedup, decrypts all consumers, and exports standard plaintext backup entries. Since 11-04 `change_passphrase` re-derives `attachment_key` (blobs under the old passphrase key are not re-wrapped — no caller yet). 41 ops | Cargo.toml/lock, blob.rs + tests, context.rs, imex.rs + transfer.rs, message.rs, mimefactory.rs, net/http.rs, webxdc.rs and other plaintext readers |
 | #23 | Automatic relay onboarding is opt-in: `init_transports` defaults `Config::Autorelay` to **false** (upstream sets true), the Relays modal toggles it ("Add relays automatically" → generic `setConfig`), and a one-time per-account JS migration (`migrateAutorelayDefault`, marker `velta-autorelay-default` in localStorage) flips legacy profiles off. Velta's "Relays you pick" is the brand — upstream's auto-onboard adds transports from a candidate list silently (#relays) | configure.rs |
-| #24 | Per-relay enable/disable (#189): `ui.velta.disabled_transports` ui-key holds paused addrs (JSON); `velta_disabled_transports/set_transport_enabled/transport_states` in transport.rs; sends exclude paused relays (smtp connect loop), inbox loops + `background_fetch_any` skip them at load (toggle applies at next IO start); a pin on a paused relay is voided. RPCs `set_transport_enabled` + `list_transport_states` (`VeltaTransportState`). 10 ops | transport.rs, smtp.rs, scheduler.rs, deltachat-jsonrpc/src/api.rs + api/types/login_param.rs, smtp/smtp_tests.rs |
+| #24 | Per-relay enable/disable (#189): `ui.velta.disabled_transports` ui-key holds paused addrs (JSON); `velta_disabled_transports/set_transport_enabled/transport_states` in transport.rs; sends exclude paused relays (smtp connect loop), inbox loops + `background_fetch_any` skip them at load (toggle applies at next IO start); a pin on a paused relay is voided. RPCs `set_transport_enabled` + `list_transport_states` (`VeltaTransportState`). Since 11-04 pausing closes a relay's LIVE SMTP connection too (was: 60 s stale timeout). 11 ops | transport.rs, smtp.rs, scheduler.rs, deltachat-jsonrpc/src/api.rs + api/types/login_param.rs, smtp/smtp_tests.rs |
 | #25 | `Imap::update_metadata` does the IMAP METADATA + TURN DNS work WITHOUT `context.metadata` held; a short write lock reads the expiry before and stores the result after (#241). A dead proxy held it 30 s, freezing `get_server_metadata` (Relays modal) and call ICE lookups | imap.rs |
-| #26 | `get_raw_config` cache miss takes no `config_mtx` (#22 serialized it behind setters waiting on the write connection: uncached `get_config` timed out). `Sql::config_gen` (AtomicU64) is bumped by set/uncache/import BEFORE the write; a miss fills the cache only if the generation is unchanged, so a late read never overwrites a newer write (#241) | sql.rs, sql_tests.rs |
-| #27 | #18's `try_read` misses are no longer lost: `interrupt_inbox_idle` / `maybe_network_lost` / `interrupt_inbox` / `interrupt_smtp` set `SchedulerState::velta_wake_pending`; `start` (running or `do_start`, incl. pause resume) swaps it and interrupts inbox + SMTP (#241) | scheduler.rs |
+| #26 | `get_raw_config` cache miss takes no `config_mtx` (#22 serialized it behind setters waiting on the write connection: uncached `get_config` timed out). `Sql::config_gen` (AtomicU64) is bumped by set/uncache/import BEFORE the write; a miss fills the cache only if the generation is unchanged, so a late read never overwrites a newer write (#241); since 11-04 the SETTER re-checks the generation before its cache insert too (an uncache/import racing the SQL write could otherwise be resurrected stale) | sql.rs, sql_tests.rs |
+| #27 | #18's `try_read` misses are no longer lost: `interrupt_inbox_idle` / `maybe_network_lost` / `interrupt_inbox` / `interrupt_smtp` set `SchedulerState::velta_wake_pending`; `start` (running or `do_start`, incl. pause resume) swaps it and interrupts inbox + SMTP + ephemeral (#241; since 11-04 the ephemeral/location/seen skips are remembered too) | scheduler.rs |
 | #28 | `get_connectivity_html` uses `try_read` on the scheduler state and answers "Connecting…" during an IO start/stop instead of waiting up to 30 s (`get_connectivity` already reads the lock-free connectivities list). Tests: connectivity.rs `test_velta_scheduler_lock_held_no_wait_no_lost_wake`; `tests/core-stall/stop_io_stall.py` also asserts uncached `get_config`, `get_connectivity_html`, `get_server_metadata` < 1 s (#241) | scheduler/connectivity.rs |
 | #29 | `get_reply_counts` lookup by `rfc724_mid` (#249/#250, 1.5.2): one replace op, `CROSS JOIN msgs quoted ON quoted.rfc724_mid = …` and `+quoted.chat_id=?`. The unary plus stops the chat filter from becoming the access path. A running statement is still not cancelled — `Sql::call` waits out `block_in_place`, and `sqlite3_interrupt` is not wired (it would roll back the write transaction on that connection). Add it only when `core slow sql` shows a statement that still owns a pool slot after Restart returns | chat.rs |
 
@@ -3552,15 +3554,15 @@ do-not-regress rules; dates mark when the lesson was learned.
   starts at the newest earlier tag that HAS a published GitHub release
   (`gh release view`), so a tag whose run failed (v1.4.66: Windows/macOS
   dead-code error) is skipped and its changes land in the next notes. The keystore
-  lives in `signing/`
-  (gitignored) and the four `ANDROID_KEY*` repo secrets — losing both
+  lives outside the repo tree since 2026-11-04
+  (`C:\Users\pave\secrets\velta`; CI writes `signing/` fresh from secrets) and the four `ANDROID_KEY*` repo secrets — losing both
   means installed APKs can never be updated again.
   `build-windows-cross.yml` is manual-dispatch only.
 - **Windows self-update** — the desktop banner button drives
   `tauri-plugin-updater`: it fetches `latest.json`, verifies the minisign
   signature, runs the NSIS installer and relaunches (`tauri-plugin-process`).
-  The updater keypair lives in `signing/velta-updater.key` + password file
-  (gitignored) and the `TAURI_SIGNING_PRIVATE_KEY*` repo secrets — losing
+  The updater keypair lives outside the repo tree since 2026-11-04
+  (`C:\Users\pave\secrets\veltaelta-updater.key` + password file) and the `TAURI_SIGNING_PRIVATE_KEY*` repo secrets — losing
   them kills the updater for every future release. Only installer installs
   self-update; a bare copied `velta-app.exe` does not.
 - **JSON-RPC compatibility** — when changing the RPC surface, the PWA

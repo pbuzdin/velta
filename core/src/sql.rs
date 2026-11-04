@@ -624,10 +624,16 @@ impl Sql {
             self.execute("DELETE FROM config WHERE keyname=?", (key,))
                 .await?;
         }
-        self.config_cache
-            .write()
-            .await
-            .insert(key.to_string(), value.map(|s| s.to_string()));
+        // Velta #26 (#260): only cache when no uncache_raw_config()/import
+        // bumped config_gen while the SQL write ran — an unconditional
+        // insert could resurrect a value the invalidation just cleared and
+        // keep a stale value cached for good. Re-checked while holding the
+        // cache write lock, same pattern as the #26 read path.
+        let generation = self.config_gen.load(std::sync::atomic::Ordering::SeqCst);
+        let mut cache = self.config_cache.write().await;
+        if self.config_gen.load(std::sync::atomic::Ordering::SeqCst) == generation {
+            cache.insert(key.to_string(), value.map(|s| s.to_string()));
+        }
 
         Ok(())
     }

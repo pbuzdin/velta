@@ -624,6 +624,14 @@ streams standard plaintext entries and import encrypts under the destination
 profile key. Empty/ordinary upstream passphrases retain legacy behavior; PWA
 keeps whole-OPFS-snapshot encryption because WASM has no raw DEK.
 
+Addendum (#260, 2026-11-04): `change_passphrase` now re-derives the attachment
+key from the new passphrase (op "#22 change_passphrase …") — previously new
+blobs encrypted under the stale pre-change key and failed closed after the
+next restart. shortcut: blobs written under the previous passphrase key are
+not re-wrapped yet; no caller exists today (jsonrpc does not expose
+change_passphrase), and the feature that exposes it ships the re-wrap
+migration.
+
 ### 23. Automatic relay onboarding is opt-in (core configure + Relays modal)
 
 **Tracker: pbuzdin/velta#relays. Status: patched locally (quilt ops "#23 autorelay opt-in …", 1 op, 1 file).**
@@ -656,6 +664,12 @@ on a paused relay is voided. RPCs `set_transport_enabled(addr, enabled)` and
 `list_transport_states()` (typed `VeltaTransportState`). Upstream will not take this
 (auto-philosophy, chatmail/core#8857).
 
+Addendum (#260, 2026-11-04): pausing a relay now closes its LIVE SMTP
+connection too (op "#24 pause closes …"): the connect-loop candidate filter
+only stopped new connects, so a connected relay kept sending until the 60 s
+stale-connection timeout — exactly the "stop a misbehaving relay now" case
+the feature exists for.
+
 ### 22. Config cache lock held across SQL awaits (core/src/sql.rs)
 
 **Tracker: pbuzdin/velta#229. Status: patched locally (quilt ops "#22 …").**
@@ -671,6 +685,14 @@ map. Guard test `test_velta_config_read_not_blocked_by_sql_holder`
 `Sql::call` records pool waits / connection holds >= 2 s
 (`velta_take_slow_sql_log`), which the Android shell logs as `core slow sql: …`.
 
+Addendum (#260, 2026-11-04): `set_raw_config` now re-checks `config_gen`
+before its cache insert (op "#26 set_raw_config …"). The setter cached
+unconditionally after the SQL write; an `uncache_raw_config`/`Sql::import`
+that ran meanwhile had bumped the generation and cleared the cache, and the
+late insert permanently resurrected a stale value (upstream serialized this
+with the old cache write lock held across the write). Same guard pattern as
+the #26 read path.
+
 
 
 ### 25–28. Stall follow-ups (#241)
@@ -681,6 +703,13 @@ without `config_mtx`, guarded by a generation counter; #27 interrupts skipped by
 #18 `try_read` are replayed on the next scheduler start; #28
 `get_connectivity_html` reports "Connecting…" instead of waiting behind an IO
 start/stop. Upstream candidates: #25 and #28 apply to stock core as-is.
+
+Addendum (#260, 2026-11-04): #27 now also remembers the three remaining #18
+`try_read` skips — `interrupt_ephemeral_task`, `interrupt_location`,
+`interrupt_recently_seen` — and both start arms deliver
+`interrupt_ephemeral_task` alongside inbox+SMTP (5 ops, marker "#260"). A
+disappearing-message timer shortened exactly during an IO restart no longer
+waits for the next unrelated interrupt.
 
 ### 29. `get_reply_counts` scans by `chat_id` and overlaps restarts (#249, #250)
 
