@@ -277,20 +277,24 @@ test("isMediaFilePath classifies openable media for the Android lightbox path", 
   assert.equal(isMediaFilePath(""), false);
 });
 
-test("Android open of a non-media file toasts instead of calling the opener plugin", async t => {
+test("Android open of a non-media file goes through the decrypted open_document copy (#279)", async t => {
   const { view } = setup(t);
   await view.open(7);
   const desc = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   Object.defineProperty(globalThis, "navigator", { value: { userAgent: "Mozilla/5.0 (Android 15; Mobile)" }, configurable: true });
+  const calls = [];
+  const prevTauri = window.__TAURI__;
+  window.__TAURI__ = { core: { invoke: async (cmd, args) => { calls.push([cmd, args]); return ""; } } };
   t.after(() => {
     if (desc) Object.defineProperty(globalThis, "navigator", desc);
+    window.__TAURI__ = prevTauri;
   });
 
-  const toasts = document.getElementById("toasts");
-  const before = toasts ? toasts.children.length : 0;
   view._openFile("/data/x/dc.db-blobs/doc.pdf", "doc.pdf");
-  const after = toasts ? toasts.children.length : before;
-  assert.equal(after, before + 1, "an honest toast replaces the crashing opener call");
+  await new Promise(r => setTimeout(r, 0));
+  assert.deepEqual(calls.map(c => c[0]), ["open_document"], "no opener call on the blobdir path");
+  assert.equal(calls[0][1].src, "/data/x/dc.db-blobs/doc.pdf");
+  assert.equal(calls[0][1].name, "doc.pdf");
 });
 
 test("fetch-then-jump walks older pages until the target message loads", async t => {

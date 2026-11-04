@@ -3616,6 +3616,14 @@ do-not-regress rules; dates mark when the lesson was learned.
   3. ABSOLUTE path: the scope matches absolute paths only. The core's
   `filePath` is relative to the accounts dir — `_openFile` resolves it
   against `window.veltaAccountsDir` (get_accounts_dir, set at boot) first.
+  4. DECRYPTED COPY (#279): blobs are VLTA-encrypted under hash names, so
+  never open the blobdir path. `openAttachmentFile` calls `open_document`,
+  which decrypts to `open-docs/<random>/<original name>` (desktop:
+  AppLocalData, scope `$APPLOCALDATA/open-docs/**`; Android: cache dir via
+  the FileProvider + `FileOpen.kt` ACTION_VIEW, "no-app" -> toast with
+  Save as…). Copies older than a day are swept on each open. PWA: pdf/text
+  open as a blob URL in a new tab, other files download. Android media stays
+  in the lightbox, HTML in the sandboxed iframe (`documentOpenPlan`).
   Debug order: reproduce → read the resolved `capabilities.json` under
   `target/<target>/release/build/velta-app-*/out/` → error toast now carries the
   resolved path. Verify with a REBUILT binary — config fixes never reach a

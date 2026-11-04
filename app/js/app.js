@@ -3805,6 +3805,8 @@ async function openChatMediaItem(kind, m) {
   if (kind === "files") {
     // Files open natively or in their own overlay (audio rows play inline).
     openAttachmentFile(m.filePath, m.fileName, {
+      core,
+      mime: m.fileMime || null,
       openHtml: chatView ? (p, n) => chatView._openHtmlIsolated(p, n) : null,
       onError: (t) => toast(t, 3000, { danger: true }),
     });
