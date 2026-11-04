@@ -344,12 +344,18 @@ impl Sql {
         let lock = self.pool.read().await;
         let pool = lock.as_ref().context("no SQL connection")?;
         // Velta #22 diagnostics: slow pool waits / connection holds.
-        let waited = std::time::Instant::now();
+        // tools::SystemTime, not std::time::Instant: Instant::now() panics
+        // on wasm32-unknown-unknown (#261).
+        let waited = SystemTime::now();
         let mut conn = pool.get(query_only).await?;
-        let wait_ms = waited.elapsed().as_millis();
-        let held = std::time::Instant::now();
+        let held = SystemTime::now();
+        let wait_ms = held.duration_since(waited).unwrap_or_default().as_millis();
         let res = tokio::task::block_in_place(move || function(&mut conn));
-        note_slow_sql(query_only, wait_ms, held.elapsed().as_millis());
+        let held_ms = SystemTime::now()
+            .duration_since(held)
+            .unwrap_or_default()
+            .as_millis();
+        note_slow_sql(query_only, wait_ms, held_ms);
         Ok(res?)
     }
 
