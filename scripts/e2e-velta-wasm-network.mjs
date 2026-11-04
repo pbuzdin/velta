@@ -117,6 +117,9 @@ try {
         for (;;) {
           try {
             const ev = await rpc('get_next_event')
+            const k = ev.event?.kind
+            if (k === 'Warning' || k === 'Error' || k === 'MsgFailed')
+              console.log(`[core ${k}] ctx=${ev.contextId} ${JSON.stringify(ev.event).slice(0, 400)}`)
             for (const l of listeners) {
               try { await l(ev) } catch (e) { console.error('[listener]', e) }
             }
@@ -198,12 +201,15 @@ try {
       })
       const src = '/tmp/e2e-attachment.bin'
       window.core.fs_write(src, payload)
-      await rpc('send_msg', [
+      const sentId = await rpc('send_msg', [
         aliceId,
         chatId,
         { text: fileMarker, file: src, filename: 'e2e-attachment.bin', viewtype: 'File' },
       ])
-      const fileMsg = await fileArrived
+      const fileMsg = await fileArrived.catch(async (e) => {
+        const sent = await rpc('get_message', [aliceId, sentId]).catch((x) => x)
+        throw new Error(`${e.message}; alice msg state=${sent?.state} error=${sent?.error ?? ''}`)
+      })
       if (!fileMsg.file) throw new Error('attachment arrived without a file')
       const got = window.core.fs_read(fileMsg.file)
       if (got.length !== payload.length || payload.some((b, i) => got[i] !== b))
