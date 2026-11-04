@@ -31,8 +31,8 @@ Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py
 13 ops at the series’ 2.62 baseline, 21 ops at core 2.63.0, 23 ops at core 2.64.0, 25 ops at core 2.65.0).
 
 > **Refreshed for 2.66.0 (2026-11-04, #260/#261).** 0007's blob.rs hunks
-> re-ported onto the #22 attachment-encryption blob: sync_fs facade
-> re-installed over the new std::fs sites, and `open_blob` cfg-routes
+> dropped; new 0011 ports the #22 attachment-encryption blob: sync_fs
+> facade over the plaintext std::fs sites, and `open_blob` cfg-routes
 > wasm32 through memfs bytes + `AttachmentReader::from_memfs_bytes`
 > (packages/attachment-crypto gained a `FileReader` alias; VLTA still
 > fails closed — wasm has no raw DEK). file_hash / check_or_recode /

@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pavel <pbuzdin@gmail.com>
+Date: Wed, 4 Nov 2026 15:40:00 +0300
+Subject: [PATCH] wasm(blob): sync_fs facade and memfs open_blob
+
+2.66 (#261): the #22-rewritten blob.rs writes blobs with std::fs and
+reads them through AttachmentReader::open, both unusable on
+wasm32-unknown-unknown. sync_fs is std::fs natively and the memfs
+tokio::fs sync_* shim on wasm32; open_blob reads memfs bytes into
+AttachmentReader::from_memfs_bytes there, so file_hash, check_or_recode,
+image_metadata, get_filebytes, read_file and save_file all work. The
+key-only paths (ensure_encrypted, encrypted create) stay std::fs: wasm
+holds no attachment key.
+
+WASM-CORE: blob.
+Native impact: none (sync_fs re-exports std::fs; open_blob unchanged).
+---
+ src/blob.rs | 38 +++++++++++++++++++++++++++++--------
+ 1 file changed, 31 insertions(+), 7 deletions(-)
+
+diff --git a/src/blob.rs b/src/blob.rs
+index b19022e..70741d1 100644
+--- a/src/blob.rs
++++ b/src/blob.rs
+@@ -26,6 +26,21 @@ use crate::log::warn;
+ use crate::message::Viewtype;
+ use crate::tools::sanitize_filename;
+ 
++/// Synchronous filesystem ops used from `block_in_place` contexts.
++/// `std::fs` is unsupported on wasm32-unknown-unknown,
++/// so the in-memory `tokio::fs` shim is used there instead.
++#[cfg(not(target_arch = "wasm32"))]
++mod sync_fs {
++    pub use std::fs::{copy, create_dir_all, rename, write};
++}
++#[cfg(target_arch = "wasm32")]
++mod sync_fs {
++    pub use tokio::fs::{
++        sync_copy as copy, sync_create_dir_all as create_dir_all, sync_read as read,
++        sync_rename as rename, sync_write as write,
++    };
++}
++
+ /// Represents a file in the blob directory.
+ ///
+ /// The object has a name, which will always be valid UTF-8.  Having a
+@@ -80,17 +95,17 @@ impl<'a> BlobObject<'a> {
+                     context,
+                     "Source file not in blobdir. Copying instead of moving in order to prevent moving a file that was still needed."
+                 );
+-                std::fs::create_dir_all(blobdir)?;
++                sync_fs::create_dir_all(blobdir)?;
+                 temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
+                 if let Some(key) = context.attachment_key() {
+                     if attachment::is_encrypted(src)? {
+-                        std::fs::copy(src, &temp_path)
++                        sync_fs::copy(src, &temp_path)
+                             .context("Copying encrypted blobfile failed")?;
+                     } else {
+                         attachment::encrypt_file(&key, src, &temp_path)?;
+                     }
+                 } else {
+-                    std::fs::copy(src, &temp_path).context("Copying new blobfile failed")?;
++                    sync_fs::copy(src, &temp_path).context("Copying new blobfile failed")?;
+                 }
+                 &temp_path
+             };
+@@ -115,7 +130,7 @@ impl<'a> BlobObject<'a> {
+ 
+             // This will also replace an already-existing file.
+             // Renaming is atomic, so this will avoid race conditions.
+-            std::fs::rename(src_in_blobdir, &new_path)?;
++            sync_fs::rename(src_in_blobdir, &new_path)?;
+ 
+             context.emit_event(EventType::NewBlobFile(blob.as_name().to_string()));
+             Ok(blob)
+@@ -138,14 +153,14 @@ impl<'a> BlobObject<'a> {
+     ) -> Result<BlobObject<'a>> {
+         task::block_in_place(|| {
+             let blobdir = context.get_blobdir();
+-            std::fs::create_dir_all(blobdir)?;
++            sync_fs::create_dir_all(blobdir)?;
+             let temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
+             if let Some(key) = context.attachment_key() {
+                 let mut output = std::fs::File::create_new(&temp_path)?;
+                 attachment::encrypt(&key, &mut &data[..], data.len() as u64, &mut output)?;
+                 output.sync_all()?;
+             } else {
+-                std::fs::write(&temp_path, data).context("writing new blobfile failed")?;
++                sync_fs::write(&temp_path, data).context("writing new blobfile failed")?;
+             }
+ 
+             BlobObject::create_and_deduplicate(context, &temp_path, Path::new(original_name))
+@@ -565,7 +580,16 @@ impl<'a> BlobObject<'a> {
+ 
+ /// Opens either a legacy plaintext file or a VLTA blob with the account key.
+ pub fn open_blob(context: &Context, path: &Path) -> Result<AttachmentReader> {
+-    AttachmentReader::open(path, context.attachment_key().as_ref())
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        AttachmentReader::open(path, context.attachment_key().as_ref())
++    }
++    #[cfg(target_arch = "wasm32")]
++    {
++        let bytes = sync_fs::read(path)
++            .with_context(|| format!("failed to open attachment {}", path.display()))?;
++        AttachmentReader::from_memfs_bytes(bytes, context.attachment_key().as_ref())
++    }
+ }
+ 
+ fn ensure_encrypted(context: &Context, path: &Path) -> Result<()> {
+-- 
+2.51.0

@@ -235,7 +235,7 @@ jobs:
         working-directory: ${{ github.workspace }}/scripts
         run: |
           node e2e-velta-wasm-network.mjs 2>&1 | tee "$RUNNER_TEMP/e2e.log"
-          grep -E '^OK: two accounts|^  wasm-roundtrip-|^elapsed' "$RUNNER_TEMP/e2e.log" >> "$GITHUB_STEP_SUMMARY" || true
+          grep -E '^OK: |^  wasm-roundtrip-|^elapsed' "$RUNNER_TEMP/e2e.log" >> "$GITHUB_STEP_SUMMARY" || true
 
       # Day 17: V2.5 identity round-trip (export_self_keys → fresh account →
       # import_self_keys → configure re-login). Non-blocking until first

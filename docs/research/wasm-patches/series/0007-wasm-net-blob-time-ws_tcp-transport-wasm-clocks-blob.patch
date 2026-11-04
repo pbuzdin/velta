@@ -13,13 +13,10 @@ Subject: [PATCH] wasm(net,blob,time): ws_tcp transport, wasm clocks, blob
   byte-for-byte identical recode output - avatar golden unchanged).
 - deltachat-ratelimit uses the wasm-safe clock.
 
-2.66 refresh (#260/#261): blob.rs hunks re-ported onto the #22-rewritten
-blob (attachment encryption): sync_fs facade re-installed over the new
-std::fs sites, and open_blob cfg-routes wasm32 through memfs bytes +
-AttachmentReader::from_memfs_bytes (VLTA still fails closed; wasm has no
-raw DEK). file_hash/check_or_recode/image_metadata need NO hunks anymore:
-they all read through open_blob, which is wasm-functional now. The old
-generic BufReadSeek refactor is obsolete.
+2.66 refresh (#260/#261): blob.rs hunks dropped from this patch (they
+no longer anchor on the #22-rewritten blob); the blob port is 0011
+(sync_fs facade + open_blob memfs routing). The old generic BufReadSeek
+refactor is obsolete.
 2.63 refresh (#112): check_or_recode_to_size re-based onto upstream
 81140d51 (native WebP has_animation() check; the vendored animated-WebP
 patch #7 retired, so the old separate sniff and its two hunks are
@@ -32,7 +29,6 @@ Native impact: mechanical call-site refactors, no behaviour change
 ---
  deltachat-ratelimit/Cargo.toml |   1 +
  deltachat-ratelimit/src/lib.rs |  15 ++--
- src/blob.rs                    |  89 ++++++++++++++------
  src/context.rs                 |   6 +-
  src/imap.rs                    |   4 +-
  src/imap/idle.rs               |   2 +-

@@ -173,7 +173,42 @@ try {
       await rpc('misc_send_text_message', [aliceId, chatId, marker])
 
       const text = await arrived
-      return { ok: true, text, marker }
+
+      // #261: attachment round-trip — alice sends a small file from memfs,
+      // bob reads the received blob's bytes back and they must match.
+      const fileMarker = marker + '-file'
+      const payload = new Uint8Array(4096)
+      for (let i = 0; i < payload.length; i++) payload[i] = (i * 31 + 7) & 255
+      const fileArrived = new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error('timeout waiting for attachment delivery')),
+          120_000,
+        )
+        listeners.push(async (ev) => {
+          if (ev.contextId !== bobId) return
+          if (!ev.event || ev.event.kind !== 'IncomingMsg') return
+          const msgId = ev.event.msgId ?? ev.event.msg_id
+          if (msgId == null) return
+          const msg = await rpc('get_message', [bobId, msgId])
+          if (msg.text && msg.text.includes(fileMarker)) {
+            clearTimeout(timer)
+            resolve(msg)
+          }
+        })
+      })
+      const src = '/tmp/e2e-attachment.bin'
+      window.core.fs_write(src, payload)
+      await rpc('send_msg', [
+        aliceId,
+        chatId,
+        { text: fileMarker, file: src, filename: 'e2e-attachment.bin', viewtype: 'File' },
+      ])
+      const fileMsg = await fileArrived
+      if (!fileMsg.file) throw new Error('attachment arrived without a file')
+      const got = window.core.fs_read(fileMsg.file)
+      if (got.length !== payload.length || payload.some((b, i) => got[i] !== b))
+        throw new Error(`attachment bytes mismatch (got ${got.length} bytes, want ${payload.length})`)
+      return { ok: true, text, marker, fileBytes: got.length }
     },
     { alice, bob },
   )
@@ -186,6 +221,7 @@ try {
     console.log(
       `OK: two accounts configured over the WS tunnel; alice→bob message delivered:\n  ${result.text}`,
     )
+    console.log(`OK: attachment round-trip, ${result.fileBytes} bytes match`)
     console.log(`elapsed: ${((t1 - t0) / 1000).toFixed(1)} s (boot+configure×2+send+receive)`)
   }
 } catch (e) {
