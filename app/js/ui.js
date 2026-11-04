@@ -1273,6 +1273,7 @@ export function chatAppearanceHtml() {
           </fieldset>
           <div class="bar-opts-hint" data-ca-accent-hint>${escapeHtml(t("Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors."))}</div>
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-stickers-in-attach${localStorage.getItem("velta-stickers-in-attach") === "1" ? " checked" : ""}><span>${escapeHtml(t("Stickers in attachments menu"))}</span></label>
           <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
@@ -1333,6 +1334,11 @@ export function wireChatAppearance(root, { onChange } = {}) {
     commit({ accent: custom.value });
   });
   hyph.addEventListener("change", () => commit({ hyphens: hyph.checked }));
+  // #278: composer sticker button vs Attach → Stickers.
+  sec.querySelector("[data-stickers-in-attach]")?.addEventListener("change", e => {
+    try { localStorage.setItem("velta-stickers-in-attach", e.target.checked ? "1" : "0"); } catch {}
+    window.dispatchEvent(new Event("velta-stickers-pref"));
+  });
   sec.querySelector("[data-ca-reset]").addEventListener("click", () => {
     const st = A.apply(A.reset());
     sync(st);
@@ -1390,6 +1396,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
           <legend class="vh">${t("Theme")}</legend>
           ${Object.entries(THEME_LABELS).map(([v, label]) => `<label class="scale-opt"><input type="radio" name="app-theme" value="${v}"${v === theme ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
+        <label class="scale-opt" data-amoled-opt${document.documentElement.dataset.theme === "dark" ? "" : " hidden"}><input type="checkbox" role="switch" data-toggle-amoled${localStorage.getItem("velta-amoled") === "1" ? " checked" : ""}><span>${escapeHtml(t("Pure black (AMOLED)"))}</span></label>
       </details>
       <details class="drawer-details">
         <summary>${ICON.language}<span data-lang-summary>${t("{label}: {state}", { label: t("Language"), state: (LANGS.find(([v]) => v === currentLang()) || LANGS[0])[1] })}</span></summary>
@@ -1714,6 +1721,14 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     onDownloadLimit(value);
   });
   wireChatAppearance(drawer);
+  // #277: the AMOLED switch only exists for an effective dark theme.
+  const amoledOpt = drawer.querySelector("[data-amoled-opt]");
+  const syncAmoledOpt = () => { if (amoledOpt) amoledOpt.hidden = document.documentElement.dataset.theme !== "dark"; };
+  document.addEventListener("velta-theme-applied", syncAmoledOpt);
+  amoledOpt?.querySelector("input")?.addEventListener("change", e => {
+    try { localStorage.setItem("velta-amoled", e.target.checked ? "1" : "0"); } catch {}
+    onSetTheme?.(localStorage.getItem("dw-theme") || "auto");
+  });
   drawer.querySelector("[data-theme-opts]")?.addEventListener("change", e => {
     const v = e.target?.value;
     if (!v || !THEME_LABELS[v]) return;

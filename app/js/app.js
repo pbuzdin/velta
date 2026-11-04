@@ -1468,8 +1468,13 @@ themeQuery.addEventListener?.("change", () => {
 function applyTheme() {
   const effective = state.theme === "auto" ? (themeQuery.matches ? "light" : "dark") : state.theme;
   document.documentElement.dataset.theme = effective;
-  const themeColors = { dark: "#0f0f14", brutal: "#22222b" };
+  // #277: pure black only on top of the dark theme (Auto counts when it
+  // resolves dark); light and brutal ignore the switch.
+  const amoled = effective === "dark" && localStorage.getItem("velta-amoled") === "1";
+  document.documentElement.toggleAttribute("data-amoled", amoled);
+  const themeColors = { dark: amoled ? "#000000" : "#0f0f14", brutal: "#22222b" };
   document.querySelector('meta[name="theme-color"]').content = themeColors[effective] || "#f4f4f4";
+  document.dispatchEvent(new CustomEvent("velta-theme-applied", { detail: { effective } }));
   localStorage.setItem("dw-theme", state.theme);
 }
 
@@ -1537,7 +1542,8 @@ function refreshAfterSettingsApply(keys) {
   const has = k => keys.includes(k);
   // Strings are baked at render. Boot reapplies theme, scale and core copies.
   if (has("language")) { location.reload(); return; }
-  if (has("theme")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
+  if (has("theme") || has("amoled")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
+  if (has("stickers-in-attach")) window.dispatchEvent(new Event("velta-stickers-pref"));
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
     globalThis.VeltaChatAppearance?.apply();

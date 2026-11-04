@@ -264,8 +264,10 @@
       const mode = (s && s.getItem("dw-theme")) || "auto";
       const eff = mode === "auto" ? (g.matchMedia && g.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : mode;
       root.dataset.theme = eff;
+      const amoled = eff === "dark" && s && s.getItem("velta-amoled") === "1"; // #277
+      if (amoled) root.setAttribute("data-amoled", "");
       const meta = doc.querySelector && doc.querySelector('meta[name="theme-color"]');
-      if (meta) meta.content = THEME_BG[eff] || THEME_BG.light;
+      if (meta) meta.content = amoled ? "#000000" : THEME_BG[eff] || THEME_BG.light;
     } catch {}
   }
 

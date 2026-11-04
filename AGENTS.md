@@ -2292,6 +2292,7 @@ calls > 8 s) and `core runtime stalled`.
 - **No pure black or pure white.** Opaque text and surface colors stay in the
   soft families: whites `#f2f2f5`/`#f4f4f4`, blacks `#0b0b10`–`#1c1c26`
   (`avatar.js` states the rule for fingerprint tiles; keep it everywhere).
+  Exception: the opt-in "Pure black (AMOLED)" setting (`velta-amoled`, `html[data-theme=dark][data-amoled]`) sets only `--bg`/`--bg-chat` to #000; elevated surfaces stay grey; covered by the `amoled` theme in `scripts/e2e-contrast.mjs`.
 - **WCAG AA contrast (≥ 4.5:1)** for every text/background pair. Measure with
   the WCAG relative-luminance formula and composite translucent layers over
   their real bubble color first — e.g. reply quotes sit on

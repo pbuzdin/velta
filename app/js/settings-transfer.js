@@ -105,6 +105,7 @@ const fmtNum = n => String(n);
 export const SETTINGS = [
   oneOf("theme", "Theme", "dw-theme", [["auto", "auto"], ["dark", "dark"], ["light", "light"], ["brutal", "brutal"]], "auto"),
   oneOf("language", "Language", "velta-lang", [["english", "en"], ["french", "fr"], ["russian", "ru"]], "en", { removeAt: "en" }),
+  offByDefault("amoled", "Pure black (AMOLED)", "velta-amoled"),
   oneOf("interface-scale", "Interface scale", "velta-ui-scale", SCALES, "1", { removeAt: "1" }),
   {
     key: "message-text-size", label: "Message text size", lsKeys: ["velta-msg-font-size"],
@@ -152,6 +153,7 @@ export const SETTINGS = [
   oneOf("link-previews", "Link previews", "velta-link-preview", [["off", "off"], ["picture", "picture"], ["fetch", "fetch"]], "off", { removeAt: "off" }),
   onByDefault("strip-tracking", "Strip tracking from links", "velta-strip-trackers"),
   onByDefault("send-on-enter", "Send on Enter", "velta-send-enter"),
+  offByDefault("stickers-in-attach", "Stickers in attachments menu", "velta-stickers-in-attach"),
   onByDefault("read-receipts", "Read receipts", "velta-mdns"),
   onByDefault("remember-scroll", "Remember scroll position", "velta-remember-scroll"),
   onByDefault("local-chat-typing", "Local chat typing hints", "velta-p2p-typing"),

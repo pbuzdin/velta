@@ -1615,5 +1615,7 @@
   "Errors": "Ошибки",
   "Warnings": "Предупреждения",
   "Diagnostics copied — paste them to share": "Журнал скопирован — вставьте, чтобы поделиться",
-  "No matching diagnostics": "Нет подходящих записей"
+  "No matching diagnostics": "Нет подходящих записей",
+  "Pure black (AMOLED)": "Чисто чёрная (AMOLED)",
+  "Stickers in attachments menu": "Стикеры в меню вложений"
 }

@@ -213,14 +213,16 @@ const screens = [
   }],
 ]
 const ACCENTS = quick ? [null, '#f2e14c'] : [null, '#1d3a8a', '#3fa34d', '#f2e14c']
-const THEMES = ['dark', 'light', 'brutal']
+// 'amoled' = dark + velta-amoled=1 (#277, pure black backgrounds).
+const THEMES = ['dark', 'amoled', 'light', 'brutal']
 
 const all = new Map() // violation -> [contexts]
 let skippedTotal = 0
 for (const theme of THEMES) for (const accent of ACCENTS) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, permissions: ['microphone'] })
   await ctx.addInitScript(([t, a]) => {
-    localStorage.setItem('velta-mock', '1'); localStorage.setItem('dw-theme', t)
+    localStorage.setItem('velta-mock', '1'); localStorage.setItem('dw-theme', t === 'amoled' ? 'dark' : t)
+    if (t === 'amoled') localStorage.setItem('velta-amoled', '1')
     if (a) localStorage.setItem('velta-accent', a)
   }, [theme, accent])
   for (const [id, go] of screens) {
