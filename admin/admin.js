@@ -86,9 +86,11 @@ const newsTag = (title) => (/^Velta \d/.test(title) ? "Release" : "");
 // One news-index item: whole item is the link; meta line = date · tag;
 // the trailing arrow is decorative. Same markup as news/index.html.
 const newsListItem = ({ slug, title, summary, date, iso }) => {
+  // meta between title and summary: matches the index structure the
+  // 2026-11 homepage redesign moved to (date on the title line)
   const tag = newsTag(title);
   const meta = `<time datetime="${esc(iso)}">${esc(date)}</time>${tag ? ` · <span class="news-tag">${tag}</span>` : ""}`;
-  return `<li><a href="/news/${slug}.html"><span><h2>${esc(title)}<span class="news-arrow" aria-hidden="true">\u00a0→</span></h2><p>${esc(summary)}</p><p class="news-meta">${meta}</p></span></a></li>`;
+  return `<li><a href="/news/${slug}.html"><span><h2>${esc(title)}<span class="news-arrow" aria-hidden="true">\u00a0→</span></h2><p class="news-meta">${meta}</p><p>${esc(summary)}</p></span></a></li>`;
 };
 const readMinutes = (text) => Math.max(1, Math.round(text.trim().split(/\s+/).length / 200));
 
