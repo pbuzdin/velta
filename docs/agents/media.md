@@ -182,19 +182,6 @@ off the canonical `uploads/` directory before `starts_with`
 returns "path outside uploads" and the send fails. The picker used to
 swallow that error and send the original file without encrypting it.
 
-## Article card (#252)
-
-Not a webxdc. Attach → Article (Tauri shell only) fetches an https page
-through the link-preview proxy (`fetch_article`: 768 KB, 12 s; link
-previews stay 256 KB and 5 s) and sends a plain-text snapshot: title,
-opening, URL. `article.rs` is a tag scan, not Readability. A page with
-under ~80 characters of paragraph text sends nothing. Velta paints a
-matching message as a card. **Read** shows the text that arrived and
-does not fetch. **Open site** is `openHttp`. A link-preview card's
-**Read** is the same fetch and does not send. Picture mode does not
-bake an image when the composer text is an article. Tests:
-`tests/article.test.mjs`.
-
 ## Related
 
 - Cleartext is permitted app-wide (network security config) so user-opened

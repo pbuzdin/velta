@@ -757,7 +757,7 @@ space** on (the default, same drawer section), big JPEG/WebP photos - and
 opaque PNGs the core would recompress anyway - are re-encoded to lossy WebP
 before sending when that makes them at least 10% smaller (or fit the limit
 above); this also drops location/camera info from those photos. Small
-photos, GIFs, animated or transparent images and files are never touched. A pasted screenshot is written under the app's `uploads/` folder and encrypted there before send. **Article** (desktop and Android app only, not the browser) takes an https link from the composer or a paste field, reads the page through the same proxy rules as link previews, and sends the title, the opening, and the URL as a normal text message. Velta shows that message as a card with **Read** and **Open site**. Other Delta Chat apps show the text. **Read** shows the text that was sent and does not contact the site again. From the attachment menu you
+photos, GIFs, animated or transparent images and files are never touched. A pasted screenshot is written under the app's `uploads/` folder and encrypted there before send. From the attachment menu you
 can send:
 
 **Voice message** (not offered in local groups) records from the

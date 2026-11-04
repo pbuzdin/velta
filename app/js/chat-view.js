@@ -3,7 +3,7 @@ import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe } from "./components.js";
-import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, footButtons, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
+import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand, recentCommands } from "./recent-commands.js";
 import { recentApps, recordApp, appendAttachLists, openAppBrowser } from "./app-browser.js";
@@ -103,7 +103,6 @@ import { detectTextLang, uiLang } from "./text-lang.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
-import { formatArticleMessage, parseArticleMessage, articleCardHtml, fetchArticle } from "./article.js";
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
@@ -2523,8 +2522,7 @@ export class ChatView {
       `</span>`;
     }
 
-    const article = m.viewtype === "text" ? parseArticleMessage(m.text) : null;
-    if (m.text && !article) {
+    if (m.text) {
       // "Show Full Message…" (the official client's label): the core stores
       // the original body whenever the mail simplifier touched the message
       // (hasHtml = core's mime_modified, mapped in rpc-core). Gate on hasHtml
@@ -2559,8 +2557,6 @@ export class ChatView {
       // Plain text only. A baked sender preview is an image, and fetching
       // its caption would put the recipient's IP on that site (#88).
       if (receiveFetchesPreview(m.viewtype)) bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
-    } else if (article) {
-      bubble += articleCardHtml(article);
     } else if (m.viewtype === "call") {
       // Issue #8: call messages render as a Velta call card — direction,
       // state and duration come from core call_info (hydrated below); the
@@ -2693,15 +2689,6 @@ export class ChatView {
       linkPreview(m.text, chatId, this.core.accountId).then((p) => {
         if (!p || !alive() || !lpSlot.isConnected) return;
         lpSlot.innerHTML = linkPreviewCardHtml(p, firstLinkOf(m.text));
-        const lpUrl = firstLinkOf(m.text);
-        if (tauriInvoke() && lpUrl) {
-          const read = document.createElement("button");
-          read.type = "button";
-          read.className = "btn-text";
-          read.dataset.readLink = lpUrl;
-          read.textContent = t("Read");
-          lpSlot.append(read);
-        }
         lpSlot.hidden = false;
         notifyHeight();
         // loading=lazy: the card grows again when the image decodes.
@@ -3035,14 +3022,6 @@ export class ChatView {
       // target=_blank → in-app browser overlay; desktop opens in the SYSTEM
       // browser via the opener plugin (window.open is silently swallowed by
       // wry's new-window handling — it is NOT a working fallback path).
-      const readLink = e.target.closest?.("[data-read-link]");
-      if (readLink) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (Date.now() - (this._swipedAt || 0) < 400) return;
-        this._readArticleLink(readLink.dataset.readLink);
-        return;
-      }
       const link = e.target.closest("a[href]");
       if (link) {
         // A swipe that began on a link (inline or preview card) must not also open it
@@ -3090,10 +3069,6 @@ export class ChatView {
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
         else if (mediaAction.dataset.act === "show-original") this._showOriginal(m);
         else if (mediaAction.dataset.act === "thread") this._openThread(m, mediaAction);
-        else if (mediaAction.dataset.act === "read-article") {
-          const a = parseArticleMessage(m.text);
-          if (a) this._showArticle(a);
-        }
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
@@ -4217,30 +4192,6 @@ export class ChatView {
       const bar = document.getElementById("link-preview-draft");
       if (bar) bar.hidden = true;
     });
-    document.getElementById("btn-article-dismiss")?.addEventListener("click", () => {
-      const input = document.getElementById("composer-input");
-      if (this._articleUndo != null && input) {
-        const restore = this._articleUndo;
-        this._articleUndo = null;
-        this._articleDismissed = null;
-        input.value = restore;
-        sizeComposer(input);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        return;
-      }
-      this._articleDismissed = (input?.value || "").trim();
-      const bar = document.getElementById("article-draft");
-      if (bar) bar.hidden = true;
-    });
-    document.getElementById("article-draft")?.addEventListener("click", (e) => {
-      const act = e.target.closest?.("[data-act]")?.dataset.act;
-      if (!act) return;
-      const a = parseArticleMessage(document.getElementById("composer-input")?.value || "");
-      if (!a) return;
-      e.preventDefault();
-      if (act === "read-article") this._showArticle(a);
-      else if (act === "open-article") openHttp(a.url);
-    });
     bindMenuToggle(document.getElementById("btn-attach"), e => {
       const session = this._session;
       if (!this._isCurrent(session) || !this.chat) return;
@@ -4254,9 +4205,6 @@ export class ChatView {
         { label: "Video", icon: ICO.video, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
-      if (tauriInvoke()) {
-        attachItems.push({ label: "Article", icon: ICO.file, onClick: () => this._composeArticle() });
-      }
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
       if (largeFileAvailable() && !this.chat?.isP2p) {
@@ -4492,35 +4440,14 @@ export class ChatView {
     this._lpSeq++;
     this._lpPreview = null;
     this._lpDismissed = null;
-    this._articleUndo = null;
-    this._articleDismissed = null;
     const bar = document.getElementById("link-preview-draft");
     if (bar) bar.hidden = true;
-    const article = document.getElementById("article-draft");
-    if (article) article.hidden = true;
-  }
-
-  _refreshArticleDraft() {
-    const bar = document.getElementById("article-draft");
-    if (!bar) return;
-    const text = document.getElementById("composer-input")?.value || "";
-    const a = this.pendingMedia ? null : parseArticleMessage(text);
-    if (!a || text.trim() === this._articleDismissed) { bar.hidden = true; return; }
-    const body = bar.querySelector("[data-article-body]");
-    if (body) body.innerHTML = articleCardHtml(a, { link: false });
-    bar.hidden = false;
   }
 
   async _refreshLinkPreview() {
-    this._refreshArticleDraft();
     const session = this._session;
     const bar = document.getElementById("link-preview-draft");
     const text = document.getElementById("composer-input")?.value || "";
-    if (parseArticleMessage(text)) {
-      this._lpPreview = null;
-      if (bar) bar.hidden = true;
-      return;
-    }
     const url = senderPreviewUrl(text, {
       enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: !!this.pendingMedia,
@@ -4535,13 +4462,7 @@ export class ChatView {
     const token = ++this._lpSeq;
     const preview = await linkPreview(text, this.chat?.id, this.core.accountId);
     if (!this._isCurrent(session) || token !== this._lpSeq) return;
-    const nowText = document.getElementById("composer-input")?.value || "";
-    if (parseArticleMessage(nowText)) {
-      this._lpPreview = null;
-      bar.hidden = true;
-      return;
-    }
-    const urlNow = senderPreviewUrl(nowText, {
+    const urlNow = senderPreviewUrl(document.getElementById("composer-input")?.value || "", {
       enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
@@ -4556,95 +4477,6 @@ export class ChatView {
     const body = bar.querySelector("[data-lp-body]");
     if (body) body.innerHTML = linkPreviewCardHtml(preview, url, { link: false });
     bar.hidden = false;
-  }
-
-  _articleFail(err) {
-    const msg = String(err?.message || err || "");
-    errToast(t(/no article text/.test(msg) ? "No article text on that page" : "Couldn't read that page"));
-  }
-
-  _showArticle(a) {
-    const body = document.createElement("div");
-    body.className = "article-sheet";
-    body.textContent = a.opening;
-    const { foot, ok } = footButtons("Open site");
-    ok.addEventListener("click", () => openHttp(a.url));
-    const { modal } = showModal({ title: "Article", body, foot });
-    const titleEl = modal.querySelector(".modal-title");
-    if (titleEl && a.title) titleEl.textContent = a.title;
-  }
-
-  _askArticleUrl() {
-    return new Promise(resolve => {
-      const body = document.createElement("div");
-      const field = document.createElement("input");
-      field.className = "text-field";
-      field.type = "url";
-      field.placeholder = "https://";
-      field.setAttribute("aria-label", t("Paste an article link"));
-      field.autocomplete = "off";
-      field.spellcheck = false;
-      body.append(field);
-      const { foot, cancel } = footButtons("Read", { okType: "submit" });
-      let settled = false;
-      const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
-      const { close, form } = showModal({
-        title: "Article", body, foot, form: true, onClose: () => finish(null),
-      });
-      form.addEventListener("submit", () => { const v = field.value.trim(); finish(v || null); close(); });
-      cancel.addEventListener("click", () => { finish(null); close(); });
-      setTimeout(() => field.focus(), 60);
-    });
-  }
-
-  async _composeArticle() {
-    const session = this._session;
-    const input = document.getElementById("composer-input");
-    if (!input || !this._isCurrent(session) || !this.chat) return;
-    const prev = input.value;
-    let url = parseArticleMessage(prev)?.url || senderPreviewUrl(prev, { enabled: true });
-    if (!url) {
-      url = await this._askArticleUrl();
-      if (!url || !this._isCurrent(session)) return;
-    }
-    if (!senderPreviewUrl(url, { enabled: true })) {
-      errToast(t("Couldn't read that page"));
-      return;
-    }
-    toast(t("Reading the page…"));
-    try {
-      const got = await fetchArticle(url);
-      if (!this._isCurrent(session)) return;
-      const msg = formatArticleMessage({ title: got?.title, opening: got?.opening, url });
-      if (!msg) { errToast(t("No article text on that page")); return; }
-      if (!parseArticleMessage(prev)) this._articleUndo = prev;
-      this._articleDismissed = null;
-      input.value = msg;
-      sizeComposer(input);
-      this._refreshArticleDraft();
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    } catch (err) {
-      if (this._isCurrent(session)) this._articleFail(err);
-    }
-  }
-
-  async _readArticleLink(url) {
-    if (!url || !tauriInvoke()) return;
-    if (!senderPreviewUrl(url, { enabled: true })) {
-      errToast(t("Couldn't read that page"));
-      return;
-    }
-    const session = this._session;
-    toast(t("Reading the page…"));
-    try {
-      const got = await fetchArticle(url);
-      if (!this._isCurrent(session)) return;
-      const opening = String(got?.opening || "").trim();
-      if (opening.length < 80) { errToast(t("No article text on that page")); return; }
-      this._showArticle({ title: got?.title ? String(got.title) : "", opening, url });
-    } catch (err) {
-      if (this._isCurrent(session)) this._articleFail(err);
-    }
   }
 
   // Bake the composer card to WebP (JPEG if the webview won't) and send it.
@@ -4731,9 +4563,7 @@ export class ChatView {
     this._recentCmds?.hide();
     this._mentions?.hide();
     if (!this.editingMsg) recordCommand(this.core.accountId, session.chatId, text);
-    // The article's last line is the source URL. Picture mode would bake
-    // that page instead of sending the text.
-    const url = parseArticleMessage(text) ? null : senderPreviewUrl(text, {
+    const url = senderPreviewUrl(text, {
       enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: false,
       dismissed: this._lpDismissed,
