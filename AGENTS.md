@@ -3593,6 +3593,15 @@ do-not-regress rules; dates mark when the lesson was learned.
   every layout pass; spacing rules must target `.history-scroll`, never `.history`.
   Also: inline `onclick` attributes die under the CSP (no `unsafe-inline`) — wire
   listeners in DOM code, never as HTML attributes.
+- **Collapsible chat list (#282)** — `app/js/list-collapse.js`: a floating
+  chevron above the list bar's Menu button, rendered only at the two-pane
+  breakpoint (`(min-width: 821px)`, same as the layout). It and Ctrl/⌘+B
+  toggle `.app.list-collapsed` (the sidebar slides out via margin-left and
+  is made `inert`; the chevron rotates 180°). State is `velta-list-collapsed`
+  in localStorage (layout, so not in settings export). While collapsed, the
+  button carries a `.ci-badge` with the unread count of chats that aren't
+  muted. The slide is disabled under prefers-reduced-motion. Contrast screen:
+  `list-collapsed`.
 - **Opening file attachments (1.4.30, three-step lesson)** — the tap on a
   downloaded non-media file failed three ways before it opened; all three
   layers must be correct together:

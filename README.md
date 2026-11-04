@@ -248,6 +248,7 @@ light and dark (the Brutal theme keeps its own palette). Settings are per device
 before first paint, like the interface scale. Message text is tagged `ru` or
 `en` per message so the engine hyphenates with the right dictionary; links,
 e-mail addresses and hashtags are never hyphenated.
+On wide windows the chat list can be collapsed with the chevron above the Menu button or **Ctrl+B** (⌘B); while collapsed, the button shows the unread count.
 Opt-in extras: **Pure black (AMOLED)** for the dark theme (pure-black
 backgrounds, slightly grey elevated surfaces) and **Stickers in attachments
 menu**, which moves the sticker button into the attachments menu.
