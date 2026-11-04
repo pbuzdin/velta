@@ -789,7 +789,12 @@ export class JsonRpcCore extends EventTarget {
         break;
       case "ChatModified":
       case "MsgsNoticed":
+        // ChatModified covers member add/remove (mention picker list).
+        if (ev.kind === "ChatModified") this._emitAccount("chat-members-changed", { chatId: chatId || 0 }, accountEpoch);
         this._invalidateChat(chatId || 0, accountEpoch);
+        break;
+      case "ContactsChanged":
+        this._emitAccount("chat-members-changed", { chatId: 0 }, accountEpoch);
         break;
     }
   }

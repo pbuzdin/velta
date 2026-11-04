@@ -8,7 +8,7 @@ globalThis.HTMLElement = globalThis.HTMLElement || class {};
 globalThis.customElements = globalThis.customElements || { get() {}, define() {} };
 globalThis.localStorage = globalThis.localStorage || { getItem: () => null, setItem() {}, removeItem() {} };
 globalThis.window = globalThis.window || { addEventListener() {} };
-const { findMentions, mentionsMe, mentionQuery, filterMembers, mentionToken, fprCode, attachMentionPicker } = await import("../app/js/mentions.js");
+const { findMentions, mentionsMe, mentionQuery, filterMembers, mentionToken, fprCode, attachMentionPicker, BARE_AT_MAX } = await import("../app/js/mentions.js");
 const { renderMarkdown } = await import("../app/js/markdown.js");
 const { mutedChatAllows, mentionInMutedOn } = await import("../app/js/notify-policy.js");
 
@@ -111,7 +111,7 @@ test("picker: listbox, keyboard nav, inserts '@Name (CODE) ', not in 1:1", () =>
   const mp = attachMentionPicker(input, anchor, () => members);
   const type = v => { input.value = v; input.dispatchEvent(new Event("input")); };
   const key = k => mp.handleKey({ key: k, preventDefault() {} });
-  type("hi @");
+  type("hi @"); key("Shift"); // any key flushes the input debounce
   assert.equal(mp.isOpen(), true);
   const pop = anchor.children[0];
   assert.equal(pop.getAttribute("role"), "listbox");
@@ -121,11 +121,11 @@ test("picker: listbox, keyboard nav, inserts '@Name (CODE) ', not in 1:1", () =>
   assert.equal(key("Enter"), true);
   assert.equal(input.value, "hi @Ada Byron (C0FE) ");
   assert.equal(mp.isOpen(), false);
-  type("@"); key("ArrowDown"); key("ArrowUp"); key("ArrowUp");
+  type("@"); key("Shift"); key("ArrowDown"); key("ArrowUp"); key("ArrowUp");
   assert.equal(input.getAttribute("aria-activedescendant"), "mention-opt-2");
   key("Escape"); assert.equal(mp.isOpen(), false);
   type("@k"); key("Tab"); assert.equal(input.value, "@Kenji 🎌 ");
-  members = []; type("@"); assert.equal(mp.isOpen(), false, "1:1 chat: no picker");
+  members = []; type("@"); key("Shift"); assert.equal(mp.isOpen(), false, "1:1 chat: no picker");
 });
 
 test("notify on mute: mention of me passes when the switch is on", () => {
@@ -146,4 +146,70 @@ test("wiring: app gates muted chats, ui has the switch, Rust mirrors the pref", 
   const rs = readFileSync(new URL("../velta-app/src-tauri/src/lib.rs", import.meta.url), "utf8");
   assert.match(rs, /mentions_in_muted: true,/);
   assert.match(rs, /if muted && !prefs\.mentions_in_muted/);
+});
+
+test("picker: big chats wait for a letter after @, debounced", async () => {
+  const doc = { createElement: t => new El(t) };
+  const input = new El("textarea"); input.ownerDocument = doc; input.value = "";
+  const anchor = new El("footer");
+  const big = Array.from({ length: 12 }, (_, i) => ({ id: 10 + i, name: `Member ${i}`, code: "" }));
+  const mp = attachMentionPicker(input, anchor, () => big);
+  const type = v => { input.value = v; input.dispatchEvent(new Event("input")); };
+  type("@"); mp.update();
+  assert.equal(mp.isOpen(), false, "bare @ in a 12-member chat");
+  type("@m");
+  assert.equal(mp.isOpen(), false, "not yet: debounced");
+  await new Promise(r => setTimeout(r, 130));
+  assert.equal(mp.isOpen(), true);
+  assert.equal(anchor.children[0].children.length, 8, "capped at 8");
+  const small = big.slice(0, BARE_AT_MAX);
+  const mp2 = attachMentionPicker(input, new El("footer"), () => small);
+  input.value = "@"; mp2.update();
+  assert.equal(mp2.isOpen(), true, "small chat: all on bare @");
+  mp.hide(); mp2.hide();
+});
+
+test("picker avatars use the served file URL (custom profile images)", () => {
+  const cv = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
+  assert.match(cv, /_mentionAvatar\(m\) \{[\s\S]*?avatar="\$\{escapeAttr\(fileUrl\(m\.avatar\)\)\}"/);
+});
+
+test("picker: 'Loading members…' status row until the list lands", () => {
+  const doc = { createElement: t => new El(t) };
+  const input = new El("textarea"); input.ownerDocument = doc;
+  const anchor = new El("footer");
+  let members = [], loading = true;
+  const mp = attachMentionPicker(input, anchor, () => members, () => "", () => loading);
+  input.value = "@a"; mp.update();
+  const row = anchor.children[0].children[0];
+  assert.equal(row.className, "mention-loading");
+  assert.equal(row.getAttribute("role"), "status");
+  assert.equal(row.getAttribute("aria-live"), "polite");
+  assert.equal(mp.handleKey({ key: "Enter", preventDefault() {} }), false, "Enter still sends");
+  members = MEMBERS; loading = false; mp.update();
+  assert.equal(anchor.children[0].children[0].getAttribute("role"), "option");
+  members = []; mp.update(); assert.equal(mp.isOpen(), false, "not loading, no members: nothing");
+});
+
+test("members refresh on ChatModified / ContactsChanged", () => {
+  const rpc = readFileSync(new URL("../app/js/rpc-core.js", import.meta.url), "utf8");
+  assert.match(rpc, /ev\.kind === "ChatModified"\) this\._emitAccount\("chat-members-changed"/);
+  assert.match(rpc, /case "ContactsChanged":\s*this\._emitAccount\("chat-members-changed", \{ chatId: 0 \}/);
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  assert.match(app, /"chat-members-changed", ev => chatView\?\.onMembersChanged/);
+  for (const l of ["ru", "fr"]) {
+    assert.ok(JSON.parse(readFileSync(new URL(`../app/locales/${l}.json`, import.meta.url), "utf8"))["Loading members…"]);
+  }
+});
+
+test("onMembersChanged reloads only the open chat, keeping the old list", async () => {
+  const { ChatView } = await import("../app/js/chat-view.js");
+  const calls = [];
+  const view = { chat: { id: 5 }, _session: {}, _isCurrent: () => true,
+    _loadMentionMembers: (...a) => calls.push(a) };
+  ChatView.prototype.onMembersChanged.call(view, 9);
+  ChatView.prototype.onMembersChanged.call(view, 5);
+  await new Promise(r => setTimeout(r, 350));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0][2], { refresh: true });
 });

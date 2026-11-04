@@ -1096,6 +1096,7 @@
   "Clear": "Effacer",
   "Search members": "Rechercher des membres",
   "Mention a member": "Mentionner un membre",
+  "Loading members…": "Chargement des membres…",
   "With multi-device off, this device deletes messages from the relay after downloading them, so other devices using this profile stop receiving them.": "Sans multi-appareil, cet appareil efface les messages du relais après les avoir téléchargés, donc les autres appareils de ce profil ne les reçoivent plus.",
   "Multi-device was recently turned back on by a backup export, Add second device or a sync from another device, so another device may still be using this profile.": "Le multi-appareil a été récemment réactivé par un export de sauvegarde, Ajouter un second appareil ou une synchro depuis un autre appareil : un autre appareil utilise peut-être encore ce profil.",
   "Keep it on if you use this profile anywhere else.": "Laissez-le activé si vous utilisez ce profil ailleurs.",

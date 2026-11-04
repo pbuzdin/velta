@@ -1096,6 +1096,7 @@
   "Clear": "Очистить",
   "Search members": "Поиск участников",
   "Mention a member": "Упомянуть участника",
+  "Loading members…": "Загрузка участников…",
   "With multi-device off, this device deletes messages from the relay after downloading them, so other devices using this profile stop receiving them.": "Когда режим нескольких устройств выключен, это устройство удаляет сообщения с релея после скачивания, и другие устройства с этим профилем перестают их получать.",
   "Multi-device was recently turned back on by a backup export, Add second device or a sync from another device, so another device may still be using this profile.": "Несколько устройств недавно снова включились (экспорт копии, «Добавить второе устройство» или синхронизация с другого устройства), так что этот профиль может ещё использоваться на другом устройстве.",
   "Keep it on if you use this profile anywhere else.": "Оставьте включённым, если этот профиль есть где-то ещё.",

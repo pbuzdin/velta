@@ -1062,33 +1062,59 @@ export class ChatView {
     });
   }
 
-  async _loadMentionMembers(chat, session) {
-    this._mentionMembers = [];
-    this._mentionKey = "";
+  // refresh: member/contact change on the open chat — keep the current list
+  // until the new one lands (no "Loading members…" flash).
+  async _loadMentionMembers(chat, session, { refresh = false } = {}) {
+    if (!refresh) {
+      this._mentionMembers = [];
+      this._mentionKey = "";
+    }
+    this._mentionLoading = false;
     if (!chat || (chat.kind !== "group" && chat.kind !== "channel") || !this.core.getChatMembers) return;
+    this._mentionLoading = !refresh;
     try {
       const [list, selfName] = await Promise.all([
         this.core.getChatMembers(chat.id),
         this.core.getSelfDisplayName?.().catch(() => "") ?? "",
       ]);
       if (!this._isCurrent(session)) return;
+      this._mentionLoading = false;
       const members = (list || []).map(c => ({
         id: c.id, name: c.id === 1 ? (selfName || "") : (c.name || ""), code: "",
         color: c.color, addr: c.addr, avatar: c.avatar,
       })).filter(m => m.name.trim());
       this._mentionMembers = members;
       this._mentionKey = members.map(m => `${m.id}:${m.name}`).join("|");
+      if (this._mentions?.isOpen()) this._mentions.update();
       await Promise.all(members.map(m => fingerprintFor(m.id, m.addr).then(f => {
         if (!cachedFingerprintIsDerived(m.id)) m.code = fprCode(f);
       }).catch(() => {})));
       if (!this._isCurrent(session)) return;
       this._mentionKey = members.map(m => `${m.id}:${m.name}:${m.code}`).join("|");
     } catch { /* no members → no chips, plain text stays */ }
+    finally {
+      if (this._isCurrent(session) && this._mentionLoading) {
+        this._mentionLoading = false;
+        if (this._mentions?.isOpen()) this._mentions.update();
+      }
+    }
+  }
+
+  // Core ChatModified (members added/removed) or ContactsChanged (names,
+  // avatars): re-read the open chat's members. chatId 0 = any chat.
+  onMembersChanged(chatId = 0) {
+    const chat = this.chat;
+    if (!chat || (chatId && chatId !== chat.id)) return;
+    clearTimeout(this._membersTimer);
+    const session = this._session;
+    this._membersTimer = setTimeout(() => {
+      if (this.chat === chat && this._isCurrent(session)) this._loadMentionMembers(chat, session, { refresh: true });
+    }, 300);
   }
 
   _mentionAvatar(m) {
     const contact = m.id > 0 ? ` contact-id="${m.id}"` : "";
-    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(m.avatar)}"` : ""}></velta-avatar>`;
+    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(fileUrl(m.avatar))}"` : ""}></velta-avatar>`;
   }
 
   _applyGroupComposer(chat) {
@@ -4105,7 +4131,8 @@ export class ChatView {
       () => (this.chat && this.core ? { accountId: this.core.accountId, chatId: this.chat.id } : null));
     // @mention picker (groups/channels only: _mentionMembers is [] elsewhere).
     this._mentions = attachMentionPicker(input, document.getElementById("main-composer"),
-      () => (this.chat && !this.chat.readOnly ? this._mentionMembers : null), m => this._mentionAvatar(m));
+      () => (this.chat && !this.chat.readOnly ? this._mentionMembers : null), m => this._mentionAvatar(m),
+      () => !!this._mentionLoading && !!this.chat && !this.chat.readOnly);
     input.addEventListener("keydown", e => {
       if (this._mentions.handleKey(e)) return;
       if (this._recentCmds.handleKey(e)) return;
