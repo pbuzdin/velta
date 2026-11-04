@@ -84,7 +84,10 @@ try {
   console.log('core booted; configuring the throwaway account over IMAP/SMTP…')
 
   const result = await page.evaluate(async ({ email, password }) => {
-    const rpc = window.rpc.request.bind(window.rpc)
+    const rpc = (method, params) =>
+      window.rpc.request(method, params).catch((e) => {
+        throw new Error(`${method}: ${JSON.stringify(e)}`)
+      })
     const PASS = 'v25-identity-pass'
 
     const id1 = await rpc('add_account')
