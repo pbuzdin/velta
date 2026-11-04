@@ -2235,6 +2235,7 @@ export class ChatView {
     img.hidden = true;
     img.addEventListener("error", () => { img.hidden = true; });
     img.addEventListener("load", () => { img.hidden = false; });
+    this._webxdcSenderChip(bubble, m, alive);
     bubble.prepend(img);
     const setIcon = info => {
       if (info?.icon && alive()) img.src = appIconUrl(parentId, info.icon);
@@ -2252,7 +2253,31 @@ export class ChatView {
     };
     bubble.addEventListener("click", open);
     bubble.addEventListener("keydown", e => {
+      if (e.target?.closest?.(".svc-chip")) return;
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); }
+    });
+  }
+
+  // #265: the sender as a profile chip ("You" for own). A leading copy of
+  // the name in the app's text becomes the chip instead of repeating it.
+  _webxdcSenderChip(bubble, m, alive) {
+    const s = m.webxdcSender;
+    const own = s?.id === 1; // own: a plain "You" chip, there is no self profile to open
+    const name = own ? t("You") : String(s?.name || "").trim();
+    if (!s || !name) return;
+    const text = String(m.text || "");
+    const full = bubble.textContent || "";
+    const at = full.lastIndexOf(text);
+    if (!text || at < 0) return;
+    const real = String(s.name || "").trim();
+    const lead = !!real && text.startsWith(real) && !/^[\p{L}\p{N}]/u.test(text.slice(real.length));
+    const rest = lead ? text.slice(real.length) : " " + text;
+    const chip = own ? `<span class="svc-chip is-self">${escapeHtml(name)}</span>` : `<button type="button" class="svc-chip" data-contact-id="${Number(s.id)}" aria-label="${escapeAttr(t("Open profile of {name}", { name }))}">${escapeHtml(name)}</button>`;
+    bubble.innerHTML = escapeHtml(full.slice(0, at)) + chip + escapeHtml(rest) + escapeHtml(full.slice(at + text.length));
+    bubble.addEventListener("click", e => {
+      if (!e.target?.closest?.("button.svc-chip") || !alive()) return;
+      e.stopPropagation();
+      avatarProfileOpener?.({ contactId: s.id, name });
     });
   }
 
