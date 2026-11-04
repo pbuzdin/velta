@@ -4274,7 +4274,7 @@ export class ChatView {
       getStickers: () => this.core.getStickers(),
       onPick: (path) => {
         if (!this._isCurrent(session) || !this.chat) return;
-        this._sendArchivedAware(session.chatId, { text: "", viewtype: "sticker", file: path })
+        this._sendArchivedAware(session.chatId, { viewtype: "sticker", file: path, ...this._quoteFields() })
           .then((msg) => { if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); } })
           .catch((err) => { if (this._isCurrent(session)) errToast(t("Couldn't send sticker: ") + (err.message || err)); });
       },
@@ -4420,6 +4420,13 @@ export class ChatView {
     this.replyFragment = null;
     this._renderReplyPreview();
     return { quoteId, quoteText, prefix };
+  }
+
+  // Send fields for a text-less send (sticker, app): the active reply rides
+  // along like it does for files, so every type shows its quote header.
+  _quoteFields() {
+    const { quoteId, quoteText, prefix } = this._takeQuote();
+    return { text: prefix, quoteId, quoteText };
   }
 
   _scheduleLinkPreview() {
@@ -4901,7 +4908,7 @@ export class ChatView {
     if (!this._isCurrent(session) || !this.chat || !app?.file) return;
     try {
       const msg = await this._sendArchivedAware(session.chatId, {
-        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", text: "",
+        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", ...this._quoteFields(),
       });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
@@ -4918,7 +4925,7 @@ export class ChatView {
     const path = await this._writeBlobForSend(filename, bytes);
     if (!this._isCurrent(session)) throw new Error("Chat closed");
     const msg = await this._sendArchivedAware(session.chatId, {
-      viewtype: "webxdc", file: path, filename, text: "",
+      viewtype: "webxdc", file: path, filename, ...this._quoteFields(),
     });
     if (!this._isCurrent(session)) return;
     this.appendOutgoing(msg);
@@ -4940,7 +4947,7 @@ export class ChatView {
       });
       if (!path) throw new Error("built-in app could not be prepared");
       if (!this._isCurrent(session)) return;
-      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", text: "" });
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", ...this._quoteFields() });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -4985,7 +4992,7 @@ export class ChatView {
         writeFile: (n, b) => this._writeBlobForSend(n, b),
       });
       if (!path || !this._isCurrent(session)) return;
-      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", text: "" });
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", ...this._quoteFields() });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
