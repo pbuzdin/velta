@@ -391,7 +391,7 @@ svg { width: 24px; height: 24px; display: block; }
   font-size: 14.5px; color: var(--text-dim);
   display: inline-block;
 }
-.no-chat-sub { margin-top: 14px; font-size: 13px; color: var(--text-dim); opacity: .7; }
+.no-chat-sub { margin-top: 14px; font-size: 13px; color: var(--text-dim); }
 
 .chat-view { display: flex; flex-direction: column; flex: 1; min-width: 0; position: relative; }
 /* History loading strip: thin blue gradient sweeping right, pinned just
