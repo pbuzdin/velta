@@ -167,6 +167,12 @@ Day 10: `Size budget` step (raw ≤ 20 000 000, brotli-11 ≤ 5 000 000,
 gzip-9 ≤ 7 800 000 bytes) and optional networking e2e via
 `gh workflow run wasm-core-opt-in.yml -f e2e=true` (manual only; pinned
 Unlicense proxy, `CHATMAIL_ALLOWLIST=nine.testrun.org`, 2 throwaway accounts).
+Since 11-04 (#261/#272) the network e2e also sends a 4 KiB file and checks
+bob's bytes, and the network + identity e2e steps fail the job (no
+`continue-on-error`). Waiting for bob's messages: accept `IncomingMsg` OR
+`MsgsChanged` — core marks a later message in a still-pending contact-request
+chat not important and emits only `MsgsChanged` (`receive_imf.rs`
+`is_old_contact_request`; same on native, #271).
 
 ## Artifact path
 

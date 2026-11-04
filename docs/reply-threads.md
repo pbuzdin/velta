@@ -24,7 +24,10 @@ copy that quotes the original, which must not count) with a quote param
 (`q`), not a forward (`a`), whose
 `TRIM(mime_in_reply_to, '<> ')` equals the parent's `rfc724_mid` (incoming
 rows keep the header's angle brackets; every message has In-Reply-To, so
-the quote param is what makes it a reply). Both scope replies and the quoted message to `chat_id`, so a Message-ID
+the quote param is what makes it a reply). The param match is `GLOB`,
+not `LIKE` (#263, 11-04): `LIKE` is case-insensitive, so a webxdc's `Q=`
+(WebxdcSummaryTimestamp) matched `q=` and an app sent after a message
+showed as its reply (phantom count + thread button). Both scope replies and the quoted message to `chat_id`, so a Message-ID
 that also exists in another chat cannot add to a count. No index or
 migration is added: the scan runs over one chat's rows through the existing
 `chat_id` index, and a `dbversion` bump in the vendored core would collide
@@ -36,6 +39,10 @@ Edit the queries only in `tools/apply-core-patches.py` (op ids
 `tree-check --fetch` and `self-test`.
 
 ## UI
+
+- **Stickers and apps keep the reply** (#264, 11-04): text-less sends
+  (sticker, webxdc from the attach menu, send-direct, group call) take the
+  active reply through `ChatView._quoteFields()`, like files do.
 
 - **Counts.** `ChatView._replyCountFor(id)`: with the #14 core it is
   max(core count, loaded-window count) — the core covers unloaded parents

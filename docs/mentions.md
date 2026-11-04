@@ -30,7 +30,12 @@ Typing `@` at the start of a word in a group or channel opens a listbox
 above the composer (`#mention-picker`, `role=listbox`, the textarea carries
 `aria-activedescendant`): avatars, names, codes; filters as you type
 (prefix, then word prefix, then substring; diacritics-insensitive; self
-excluded). Up/Down move, Enter/Tab insert, Escape or blur close. Tap keeps
+excluded; at most 8 rows; input debounced 100 ms). A bare `@` lists
+everyone only in chats with ≤10 members (`BARE_AT_MAX`); bigger chats wait
+for a first letter. Custom avatars load through the member's file URL.
+While the member list is still loading the picker shows a muted "Loading
+members…" row; core `ChatModified` / `ContactsChanged` refresh the list
+in place (#266, 11-04). Up/Down move, Enter/Tab insert, Escape or blur close. Tap keeps
 the keyboard open (pointerdown is cancelled). 1:1 chats have no member list,
 so no picker. The picker takes keys before the "/" commands popup and before
 Enter-to-send.
