@@ -42,8 +42,10 @@ concurrency:
 jobs:
   apply-on-copy-pack-smoke:
     runs-on: ubuntu-latest
-    # Informational for the spike — must not block Release.
-    continue-on-error: true
+    # No job-level continue-on-error: pwa-web deploys only runs that
+    # conclude "success", so a green-but-broken dist would silently deploy
+    # stale wasm (#258/#260). Informational steps keep their own
+    # step-level flags.
     steps:
       - uses: actions/checkout@v4
 

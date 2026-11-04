@@ -385,7 +385,7 @@ Threat model, as the code actually draws it:
 - **webxdc.** Opaque origin, no `allow-same-origin`. An app does not read the mail account.
 - **Telemetry.** There is no analytics event, no crash SDK, and no remote log sink in `app/` or `velta-app`. Do not add one. Diagnostics stay on the device (next section).
 
-Secrets, keystores, and account databases are not copied into this document. `signing/` is gitignored local material and stays there.
+Secrets, keystores, and account databases are not copied into this document. Signing material moved out of the repo tree on 2026-11-04 (`C:\Users\pave\secrets\velta`); CI recreates `signing/` fresh from repo secrets.
 
 ---
 

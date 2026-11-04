@@ -37,29 +37,39 @@ jobs:
     steps:
       - name: Pick the wasm-core run
         id: run
+        env:
+          RUN_ID_INPUT: ${{ inputs.run_id }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             echo "id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
             echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ inputs.run_id }}" ]; then
-            echo "id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "$RUN_ID_INPUT" ]; then
+            # Manual dispatch: demand the same provenance the workflow_run
+            # path guarantees — only a master push run may ever reach
+            # velta.cc/web, and the checkout must be the run's own commit
+            # (#260). The input rides env, never straight into the shell.
+            meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID_INPUT" --jq '{branch: .head_branch, event: .event, sha: .head_sha}')
+            echo "$meta" | grep -q '"branch":"master"' || { echo "::error::run $RUN_ID_INPUT is not a master run"; exit 1; }
+            echo "$meta" | grep -q '"event":"push"' || { echo "::error::run $RUN_ID_INPUT was not a push"; exit 1; }
+            echo "id=$RUN_ID_INPUT" >> "$GITHUB_OUTPUT"
+            echo "sha=$(echo "$meta" | grep -o '"sha":"[^"]*"' | cut -d'"' -f4)" >> "$GITHUB_OUTPUT"
           else
-            id=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -s success -L 1 --json databaseId -q '.[0].databaseId')
+            id=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -s success -L 1 --json databaseId --jq '.[0].databaseId')
+            sha=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -s success -L 1 --json headSHA --jq '.[0].headSHA')
             echo "id=$id" >> "$GITHUB_OUTPUT"
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ steps.run.outputs.sha }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 20
 
       - name: Download dist-pwa (wasm core)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: dist-pwa
           run-id: ${{ steps.run.outputs.id }}
@@ -88,7 +98,13 @@ jobs:
           ver=$(grep -o "velta-pwa-[0-9a-f]*" web/sw.js | head -1)
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -q -m "web: PWA $ver (master ${{ steps.run.outputs.sha }})"
-          git push origin HEAD:website
+          # A release publish races this push on the website branch; retry
+          # non-fast-forward like release.yml's website-version job (#260).
+          for i in 1 2 3; do
+            git pull -q --rebase origin website && git push -q origin HEAD:website && break
+            [ "$i" = 3 ] && { echo "::error::website push kept racing"; exit 1; }
+            sleep 5
+          done
           echo "published $ver" >> "$GITHUB_STEP_SUMMARY"
           # Branch-source Pages may not rebuild on a GITHUB_TOKEN push; ask.
           gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" >/dev/null || true

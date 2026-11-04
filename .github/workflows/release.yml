@@ -55,7 +55,14 @@ jobs:
           if [ "${{ github.ref_type }}" = "tag" ]; then
             echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           else
-            echo "name=${{ steps.ver.outputs.tag }}" >> "$GITHUB_OUTPUT"
+            tag="${{ steps.ver.outputs.tag }}"
+            # #260: dispatching from a stale branch whose Cargo.toml still
+            # names a released version would overwrite that published
+            # release in place. A dispatch may only mint a NEW tag.
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "::error::tag $tag already exists — bump Cargo.toml or push the tag instead of dispatching"; exit 1
+            fi
+            echo "name=$tag" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build changelog since the previous tag

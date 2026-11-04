@@ -63,6 +63,27 @@ jobs:
       - name: Quilt + send-relay pin JS tests
         run: node --test tests/apply-core-patches.test.mjs tests/send-relay-pin.test.mjs
 
+  # #260: the wasm forward-port series has no CI of its own that reacts to
+  # core/** changes — the 2.66 re-vendor (patch #22 rewrote blob.rs) broke
+  # 0006/0007/0009 silently and left the pinned locks stale, so the PWA
+  # rebuild path rots unnoticed. This job screams on every core change
+  # until the re-port lands (#260 step 15); continue-on-error keeps it
+  # from blocking core development while it is red BY DESIGN.
+  wasm-series-status:
+    name: wasm forward-port series status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Pinned-lock status
+        run: |
+          if ! python3 tools/apply-wasm-core-patches.py lock-status; then
+            echo "::error::wasm forward-port series is STALE against core/ — re-port 0006/0007/0009 onto the rewritten blob.rs, then run refresh-lock (#260 step 15)"
+            exit 1
+          fi
+
   core:
     name: cargo check + patched-module tests
     needs: quilt
