@@ -195,45 +195,69 @@ export async function saveAttachmentFile(core, msg) {
   return true;
 }
 
+// #279: how a tapped file opens. Media keeps the in-app lightbox on Android
+// and HTML its sandboxed iframe (webxdc never comes here). Documents go to
+// the system's default app through a decrypted copy (open_document), or in
+// the PWA: pdf/text in a new tab, everything else as a download.
+const PWA_TAB_RE = /\.(pdf|txt|text|log|md|csv)$/i;
+export function documentOpenPlan(path, name, { tauri = false, android = false } = {}) {
+  const ref = name || path || "";
+  if (/\.x?html?$/i.test(path || "") || /\.x?html?$/i.test(ref)) return "html";
+  if (tauri) return android && isMediaFilePath(path) ? "lightbox" : "native";
+  return PWA_TAB_RE.test(ref) ? "tab" : "download";
+}
+
 // Open a message's file with the platform's handler (see ChatView._openFile).
-export function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t) } = {}) {
+export async function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t), core = null, mime = null } = {}) {
   if (!path) return;
+  const invoke = tauriInvoke();
+  const plan = documentOpenPlan(path, name, { tauri: !!invoke, android: isAndroid() });
   // HTML attachments are untrusted web content: open them in a sandboxed
   // iframe (no allow-same-origin -> opaque origin, no access to the app or
   // the network context of this page) instead of the system browser.
-  if (/\.x?html?$/i.test(path)) {
+  if (plan === "html") {
     if (openHtml) return openHtml(path, name);
     onError(t("Open this HTML file from its message in the chat"));
     return;
   }
-  // Android: tauri-plugin-opener ships no file-open implementation on
-  // mobile (its Kotlin side only handles URLs — open_path dies in
-  // plugin-internal arg parsing), and the app's private storage is not
-  // reachable from other apps without a FileProvider anyway. Media opens
-  // in the lightbox instead; other types say so honestly.
-  if (isAndroid()) {
-    if (isMediaFilePath(path)) {
-      openImageLightbox(fileUrl(path), name || "image");
-      return;
-    }
-    onError(t("Opening this file type isn't supported on Android yet"));
+  if (plan === "lightbox") {
+    openImageLightbox(fileUrl(path), name || "image");
     return;
   }
-  const invoke = tauriInvoke();
-  if (invoke) {
-    // The core returns blob paths RELATIVE to the accounts dir; the opener
-    // scope pattern ($APPLOCALDATA/accounts/**) matches absolute paths
-    // only, so resolve before invoking (window.veltaAccountsDir is set at
-    // boot by app.js get_accounts_dir).
-    let abs = path;
-    if (!/^(?:[a-zA-Z]:[\\/]|\/)/.test(path) && window.veltaAccountsDir) {
-      abs = window.veltaAccountsDir.replace(/[\\/]+$/, "") + "/" + path.replace(/^[\\/]+/, "");
+  const fileName = attachmentName({ fileName: name, filePath: path });
+  try {
+    if (plan === "native") {
+      // Blobs are VLTA-encrypted under hash names: never hand the blobdir
+      // path out. Desktop gets back the decrypted copy to open; Android
+      // starts ACTION_VIEW itself and returns "".
+      const copy = await invoke("open_document", { src: path, name: fileName, mime: mime || null });
+      if (copy) await invoke("plugin:opener|open_path", { path: copy });
+      return;
     }
-    invoke("plugin:opener|open_path", { path: abs }).catch(err => {
-      onError(t("Could not open file: ") + (err.message || err) + " path=" + abs);
-    });
-  } else {
-    onError(t("File opening is only available in the Tauri app"));
+    const bytes = await attachmentBytes(core, path);
+    if (plan === "tab") {
+      const type = /\.pdf$/i.test(fileName) ? "application/pdf" : "text/plain;charset=utf-8";
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+      return;
+    }
+    triggerBrowserDownload(bytes, fileName);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg === "no-app") {
+      toast(t("No app can open this file"), 6000, {
+        danger: true,
+        action: {
+          label: "Save as…",
+          run: () => saveAttachmentFile(core, { filePath: path, fileName: name })
+            .then(ok => { if (ok) toast(t("Saved")); })
+            .catch(e => onError(t("Could not open file: ") + (e?.message || e))),
+        },
+      });
+      return;
+    }
+    onError(t("Could not open file: ") + msg);
   }
 }
 
@@ -5157,6 +5181,7 @@ export class ChatView {
     const session = this._session;
     if (!this._isCurrent(session) || !path) return;
     openAttachmentFile(path, name, {
+      core: this.core,
       openHtml: (p, n) => this._openHtmlIsolated(p, n),
       onError: (text) => { if (this._isCurrent(session)) errToast(text); },
     });
