@@ -2696,6 +2696,10 @@ static APP_UPDATE_INSTALL_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex:
 #[cfg(target_os = "android")]
 static APP_SHARE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.FileOpen (#279): ACTION_VIEW for open_document.
+#[cfg(target_os = "android")]
+static APP_FILE_OPEN_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // org.velta.UnifiedPushBridge — #140 Settings → Push notifications
 // (distributor list/picker, explicit Off, last push time).
 #[cfg(target_os = "android")]
@@ -2801,13 +2805,14 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
     // (network, media, notifications and other native helpers).
-    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 13] = [
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 14] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
         ("Battery", &APP_BATTERY_CLASS),
         ("NetInfo", &APP_NETINFO_CLASS),
         ("UpdateInstall", &APP_UPDATE_INSTALL_CLASS),
         ("Share", &APP_SHARE_CLASS),
+        ("FileOpen", &APP_FILE_OPEN_CLASS),
         ("UnifiedPushBridge", &APP_UNIFIEDPUSH_CLASS),
         ("CallAudio", &APP_CALL_AUDIO_CLASS),
         ("CallPermissions", &APP_CALL_PERMISSIONS_CLASS),
@@ -3229,6 +3234,113 @@ async fn save_attachment(app: tauri::AppHandle, src: String, uri: String) -> Res
 async fn save_attachment(src: String, uri: String) -> Result<(), String> {
     let _ = (src, uri);
     Err("saving to a chosen location is only supported on Android".into())
+}
+
+// #279: open a document in the system's default app. Blobs are encrypted at
+// rest (VLTA) under hash names, so handing the blobdir path to another app
+// gives it ciphertext. Decrypt to open-docs/<random>/<name> (the
+// original file name, so the target app sees the right extension) and open
+// that. Copies older than a day are swept on every open; the cache dir is
+// also the OS's to clear.
+const OPEN_DOCS_DIR: &str = "open-docs";
+const OPEN_DOCS_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+pub(crate) fn safe_open_name(name: Option<&str>, src: &Path) -> String {
+    let fallback = src.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let raw = name.map(str::trim).filter(|n| !n.is_empty()).unwrap_or(fallback);
+    let raw = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
+    let cleaned: String = raw
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .collect();
+    let cleaned = cleaned.trim_matches(|c: char| c == '.' || c == ' ');
+    let mut out: String = cleaned.chars().rev().take(120).collect::<Vec<_>>().into_iter().rev().collect();
+    if out.is_empty() {
+        out = "file".into();
+    }
+    out
+}
+
+fn sweep_open_docs(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > OPEN_DOCS_MAX_AGE);
+        if old {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn decrypted_open_copy(app: &tauri::AppHandle, src: &str, name: Option<&str>) -> Result<PathBuf, String> {
+    let canon = scoped_accounts_path(app, src)?;
+    // Android: the cache dir, which the FileProvider exposes. Desktop:
+    // AppLocalData, the root the opener's fs scope already allows
+    // ($APPCACHE is a different tree on Linux/macOS).
+    #[cfg(target_os = "android")]
+    let base = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "android"))]
+    let base = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    let root = base.join(OPEN_DOCS_DIR);
+    sweep_open_docs(&root);
+    let dir = root.join(data_encoding::HEXLOWER.encode(&random_bytes::<8>()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let out = dir.join(safe_open_name(name, &canon));
+    let mut input = open_attachment(&canon)?;
+    let mut file = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+    std::io::copy(&mut input, &mut file).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Desktop: returns the decrypted copy's path; the page opens it with
+/// plugin:opener|open_path (scope: everything under $APPLOCALDATA/open-docs).
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+async fn open_document(app: tauri::AppHandle, src: String, name: Option<String>, mime: Option<String>) -> Result<String, String> {
+    let _ = mime;
+    tauri::async_runtime::spawn_blocking(move || {
+        decrypted_open_copy(&app, &src, name.as_deref()).map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Android: ACTION_VIEW through the manifest FileProvider (cache-path).
+/// Returns "" when an app took it, Err("no-app") when none can.
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn open_document(app: tauri::AppHandle, src: String, name: Option<String>, mime: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = decrypted_open_copy(&app, &src, name.as_deref())?;
+        let path = out.to_string_lossy().into_owned();
+        let mime = mime.unwrap_or_default();
+        let code = with_android_class(&APP_FILE_OPEN_CLASS, "FileOpen", |env, context, class_ref| {
+            let path_j = env.new_string(&path).map_err(|e| e.to_string())?;
+            let mime_j = env.new_string(&mime).map_err(|e| e.to_string())?;
+            env.call_static_method(
+                class_ref,
+                "open",
+                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)I",
+                &[(&context).into(), (&path_j).into(), (&mime_j).into()],
+            )
+            .map_err(|e| e.to_string())?
+            .i()
+            .map_err(|e| e.to_string())
+        })?;
+        match code {
+            0 => Ok(String::new()),
+            1 => Err("no-app".into()),
+            _ => Err("could not start the viewer".into()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// PWA backup downloads arrive gzip-compressed (CompressionStream export);
@@ -5233,7 +5345,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

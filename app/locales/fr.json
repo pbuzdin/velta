@@ -1617,5 +1617,7 @@
   "Diagnostics copied — paste them to share": "Journal copié — collez-le pour le partager",
   "No matching diagnostics": "Aucune ligne correspondante",
   "Pure black (AMOLED)": "Noir pur (AMOLED)",
-  "Stickers in attachments menu": "Autocollants dans le menu des pièces jointes"
+  "Stickers in attachments menu": "Autocollants dans le menu des pièces jointes",
+  "No app can open this file": "Aucune application ne peut ouvrir ce fichier",
+  "Save as…": "Enregistrer sous…"
 }
