@@ -206,7 +206,15 @@ async fn probe_db_lock(app: tauri::AppHandle) {
 /// decision, so this is the honest boundary the settings show. "on" /
 /// "off" / "unknown" (Windows Home without the BitLocker module, Linux).
 #[tauri::command]
-fn volume_encryption_status(app: tauri::AppHandle) -> String {
+async fn volume_encryption_status(app: tauri::AppHandle) -> String {
+    // The Windows probe spawns powershell (1-3 s cold); keep it off the UI
+    // thread like every other blocking command here.
+    tauri::async_runtime::spawn_blocking(move || volume_encryption_status_blocking(app))
+        .await
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+fn volume_encryption_status_blocking(app: tauri::AppHandle) -> String {
     #[cfg(target_os = "windows")]
     {
         let drive = accounts_dir(&app)
@@ -310,7 +318,15 @@ fn get_db_pin_state(app: tauri::AppHandle) -> bool {
 /// set; the DEK comes from the wrap or the keychain. The session keeps
 /// running (same DEK) — only the custody changes.
 #[tauri::command]
-fn set_db_pin(app: tauri::AppHandle, old: Option<String>, pin: String) -> Result<(), String> {
+async fn set_db_pin(app: tauri::AppHandle, old: Option<String>, pin: String) -> Result<(), String> {
+    // Argon2id derivations (64 MiB, t=3) — off the UI thread or the PIN
+    // sheet freezes for about a second (ANR window on Android).
+    tauri::async_runtime::spawn_blocking(move || set_db_pin_blocking(app, old, pin))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn set_db_pin_blocking(app: tauri::AppHandle, old: Option<String>, pin: String) -> Result<(), String> {
     #[cfg(not(target_os = "android"))]
     {
         db_key::pin_set(&accounts_dir(&app), old.as_deref(), &pin)
@@ -323,7 +339,13 @@ fn set_db_pin(app: tauri::AppHandle, old: Option<String>, pin: String) -> Result
 }
 
 #[tauri::command]
-fn clear_db_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> {
+async fn clear_db_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || clear_db_pin_blocking(app, pin))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn clear_db_pin_blocking(app: tauri::AppHandle, pin: String) -> Result<(), String> {
     #[cfg(not(target_os = "android"))]
     {
         db_key::pin_clear(&accounts_dir(&app), &pin)
@@ -3260,9 +3282,18 @@ fn prep_backup_blocking(path: String) -> Result<String, String> {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let dest = dir.join(format!("backup-{stem}.tar"));
-    let mut decoder = flate2::read::GzDecoder::new(std::fs::File::open(&path).map_err(|e| e.to_string())?);
+    let decoder = flate2::read::GzDecoder::new(std::fs::File::open(&path).map_err(|e| e.to_string())?);
     let mut out = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
-    std::io::copy(&mut decoder, &mut out).map_err(|e| e.to_string())?;
+    // The input comes straight from a chat message (a saved "backup"): cap
+    // the decompressed size so a gzip bomb cannot fill the disk before the
+    // core ever validates the tar. Real profiles are far below this.
+    const MAX_BACKUP_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+    let mut capped = decoder.take(MAX_BACKUP_BYTES);
+    let written = std::io::copy(&mut capped, &mut out).map_err(|e| e.to_string())?;
+    if written >= MAX_BACKUP_BYTES {
+        let _ = std::fs::remove_file(&dest);
+        return Err("backup too large (over 8 GB decompressed)".into());
+    }
     Ok(dest.to_string_lossy().into_owned())
 }
 
@@ -5213,8 +5244,12 @@ pub fn run() {
                     // Blob URLs are content-deduplicated by the core (same name =
                     // same bytes), so media is immutable: let the WebView cache it.
                     // Reopening a chat then decodes images from memory/disk cache
-                    // instead of re-reading and re-decoding every blob.
-                    response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
+                    // instead of re-reading and re-decoding every blob. Only on
+                    // success: a cached 404 (locked boot window, mid-write file)
+                    // would keep that media broken for a year after unlock.
+                    if response.status().is_success() {
+                        response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
+                    }
                     response
                 })
                 .await

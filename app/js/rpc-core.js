@@ -96,7 +96,7 @@ const sameAddr = (a, b) => String(a || "").toLowerCase() === String(b || "").toL
 // knows with `unknown key "<key>"` (deltachat-jsonrpc api.rs).
 const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err));
 
-import { debugLog } from "./diagnostics.js";
+import { debugLog, reportCheckpoint } from "./diagnostics.js";
 import { pageBounds, channelAuthorId } from "./format.js";
 import { LruCache } from "./lru.js";
 import { reencodeCoreQrSvg, brandCoreQrSvg } from "./qr-encode.js";
@@ -264,7 +264,7 @@ export class JsonRpcCore extends EventTarget {
     try { this.syncOnlyActive = localStorage.getItem("velta-sync-only-active") === "1"; } catch {}
     await this._startIo();
     this._pollEvents();
-    await this.transport.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
     return this;
   }
 
@@ -1462,7 +1462,15 @@ export class JsonRpcCore extends EventTarget {
   // gone after the reload, and peers never got it. Await a checkpoint after
   // changes the user expects to stick. No-op on Tauri / WS transports.
   async _persist() {
-    await this.transport?.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
+  }
+
+  // checkpoint() with failures surfaced: a failing checkpoint means nothing
+  // is being saved (quota/eviction) — report it instead of swallowing.
+  _checkpointReported() {
+    const cp = this.transport?.checkpoint?.();
+    if (!cp) return;
+    return cp.then(() => reportCheckpoint(true), (err) => reportCheckpoint(false, err));
   }
 
   async setDisplayName(name) {
@@ -2131,7 +2139,7 @@ export class JsonRpcCore extends EventTarget {
     // server fields are omitted so chatmail autoconfig fills them in.
     await this._prepareFirstConfigure(accountId);
     await this._call("add_transport", accountId, { addr, password });
-    await this.transport.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
     this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);
   }
 
@@ -2140,7 +2148,7 @@ export class JsonRpcCore extends EventTarget {
     await this._callWithTimeout(180000, "set_config_from_qr", accountId, qrContent);
     // The account was unconfigured when init() started IO, so start it now.
     await this._call("start_io", accountId);
-    await this.transport.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
   }
 
   async startIo() {
@@ -2321,7 +2329,7 @@ export class JsonRpcCore extends EventTarget {
       await this._prepareFirstConfigure(accountId);
       await this._callWithTimeout(180000, "add_transport", accountId, { addr, password });
       await this._call("start_io", accountId);
-      await this.transport.checkpoint?.().catch(() => {});
+      await this._checkpointReported();
       failed = false;
       return accountId;
     } catch (err) {

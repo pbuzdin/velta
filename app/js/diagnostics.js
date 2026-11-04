@@ -37,6 +37,27 @@ export const diagnosticsSink = {
   },
 };
 
+// OPFS checkpoint failures (wasm PWA): checkpoints are best-effort, but
+// once they fail (quota exceeded, storage evicted) NOTHING is being saved
+// — every swallow-until-now meant "profile updated" could be data loss
+// with no diagnostics trace. One line per failure streak; the next
+// success clears it. `ok`/`err` come from the checkpoint promise.
+let checkpointFailing = false;
+export function reportCheckpoint(ok, err) {
+  if (ok) {
+    checkpointFailing = false;
+    return;
+  }
+  if (checkpointFailing) return;
+  checkpointFailing = true;
+  try {
+    diagnosticsSink.append(
+      "warning",
+      `OPFS checkpoint failed: ${String(err?.message || err || "unknown")}. Changes may not survive a reload.`,
+    );
+  } catch { /* no diagnostics channel here — the save itself still resolved */ }
+}
+
 // CI build paths in core log lines ("/home/runner/work/velta/velta/core/src/
 // sql.rs:971: …"): keep the repo-relative "core/src/…:line" part only.
 export function stripBuildPaths(text) {

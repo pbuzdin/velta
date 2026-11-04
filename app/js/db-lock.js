@@ -147,7 +147,7 @@ export function unlockInteractive(info) {
       input?.focus();
       switchBox.innerHTML = Object.keys(methods).filter((k) => k !== cur)
         .map((k) => `<button type="button" class="btn-text db-unlock-alt" data-alt="${k}">${switchLabel[k]}</button>`).join(" ");
-      switchBox.querySelectorAll("[data-alt]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.alt; status.hidden = true; fails = 0; render(); }));
+      switchBox.querySelectorAll("[data-alt]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.alt; status.hidden = true; render(); }));
     };
     render();
   });

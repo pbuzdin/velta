@@ -88,9 +88,11 @@ fn find_sidecar(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
 }
 
 /// Spawn (or respawn) the rpc-server sidecar with `key` as its env. The
-/// reader/wait threads ride each spawn; the managed RpcState only has its
-/// stdin swapped on a respawn. `first` runs the one-time proxy
-/// boots. `probe_db_lock` is the caller's job.
+/// reader thread rides each spawn; the child stays in SIDECAR_CHILD so the
+/// next spawn (lock/unlock respawn) can kill it — never hand it to a
+/// wait thread, or the respawn would leak the previous core next to the
+/// new one. The managed RpcState only has its stdin swapped on a respawn.
+/// `first` runs the one-time proxy boots. `probe_db_lock` is the caller's job.
 #[cfg(not(target_os = "android"))]
 pub(crate) fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
     set_attachment_db_key(key.as_deref());
@@ -201,12 +203,10 @@ pub(crate) fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: 
                 );
             });
 
-            if let Some(mut child) = SIDECAR_CHILD.lock().unwrap().take() {
-                std::thread::spawn(move || match child.wait() {
-                    Ok(status) => crate::log(&format!("sidecar exited with {status}")),
-                    Err(e) => crate::log(&format!("sidecar wait error: {e}")),
-                });
-            }
+            // The child stays in SIDECAR_CHILD: the reader thread above
+            // reports "stopped" when stdout closes, and the next spawn's
+            // kill()+wait() reaps it. Taking it here would make every
+            // respawn (lock/unlock) leak the previous keyed core.
         }
         Err(e) => {
             crate::log(&format!("failed to start sidecar: {e}"));

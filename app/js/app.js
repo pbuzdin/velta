@@ -785,25 +785,37 @@ coreStartupPromise = createCore({
 // after N minutes hidden reloads the page and the boot path asks for the
 // passphrase/passkey/PIN again; the decrypted snapshot dies with the worker.
 // The setting is read per transition, so the select applies at once.
+//
+// Arming is timestamp-based, not timer-based: Android often freezes the
+// WebView with document.hidden still false (a timer would never arm), and
+// a hidden mobile tab throttles long setTimeouts anyway. Record when the
+// page went hidden; compare on return. The native foreground event covers
+// the Android case where visibilitychange never fires at all.
 if (bootLockInfo) {
-  let armed = false;
-  let timer = 0;
+  let hiddenAt = 0;
+  const limitMs = () => (Number(localStorage.getItem("velta-autolock-mins")) || 0) * 60_000;
+  const lockIfOver = () => {
+    if (!hiddenAt) return;
+    const gone = Date.now() - hiddenAt;
+    hiddenAt = 0;
+    const limit = limitMs();
+    if (limit > 0 && gone >= limit) location.reload();
+  };
   document.addEventListener("visibilitychange", () => {
-    const mins = Number(localStorage.getItem("velta-autolock-mins")) || 0;
     if (document.hidden) {
-      armed = false;
-      clearTimeout(timer);
-      if (mins > 0) timer = setTimeout(() => { armed = true; }, mins * 60_000);
+      if (limitMs() > 0) hiddenAt = Date.now();
     } else {
-      clearTimeout(timer);
-      if (armed) location.reload();
+      lockIfOver();
     }
   });
+  window.__TAURI__?.event?.listen?.("velta-foreground", lockIfOver);
 }
 
 // #178 phase 4 (desktop): auto-lock respawns the sidecar KEYLESS, so the
 // PIN screen returns — only meaningful when a PIN is the key root (the
 // keychain would just re-key without asking the user anything).
+// Same timestamp arming as the PWA path above — document.hidden lies on
+// Android, and velta-foreground is the reliable wake.
 if (window.__TAURI__) {
   try {
     const invoke = tauriInvoke();
@@ -813,19 +825,25 @@ if (window.__TAURI__) {
         invoke("get_db_hello_state").catch(() => false),
       ]).then(([pinOn, helloOn]) => {
         if (!pinOn && !helloOn) return;
-        let armed = false;
-        let timer = 0;
+        let hiddenAt = 0;
+        const limitMs = () => (Number(localStorage.getItem("velta-autolock-mins")) || 0) * 60_000;
+        const lockIfOver = () => {
+          if (!hiddenAt) return;
+          const gone = Date.now() - hiddenAt;
+          hiddenAt = 0;
+          const limit = limitMs();
+          if (limit > 0 && gone >= limit && !document.getElementById("db-locked")) {
+            invoke("lock_now").catch(() => {});
+          }
+        };
         document.addEventListener("visibilitychange", () => {
-          const mins = Number(localStorage.getItem("velta-autolock-mins")) || 0;
           if (document.hidden) {
-            armed = false;
-            clearTimeout(timer);
-            if (mins > 0) timer = setTimeout(() => { armed = true; }, mins * 60_000);
+            if (limitMs() > 0) hiddenAt = Date.now();
           } else {
-            clearTimeout(timer);
-            if (armed && !document.getElementById("db-locked")) invoke("lock_now").catch(() => {});
+            lockIfOver();
           }
         });
+        window.__TAURI__?.event?.listen?.("velta-foreground", lockIfOver);
       }).catch(() => {});
     }
   } catch (e) {
@@ -2592,11 +2610,11 @@ function chatContextMenu(chat, x, y) {
   showContextMenu([
     grp ? null : { label: chat.pinned ? t("Unpin") : t("Pin to top"), icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
     grp ? null : { label: chat.muted ? t("Unmute") : t("Mute notifications"), icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-    ...(tauriInvoke() ? [{ label: t("Link previews: {mode}", { mode: t(LINK_PREVIEW_LABELS[linkPreviewMode(chat.id)]) }), icon: icons.link, onClick: () => {
+    ...(tauriInvoke() ? [{ label: t("Link previews: {mode}", { mode: t(LINK_PREVIEW_LABELS[linkPreviewMode(chat.id, core.accountId)]) }), icon: icons.link, onClick: () => {
       if (!accountIsCurrent(epoch)) return;
       const apply = (mode) => {
         if (!accountIsCurrent(epoch)) return;
-        setLinkPreviewMode(mode, chat.id);
+        setLinkPreviewMode(mode, chat.id, core.accountId);
         toast(t("Link previews: {mode} for this chat", { mode: t(LINK_PREVIEW_LABELS[mode]) }));
         if (state.activeChatId === chat.id && chatView?.open) {
           chatView.close();

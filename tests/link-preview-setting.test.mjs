@@ -32,20 +32,27 @@ test("link previews are off until a mode is chosen, and the old on is fetch", ()
   assert.equal(linkPreviewMode(), "off");
 });
 
-test("a per-chat override wins, and the warning names the IP leak", () => {
+test("a per-chat override wins, is scoped to its account, and the warning names the IP leak", () => {
   setLinkPreviewMode("fetch");
-  assert.equal(linkPreviewMode(4), "fetch");
-  setLinkPreviewMode("picture", 4);
-  assert.equal(linkPreviewMode(4), "picture");
-  assert.equal(linkPreviewMode(5), "fetch");
+  assert.equal(linkPreviewMode(4, 1), "fetch");
+  setLinkPreviewMode("picture", 4, 1);
+  assert.equal(linkPreviewMode(4, 1), "picture");
+  assert.equal(linkPreviewMode(5, 1), "fetch");
+  // Same chat id in another account: the override (its IP-fetch consent)
+  // must not leak across the account boundary.
+  assert.equal(linkPreviewMode(4, 2), "fetch");
+  // Legacy bare-chatId entries (pre-account scoping) are ignored…
   localStorage.setItem("velta-link-preview-chats", JSON.stringify({ 4: "on" }));
-  assert.equal(linkPreviewMode(4), "fetch");
-  setLinkPreviewMode(null, 4);
-  assert.equal(linkPreviewMode(4), "fetch");
+  assert.equal(linkPreviewMode(4, 1), "fetch");
+  // …and purged by the next per-chat write.
+  setLinkPreviewMode(null, 4, 1);
+  assert.deepEqual(Object.keys(JSON.parse(localStorage.getItem("velta-link-preview-chats"))), []);
+  assert.equal(linkPreviewMode(4, 1), "fetch");
   setLinkPreviewMode("picture");
-  setLinkPreviewMode("off", 4);
-  assert.equal(linkPreviewMode(4), "off");
-  assert.equal(linkPreviewMode(5), "picture");
+  setLinkPreviewMode("off", 4, 1);
+  assert.equal(linkPreviewMode(4, 1), "off");
+  assert.equal(linkPreviewMode(5, 1), "picture");
+  assert.equal(linkPreviewMode(4, 2), "picture");
   assert.match(LINK_PREVIEW_IP_WARNING, /IP address/);
   assert.match(LINK_PREVIEW_IP_WARNING, /private or group chat/);
   assert.match(LINK_PREVIEW_IP_WARNING, /edit the page/);
@@ -80,7 +87,7 @@ test("deltachat.id and invite links are not fetched", async () => {
   assert.equal(preview.title, "Example");
   assert.deepEqual(calls.map(c => c.args.url), ["https://example.com/page"]);
   const cv = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
-  assert.match(cv, /linkPreviewMode\(chatId\) === "fetch"/);
+  assert.match(cv, /linkPreviewMode\(chatId, this\.core\.accountId\) === "fetch"/);
 });
 
 test("sender preview attaches only for a finished https url with no file", () => {

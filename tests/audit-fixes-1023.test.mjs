@@ -25,7 +25,11 @@ test("in-app browser hands mailto/tel/market to the system, drops intent/file (a
   assert.doesNotMatch(k, /scheme == "intent"|scheme == "file"/);
 });
 
-test("windows cross installer job may upload release assets (audit 3)", () => {
+test("windows cross installer job cannot touch releases (audit 3, #260)", () => {
   const y = src(".github/workflows/build-windows-cross.yml");
-  assert.match(y, /build-installer:\r?\n\s+needs: \[?build-sidecar[^\r\n]*\r?\n(\s+#.*\r?\n)?\s+permissions:\r?\n\s+contents: write/);
+  // Dispatch-only workflow, artifacts only: no release upload step, no
+  // write permission, and the build must not require updater signing keys.
+  assert.doesNotMatch(y, /contents: write/);
+  assert.doesNotMatch(y, /action-gh-release/);
+  assert.match(y, /createUpdaterArtifacts":false/);
 });

@@ -941,7 +941,7 @@ impl P2p {
                     sent_now = true;
                 }
             }
-            let mut stored = StoredMsg {
+            let stored = StoredMsg {
                 id: id.clone(),
                 ts,
                 dir: "out".into(),
@@ -953,11 +953,12 @@ impl P2p {
             };
             if !sent_now {
                 peer.queued.push(stored.clone());
-                stored.state = "queued".into();
             }
-            peer.msgs.push(stored);
-            let msgs = peer.msgs.clone();
-            self.persist_messages(&node_id, &msgs);
+            peer.msgs.push(stored.clone());
+            // Persist outside the engine lock: a slow disk must not stall
+            // the session/receive loop.
+            drop(inner);
+            self.persist_messages(&node_id, &[stored]);
             sent_now
         };
         if !now_online {
@@ -1060,9 +1061,9 @@ impl P2p {
             if !sent_now {
                 bail!("peer is offline — media can't be queued yet, send text instead");
             }
-            peer.msgs.push(stored);
-            let msgs = peer.msgs.clone();
-            self.persist_messages(&node_id, &msgs);
+            peer.msgs.push(stored.clone());
+            drop(inner);
+            self.persist_messages(&node_id, &[stored]);
             sent_now
         };
         if !now_online {
@@ -1236,6 +1237,7 @@ impl P2p {
             Some(peer) => peer,
             None => return,
         };
+        let mut flipped: Vec<StoredMsg> = Vec::new();
         for msg in peer.queued.drain(..) {
             if std::env::var("VELTA_P2P_DEBUG").is_ok() {
                 eprintln!("[p2p-dbg] flushing queued msg {} to {}", msg.id, node_id);
@@ -1257,16 +1259,22 @@ impl P2p {
             // entry. Pushing a second "sent" copy used to leave a stale
             // "queued" twin with the same id in the log.
             match peer.msgs.iter_mut().rev().find(|m| m.dir == "out" && m.id == msg.id) {
-                Some(stored) => stored.state = "sent".into(),
+                Some(stored) => {
+                    stored.state = "sent".into();
+                    flipped.push(stored.clone());
+                }
                 None => {
                     let mut sent = msg;
                     sent.state = "sent".into();
-                    peer.msgs.push(sent);
+                    peer.msgs.push(sent.clone());
+                    flipped.push(sent);
                 }
             }
         }
-        let msgs = peer.msgs.clone();
-        self.persist_messages(&node_id, &msgs);
+        drop(inner);
+        // Append-only log: the flipped rows carry the same ids, folded by
+        // collapse_history at load.
+        self.persist_messages(&node_id, &flipped);
     }
 
     fn remove_live(&self, node_id: NodeId, handle_id: u64) {
@@ -1564,18 +1572,22 @@ impl P2p {
             Frame::Typing { gid: None, on } => self.on_typing(node_id, on, tx),
             Frame::Typing { gid: Some(_), .. } => {}
             Frame::Ack { id } => {
-                {
+                let acked = {
                     let mut inner = self.inner.lock().unwrap();
+                    let mut acked = None;
                     if let Some(peer) = inner.peers.get_mut(&node_id) {
                         for msg in peer.msgs.iter_mut().rev() {
                             if msg.id == id && msg.dir == "out" {
                                 msg.state = "acked".into();
+                                acked = Some(msg.clone());
                                 break;
                             }
                         }
-                        let msgs = peer.msgs.clone();
-                        self.persist_messages(&node_id, &msgs);
                     }
+                    acked
+                };
+                if let Some(row) = acked {
+                    self.persist_messages(&node_id, &[row]);
                 }
                 self.sink
                     .emit(json!({ "kind": "ack", "peerId": node_id.to_string(), "id": id }));
@@ -1607,8 +1619,11 @@ impl P2p {
                             reply_text: reply_text.clone(),
                             file: None,
                         });
-                        let msgs = peer.msgs.clone();
-                        self.persist_messages(&node_id, &msgs);
+                        let row = peer.msgs.last().cloned();
+                        drop(inner);
+                        self.persist_messages(&node_id, row.as_slice());
+                    } else {
+                        drop(inner);
                     }
                 }
                 tx.send(Frame::Ack { id: id.clone() }).ok();
@@ -1739,8 +1754,11 @@ impl P2p {
                                 path: final_path.to_string_lossy().to_string(),
                             }),
                         });
-                        let msgs = peer.msgs.clone();
-                        self.persist_messages(&node_id, &msgs);
+                        let row = peer.msgs.last().cloned();
+                        drop(inner);
+                        self.persist_messages(&node_id, row.as_slice());
+                    } else {
+                        drop(inner);
                     }
                 }
                 tx.send(Frame::Ack { id: id.clone() }).ok();
@@ -2102,16 +2120,27 @@ impl P2p {
         }
     }
 
-    /// Rewrites the peer's message file (small volume; simplicity wins).
-    fn persist_messages(&self, node_id: &NodeId, msgs: &[StoredMsg]) {
-        let mut buf = String::new();
-        for msg in msgs {
+    /// Appends rows to the peer's message log. The log is append-only: a
+    /// state flip (queued→sent, ack) writes a fresh row with the same id
+    /// instead of rewriting the file — `collapse_history` folds duplicate
+    /// outbound rows at load (first position, last state). The old full
+    /// rewrite cloned and re-serialized the whole history under the engine
+    /// lock on every message: O(n) per send, O(n²) per conversation, and a
+    /// stalled receive loop on slow disks.
+    fn persist_messages(&self, node_id: &NodeId, append: &[StoredMsg]) {
+        let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.messages_path(node_id))
+        else {
+            return;
+        };
+        use std::io::Write;
+        for msg in append {
             if let Ok(line) = serde_json::to_string(msg) {
-                buf.push_str(&line);
-                buf.push('\n');
+                let _ = writeln!(f, "{line}");
             }
         }
-        let _ = std::fs::write(self.messages_path(node_id), buf);
     }
 
     fn messages_path(&self, node_id: &NodeId) -> PathBuf {
@@ -4345,11 +4374,15 @@ pub fn p2p_send(
 #[tauri::command]
 pub async fn p2p_send_file(
     state: tauri::State<'_, P2pState>,
+    app: tauri::AppHandle,
     peer_id: String,
     path: String,
     name: String,
     caption: String,
 ) -> Result<serde_json::Value, String> {
+    // V-07/#65: like every path the renderer names, this one needs
+    // Rust-side pick evidence before we read the file and send it.
+    crate::picked::check(&app, std::path::Path::new(&path))?;
     // Copies the file and reads it whole before framing. Off the UI thread.
     let engine = engine(&state).map_err(|e| e.to_string())?;
     let (id, stored_path) = tauri::async_runtime::spawn_blocking(move || {
@@ -4529,11 +4562,14 @@ pub fn p2p_group_send(
 #[tauri::command]
 pub async fn p2p_group_send_file(
     state: tauri::State<'_, P2pState>,
+    app: tauri::AppHandle,
     gid: String,
     path: String,
     name: String,
     caption: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    // V-07/#65: same pick-evidence gate as p2p_send_file.
+    crate::picked::check(&app, std::path::Path::new(&path))?;
     // Copies the file: off the UI thread.
     let engine = engine(&state).map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {

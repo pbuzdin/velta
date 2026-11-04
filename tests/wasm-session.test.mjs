@@ -40,6 +40,11 @@ test("a refresh does not delete the saved account on the way out", () => {
   const worker = readFileSync(new URL("../app/js/worker-wasm.js", import.meta.url), "utf8");
   assert.doesNotMatch(transport, /addEventListener\("pagehide"/);
   assert.match(transport, /checkpoint-done/);
-  assert.match(rpc, /await this\.transport\.checkpoint\?\.\(\)/);
+  // The checkpoint is awaited on the way out AND its failures are surfaced
+  // (#260): a failing OPFS save reaches the diagnostics chat, not a silent
+  // `.catch(() => {})`.
+  assert.match(rpc, /async _persist\(\) \{\s*await this\._checkpointReported\(\);/);
+  assert.match(rpc, /const cp = this\.transport\?\.checkpoint\?\.\(\)/);
+  assert.doesNotMatch(rpc, /checkpoint\?\.\(\)\.catch\(\(\) => \{\}\)/);
   assert.match(worker, /checkpoint-done/);
 });

@@ -6,6 +6,8 @@
 // velta-wasm-core. ifAvailable would fail that race and the app would boot
 // the empty demo instead of the saved account. A real second tab still
 // holds the lock after the grace period.
+import { reportCheckpoint } from "./diagnostics.js";
+
 export async function acquireWasmLock(request, onHeld, waitMs = 1500) {
   if (typeof request !== "function") return true;
   const once = () => new Promise((resolve) => {
@@ -164,6 +166,10 @@ export class WorkerWasmTransport {
           this._releaseLock?.();
           reject(new Error(d.error));
         }
+        // Interval-checkpoint results (no request id): surface failures —
+        // a stopped checkpoint means nothing is being saved.
+        else if (d.type === "checkpoint-failed") reportCheckpoint(false, new Error(d.error));
+        else if (d.type === "checkpoint-ok") reportCheckpoint(true);
       };
       w.onerror = (e) => {
         this._releaseLock?.();
@@ -177,7 +183,8 @@ export class WorkerWasmTransport {
       // Save when the page goes to the background (tab switch, app switch,
       // the start of a reload). Safe now that a cut-off write is ignored.
       globalThis.document?.addEventListener?.("visibilitychange", () => {
-        if (globalThis.document.visibilityState === "hidden") this.checkpoint().catch(() => {});
+        if (globalThis.document.visibilityState !== "hidden") return;
+        this.checkpoint().then(() => reportCheckpoint(true), (err) => reportCheckpoint(false, err));
       });
       // Best effort only: the page cannot wait for OPFS writes while it
       // unloads. Anything the user just saved goes through

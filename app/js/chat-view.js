@@ -2637,9 +2637,9 @@ export class ChatView {
     // Link preview hydration: only plain-text first-link messages carry the
     // slot; failed/off settings resolve null and the slot stays hidden.
     const lpSlot = row.querySelector("[data-lp]");
-    if (lpSlot && linkPreviewMode(chatId) === "fetch" && lpSlot.dataset.lpDone !== "1") {
+    if (lpSlot && linkPreviewMode(chatId, this.core.accountId) === "fetch" && lpSlot.dataset.lpDone !== "1") {
       lpSlot.dataset.lpDone = "1";
-      linkPreview(m.text, chatId).then((p) => {
+      linkPreview(m.text, chatId, this.core.accountId).then((p) => {
         if (!p || !alive() || !lpSlot.isConnected) return;
         lpSlot.innerHTML = linkPreviewCardHtml(p, firstLinkOf(m.text));
         const lpUrl = firstLinkOf(m.text);
@@ -4463,7 +4463,7 @@ export class ChatView {
       return;
     }
     const url = senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
     });
@@ -4474,7 +4474,7 @@ export class ChatView {
     }
     if (this._lpPreview?.url === url && !bar.hidden) return;
     const token = ++this._lpSeq;
-    const preview = await linkPreview(text, this.chat?.id);
+    const preview = await linkPreview(text, this.chat?.id, this.core.accountId);
     if (!this._isCurrent(session) || token !== this._lpSeq) return;
     const nowText = document.getElementById("composer-input")?.value || "";
     if (parseArticleMessage(nowText)) {
@@ -4483,7 +4483,7 @@ export class ChatView {
       return;
     }
     const urlNow = senderPreviewUrl(nowText, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
     });
@@ -4675,7 +4675,7 @@ export class ChatView {
     // The article's last line is the source URL. Picture mode would bake
     // that page instead of sending the text.
     const url = parseArticleMessage(text) ? null : senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: false,
       dismissed: this._lpDismissed,
     });

@@ -357,7 +357,15 @@ self.onmessage = async (e) => {
         d.wsProxyUrl ?? null,
         persist,
       );
-      if (persist) setInterval(() => { checkpoint().catch(() => {}); }, 8_000);
+      if (persist) setInterval(() => {
+        // Report results to the transport (id-less messages): a failing
+        // checkpoint means nothing is being saved — the transport surfaces
+        // it in the diagnostics chat instead of dropping it on the floor.
+        checkpoint().then(
+          () => self.postMessage({ type: "checkpoint-ok" }),
+          (err) => self.postMessage({ type: "checkpoint-failed", error: String(err?.message ?? err) }),
+        );
+      }, 8_000);
       self.postMessage({ type: "ready" });
     } catch (err) {
       self.postMessage({ type: "boot-error", error: String(err?.message ?? err) });
