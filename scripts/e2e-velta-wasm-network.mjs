@@ -208,7 +208,13 @@ try {
       ])
       const fileMsg = await fileArrived.catch(async (e) => {
         const sent = await rpc('get_message', [aliceId, sentId]).catch((x) => x)
-        throw new Error(`${e.message}; alice msg state=${sent?.state} error=${sent?.error ?? ''}`)
+        const seen = []
+        for (const c of await rpc('get_chatlist_entries', [bobId, null, null, null]).catch(() => []))
+          for (const id of await rpc('get_message_ids', [bobId, c, false, false]).catch(() => [])) {
+            const m = await rpc('get_message', [bobId, id]).catch((x) => ({ error: JSON.stringify(x) }))
+            seen.push(`${id}:${m.viewType ?? m.viewtype}:${(m.text ?? '').slice(0, 40)}:file=${!!m.file}:err=${m.error ?? ''}`)
+          }
+        throw new Error(`${e.message}; alice msg state=${sent?.state} error=${sent?.error ?? ''}; bob msgs=[${seen.join(' | ')}]`)
       })
       if (!fileMsg.file) throw new Error('attachment arrived without a file')
       const got = window.core.fs_read(fileMsg.file)
