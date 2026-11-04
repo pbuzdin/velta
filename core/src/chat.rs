@@ -5022,8 +5022,8 @@ pub async fn get_reply_ids(
         .sql
         .query_map_vec(
             "SELECT id FROM msgs replies \
-             WHERE chat_id=? AND TRIM(mime_in_reply_to, '<> ')=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \
-             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' AND replies.hidden=0 \
+             WHERE chat_id=? AND TRIM(mime_in_reply_to, '<> ')=? AND (char(10) || replies.param) GLOB '*' || char(10) || 'q=*' \
+             AND (char(10) || replies.param) NOT GLOB '*' || char(10) || 'a=*' AND replies.hidden=0 \
              ORDER BY timestamp, id",
             (chat_id, rfc724_mid),
             |row| {
@@ -5043,8 +5043,8 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
             "SELECT quoted.id, COUNT(replies.id) \
              FROM msgs replies \
              CROSS JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \
-             WHERE replies.chat_id=? AND +quoted.chat_id=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \
-             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' AND replies.hidden=0 \
+             WHERE replies.chat_id=? AND +quoted.chat_id=? AND (char(10) || replies.param) GLOB '*' || char(10) || 'q=*' \
+             AND (char(10) || replies.param) NOT GLOB '*' || char(10) || 'a=*' AND replies.hidden=0 \
              AND replies.mime_in_reply_to IS NOT NULL AND replies.mime_in_reply_to != '' \
              GROUP BY quoted.id",
             (chat_id, chat_id),
