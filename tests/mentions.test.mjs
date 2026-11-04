@@ -173,3 +173,43 @@ test("picker avatars use the served file URL (custom profile images)", () => {
   const cv = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
   assert.match(cv, /_mentionAvatar\(m\) \{[\s\S]*?avatar="\$\{escapeAttr\(fileUrl\(m\.avatar\)\)\}"/);
 });
+
+test("picker: 'Loading members…' status row until the list lands", () => {
+  const doc = { createElement: t => new El(t) };
+  const input = new El("textarea"); input.ownerDocument = doc;
+  const anchor = new El("footer");
+  let members = [], loading = true;
+  const mp = attachMentionPicker(input, anchor, () => members, () => "", () => loading);
+  input.value = "@a"; mp.update();
+  const row = anchor.children[0].children[0];
+  assert.equal(row.className, "mention-loading");
+  assert.equal(row.getAttribute("role"), "status");
+  assert.equal(row.getAttribute("aria-live"), "polite");
+  assert.equal(mp.handleKey({ key: "Enter", preventDefault() {} }), false, "Enter still sends");
+  members = MEMBERS; loading = false; mp.update();
+  assert.equal(anchor.children[0].children[0].getAttribute("role"), "option");
+  members = []; mp.update(); assert.equal(mp.isOpen(), false, "not loading, no members: nothing");
+});
+
+test("members refresh on ChatModified / ContactsChanged", () => {
+  const rpc = readFileSync(new URL("../app/js/rpc-core.js", import.meta.url), "utf8");
+  assert.match(rpc, /ev\.kind === "ChatModified"\) this\._emitAccount\("chat-members-changed"/);
+  assert.match(rpc, /case "ContactsChanged":\s*this\._emitAccount\("chat-members-changed", \{ chatId: 0 \}/);
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  assert.match(app, /"chat-members-changed", ev => chatView\?\.onMembersChanged/);
+  for (const l of ["ru", "fr"]) {
+    assert.ok(JSON.parse(readFileSync(new URL(`../app/locales/${l}.json`, import.meta.url), "utf8"))["Loading members…"]);
+  }
+});
+
+test("onMembersChanged reloads only the open chat, keeping the old list", async () => {
+  const { ChatView } = await import("../app/js/chat-view.js");
+  const calls = [];
+  const view = { chat: { id: 5 }, _session: {}, _isCurrent: () => true,
+    _loadMentionMembers: (...a) => calls.push(a) };
+  ChatView.prototype.onMembersChanged.call(view, 9);
+  ChatView.prototype.onMembersChanged.call(view, 5);
+  await new Promise(r => setTimeout(r, 350));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0][2], { refresh: true });
+});

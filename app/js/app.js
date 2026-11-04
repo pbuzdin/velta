@@ -7644,6 +7644,7 @@ async function boot() {
       if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
       renderLcQueueTray();
     });
+    core.addEventListener("chat-members-changed", ev => chatView?.onMembersChanged(ev?.detail?.chatId || 0));
     core.addEventListener("chat-updated", ev => {
       if (!incrementalChatList()) scheduleChatListRefresh();
       refreshActiveChatHeader(ev?.detail?.chatId);

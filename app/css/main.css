@@ -3636,6 +3636,8 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 }
 .mention-pop .mention-opt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mention-pop .mention-code { color: inherit; }
+/* Loading status row: muted, not an option (AA: --text-dim on --bg-sidebar, all themes ≥ 5.2:1). */
+.mention-pop .mention-loading { padding: 8px 14px; color: var(--text-dim); font-size: .9em; cursor: default; }
 
 /* Inline house icons that replaced text glyphs (✕/✓/✗): size to the text. */
 .btn-text > svg, .pin-unpin > svg, .gc-in > svg, .info-row .v > svg {

@@ -147,7 +147,9 @@ export function filterMembers(members, query, { selfId = 1, limit = 8 } = {}) {
 // Composer picker. getMembers() → member list ([] / null = not a group).
 // avatarHtml(member) renders the avatar. Returns { update, hide,
 // handleKey, isOpen } like recent-commands.js.
-export function attachMentionPicker(input, anchor, getMembers, avatarHtml = () => "") {
+// isLoading() → true while the member list is still on its way: the picker
+// shows a muted "Loading members…" status row instead of nothing.
+export function attachMentionPicker(input, anchor, getMembers, avatarHtml = () => "", isLoading = () => false) {
   const doc = input.ownerDocument;
   let pop = null, items = [], active = 0, q = null;
   const optId = i => `mention-opt-${i}`;
@@ -179,30 +181,46 @@ export function attachMentionPicker(input, anchor, getMembers, avatarHtml = () =
     hide();
     input.focus();
   }
+  function open() {
+    if (pop) return;
+    pop = doc.createElement("ul");
+    pop.id = "mention-picker";
+    pop.className = "recent-commands-pop mention-pop";
+    pop.setAttribute("role", "listbox");
+    pop.setAttribute("aria-label", t("Mention a member"));
+    pop.addEventListener("pointerdown", e => e.preventDefault());
+    pop.addEventListener("mousedown", e => e.preventDefault());
+    pop.addEventListener("click", e => {
+      const li = e.target.closest?.("[role=option]");
+      if (li) choose(Number(li.dataset.idx));
+    });
+    anchor.appendChild(pop);
+    input.setAttribute("aria-controls", pop.id);
+    input.setAttribute("aria-expanded", "true");
+  }
   function update() {
     const members = getMembers() || [];
-    q = members.length ? mentionQuery(input.value, input.selectionStart ?? input.value.length) : null;
+    const loading = !members.length && !!isLoading();
+    q = members.length || loading ? mentionQuery(input.value, input.selectionStart ?? input.value.length) : null;
     if (!q) return hide();
+    if (loading) {
+      open();
+      items = [];
+      pop.textContent = "";
+      const li = doc.createElement("li");
+      li.className = "mention-loading";
+      li.setAttribute("role", "status");
+      li.setAttribute("aria-live", "polite");
+      li.textContent = t("Loading members…");
+      pop.appendChild(li);
+      input.removeAttribute("aria-activedescendant");
+      return;
+    }
     // Bare "@" in a big chat: nothing until a character follows.
     if (!q.query && members.filter(m => m.id !== 1).length > BARE_AT_MAX) return hide();
     items = filterMembers(members, q.query);
     if (!items.length) return hide();
-    if (!pop) {
-      pop = doc.createElement("ul");
-      pop.id = "mention-picker";
-      pop.className = "recent-commands-pop mention-pop";
-      pop.setAttribute("role", "listbox");
-      pop.setAttribute("aria-label", t("Mention a member"));
-      pop.addEventListener("pointerdown", e => e.preventDefault());
-      pop.addEventListener("mousedown", e => e.preventDefault());
-      pop.addEventListener("click", e => {
-        const li = e.target.closest?.("[role=option]");
-        if (li) choose(Number(li.dataset.idx));
-      });
-      anchor.appendChild(pop);
-      input.setAttribute("aria-controls", pop.id);
-      input.setAttribute("aria-expanded", "true");
-    }
+    open();
     pop.textContent = "";
     items.forEach((m, i) => {
       const li = doc.createElement("li");
@@ -231,6 +249,7 @@ export function attachMentionPicker(input, anchor, getMembers, avatarHtml = () =
     flush(); // a key right after typing acts on the current query
     if (!pop || e.isComposing) return false;
     const n = items.length;
+    if (!n) { if (e.key !== "Escape") return false; hide(); e.preventDefault(); return true; }
     if (e.key === "ArrowDown") { active = (active + 1) % n; paint(); }
     else if (e.key === "ArrowUp") { active = active <= 0 ? n - 1 : active - 1; paint(); }
     else if (e.key === "Escape") hide();
