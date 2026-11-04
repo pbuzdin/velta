@@ -184,6 +184,16 @@ unit: tests/webxdc-pwa.test.mjs.
   on forwarded copies). Also KEEP: `iconImg.style.display = "block"` beats
   the CSS `display: none` default — `style.display = ""` cannot.
 
+## Info line sender (#265, 11-04)
+
+- A webxdc info line (`systemMessageType === "WebxdcInfoMessage"`) shows its
+  sender as a profile chip (`.svc-chip`, opens the profile). The sender is
+  core's `fromId`/`sender`, not app text, so it does not depend on the app.
+  Own lines get a plain "You" (`.svc-chip.is-self`, no profile to open). If
+  the app's text already starts with the sender's name, that name becomes
+  the chip instead of repeating. Code: `ChatView._webxdcSenderChip`,
+  `rpc-core.js` `webxdcSender`; tests `tests/webxdc-info-sender.test.mjs`.
+
 ## Shim rules learned in 1.4.72 (both hosts)
 
 - Never set `color-scheme` on the app document: forcing `dark` gave white

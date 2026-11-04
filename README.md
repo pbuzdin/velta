@@ -94,7 +94,9 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
   plain text `@Name (C0FE)` (first fingerprint group), so Delta Chat shows it
   as typed. Velta highlights mentions, mentions of you stronger, and a muted
   chat still notifies you when you are mentioned (switch in Notifications,
-  default on). Details: [docs/mentions.md](docs/mentions.md).
+  default on). Small groups (up to 10 members) list everyone on a bare `@`;
+  bigger groups start listing after the first letter.
+  Details: [docs/mentions.md](docs/mentions.md).
 - **Send later** — long-press or right-click Send, press Ctrl+Shift+Enter, or pick it in the attach menu to schedule a
   message: presets or a date and time. Scheduled messages show as a chip in
   the chat and in a per-chat and global list, where you can edit, send now,
