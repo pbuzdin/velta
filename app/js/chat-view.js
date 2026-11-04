@@ -1088,7 +1088,7 @@ export class ChatView {
 
   _mentionAvatar(m) {
     const contact = m.id > 0 ? ` contact-id="${m.id}"` : "";
-    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(m.avatar)}"` : ""}></velta-avatar>`;
+    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(fileUrl(m.avatar))}"` : ""}></velta-avatar>`;
   }
 
   _applyGroupComposer(chat) {
