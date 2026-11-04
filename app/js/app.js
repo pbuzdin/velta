@@ -1,4 +1,5 @@
 // app.js — Velta bootstrap: chat list, navigation, modals, PWA
+import { initListCollapse } from "./list-collapse.js";
 import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
@@ -2340,7 +2341,9 @@ function syncChatCategoryBar() {
   }
 }
 
+let listCollapse = null; // #282
 function renderChatList() {
+  listCollapse?.refreshBadge();
   if (globalThis.__veltaAppEvaluating) { chatListRenderDeferred = true; return; }
   if (listView !== "chats") return; // another side view owns the container
   syncChatCategoryBar();
@@ -7574,6 +7577,7 @@ async function boot() {
       // Chat-list bottom action bar: the "+" opens the same new-chat/group
       // context menu as before (anchored to its button), QR shows this
       // profile's invite code, scan opens the camera join flow.
+      listCollapse = initListCollapse({ getChats: () => state.chats });
       $("bar-menu").addEventListener("click", () => {
         if (drawer?.el?.classList.contains("open")) drawer.close();
         else drawer?.open();
