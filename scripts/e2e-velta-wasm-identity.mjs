@@ -84,7 +84,10 @@ try {
   console.log('core booted; configuring the throwaway account over IMAP/SMTP…')
 
   const result = await page.evaluate(async ({ email, password }) => {
-    const rpc = window.rpc.request.bind(window.rpc)
+    const rpc = (method, params) =>
+      window.rpc.request(method, params).catch((e) => {
+        throw new Error(`${method}: ${JSON.stringify(e)}`)
+      })
     const PASS = 'v25-identity-pass'
 
     const id1 = await rpc('add_account')
@@ -99,13 +102,7 @@ try {
     const keysFiles = {}
     for (const entry of entries) {
       if (!entry.endsWith('/')) {
-        const bytes = window.core.fs_read(entry)
-        let b64 = ''
-        const u8 = new Uint8Array(bytes)
-        for (let i = 0; i < u8.length; i += 0x8000) {
-          b64 += String.fromCharCode(...u8.subarray(i, i + 0x8000))
-        }
-        keysFiles[entry.split('/').pop()] = b64
+        keysFiles[entry.split('/').pop()] = new Uint8Array(window.core.fs_read(entry))
       }
     }
     if (Object.keys(keysFiles).length === 0) throw new Error('self-keys export produced no files')
@@ -115,11 +112,13 @@ try {
     // configure FIRST: import_self_keys marks the account configured, which
     // would short-circuit a later configure() (configured_addr stays null).
     await rpc('configure', [id2])
-    for (const [name, b64] of Object.entries(keysFiles)) {
-      window.core.fs_write(`/identity/import/${name}`, Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)))
+    for (const [name, bytes] of Object.entries(keysFiles)) {
+      window.core.fs_write(`/identity/import/${name}`, bytes)
     }
     await rpc('import_self_keys', [id2, '/identity/import', PASS])
-    const configuredAddr = await rpc('get_config', [id2, 'configured_addr'])
+    // core 2.66 dropped the configured_addr key; addr + is_configured cover it.
+    const configured = await rpc('is_configured', [id2])
+    const configuredAddr = configured ? await rpc('get_config', [id2, 'addr']) : null
     return { configuredAddr }
   }, { email, password })
 
