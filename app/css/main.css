@@ -93,6 +93,15 @@
   --list-bar-h: calc(64px + env(safe-area-inset-bottom)); /* 46px buttons + 18px padding + safe area */
   color-scheme: dark;
 }
+/* Pure black (AMOLED, #277): an opt-in exception to the "no pure black"
+   rule (AGENTS 6.4), dark theme only. Page, chat list and history go #000;
+   elevated surfaces (headers, menus, dialogs, composer: --bg-sidebar;
+   bubbles) keep their soft greys so layering stays visible. Text only
+   gains contrast on the darker ground. */
+html[data-theme="dark"][data-amoled] { --bg: #000000; --bg-chat: #000000; }
+html[data-theme="dark"][data-amoled] .sidebar { background: var(--bg); }
+html[data-theme="dark"][data-amoled] .history-scroll { background: var(--bg-chat); }
+
 html[data-theme="light"] {
   --bg: #f4f4f4;
   --bg-sidebar: #f4f4f4;

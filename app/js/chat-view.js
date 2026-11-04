@@ -318,7 +318,11 @@ const FWD_LABELS = { picture: "Forwarded a picture", video: "Forwarded a video",
 // to 2 to keep single replies chip-only.
 export const THREAD_BUTTON_MIN_REPLIES = 1;
 
+// #278: drawer → Chat appearance. "1" = Attach → Stickers, no composer button.
+export const stickersInAttach = () => { try { return localStorage.getItem("velta-stickers-in-attach") === "1"; } catch { return false; } };
+
 const ICO = {
+  sticker: ICON.sticker,
   reply: ICON.reply,
   clock: ICON.clock,
   thread: ICON.thread,
@@ -1118,7 +1122,7 @@ export class ChatView {
 
   _applyGroupComposer(chat) {
     const b = document.getElementById("btn-sticker");
-    if (b) b.hidden = !!chat?.isP2pGroup;
+    if (b) b.hidden = !!chat?.isP2pGroup || stickersInAttach();
   }
 
   // One TypingSender per open local chat; switching chats stops the old one.
@@ -4175,6 +4179,7 @@ export class ChatView {
       for (const ev of ["pointerup", "pointercancel", "pointerleave"]) send.addEventListener(ev, clear);
     }
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
+    window.addEventListener("velta-stickers-pref", () => this._applyGroupComposer(this.chat));
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
       const pm = this.pendingMedia;
@@ -4205,6 +4210,11 @@ export class ChatView {
         { label: "Video", icon: ICO.video, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
+      // #278: the sticker picker moved here from the composer (same picker,
+      // same quote handling as the button).
+      if (stickersInAttach() && !this.chat?.isP2pGroup) {
+        attachItems.push({ label: "Stickers", icon: ICO.sticker, onClick: () => this._toggleStickerPicker() });
+      }
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
       if (largeFileAvailable() && !this.chat?.isP2p) {

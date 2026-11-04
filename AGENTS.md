@@ -2290,6 +2290,7 @@ calls > 8 s) and `core runtime stalled`.
   documented exceptions (bubble `7 10 6`, composer `13`, ±5 media bleed,
   pin-tray `9`) — do not snap them to even pixels.
 - **No pure black or pure white.** Opaque text and surface colors stay in the
+  Exception: the opt-in "Pure black (AMOLED)" setting (`velta-amoled`, `html[data-theme=dark][data-amoled]`) sets only `--bg`/`--bg-chat` to #000; elevated surfaces stay grey; covered by the `amoled` theme in `scripts/e2e-contrast.mjs`.
   soft families: whites `#f2f2f5`/`#f4f4f4`, blacks `#0b0b10`–`#1c1c26`
   (`avatar.js` states the rule for fingerprint tiles; keep it everywhere).
 - **WCAG AA contrast (≥ 4.5:1)** for every text/background pair. Measure with
