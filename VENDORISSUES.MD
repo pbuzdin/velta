@@ -681,3 +681,11 @@ without `config_mtx`, guarded by a generation counter; #27 interrupts skipped by
 #18 `try_read` are replayed on the next scheduler start; #28
 `get_connectivity_html` reports "Connecting…" instead of waiting behind an IO
 start/stop. Upstream candidates: #25 and #28 apply to stock core as-is.
+
+### 29. `get_reply_counts` scans by `chat_id` and overlaps restarts (#249, #250)
+
+**Status: patched locally (quilt ops "#29 …").** The quoted-message lookup
+joined on `mime_in_reply_to` without an index and rescanned on every
+"Restart core" overlap; #29 looks the quoted message up by the `rfc724_mid`
+index and makes overlapping restarts no-ops. Upstream candidate: applies to
+stock core as-is.
