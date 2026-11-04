@@ -203,7 +203,9 @@ impl AttachmentReader {
         #[cfg(target_arch = "wasm32")]
         {
             let _ = (path, key);
-            bail!("std::fs is unavailable on wasm32 — read the blob from the memfs shim and use AttachmentReader::from_memfs_bytes");
+            bail!(
+                "std::fs is unavailable on wasm32 — read the blob from the memfs shim and use AttachmentReader::from_memfs_bytes"
+            );
         }
     }
 
