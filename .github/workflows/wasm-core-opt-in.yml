@@ -184,8 +184,11 @@ jobs:
       - name: Verify PWA dist (rig)
         working-directory: ${{ github.workspace }}/scripts
         run: |
-          node verify-pwa-dist.mjs --dist "$RUNNER_TEMP/dist-pwa" --port 8799 > "$RUNNER_TEMP/pwa-rig.log" 2>&1
-          status=$?
+          # `|| status=$?` keeps bash -e from aborting before the rig log
+          # is printed — on a failure this step used to die silently and
+          # the diagnosis went to /dev/null (#261).
+          status=0
+          node verify-pwa-dist.mjs --dist "$RUNNER_TEMP/dist-pwa" --port 8799 > "$RUNNER_TEMP/pwa-rig.log" 2>&1 || status=$?
           cat "$RUNNER_TEMP/pwa-rig.log"
           passes=$(grep -c '^PASS' "$RUNNER_TEMP/pwa-rig.log" || true)
           echo "PWA dist rig: $passes checks PASS" >> "$GITHUB_STEP_SUMMARY"
