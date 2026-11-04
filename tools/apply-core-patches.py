@@ -760,8 +760,8 @@ pub async fn get_reply_ids(
         .sql
         .query_map_vec(
             "SELECT id FROM msgs replies \\
-             WHERE chat_id=? AND TRIM(mime_in_reply_to, '<> ')=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \\
-             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' AND replies.hidden=0 \\
+             WHERE chat_id=? AND TRIM(mime_in_reply_to, '<> ')=? AND (char(10) || replies.param) GLOB '*' || char(10) || 'q=*' \\
+             AND (char(10) || replies.param) NOT GLOB '*' || char(10) || 'a=*' AND replies.hidden=0 \\
              ORDER BY timestamp, id",
             (chat_id, rfc724_mid),
             |row| {
@@ -781,8 +781,8 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
             "SELECT quoted.id, COUNT(replies.id) \\
              FROM msgs replies \\
              JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \\
-             WHERE replies.chat_id=? AND quoted.chat_id=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \\
-             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' AND replies.hidden=0 \\
+             WHERE replies.chat_id=? AND quoted.chat_id=? AND (char(10) || replies.param) GLOB '*' || char(10) || 'q=*' \\
+             AND (char(10) || replies.param) NOT GLOB '*' || char(10) || 'a=*' AND replies.hidden=0 \\
              AND replies.mime_in_reply_to IS NOT NULL AND replies.mime_in_reply_to != '' \\
              GROUP BY quoted.id",
             (chat_id, chat_id),
@@ -2411,12 +2411,18 @@ pub struct JsonrpcTransportServerMetadata {
         text="""        let lock = self.pool.read().await;
         let pool = lock.as_ref().context("no SQL connection")?;
         // Velta #22 diagnostics: slow pool waits / connection holds.
-        let waited = std::time::Instant::now();
+        // tools::SystemTime, not std::time::Instant: Instant::now() panics
+        // on wasm32-unknown-unknown (#261).
+        let waited = SystemTime::now();
         let mut conn = pool.get(query_only).await?;
-        let wait_ms = waited.elapsed().as_millis();
-        let held = std::time::Instant::now();
+        let held = SystemTime::now();
+        let wait_ms = held.duration_since(waited).unwrap_or_default().as_millis();
         let res = tokio::task::block_in_place(move || function(&mut conn));
-        note_slow_sql(query_only, wait_ms, held.elapsed().as_millis());
+        let held_ms = SystemTime::now()
+            .duration_since(held)
+            .unwrap_or_default()
+            .as_millis();
+        note_slow_sql(query_only, wait_ms, held_ms);
         Ok(res?)
     }
 """,

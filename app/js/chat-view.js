@@ -2261,6 +2261,7 @@ export class ChatView {
     img.hidden = true;
     img.addEventListener("error", () => { img.hidden = true; });
     img.addEventListener("load", () => { img.hidden = false; });
+    this._webxdcSenderChip(bubble, m, alive);
     bubble.prepend(img);
     const setIcon = info => {
       if (info?.icon && alive()) img.src = appIconUrl(parentId, info.icon);
@@ -2278,7 +2279,31 @@ export class ChatView {
     };
     bubble.addEventListener("click", open);
     bubble.addEventListener("keydown", e => {
+      if (e.target?.closest?.(".svc-chip")) return;
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); }
+    });
+  }
+
+  // #265: the sender as a profile chip ("You" for own). A leading copy of
+  // the name in the app's text becomes the chip instead of repeating it.
+  _webxdcSenderChip(bubble, m, alive) {
+    const s = m.webxdcSender;
+    const own = s?.id === 1; // own: a plain "You" chip, there is no self profile to open
+    const name = own ? t("You") : String(s?.name || "").trim();
+    if (!s || !name) return;
+    const text = String(m.text || "");
+    const full = bubble.textContent || "";
+    const at = full.lastIndexOf(text);
+    if (!text || at < 0) return;
+    const real = String(s.name || "").trim();
+    const lead = !!real && text.startsWith(real) && !/^[\p{L}\p{N}]/u.test(text.slice(real.length));
+    const rest = lead ? text.slice(real.length) : " " + text;
+    const chip = own ? `<span class="svc-chip is-self">${escapeHtml(name)}</span>` : `<button type="button" class="svc-chip" data-contact-id="${Number(s.id)}" aria-label="${escapeAttr(t("Open profile of {name}", { name }))}">${escapeHtml(name)}</button>`;
+    bubble.innerHTML = escapeHtml(full.slice(0, at)) + chip + escapeHtml(rest) + escapeHtml(full.slice(at + text.length));
+    bubble.addEventListener("click", e => {
+      if (!e.target?.closest?.("button.svc-chip") || !alive()) return;
+      e.stopPropagation();
+      avatarProfileOpener?.({ contactId: s.id, name });
     });
   }
 
@@ -4301,7 +4326,7 @@ export class ChatView {
       getStickers: () => this.core.getStickers(),
       onPick: (path) => {
         if (!this._isCurrent(session) || !this.chat) return;
-        this._sendArchivedAware(session.chatId, { text: "", viewtype: "sticker", file: path })
+        this._sendArchivedAware(session.chatId, { viewtype: "sticker", file: path, ...this._quoteFields() })
           .then((msg) => { if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); } })
           .catch((err) => { if (this._isCurrent(session)) errToast(t("Couldn't send sticker: ") + (err.message || err)); });
       },
@@ -4447,6 +4472,13 @@ export class ChatView {
     this.replyFragment = null;
     this._renderReplyPreview();
     return { quoteId, quoteText, prefix };
+  }
+
+  // Send fields for a text-less send (sticker, app): the active reply rides
+  // along like it does for files, so every type shows its quote header.
+  _quoteFields() {
+    const { quoteId, quoteText, prefix } = this._takeQuote();
+    return { text: prefix, quoteId, quoteText };
   }
 
   _scheduleLinkPreview() {
@@ -4928,7 +4960,7 @@ export class ChatView {
     if (!this._isCurrent(session) || !this.chat || !app?.file) return;
     try {
       const msg = await this._sendArchivedAware(session.chatId, {
-        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", text: "",
+        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", ...this._quoteFields(),
       });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
@@ -4945,7 +4977,7 @@ export class ChatView {
     const path = await this._writeBlobForSend(filename, bytes);
     if (!this._isCurrent(session)) throw new Error("Chat closed");
     const msg = await this._sendArchivedAware(session.chatId, {
-      viewtype: "webxdc", file: path, filename, text: "",
+      viewtype: "webxdc", file: path, filename, ...this._quoteFields(),
     });
     if (!this._isCurrent(session)) return;
     this.appendOutgoing(msg);
@@ -4967,7 +4999,7 @@ export class ChatView {
       });
       if (!path) throw new Error("built-in app could not be prepared");
       if (!this._isCurrent(session)) return;
-      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", text: "" });
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", ...this._quoteFields() });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -5012,7 +5044,7 @@ export class ChatView {
         writeFile: (n, b) => this._writeBlobForSend(n, b),
       });
       if (!path || !this._isCurrent(session)) return;
-      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", text: "" });
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", ...this._quoteFields() });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();

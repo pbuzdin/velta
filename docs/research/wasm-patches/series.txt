@@ -14,8 +14,9 @@
 0007-wasm-net-blob-time-ws_tcp-transport-wasm-clocks-blob.patch
 0008-wasm-fs-net-tls-path_exists-is_dir-helpers-wasm-conn.patch
 0010-wasm-scheduler-stop-tasktracker-cfg.patch
+0011-wasm-blob-sync_fs-facade-and-memfs-open_blob.patch
 # 2.66 refresh (#260/#261, 2026-11-04): 0009 dropped — the #22 quilt ops
 # already updated blob_tests to `image_metadata(&mut open_blob(...)?)`, so
-# the old File-based call sites no longer exist. 0007's blob.rs hunks were
-# re-ported onto the attachment-encryption blob (sync_fs facade + open_blob
-# memfs routing); file_hash/check_or_recode/image_metadata need no hunks.
+# the old File-based call sites no longer exist. 0007's old blob.rs hunks
+# were dropped; the blob port lives in 0011 (sync_fs facade + open_blob
+# memfs routing), so file_hash/check_or_recode/image_metadata need no hunks.

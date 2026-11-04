@@ -989,6 +989,9 @@ export class JsonRpcCore extends EventTarget {
         // Join/leave notices: actor (sender) and the added/removed member
         // (infoContactId); names are filled by _hydrateServicePeople.
         people: this._servicePeople(m),
+        // #265: who posted an app's info line (own = SELF, id 1).
+        webxdcSender: m.systemMessageType === "WebxdcInfoMessage" && (m.fromId === 1 || m.fromId > 9)
+          ? { id: m.fromId, name: m.sender?.displayName || "" } : null,
       };
     }
     const out = m.fromId === 1; // ContactId::SELF

@@ -117,6 +117,9 @@ try {
         for (;;) {
           try {
             const ev = await rpc('get_next_event')
+            const k = ev.event?.kind
+            if (k === 'Warning' || k === 'Error' || k === 'MsgFailed')
+              console.log(`[core ${k}] ctx=${ev.contextId} ${JSON.stringify(ev.event).slice(0, 400)}`)
             for (const l of listeners) {
               try { await l(ev) } catch (e) { console.error('[listener]', e) }
             }
@@ -173,7 +176,43 @@ try {
       await rpc('misc_send_text_message', [aliceId, chatId, marker])
 
       const text = await arrived
-      return { ok: true, text, marker }
+
+      // #261: attachment round-trip — alice sends a small file from memfs,
+      // bob reads the received blob's bytes back and they must match.
+      const fileMarker = marker + '-file'
+      const payload = new Uint8Array(4096)
+      for (let i = 0; i < payload.length; i++) payload[i] = (i * 31 + 7) & 255
+      const src = '/tmp/e2e-attachment.bin'
+      window.core.fs_write(src, payload)
+      const sentId = await rpc('send_msg', [
+        aliceId,
+        chatId,
+        { text: fileMarker, file: src, filename: 'e2e-attachment.bin', viewtype: 'File' },
+      ])
+      // Poll bob's chats: the second message in a contact-request chat does
+      // not reliably raise IncomingMsg (run 41838489673 saw it stored, no event).
+      const bobMsgs = async () => {
+        const out = []
+        for (const c of await rpc('get_chatlist_entries', [bobId, null, null, null]))
+          for (const id of await rpc('get_message_ids', [bobId, c, false, false]))
+            out.push(await rpc('get_message', [bobId, id]))
+        return out
+      }
+      let fileMsg = null
+      for (let t = Date.now(); !fileMsg && Date.now() - t < 120_000; ) {
+        fileMsg = (await bobMsgs()).find((m) => m.text?.includes(fileMarker)) ?? null
+        if (!fileMsg) await new Promise((r) => setTimeout(r, 2000))
+      }
+      if (!fileMsg) {
+        const sent = await rpc('get_message', [aliceId, sentId]).catch((x) => x)
+        const seen = (await bobMsgs()).map((m) => `${m.id}:${m.viewType}:${(m.text ?? '').slice(0, 40)}`)
+        throw new Error(`timeout waiting for attachment delivery; alice msg state=${sent?.state}; bob msgs=[${seen.join(' | ')}]`)
+      }
+      if (!fileMsg.file) throw new Error('attachment arrived without a file')
+      const got = window.core.fs_read(fileMsg.file)
+      if (got.length !== payload.length || payload.some((b, i) => got[i] !== b))
+        throw new Error(`attachment bytes mismatch (got ${got.length} bytes, want ${payload.length})`)
+      return { ok: true, text, marker, fileBytes: got.length }
     },
     { alice, bob },
   )
@@ -186,6 +225,7 @@ try {
     console.log(
       `OK: two accounts configured over the WS tunnel; alice→bob message delivered:\n  ${result.text}`,
     )
+    console.log(`OK: attachment round-trip, ${result.fileBytes} bytes match`)
     console.log(`elapsed: ${((t1 - t0) / 1000).toFixed(1)} s (boot+configure×2+send+receive)`)
   }
 } catch (e) {
