@@ -8,7 +8,6 @@ import { CLOSE_SVG, toast, confirmModal } from "./ui.js";
 import { LruCache } from "./lru.js";
 import { wantsPanel } from "./webxdc-panel.js";
 import { tauriInvoke } from "./tauri.js";
-import { base64ToBytes } from "./identity-backup.js";
 import { currentGroupCall, routeRealtime, routeStatusUpdate, joinGroupCall, leaveGroupCall, setGroupCallMuted, onGroupCallChange } from "./group-call-host.js";
 import { trustedAppName } from "./xdc-trust.js";
 import { askGroupCallConsent, groupCallEnv, oneToOneCallActive, setCallScreen } from "./group-call-ui.js";
@@ -312,6 +311,7 @@ async function sendToChat({ file, name, text }) {
       dest = await invoke("resolve_upload_path", { filename: `${Date.now()}-${filename}` });
       if (!dest) throw new Error("resolve_upload_path returned empty");
       await invoke("plugin:fs|write_file", bytes, { headers: { path: encodeURIComponent(dest) } });
+      await invoke("encrypt_upload", { path: dest });
     } else {
       // Wasm PWA: the core reads the worker memfs (same as chat attachments).
       dest = `/uploads/${Date.now()}-${String(filename).replace(/[\\/]/g, "_")}`;
@@ -357,10 +357,13 @@ async function importFiles(filters = {}) {
   const files = [];
   for (let p of list) {
     try {
-      if (/^content:\/\//.test(p)) {
-        p = await invoke("resolve_content_uri", { uri: p, filename: String(Date.now()) });
+      const encrypted = /^content:\/\//.test(p);
+      if (encrypted) {
+        p = await invoke("resolve_content_uri", { uri: p, filename: String(Date.now()), encrypt: true });
       }
-      const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: p }));
+      const bytes = new Uint8Array(await (encrypted
+        ? invoke("read_media_bytes", { src: p })
+        : invoke("plugin:fs|read_file", { path: p })));
       const name = p.replace(/\\/g, "/").split("/").pop();
       files.push(new File([bytes], name));
     } catch { /* skip unreadable pick */ }
@@ -415,7 +418,10 @@ export async function serveIconRequest(data) {
   if (!ICON_PATH_RE.test(path)) throw new Error("not an icon");
   const b64 = await core.getWebxdcBlob(Number(data.msg), path);
   if (!b64) throw new Error("missing");
-  return base64ToBytes(String(b64));
+  const s = atob(String(b64));
+  const u8 = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+  return u8;
 }
 if (typeof navigator !== "undefined" && navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener("message", (e) => {

@@ -16,6 +16,11 @@ let nextId = 1;
 // the bar's unfiltered state and is never returned here. Special and request
 // chats are "system"; a 1:1 chat is "bots" when its contact is a bot,
 // "people" otherwise (unknown contact counts as people — the safe default).
+// provide_backup / get_backup run for the whole transfer (minutes). The
+// default 30 s timeout made the receiver skip start_io after a slow import
+// and re-attached the sender proxy mid-transfer.
+export const BACKUP_TRANSFER_TIMEOUT_MS = 60 * 60 * 1000;
+
 export function chatCategoryOf(chat, isBot = () => false) {
   if (chat.kind === "saved" || chat.kind === "device" || chat.kind === "deaddrop") return "system";
   if (chat.kind === "group") return "groups";
@@ -91,7 +96,7 @@ const sameAddr = (a, b) => String(a || "").toLowerCase() === String(b || "").toL
 // knows with `unknown key "<key>"` (deltachat-jsonrpc api.rs).
 const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err));
 
-import { debugLog } from "./diagnostics.js";
+import { debugLog, reportCheckpoint } from "./diagnostics.js";
 import { pageBounds, channelAuthorId } from "./format.js";
 import { LruCache } from "./lru.js";
 import { reencodeCoreQrSvg, brandCoreQrSvg } from "./qr-encode.js";
@@ -135,6 +140,8 @@ export class JsonRpcCore extends EventTarget {
     this.chatlistEvents = true;
     this._eventChain = Promise.resolve(); // serializes core event handlers (arrival order)
     this._eventsQueued = 0;               // handlers queued or running on _eventChain
+    this.slowRpcMs = 2000;                // "rpc slow:" log threshold
+    this._timedOut = new Map();           // id -> {method, started} after a timeout
     this.eventHandlerStallMs = 2000;      // max time one slow handler holds the queue
     this._onLine = this._onLine.bind(this);
   }
@@ -257,7 +264,7 @@ export class JsonRpcCore extends EventTarget {
     try { this.syncOnlyActive = localStorage.getItem("velta-sync-only-active") === "1"; } catch {}
     await this._startIo();
     this._pollEvents();
-    await this.transport.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
     return this;
   }
 
@@ -271,6 +278,7 @@ export class JsonRpcCore extends EventTarget {
     // fail all pending calls from the dead connection
     for (const { reject } of this.pending.values()) reject(new Error("reconnecting"));
     this.pending.clear();
+    this._timedOut.clear(); // their late answers belong to the old connection
     await this.transport.setReceiver(this._onLine);
     // A restarted service is a fresh core process: stock overrides are gone.
     await this._applyVeltaStrings();
@@ -311,8 +319,14 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
-  async restartIo() {
-    await this._call("stop_io_for_all_accounts");
+  // #249: a stop that does not finish (IO tasks stuck behind a wedged DB)
+  // must not keep the restart from trying a start; both are bounded.
+  async restartIo({ stopTimeoutMs = 15000 } = {}) {
+    try {
+      await this._callWithTimeout(stopTimeoutMs, "stop_io_for_all_accounts");
+    } catch (e) {
+      this._emit("diagnostic", { level: "warning", message: `Core I/O stop did not finish: ${e?.message || e}; starting anyway` });
+    }
     await this._startIo();
     await this._call("maybe_network");
     this._emit("diagnostic", { level: "info", message: "Core network I/O restarted" });
@@ -358,6 +372,12 @@ export class JsonRpcCore extends EventTarget {
       this._dispatchPollResult(msg.params?.[0]);
       return;
     }
+    if (msg.id != null && this._timedOut.has(msg.id)) {
+      const { method, started } = this._timedOut.get(msg.id);
+      this._timedOut.delete(msg.id);
+      this._rpcLog(`rpc late: ${method} answered after ${Date.now() - started} ms`);
+      return;
+    }
     if (msg.id != null && this.pending.has(msg.id)) {
       const entry = this.pending.get(msg.id);
       const { resolve, reject, onLate } = entry;
@@ -373,6 +393,44 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
+  _rpcLog(msg) { try { rustLog(msg); } catch {} }
+
+  // Stall diagnostics (Refs #176): the oldest calls still waiting, so a
+  // timeout line names what the core is busy with ("; oldest: m 29s, ...").
+  // The event long poll parks by design and is left out.
+  _inFlightSummary(max = 6) {
+    const now = Date.now();
+    const rows = [];
+    for (const e of this.pending.values()) {
+      if (!e.method || !e.started || e.method === this._eventPollMethod) continue;
+      rows.push([e.method, now - e.started]);
+    }
+    if (!rows.length) return "";
+    rows.sort((a, b) => b[1] - a[1]);
+    return "; oldest: " + rows.slice(0, max).map(([m, ms]) => `${m} ${Math.round(ms / 100) / 10}s`).join(", ");
+  }
+
+  // Core watchdog (#240): the oldest unresolved call (event long poll
+  // excluded — it parks by design), including client-timed-out calls still
+  // awaiting a late response, or null.
+  // opts (watchdog false positives): skip = Set of methods that are slow by
+  // design (network/backup), since = ages count from here at most (app
+  // resume: frozen timers must not age calls), forgetMs = a timed-out call
+  // whose answer never came stops counting after this long.
+  oldestInFlight(now = Date.now(), { skip = null, since = 0, forgetMs = Infinity } = {}) {
+    let best = null;
+    const live = [...this.pending.values()].map(e => [e, false]);
+    const late = [...this._timedOut.values()].map(e => [e, true]);
+    for (const [e, timedOut] of [...live, ...late]) {
+      if (!e.method || !e.started || e.method === this._eventPollMethod) continue;
+      if (skip?.has(e.method)) continue;
+      if (timedOut && now - e.started >= forgetMs) continue;
+      const ms = now - Math.max(e.started, since);
+      if (!best || ms > best.ms) best = { method: e.method, ms };
+    }
+    return best;
+  }
+
   _call(method, ...params) {
     return this._callWithTimeout(30000, method, ...params);
   }
@@ -380,8 +438,19 @@ export class JsonRpcCore extends EventTarget {
   _callWithTimeout(timeoutMs, method, ...params) {
     const id = nextId++;
     const line = JSON.stringify({ jsonrpc: "2.0", id, method, params });
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+    const started = Date.now();
+    return new Promise((resolve0, reject0) => {
+      // Stall diagnostics (Refs #176): a call slower than slowRpcMs logs
+      // "rpc slow: METHOD took N ms"; one that times out is remembered so
+      // its late answer logs "rpc late: METHOD answered after N ms" (a
+      // stalled core) — no late line means the answer was lost.
+      const done = () => {
+        const ms = Date.now() - started;
+        if (ms >= this.slowRpcMs) this._rpcLog(`rpc slow: ${method} took ${ms} ms`);
+      };
+      const resolve = v => { done(); resolve0(v); };
+      const reject = e => { done(); reject0(e); };
+      this.pending.set(id, { resolve, reject, method, started });
       try {
         const result = this.transport.send(line);
         // Tauri IPC returns a promise; catch invoke errors immediately
@@ -401,7 +470,10 @@ export class JsonRpcCore extends EventTarget {
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
-          reject(new Error("rpc timeout: " + method));
+          this._timedOut.set(id, { method, started });
+          if (this._timedOut.size > 200) this._timedOut.delete(this._timedOut.keys().next().value);
+          this._rpcLog(`rpc timeout: ${method} after ${Date.now() - started} ms (${this.pending.size} still pending${this._inFlightSummary()})`);
+          reject0(new Error("rpc timeout: " + method));
         }
       }, timeoutMs);
     });
@@ -717,7 +789,12 @@ export class JsonRpcCore extends EventTarget {
         break;
       case "ChatModified":
       case "MsgsNoticed":
+        // ChatModified covers member add/remove (mention picker list).
+        if (ev.kind === "ChatModified") this._emitAccount("chat-members-changed", { chatId: chatId || 0 }, accountEpoch);
         this._invalidateChat(chatId || 0, accountEpoch);
+        break;
+      case "ContactsChanged":
+        this._emitAccount("chat-members-changed", { chatId: 0 }, accountEpoch);
         break;
     }
   }
@@ -912,6 +989,9 @@ export class JsonRpcCore extends EventTarget {
         // Join/leave notices: actor (sender) and the added/removed member
         // (infoContactId); names are filled by _hydrateServicePeople.
         people: this._servicePeople(m),
+        // #265: who posted an app's info line (own = SELF, id 1).
+        webxdcSender: m.systemMessageType === "WebxdcInfoMessage" && (m.fromId === 1 || m.fromId > 9)
+          ? { id: m.fromId, name: m.sender?.displayName || "" } : null,
       };
     }
     const out = m.fromId === 1; // ContactId::SELF
@@ -938,6 +1018,7 @@ export class JsonRpcCore extends EventTarget {
       edited: !!m.isEdited,
       quote: this._mapQuote(m.quote),
       reactions: this._mapReactions(m.reactions),
+      fromDevice: m.fromId === 5, // ContactId::DEVICE (lang-cards.js trusts only this)
       fwdFrom: m.isForwarded ? (m.overrideSenderName || sender.displayName || "") : null,
       filePath: m.file || null,
       fileName: m.fileName || (m.file ? m.file.split("/").pop() : null),
@@ -1030,6 +1111,11 @@ export class JsonRpcCore extends EventTarget {
         await this._call("add_device_message", accountId, label, null);
       }
     } catch (e) { console.warn("device label prep failed", e); }
+  }
+
+  // Device-chat message under a unique label: core adds a label once per account.
+  async addDeviceMessage(label, text) {
+    return this._call("add_device_message", this.accountId, label, { text });
   }
 
   // Our own display name ("" when unset) — @mention matching (mentions.js).
@@ -1243,6 +1329,19 @@ export class JsonRpcCore extends EventTarget {
     } catch { /* best effort: an unknown pin is ignored by the core */ }
   }
 
+  // "Disable / Enable relay" (Velta patch #24, issue #189): pause a relay
+  // without deleting it — sends exclude it immediately, fetch skips it at
+  // the next IO start. The paused list is a per-device ui.velta.* key.
+  async setTransportEnabled(addr, enabled) {
+    return this._call("set_transport_enabled", this.accountId, addr, enabled);
+  }
+
+  // Per-relay paused state. Old cores (pre-#24) lack the RPC — callers
+  // feature-detect and treat a missing method as "all enabled".
+  async listTransportStates() {
+    return this._call("list_transport_states", this.accountId);
+  }
+
   // The address Velta shows as "sending": the pin when it names a configured
   // transport, else configured_addr (cores before #8711), else the first
   // transport. `validate` checks the pin against list_transports (one more
@@ -1371,7 +1470,15 @@ export class JsonRpcCore extends EventTarget {
   // gone after the reload, and peers never got it. Await a checkpoint after
   // changes the user expects to stick. No-op on Tauri / WS transports.
   async _persist() {
-    await this.transport?.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
+  }
+
+  // checkpoint() with failures surfaced: a failing checkpoint means nothing
+  // is being saved (quota/eviction) — report it instead of swallowing.
+  _checkpointReported() {
+    const cp = this.transport?.checkpoint?.();
+    if (!cp) return;
+    return cp.then(() => reportCheckpoint(true), (err) => reportCheckpoint(false, err));
   }
 
   async setDisplayName(name) {
@@ -1536,12 +1643,32 @@ export class JsonRpcCore extends EventTarget {
     return this._call("can_send", this.accountId, chatId);
   }
 
-  async getChat(chatId) {
+  // One get_chat per (account, chat) in flight: a re-tap after the 15 s
+  // guard release (or a quick list re-render) joins the pending call instead
+  // of queueing another 30 s request on a stalled core (request storm, #176).
+  getChat(chatId) {
+    const key = `${this.accountId}:${chatId}`;
+    this._getChatInflight ??= new Map();
+    const running = this._getChatInflight.get(key);
+    if (running) return running;
+    const p = this._getChatOnce(chatId).finally(() => {
+      if (this._getChatInflight.get(key) === p) this._getChatInflight.delete(key);
+    });
+    this._getChatInflight.set(key, p);
+    return p;
+  }
+
+  async _getChatOnce(chatId) {
     const { accountId } = this;
     // Just this chat's chatlist item (same shape as the list rows, works for
     // archived chats too) — this used to load and map the WHOLE chat list,
     // three times per chat open (issue #25).
-    const items = await this.getChatListItems([chatId], accountId).catch(() => null);
+    // A timeout means the core is stalled: falling back would chain three
+    // more 30 s calls (minutes per tap, #176), so surface it instead.
+    const items = await this.getChatListItems([chatId], accountId).catch(e => {
+      if (String(e?.message).startsWith("rpc timeout")) throw e;
+      return null;
+    });
     const found = items?.get(chatId);
     if (found) return found;
     // fallback: minimal info when there is no chatlist item (special ids,
@@ -1960,6 +2087,13 @@ export class JsonRpcCore extends EventTarget {
     } else if (kind === "channel") {
       // Outgoing broadcast. Recipients join later via the invite QR.
       chatId = await this._call("create_broadcast", accountId, name);
+    } else if (kind === "admin-group") {
+      // #177 (core quilt #19): group ID = our fingerprint + ":" + random id;
+      // only we may add/remove members or edit the group.
+      chatId = await this._call("create_group_with_admin", accountId, name);
+      for (const cid of contactIds) {
+        await this._call("add_contact_to_chat", accountId, chatId, cid);
+      }
     } else {
       chatId = await this._call("create_group_chat", accountId, name, false);
       for (const cid of contactIds) {
@@ -1980,6 +2114,22 @@ export class JsonRpcCore extends EventTarget {
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
+  // #177: the admin of an admin group removes a member. The core refuses
+  // for anyone else (and every receiving core ignores a forged removal).
+  async removeChatMember(chatId, contactId) {
+    const { accountId, accountEpoch } = this;
+    await this._call("remove_contact_from_chat", accountId, chatId, contactId);
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
+  // #177: contact id of an admin group's admin (1 = this account), null for
+  // regular groups and on cores without quilt #19 (field absent).
+  async getGroupAdminId(chatId) {
+    const full = await this._call("get_full_chat_by_id", this.accountId, chatId);
+    const id = full?.groupAdminId;
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }
+
   // Leave a group / unsubscribe from a channel: removes SELF and, for
   // promoted groups, informs the members via the core's own status message.
   async leaveGroup(chatId) {
@@ -1997,7 +2147,7 @@ export class JsonRpcCore extends EventTarget {
     // server fields are omitted so chatmail autoconfig fills them in.
     await this._prepareFirstConfigure(accountId);
     await this._call("add_transport", accountId, { addr, password });
-    await this.transport.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
     this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);
   }
 
@@ -2006,7 +2156,7 @@ export class JsonRpcCore extends EventTarget {
     await this._callWithTimeout(180000, "set_config_from_qr", accountId, qrContent);
     // The account was unconfigured when init() started IO, so start it now.
     await this._call("start_io", accountId);
-    await this.transport.checkpoint?.().catch(() => {});
+    await this._checkpointReported();
   }
 
   async startIo() {
@@ -2022,7 +2172,7 @@ export class JsonRpcCore extends EventTarget {
   // Group members as mapped contacts (empty list for 1:1 chats).
   async getChatMembers(chatId) {
     const { accountId } = this;
-    const full = await this._call("get_full_chat_by_id", accountId, chatId);
+    const full = await this._call("get_full_chat_by_id", this.accountId, chatId);
     // Keep self (ContactId::SELF = 1) so the member count and list include
     // this account; only skip the other reserved ids (info, archived link, …).
     const ids = (full.contactIds || []).filter(id => id > 9 || id === 1);
@@ -2037,6 +2187,28 @@ export class JsonRpcCore extends EventTarget {
 
   async setConfig(key, value) {
     await this._call("set_config", this.accountId, key, value === null ? null : String(value));
+  }
+
+  // VENDORISSUES #23: profiles configured before the opt-in flip carry
+  // autorelay=1 from upstream's init_transports default. One-time per
+  // account: turn it off. The Relays modal writes the config directly after
+  // that, and the per-account marker keeps this from re-running once the
+  // user has opted back in. Returns true when it flipped the value.
+  async migrateAutorelayDefault() {
+    const KEY = "velta-autorelay-default";
+    let markers = {};
+    try { markers = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch {}
+    if (markers[this.accountId]) return false;
+    let flipped = false;
+    try {
+      if (String(await this.getConfig("autorelay")) === "1") {
+        await this.setConfig("autorelay", "0");
+        flipped = true;
+      }
+    } catch { return false; } // core unavailable — retry on the next open
+    markers[this.accountId] = 1;
+    try { localStorage.setItem(KEY, JSON.stringify(markers)); } catch {}
+    return flipped;
   }
 
   async renameContact(contactId, name) {
@@ -2147,8 +2319,8 @@ export class JsonRpcCore extends EventTarget {
   // Relay invite (/i/claim credentials, invite-cards.js): same account
   // handling as addAccountWithQr — the empty current profile is reused,
   // otherwise a new one is added and selected back on failure (#99). The
-  // shell's tunnel/WebSocket proxy is applied to the new profile before
-  // its first connection (tunnel_reapply; no-op where unsupported).
+  // shell's SOCKS5/WebSocket proxy is applied to the new profile before
+  // its first connection (proxy_reapply; no-op where unsupported).
   async addAccountWithCredentials(addr, password) {
     const prevId = this.accountId;
     let { accountId } = this;
@@ -2161,11 +2333,11 @@ export class JsonRpcCore extends EventTarget {
         await this._call("select_account", accountId);
         this.accountId = accountId;
       }
-      await this._tunnelReapply();
+      await this._proxyReapply();
       await this._prepareFirstConfigure(accountId);
       await this._callWithTimeout(180000, "add_transport", accountId, { addr, password });
       await this._call("start_io", accountId);
-      await this.transport.checkpoint?.().catch(() => {});
+      await this._checkpointReported();
       failed = false;
       return accountId;
     } catch (err) {
@@ -2184,32 +2356,31 @@ export class JsonRpcCore extends EventTarget {
   // it. The call blocks server-side for the whole transfer — don't await it
   // in a timeout-sensitive path; completion arrives via ImexProgress.
   async provideBackup() {
-    return this._withoutTunnelProxy(() => this._call("provide_backup", this.accountId));
+    return this._withoutShellProxy(() => this._callWithTimeout(BACKUP_TRANSFER_TIMEOUT_MS, "provide_backup", this.accountId));
   }
 
-  // DNS tunnel: this device's tunnel proxy is a 127.0.0.1 port
-  // that exists only here. Keep it out of backups and second-device
-  // transfers, or the restored profile (in any Velta) can't reach its
-  // relays. No-op where the shell has no tunnel commands.
-  async _withoutTunnelProxy(run) {
+  // Keep this device's SOCKS5/WebSocket proxy out of backups and
+  // second-device transfers: a loopback listener or LAN address may not
+  // exist on the receiving device. No-op where the shell is unavailable.
+  async _withoutShellProxy(run) {
     const invoke = tauriInvoke();
     const accountId = this.accountId;
     let detached = false;
     if (invoke) {
-      try { await invoke("tunnel_backup_begin", { accountId }); detached = true; } catch { /* no tunnel support */ }
+      try { await invoke("proxy_backup_begin", { accountId }); detached = true; } catch { /* no shell proxy support */ }
     }
     try {
       return await run();
     } finally {
-      if (detached) invoke("tunnel_backup_end", { accountId }).catch(() => {});
+      if (detached) invoke("proxy_backup_end", { accountId }).catch(() => {});
     }
   }
 
   // After a restore or a received transfer: let the shell fix the new
-  // profile's proxy now (a stale tunnel proxy from the source device would
+  // profile's proxy now (a stale proxy from the source device would
   // otherwise block its mail until the shell's next periodic pass).
-  _tunnelReapply() {
-    return tauriInvoke()?.("tunnel_reapply")?.catch(() => {});
+  _proxyReapply() {
+    return tauriInvoke()?.("proxy_reapply")?.catch(() => {});
   }
 
   // The backup QR as the 515x630 design card: reserves a clear center circle
@@ -2227,7 +2398,7 @@ export class JsonRpcCore extends EventTarget {
   // contacts and keys into <destination>/<file>.tar. Progress rides
   // "imex-progress" (0..1000).
   async exportBackup(destination, passphrase = null) {
-    await this._withoutTunnelProxy(() => this._callWithTimeout(180000, "export_backup", this.accountId, destination, passphrase));
+    await this._withoutShellProxy(() => this._callWithTimeout(180000, "export_backup", this.accountId, destination, passphrase));
   }
 
   // New device: receive a profile from another device's backup QR. Imports
@@ -2236,6 +2407,8 @@ export class JsonRpcCore extends EventTarget {
   // minutes; track it via imex-progress events. Same two epoch boundaries
   // as addAccountWithQr, including the select-back on failure (#99).
   async addAccountWithBackup(qrContent) {
+    // Never two get_backup calls at once (second scan during an import).
+    if (this.backupReceiveRunning) throw new Error("A profile transfer is already running");
     const prevId = this.accountId;
     this._beginAccountChange();
     let failed = true;
@@ -2249,8 +2422,9 @@ export class JsonRpcCore extends EventTarget {
       }
       // get_backup does not start IO (core api.rs). Do it once the import
       // lands, then refresh so the relay line leaves "no relay configured" (#118).
-      this._call("get_backup", targetId, qrContent).then(async () => {
-        await this._tunnelReapply();
+      this.backupReceiveRunning = true;
+      this._callWithTimeout(BACKUP_TRANSFER_TIMEOUT_MS, "get_backup", targetId, qrContent).finally(() => { this.backupReceiveRunning = false; }).then(async () => {
+        await this._proxyReapply();
         if (!this.syncOnlyActive || String(this.accountId) === String(targetId)) {
           await this._call("start_io", targetId).catch(() => {});
         }
@@ -2277,7 +2451,7 @@ export class JsonRpcCore extends EventTarget {
   // track it via imex-progress events (1000 = done, 0 = failed).
   async importBackup(path) {
     const res = await this._call("import_backup", this.accountId, path, null);
-    this._tunnelReapply();
+    this._proxyReapply();
     return res;
   }
 

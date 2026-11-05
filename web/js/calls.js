@@ -32,9 +32,12 @@ import { VELTA_DEBUG, diagnosticsSink } from "./diagnostics.js";
 import { invoke, isAndroid, isTauri } from "./tauri.js";
 import { t } from "./i18n.js";
 import { escapeHtml } from "./format.js";
+import { parseCallRoute, routeSwitched } from "./call-route.js";
 
 const GATHER_TIMEOUT = 3000; // ICE gathering ceiling before sending anyway
 const ENDED_VISIBLE_MS = 2500; // how long the ended overlay stays readable
+const NET_ROUTE_POLL_MS = 2000; // #239 direct/relay chip refresh
+const NET_ROUTE_FLASH_MS = 1600; // highlight after the route switched
 
 // Voice capture: echo canceller and gain control matter most on a phone
 // held to the ear (earpiece) or on the loudspeaker.
@@ -212,6 +215,9 @@ export class CallManager extends EventTarget {
     this.remoteStream = null;
     this.remoteMuted = null; // the peer's {audioEnabled, videoEnabled} (data channel)
     this.remoteVideoOn = false;
+    this.netRoute = null; // #239 {kind: direct|relay, local, remote, protocol, rttMs}
+    this.netRouteFlash = 0; // highlight until (ms epoch) after a switch
+    this.netRouteTimer = null;
     this.dcMuted = null;
     this.dcIce = null;
     this.iceBuffer = [];
@@ -754,7 +760,9 @@ export class CallManager extends EventTarget {
       if (this.state !== "active") return;
       if (st === "disconnected") { this.phase = "reconnecting"; this.render(); }
       else if ((st === "connected" || st === "completed") && this.phase === "reconnecting") { this.phase = ""; this.render(); }
+      this.pollNetRoute();
     });
+    this.startNetRoute();
     if (typeof MediaStream === "undefined") return; // headless (tests)
     this.remoteStream = new MediaStream();
     this.remoteAudio = new MediaStream();
@@ -820,6 +828,78 @@ export class CallManager extends EventTarget {
     return servers;
   }
 
+  // #239: Direct / Via relay from getStats(): every 2 s, on ICE changes and
+  // on selectedcandidatepairchange (RTCIceTransport, where exposed).
+  startNetRoute() {
+    if (this.netRouteTimer || typeof this.pc?.getStats !== "function") return;
+    this.netRouteTimer = setInterval(() => this.pollNetRoute(), NET_ROUTE_POLL_MS);
+    this._watchedIce = null;
+  }
+
+  watchIceTransport() {
+    try {
+      const ice = this.pc?.getSenders?.().find((s) => s.transport)?.transport?.iceTransport;
+      if (!ice || ice === this._watchedIce) return;
+      this._watchedIce = ice;
+      ice.addEventListener?.("selectedcandidatepairchange", () => this.pollNetRoute());
+    } catch {}
+  }
+
+  async pollNetRoute() {
+    const pc = this.pc;
+    if (!pc || typeof pc.getStats !== "function") return;
+    this.watchIceTransport();
+    let next = null;
+    try { next = parseCallRoute(await pc.getStats()); } catch { return; }
+    if (pc !== this.pc) return; // call ended meanwhile
+    this.applyNetRoute(next);
+  }
+
+  applyNetRoute(next) {
+    const prev = this.netRoute;
+    if (routeSwitched(prev, next)) {
+      this.netRouteFlash = Date.now() + NET_ROUTE_FLASH_MS;
+      this._log(`net route ${prev.kind} -> ${next.kind}`);
+      setTimeout(() => this.renderNetRoute(), NET_ROUTE_FLASH_MS + 50);
+    }
+    if (next || !prev) this.netRoute = next; // keep the last route through a stats gap
+    this.renderNetRoute();
+  }
+
+  stopNetRoute() {
+    if (this.netRouteTimer) { clearInterval(this.netRouteTimer); this.netRouteTimer = null; }
+    this._watchedIce = null;
+  }
+
+  // Shown only once media flows: hidden while connecting / reconnecting.
+  netRouteVisible() {
+    return !!(this.netRoute && this.state === "active" && this.connectedAt && !this.phase);
+  }
+
+  renderNetRoute() {
+    if (typeof document === "undefined") return;
+    const box = document.getElementById("call-overlay");
+    const el = box?.querySelector(".call-net");
+    if (!el) return;
+    const r = this.netRoute;
+    el.hidden = !this.netRouteVisible();
+    if (el.hidden) return;
+    const label = netRouteLabel(r);
+    const chip = el.querySelector(".call-net-chip");
+    chip.dataset.kind = r.kind;
+    chip.classList.toggle("flash", Date.now() < this.netRouteFlash);
+    const key = `${r.kind}`;
+    if (chip.dataset.key !== key) {
+      chip.dataset.key = key;
+      chip.innerHTML = (r.kind === "relay" ? CALL_ICONS.routeRelay : CALL_ICONS.routeDirect) + `<span>${escapeHtml(label)}</span>` + CALL_ICONS.chevron;
+    }
+    const detail = netRouteDetail(r);
+    chip.title = detail.join("\n");
+    const d = el.querySelector(".call-net-detail");
+    const html = detail.map((l) => `<div>${escapeHtml(l)}</div>`).join("");
+    if (d.innerHTML !== html) d.innerHTML = html;
+  }
+
   startTimer() {
     if (this.durationTimer) return;
     if (this.pc?.connectionState === "connected" && !this.connectedAt) this.connectedAt = Date.now();
@@ -861,6 +941,8 @@ export class CallManager extends EventTarget {
   releaseMedia() {
     wakeLockRelease();
     if (this.durationTimer) { clearInterval(this.durationTimer); this.durationTimer = null; }
+    this.stopNetRoute();
+    this.netRoute = null;
     try { if (this.pc) this.pc.close(); } catch {}
     try { for (const t of this.localStream?.getTracks() || []) t.stop(); } catch {}
     try { this.camTrack?.stop(); } catch {}
@@ -902,6 +984,10 @@ export class CallManager extends EventTarget {
       <div class="call-top">
         <div class="call-name"></div>
         <div class="call-status" role="status"></div>
+        <details class="call-net" hidden>
+          <summary class="call-net-chip"></summary>
+          <div class="call-net-detail"></div>
+        </details>
       </div>
       <div class="call-avatar" aria-hidden="true"></div>
       <video class="call-local-video" playsinline autoplay muted hidden aria-label="${escapeHtml(t("Your camera"))}"></video>
@@ -947,6 +1033,7 @@ export class CallManager extends EventTarget {
     box.setAttribute("aria-label", t("Call with {name}", { name }));
     box.querySelector(".call-name").textContent = name;
     box.querySelector(".call-status").textContent = this.statusText();
+    this.renderNetRoute();
     const av = box.querySelector(".call-avatar");
     const avKey = `${this.peer.avatarUrl}|${this.peer.color}|${name}`;
     if (av.dataset.key !== avKey) {
@@ -1017,7 +1104,31 @@ const MIC = `<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" fill
 const SLASH = `<path d="M4 4l16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`;
 const CAM = `<rect x="3" y="6.5" width="12.5" height="11" rx="2.2" fill="currentColor"/><path d="M16.5 10.5l4.5-3v9l-4.5-3z" fill="currentColor"/>`;
 const PHONE = `<path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.4 11.4 0 0 0 .57 3.6 1 1 0 0 1-.25 1z" fill="currentColor"/>`;
+// #239 outline icons (stroke 2, 24 grid): two ends joined straight / via a node.
+const OUTLINE = (d) => `<path d="${d}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+const ROUTE_DIRECT = OUTLINE("M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4");
+const ROUTE_RELAY = OUTLINE("M3 18l7-10M21 18l-7-10") + `<circle cx="12" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/>`;
+
+export function netRouteLabel(r) {
+  return r?.kind === "relay" ? t("Via relay") : t("Direct");
+}
+
+// Detail lines for the tap/hover disclosure.
+export function netRouteDetail(r) {
+  if (!r) return [];
+  const lines = [t("Candidates: {local} / {remote}", { local: r.local || "?", remote: r.remote || "?" })];
+  if (r.protocol) lines.push(t("Protocol: {protocol}", { protocol: r.protocol.toUpperCase() }));
+  if (r.rttMs != null) lines.push(t("Round trip: {ms} ms", { ms: r.rttMs }));
+  lines.push(r.kind === "relay"
+    ? t("Relayed calls are normal and still end-to-end encrypted.")
+    : t("Media goes straight between the devices, end-to-end encrypted."));
+  return lines;
+}
+
 export const CALL_ICONS = Object.freeze({
+  routeDirect: svg(ROUTE_DIRECT),
+  routeRelay: svg(ROUTE_RELAY),
+  chevron: svg(OUTLINE("M6 9l6 6 6-6")).replace("<svg ", '<svg class="call-net-chevron" '),
   mic: svg(MIC),
   micOff: svg(MIC + SLASH),
   camera: svg(CAM),

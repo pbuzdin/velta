@@ -6,6 +6,8 @@
 // velta-wasm-core. ifAvailable would fail that race and the app would boot
 // the empty demo instead of the saved account. A real second tab still
 // holds the lock after the grace period.
+import { reportCheckpoint } from "./diagnostics.js";
+
 export async function acquireWasmLock(request, onHeld, waitMs = 1500) {
   if (typeof request !== "function") return true;
   const once = () => new Promise((resolve) => {
@@ -32,12 +34,19 @@ export class WorkerWasmTransport {
     wsProxyUrl = null,
     wsProxyToken = "",
     wsProxyDevice = "",
+    dbKey = null,
+    unlockSrc = null,
   } = {}) {
     this.name = "worker-wasm";
     this._workerUrl = workerUrl;
     this._glueUrl = glueUrl;
     this._wsProxyUrl = wsProxyUrl;
     this._wsProxyToken = wsProxyToken;
+    // #178: KEK bytes for the encrypted snapshot (page-derived, page keeps
+    // no copy); null boots the plaintext/opt-out path. `unlockSrc` names the
+    // wrap the KEK opens when the user unlocked via PIN/recovery code.
+    this._dbKey = dbKey;
+    this._unlockSrc = unlockSrc;
     this._wsProxyDevice = wsProxyDevice;
     this._receiver = null;
     this._worker = null;
@@ -115,6 +124,29 @@ export class WorkerWasmTransport {
     });
   }
 
+  // #178: switch the snapshot to encrypted writes (KEK + non-secret meta:
+  // mode, KDF salt, prf credential id). Resolves after the wrap is stored;
+  // the next checkpoint rewrites the generation encrypted.
+  setEncryption({ kek, meta }) {
+    return this._fileRequest({ type: "set-encryption", kek, meta }, "encryption-on");
+  }
+
+  // Rewrite the snapshot plaintext and drop the wrap (worker awaits the
+  // checkpoint before confirming).
+  disableEncryption() {
+    return this._fileRequest({ type: "disable-encryption" }, "encryption-off");
+  }
+
+  // #178 phase 4: wrap the current DEK under a PIN / recovery-code KEK, or
+  // drop that wrap again (kind: "pin" | "recovery").
+  setUnlockWrap({ kind, kek, meta }) {
+    return this._fileRequest({ type: "set-unlock-wrap", kind, kek, meta }, "unlock-wrap-done");
+  }
+
+  removeUnlockWrap(kind) {
+    return this._fileRequest({ type: "remove-unlock-wrap", kind }, "unlock-wrap-done");
+  }
+
   async _boot() {
     // Single-tab gate: two live cores would race the OPFS snapshot. Hold the
     // lock for the worker's lifetime; a second tab gets a clear error.
@@ -124,26 +156,35 @@ export class WorkerWasmTransport {
     );
     if (!acquired) throw new Error("wasm core is already open in another tab");
     return new Promise((resolve, reject) => {
+      let booted = false;
       const w = new Worker(this._workerUrl, { type: "module" });
       w.onmessage = (e) => {
         const d = e.data;
         if (d.type === "line") this._receiver?.(d.line);
-        else if (d.type === "ready") resolve();
+        else if (d.type === "ready") { booted = true; resolve(); }
         else if (d.type === "boot-error") {
           this._releaseLock?.();
           reject(new Error(d.error));
         }
+        // Interval-checkpoint results (no request id): surface failures —
+        // a stopped checkpoint means nothing is being saved.
+        else if (d.type === "checkpoint-failed") reportCheckpoint(false, new Error(d.error));
+        else if (d.type === "checkpoint-ok") reportCheckpoint(true);
       };
       w.onerror = (e) => {
         this._releaseLock?.();
-        reject(new Error(`worker error: ${e.message ?? "unknown"}`));
+        const why = `worker error: ${e.message ?? "unknown"}`;
+        // #240: a crash after boot is a dead core — tell the watchdog.
+        if (booted) globalThis.dispatchEvent?.(new CustomEvent("velta-core-dead", { detail: { reason: why } }));
+        else reject(new Error(why));
       };
-      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken, wsProxyDevice: this._wsProxyDevice });
+      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken, wsProxyDevice: this._wsProxyDevice, dbKey: this._dbKey, unlockSrc: this._unlockSrc });
       this._worker = w;
       // Save when the page goes to the background (tab switch, app switch,
       // the start of a reload). Safe now that a cut-off write is ignored.
       globalThis.document?.addEventListener?.("visibilitychange", () => {
-        if (globalThis.document.visibilityState === "hidden") this.checkpoint().catch(() => {});
+        if (globalThis.document.visibilityState !== "hidden") return;
+        this.checkpoint().then(() => reportCheckpoint(true), (err) => reportCheckpoint(false, err));
       });
       // Best effort only: the page cannot wait for OPFS writes while it
       // unloads. Anything the user just saved goes through

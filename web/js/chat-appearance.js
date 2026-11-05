@@ -133,19 +133,39 @@
       const bubble = ensureSurface(mix(c, s.chat, 0.5), s.text, 7, -1);
       out.bubbleOut = bubble;
       out.bgActive = bubble;
+      // #182: selection is its own concept — it follows the bubble today, but
+      // --selection-bg lets the two drift apart without a rename.
+      out.selectionBg = bubble;
       out.metaOut = ensureContrast(mix(c, INK_LIGHT, 0.55), bubble, 4.5, 1);
       out.outLink = ensureContrast(mix(c, INK_LIGHT, 0.82), bubble, 4.5, 1);
       out.ticksRead = ensureContrast(mix(c, INK_LIGHT, 0.35), bubble, 3, 1);
+      out.accentTextIn = accent; // inline buttons in incoming bubbles
     } else {
       // Own bubble: a light tint of the accent (default #e1f0fb ≈ 14%).
       const bubble = ensureSurface(mix(c, s.bubbleIn, 0.86), s.text, 7, 1);
       out.bubbleOut = bubble;
       out.bgActive = accent;
+      out.selectionBg = accent; // #182: the light selected-chat fill is the accent itself
       out.metaOut = ensureContrast(mix(c, s.text, 0.25), bubble, 4.5, -1);
-      out.outLink = ensureContrast(mix(c, s.text, 0.55), bubble, 4.5, -1);
+      // The mention chip lays a tint of the text color OVER the bubble
+      // (8% in-rows, 14% out-rows), so the effective background darkens WITH
+      // the text and a plain ensureContrast against the bare bubble converges
+      // below AA (3.82/4.09 measured with the yellow accent). Iterate: darken
+      // until the color clears 4.5 against its own tinted composite. Clearing
+      // the darker composite clears the plain bubble a fortiori (light theme).
+      const tintStable = (start, tintRatio, bgBase) => {
+        let color = start;
+        for (let i = 0; i < 24; i++) {
+          const next = ensureContrast(color, mix(bgBase, color, tintRatio), 4.5, -1);
+          if (next === color) return color;
+          color = next;
+        }
+        return color;
+      };
+      out.outLink = tintStable(ensureContrast(mix(c, s.text, 0.55), bubble, 4.5, -1), 0.14, bubble);
       out.ticksRead = ensureContrast(c, bubble, 3, -1);
+      out.accentTextIn = tintStable(accent, 0.08, s.bubbleIn);
     }
-    out.accentTextIn = accent; // inline buttons in incoming bubbles (light)
     // Accent-colored UI text (.btn-text, status, send icon) on the app
     // surfaces: sidebar and the incoming bubble, both >= 4.6:1.
     out.accentText = [s.sidebar, s.bubbleIn, s.quote, s.raised].reduce((a, bg) => ensureContrast(a, bg, 4.6, dir), c);
@@ -157,8 +177,8 @@
   }
   const VAR_NAMES = {
     accent: "--accent", accentHover: "--accent-hover", accentActive: "--accent-active", onAccent: "--on-accent",
-    accentTint: "--accent-tint", bubbleOut: "--bg-bubble-out", bgActive: "--bg-active", metaOut: "--text-meta-out",
-    outLink: "--out-link", ticksRead: "--ticks-read", onAccentChip: "--on-accent-chip",
+    accentTint: "--accent-tint", bubbleOut: "--bg-bubble-out", bgActive: "--bg-active", selectionBg: "--selection-bg",
+    metaOut: "--text-meta-out", outLink: "--out-link", ticksRead: "--ticks-read", onAccentChip: "--on-accent-chip",
     accentTextIn: "--accent-text-in", quoteName: "--quote-name", accentText: "--accent-text",
   };
   const BRUTAL_KEYS = ["accent", "accentHover", "accentActive", "onAccent", "accentTint", "onAccentChip", "accentText"];
@@ -244,8 +264,10 @@
       const mode = (s && s.getItem("dw-theme")) || "auto";
       const eff = mode === "auto" ? (g.matchMedia && g.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : mode;
       root.dataset.theme = eff;
+      const amoled = eff === "dark" && s && s.getItem("velta-amoled") === "1"; // #277
+      if (amoled) root.setAttribute("data-amoled", "");
       const meta = doc.querySelector && doc.querySelector('meta[name="theme-color"]');
-      if (meta) meta.content = THEME_BG[eff] || THEME_BG.light;
+      if (meta) meta.content = amoled ? "#000000" : THEME_BG[eff] || THEME_BG.light;
     } catch {}
   }
 

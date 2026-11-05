@@ -13,6 +13,7 @@ import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
+import { markLangCardDone } from "./lang-cards.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { mountInviteDomains } from "./invite-domains.js";
 
@@ -234,6 +235,7 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
   openLightDismiss(bar);
   const r = bar.getBoundingClientRect();
   const vw = globalThis.innerWidth || 1024;
+  const vh = globalThis.innerHeight || 800;
   // Own (.out) bubbles right-align the bar to their edge; received bubbles
   // left-align it — the bar never swings over the chat list.
   let left;
@@ -242,8 +244,22 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
     left = anchor ? anchor.right - r.width : (vw - r.width) / 2;
     left = Math.max(8, Math.min(left, vw - r.width - 8));
   }
+  // Vertical stays bubble-anchored — the bar is part of the message, not a
+  // cursor tooltip; ⋮ and right-click must land in the same place. The clamp
+  // area is the chat list's visible rect (under the sticky header, above the
+  // composer), so a message taller than the screen pins the bar to the
+  // message's visible top instead of pushing it out of reach: the old flip
+  // used the bubble's bottom edge, which is off-screen too for such
+  // messages, and the bar closes on scroll — it was unreachable.
+  const listRect = scrollEl?.getBoundingClientRect?.();
+  const minTop = listRect ? listRect.top + 8 : 8;
+  const maxTop = Math.max(minTop, (listRect ? listRect.bottom : vh) - r.height - 8);
   let top = anchor ? anchor.top - r.height - 6 : 120;
-  if (top < 8 && anchor) top = anchor.bottom + 6;
+  if (anchor && top < minTop) {
+    top = anchor.bottom + 6; // prefer below a bubble whose top scrolled off
+    if (top > maxTop) top = minTop; // bubble fills the screen: ride its visible top
+  }
+  top = Math.max(minTop, Math.min(top, maxTop));
   bar.style.left = Math.round(left) + "px";
   bar.style.top = Math.round(top) + "px";
   return close;
@@ -805,7 +821,7 @@ export function toast(text, ms = 2200, opts = {}) {
   el.append(summary, more);
   box.appendChild(el);
   // A sticky notice (the PWA reload) sits outside the cap and is never the one dropped.
-  const ordinary = () => [...box.children].filter((n) => !n.classList.contains("toast-sticky"));
+  const ordinary = () => [...box.children].filter((n) => !n.classList?.contains?.("toast-sticky"));
   while (ordinary().length > 3) ordinary()[0].remove();
   raiseToasts();
 
@@ -1231,7 +1247,7 @@ export function chatAppearanceHtml() {
   const preset = A.PRESETS.find(([c]) => c === st.accent);
   const custom = st.accent && !preset ? st.accent : "";
   // The custom-color ring is drawn from the same PRESETS (one source of hex).
-  const ringCols = A.PRESETS.map(([c]) => c).filter(Boolean);
+  const ringCols = A.PRESETS.map(([c, label]) => c).filter(Boolean);
   const caRainbow = `conic-gradient(${[...ringCols, ringCols[0]].join(", ")})`;
   const swatches = A.PRESETS.map(([c, label]) => `<label class="ca-swatch"${c ? ` style="--sw: ${c}"` : " data-default"} title="${escapeAttr(t(label))}"><input type="radio" name="ca-accent" value="${c || ""}" aria-label="${escapeAttr(t(label))}"${(c || null) === (st.accent && preset ? st.accent : null) && !custom ? " checked" : ""}></label>`).join("");
   return `<details class="drawer-details" data-chat-appearance>
@@ -1257,6 +1273,7 @@ export function chatAppearanceHtml() {
           </fieldset>
           <div class="bar-opts-hint" data-ca-accent-hint>${escapeHtml(t("Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors."))}</div>
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-stickers-in-attach${localStorage.getItem("velta-stickers-in-attach") === "1" ? " checked" : ""}><span>${escapeHtml(t("Stickers in attachments menu"))}</span></label>
           <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
@@ -1317,6 +1334,11 @@ export function wireChatAppearance(root, { onChange } = {}) {
     commit({ accent: custom.value });
   });
   hyph.addEventListener("change", () => commit({ hyphens: hyph.checked }));
+  // #278: composer sticker button vs Attach → Stickers.
+  sec.querySelector("[data-stickers-in-attach]")?.addEventListener("change", e => {
+    try { localStorage.setItem("velta-stickers-in-attach", e.target.checked ? "1" : "0"); } catch {}
+    window.dispatchEvent(new Event("velta-stickers-pref"));
+  });
   sec.querySelector("[data-ca-reset]").addEventListener("click", () => {
     const st = A.apply(A.reset());
     sync(st);
@@ -1337,7 +1359,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
+export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = null, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onProxy = null, proxyLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
   const inTauri = isTauri();
   const androidApp = IS_ANDROID && inTauri;
   const drawer = document.createElement("div");
@@ -1364,6 +1386,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     <div class="drawer-items">
       <button type="button" class="ctx-item" data-act="saved">${ICON.bookmark}<span>${t("Saved Messages")}</span></button>
       <button type="button" class="ctx-item" data-act="invite">${ICON.invite}<span>${t("Invite friends (QR)")}</span></button>
+      ${onPrivacySecurity ? `<button type="button" class="ctx-item" data-act="privacy-security">${ICON.shieldCheck}<span>${t("Privacy & security…")}</span></button>` : ""}
       ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Loop", p2pOn ? "on" : "off"))}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="${escapeHtml(t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."))}">${ICON.typing}<span>${escapeHtml(toggleText("Typing indicator", localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
@@ -1373,6 +1396,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           <legend class="vh">${t("Theme")}</legend>
           ${Object.entries(THEME_LABELS).map(([v, label]) => `<label class="scale-opt"><input type="radio" name="app-theme" value="${v}"${v === theme ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
+        <label class="scale-opt" data-amoled-opt${document.documentElement.dataset.theme === "dark" ? "" : " hidden"}><input type="checkbox" role="switch" data-toggle-amoled${localStorage.getItem("velta-amoled") === "1" ? " checked" : ""}><span>${escapeHtml(t("Pure black (AMOLED)"))}</span></label>
       </details>
       <details class="drawer-details">
         <summary>${ICON.language}<span data-lang-summary>${t("{label}: {state}", { label: t("Language"), state: (LANGS.find(([v]) => v === currentLang()) || LANGS[0])[1] })}</span></summary>
@@ -1457,7 +1481,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       </details>
       <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
       <button type="button" class="ctx-item" data-act="relays">${ICON.globe}<span>${t("Relays of this profile…")}</span></button>
-      ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel">${ICON.tunnel}<span>${escapeHtml(t("DNS tunnel:"))} ${escapeHtml(tunnelLabel)}</span></button>` : ""}
+      ${onProxy ? `<button type="button" class="ctx-item" data-act="proxy">${ICON.proxy}<span>${escapeHtml(t("SOCKS5 proxy:"))} ${escapeHtml(proxyLabel)}</span></button>` : ""}
       ${onWsTransport ? `<button type="button" class="ctx-item" data-act="ws-transport">${ICON.wsTransport}<span>${t("{label}: {state}", { label: t("WebSocket transport"), state: escapeHtml(wsTransportLabel) })}</span></button>` : ""}
       ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays">${ICON.globe}<span>${t("WebSocket relays")}</span></button>` : ""}
       ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup">${ICON.key}<span>${t("Identity backup…")}</span></button>` : ""}
@@ -1561,6 +1585,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const v = e.target?.value;
     if (!v || v === currentLang()) return;
     setLang(v);
+    markLangCardDone(); // a switch ends the language cards (lang-cards.js)
     location.reload();
   });
 
@@ -1696,6 +1721,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     onDownloadLimit(value);
   });
   wireChatAppearance(drawer);
+  // #277: the AMOLED switch only exists for an effective dark theme.
+  const amoledOpt = drawer.querySelector("[data-amoled-opt]");
+  const syncAmoledOpt = () => { if (amoledOpt) amoledOpt.hidden = document.documentElement.dataset.theme !== "dark"; };
+  document.addEventListener("velta-theme-applied", syncAmoledOpt);
+  amoledOpt?.querySelector("input")?.addEventListener("change", e => {
+    try { localStorage.setItem("velta-amoled", e.target.checked ? "1" : "0"); } catch {}
+    onSetTheme?.(localStorage.getItem("dw-theme") || "auto");
+  });
   drawer.querySelector("[data-theme-opts]")?.addEventListener("change", e => {
     const v = e.target?.value;
     if (!v || !THEME_LABELS[v]) return;
@@ -1809,12 +1842,13 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (act === "profile") onProfile?.();
     if (act === "edit-profile") onEditProfile?.();
     if (act === "profile-management") onProfileManagement?.();
+    if (act === "privacy-security") onPrivacySecurity?.();
     if (act === "account") onAccountTap?.(btn.dataset.account);
     if (act === "relays") onRelays?.();
     if (act === "ws-relays") onWsRelays?.();
     if (act === "ws-transport") onWsTransport?.();
     if (act === "invite-domains") onInviteDomains?.();
-    if (act === "tunnel") onTunnel?.();
+    if (act === "proxy") onProxy?.();
     if (act === "identity-backup") onIdentityBackup?.();
     if (act === "about") showAbout({ onDiagnostics, backendKind });
     if (act === "export-settings") onExportSettings?.();
@@ -1996,6 +2030,7 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
     btn.addEventListener("click", () => { about.close(); onDiagnostics(); });
     foot = btn;
   }
+  const tauri = isTauri();
   const about = showModal({
     title: "About Velta",
     foot,
@@ -2005,6 +2040,14 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
       <div class="info-row"><span class="k">${escapeHtml(t("Transport"))}</span><span class="v">${escapeHtml(t("chatmail relays (IMAP/SMTP)"))}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("Encryption"))}</span><span class="v">${escapeHtml(t("OpenPGP, end-to-end"))}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("UI stack"))}</span><span class="v">${escapeHtml(t("Elena progressive web components"))}</span></div>
+      ${tauri ? `<label class="info-row" data-file-logging>
+        <span class="k">${escapeHtml(t("File logging"))}</span>
+        <span class="v"><input type="checkbox" data-file-logging-sw></span>
+      </label>
+      <div class="device-info-actions about-log-actions">
+        <button type="button" class="btn-text" data-log-copy>${escapeHtml(t("Copy log"))}</button>
+        <button type="button" class="btn-text" data-log-share hidden>${escapeHtml(t("Share"))}</button>
+      </div>` : ""}
       <details class="device-info" data-device-info>
         <summary>${escapeHtml(t("Show device info"))}</summary>
         <pre class="device-info-text" data-device-info-text></pre>
@@ -2017,7 +2060,7 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
   // Device info for bug reports — collected when opened (viewport, orientation
   // and insets are live values), no personal identifiers (device-info.js).
   const det = about.modal.querySelector("[data-device-info]");
-  const pre = det.querySelector("[data-device-info-text]");
+  const pre = det.querySelector(".device-info-text");
   let tauriVersion = null;
   const fill = () => {
     pre.textContent = formatDeviceInfo(collectDeviceInfo({
@@ -2041,12 +2084,40 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
   });
   const shareBtn = det.querySelector("[data-device-share]");
   const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
-  shareBtn.hidden = !canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare });
+  const shareOpts = { ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare };
+  shareBtn.hidden = !canShareLink(shareOpts);
   shareBtn.addEventListener("click", async () => {
     try {
       await shareLink(pre.textContent, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: t("Velta device info") });
     } catch (err) { toast(t("Couldn't share: ") + (err?.message || err)); }
   });
+  if (tauri) {
+    const sw = about.modal.querySelector("[data-file-logging-sw]");
+    sw.checked = localStorage.getItem("velta-logging") === "1";
+    sw.addEventListener("change", () => {
+      const on = sw.checked;
+      localStorage.setItem("velta-logging", on ? "1" : "0");
+      tauriInvoke()?.("set_logging_enabled", { enabled: on }).catch?.(() => {});
+    });
+    const loadLog = () => tauriInvoke()?.("read_log_file") ?? Promise.resolve("");
+    about.modal.querySelector("[data-log-copy]").addEventListener("click", async () => {
+      try {
+        const text = await loadLog();
+        if (!text) { toast(t("Log is empty")); return; }
+        await navigator.clipboard.writeText(text);
+        toast(t("Log copied"));
+      } catch { toast(t("Couldn't copy the log")); }
+    });
+    const shareLog = about.modal.querySelector("[data-log-share]");
+    shareLog.hidden = !canShareLink(shareOpts);
+    shareLog.addEventListener("click", async () => {
+      try {
+        const text = await loadLog();
+        if (!text) { toast(t("Log is empty")); return; }
+        await shareLink(text, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: t("Velta log") });
+      } catch (err) { toast(t("Couldn't share: ") + (err?.message || err)); }
+    });
+  }
 }
 
 /* ---------- Emoji pop ---------- */

@@ -146,9 +146,10 @@ export function itemsFor(doc, accountId, chatId = null) {
 }
 
 // Errors where we cannot know whether the core already queued the message:
-// never auto-retried (no double send).
+// never auto-retried (no double send). "reconnecting" is the reconnect()
+// rejection — a send that reached the core but lost its response lands here.
 export function isUncertainError(err) {
-  return /tim(ed|e) ?out|dropped|closed|restart|not running|disconnect/i.test(String(err?.message || err || ""));
+  return /tim(ed|e) ?out|dropped|closed|restart|not running|disconnect|reconnect/i.test(String(err?.message || err || ""));
 }
 
 // ---- presets (user's local time zone; DST-safe via local Date fields) ----

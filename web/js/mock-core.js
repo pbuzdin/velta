@@ -118,6 +118,7 @@ export class MockCore extends EventTarget {
     // Demo relay set for the Relays modal (issue #11 slices: demotion +
     // stale-transport hint are demoable without a real multi-relay account).
     this.relayDomains = this.account.relay ? [this.account.relay, "chat.vim.wtf"] : [];
+    this.pausedRelays = []; // Velta #24 (#189): relays paused via the Relays modal
     this.contacts = CONTACTS;
     this._extraMembers = {}; // chatId → contact ids added via addChatMembers
     this._leftChats = new Set(); // chat ids the demo user has left
@@ -411,7 +412,19 @@ export class MockCore extends EventTarget {
 
   // ---- Relay management demo surface (Relays modal works in demo mode) ----
   async listTransports() {
-    return this.relayDomains.map(d => ({ addr: `you@${d}` }));
+    return this.relayDomains.map(d => ({ addr: `you@${d}`, enabled: !this.pausedRelays.includes(d) }));
+  }
+
+  // Velta #24 (#189): pause/resume without deleting.
+  async setTransportEnabled(addr, enabled) {
+    const domain = String(addr).includes("@") ? addr.split("@")[1] : addr;
+    if (enabled) this.pausedRelays = this.pausedRelays.filter(d => d !== domain);
+    else if (!this.pausedRelays.includes(domain)) this.pausedRelays.push(domain);
+    this._emit("transports-modified", {});
+  }
+
+  async listTransportStates() {
+    return this.relayDomains.map(d => ({ addr: `you@${d}`, enabled: !this.pausedRelays.includes(d) }));
   }
 
   async setSendRelay(addr) {
@@ -654,12 +667,32 @@ export class MockCore extends EventTarget {
     return (await this.getChatMembers(chatId)).map(m => m.id);
   }
 
+  // #177 demo: "Velta Devs" (15) is an admin group run by contact 4, so the
+  // non-admin view (badge, hidden edit controls) shows without a real core.
+  async getGroupAdminId(chatId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat || chat.kind !== "group") return null;
+    // ?mockadmin=7 (Delta Bot) or =1 (you) previews other admins in Velta Devs.
+    const q = Number(globalThis.location?.search?.match(/[?&]mockadmin=(\d+)/)?.[1]);
+    return chat.groupAdminId ?? ({ 15: q || 4 })[chat.id] ?? null;
+  }
+
+  async removeChatMember(chatId, contactId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) return;
+    this._extraMembers[chatId] = (this._extraMembers[chatId] || []).filter(id => id !== contactId);
+    (this._removedMembers ||= {})[chatId] = [...(this._removedMembers[chatId] || []), contactId];
+    chat.memberCount = Math.max(1, (chat.memberCount || 1) - 1);
+    this._emit("chat-updated", { chatId });
+  }
+
   async getChatMembers(chatId) {
     const GROUP_MEMBERS = { 13: [2, 3, 4, 5, 6], 15: [2, 4, 6, 7], 17: [2], 20: [3, 6] };
     const chat = this.chats.find(c => c.id === chatId);
     if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return [];
     const self = { id: 1, name: this.account.displayName, color: this.account.color };
-    return [self, ...(GROUP_MEMBERS[chat.id] || []).concat(this._extraMembers[chat.id] || []).map(id => {
+    const gone = new Set(this._removedMembers?.[chat.id] || []);
+    return [self, ...(GROUP_MEMBERS[chat.id] || []).concat(this._extraMembers[chat.id] || []).filter(id => !gone.has(id)).map(id => {
       const c = this.contacts.find(x => x.id === id);
       return c && { id: c.id, name: c.name, addr: c.addr, color: c.color, avatar: c.avatar, online: c.online, lastSeen: c.lastSeen };
     }).filter(Boolean)];
@@ -718,7 +751,7 @@ export class MockCore extends EventTarget {
     const c = this.contacts.find(x => x.id === Number(contactId));
     if (!c) throw new Error("no such contact");
     const g = f => f.match(/.{4}/g).join(" ");
-    return `End-to-end encryption available.\n\nYou (${this.account.addr}):\n${g(mockFingerprint(this.account.addr))}\n\n${c.name} (${c.addr}):\n${g(mockFingerprint(c.addr))}`;
+    return `End-to-end encryption available.\n\nYou:\n${g(mockFingerprint(this.account.addr))}\n\n${c.name}:\n${g(mockFingerprint(c.addr))}\n\nRelays:\n${c.addr}`;
   }
 
   async getSelfDisplayName() { return this.account.displayName || ""; }
@@ -771,6 +804,16 @@ export class MockCore extends EventTarget {
       }
     }
     return null;
+  }
+
+  async addDeviceMessage(label, text) {
+    this._deviceLabels ||= new Set();
+    if (this._deviceLabels.has(label)) return null;
+    this._deviceLabels.add(label);
+    const chat = this.chats.find(c => c.kind === "device");
+    const m = this._mkMsg(chat, { from: 0, text, fromDevice: true });
+    chat.messages.push(m);
+    return m.id;
   }
 
   async getMessages(chatId, opts = {}) {
@@ -1089,8 +1132,12 @@ export class MockCore extends EventTarget {
 
   async createChat(name, contactIds, kind = "group") {
     const id = 100 + this.chats.length;
+    // #177: an admin group is a group whose admin is this account.
+    const adminGroup = kind === "admin-group";
+    if (adminGroup) kind = "group";
     const chat = {
       id, name, kind, contactId: kind === "single" ? contactIds[0] : null,
+      groupAdminId: adminGroup ? 1 : null,
       chatType: kind === "channel" ? "OutBroadcast" : null,
       canPost: kind === "channel",
       memberCount: (contactIds?.length || 0) + 1, pinned: false, muted: false,
@@ -1098,6 +1145,7 @@ export class MockCore extends EventTarget {
       messages: [this._mkMsg({ id }, { kind: "service", text: kind === "group" ? `Group "${name}" created` : kind === "channel" ? `Channel "${name}" created` : "Messages are end-to-end encrypted.", ts: Date.now() })],
     };
     this.chats.push(chat);
+    if (kind === "group") this._extraMembers[id] = [...(contactIds || [])];
     this._emit("chat-updated", { chatId: id });
     return id;
   }

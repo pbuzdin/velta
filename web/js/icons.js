@@ -37,7 +37,7 @@ export const P = {
   videoCall: '<rect x="3" y="6.5" width="12.5" height="11" rx="2"/><path d="M15.5 10.5l5.5-3v9l-5.5-3z"/>',
   // video file (attach menu, video messages): frame + play triangle
   video: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.2v5.6l4.6-2.8z"/>',
-  camera: '<path d="M4 8h3l1.8-2.5h6.4L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.5"/>',
+  camera: '<path d="M4 8h3l1.8-2.5h6.4L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 01-1-1z"/><circle cx="12" cy="13" r="3.5"/>',
   photo: '<rect x="3" y="5" width="18" height="14" rx="2"/>' + DOT(9, 10, 1.6) + '<path d="M4 17l5-5 3.5 3.5L16 12l4 4"/>',
   download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/>',
   pin: '<path d="M9 3h6M10 3v6l-3.5 4v2h11v-2L14 9V3M12 15v6"/>',
@@ -62,7 +62,7 @@ export const P = {
   playDiag: '<path d="M8 5.2l11 6.8-11 6.8z" fill="currentColor" stroke="none"/>',
   relaySend: '<rect x="2.5" y="9.5" width="19" height="11" rx="2"/><path d="M4 11.5l8 5.5 8-5.5"/><path d="M12 12V2.6"/><path d="M8.7 5.6L12 2.2l3.3 3.4"/>',
   archive: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>',
-  markRead: '<path d="M3 13l4 4L17 7M10 15l2 2 8-8"/>',
+  markRead: '<path d="M3 13l4 4L19 7M10 15l2 2 8-8"/>',
   playFilled: '<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>',
   pauseFilled: '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor" stroke="none"/>',
   gotoMessage: '<path d="M4 5h16v11H8l-4 4z"/><path d="M9 10.5h6m-2.5-2.5 2.5 2.5-2.5 2.5"/>',
@@ -108,6 +108,7 @@ export const P = {
   downloadBar: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><rect x="4" y="17" width="16" height="4" rx="1"/>',
   wsTransport: '<path d="M4 8h14m0 0l-3-3m3 3l-3 3"/><path d="M20 16H6m0 0l3-3m-3 3l3 3"/>',
   tunnel: '<path d="M3 20V11a9 9 0 0118 0v9"/><path d="M8 20v-7a4 4 0 018 0v7"/>',
+  proxy: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   key: '<circle cx="8" cy="14" r="4"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5"/>',
   cleanLink: '<path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M4 20l5-5"/>',
   enterKey: '<path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4"/>',
@@ -128,7 +129,10 @@ export const P = {
   sticker: '<path d="M11.5 20H6a2 2 0 01-2-2V6a2 2 0 012-2h12a2 2 0 012 2v6.5L11.5 20Z"/><path d="M13 20a7 7 0 017-7"/><circle cx="8.7" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="15.3" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><path d="M8.5 13.4a4.2 4.2 0 007 0"/>',
   send: '<path d="M3 11.5L21 3l-6.5 18-2.7-7.3z"/>',
   // scheduled messages ("Send later"): clock face, hands at 12 → 4
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',  // Admin group / admin badge (#177): outline shield with a check
+  // Admin chip on the admin's messages (#177): plain outline shield
+  shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/>',
+  shieldCheck: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.3 2.3 4.2-4.6"/>',
 };
 
 export const ICON = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, svg(v)]));

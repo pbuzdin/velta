@@ -1,27 +1,33 @@
 // app.js — Velta bootstrap: chat list, navigation, modals, PWA
+import { initListCollapse } from "./list-collapse.js";
 import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
+import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
+import { createTransferTracker } from "./transfer-progress.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
+import { createLastGood, loadErrorBanner, withTimeout } from "./load-retry.js";
+import { probeLock, unlockInteractive, prfSupported } from "./db-lock.js";
+import { deriveKekPassphrase, deriveKekPrf, prfCreate, prfEval, b64 } from "./db-crypt.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
+import { adminCaps, adminBadgeHtml, adminInfoText, canRemoveMember } from "./admin-group.js";
 import { mentionsMe, fprCode } from "./mentions.js";
 import { mutedChatAllows, mentionInMutedOn } from "./notify-policy.js";
-import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
+import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived, relayAddresses } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile } from "./chat-view.js";
 import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 import { initGroupCallUi } from "./group-call-ui.js";
 import { notePushDiagnostic, relaySupportsPush } from "./relay-push.js";
-import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
+import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, diagnosticLine, normalizeDiagLevel, parseDiagnosticsLink, diagnosticsShareLink, isSendFailureDiagnostic, createRelaySendErrorState, VELTA_DEBUG, debugLog } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
-import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
+import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, notifyThrottled, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
 import { createNotifyQueue } from "./notify-queue.js";
-import { serializeSettings, parseSettings, diffSettings, applySettings, normalizeDownloadLimit } from "./settings-transfer.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -31,6 +37,35 @@ import { dontKillMyAppUrl, makerLabel, shouldAskBattery, rememberBatteryAnswer }
 // The PWA build precaches the whole dist and Tauri/Android serve app/ as is,
 // so the lazily imported files ship everywhere (tests/lazy-modules.test.mjs).
 const loadQrScan = () => import("./qr-scan.js");
+const loadSettingsTransfer = () => import("./settings-transfer.js");
+const loadWsRelaysModal = () => import("./ws-relays-modal.js");
+const loadScheduledUi = () => import("./scheduled-ui.js");
+const loadIdentityBackup = () => import("./identity-backup.js");
+const showWsRelaysModal = () => loadWsRelaysModal().then((m) => m.showWsRelaysModal());
+// Boot parse/eval marks stay cheap when debug is off; measures log only
+// with VELTA_DEBUG (localStorage velta-debug=1 or ?debug).
+function bootMark(name) {
+  try { performance.mark(name); } catch {}
+}
+function bootMeasure() {
+  if (!VELTA_DEBUG) return;
+  const log = (name) => {
+    const m = performance.getEntriesByName(name, "measure").at(-1);
+    if (m) debugLog(`${name} ${m.duration.toFixed(1)}ms`);
+  };
+  try {
+    performance.measure("velta-boot:to-imports", { start: 0, end: "velta-boot:imports" });
+    log("velta-boot:to-imports");
+  } catch {}
+  try {
+    performance.measure("velta-boot:imports-to-core", "velta-boot:imports", "velta-boot:core");
+    log("velta-boot:imports-to-core");
+  } catch {}
+  try {
+    performance.measure("velta-boot:core-to-ui", "velta-boot:core", "velta-boot:ui");
+    log("velta-boot:core-to-ui");
+  } catch {}
+}
 const acquireCode = async (opts) => (await loadQrScan()).acquireCode(opts);
 // Same handle as qr-scan.js mountScanner; calls made before the module
 // arrives are replayed (start) or cancel the mount (destroy).
@@ -56,16 +91,17 @@ import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, 
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
-import { extractTunnelLink, acceptTunnelLink, makeChooser, openTunnelSettings, refreshTunnelStatus, tunnelOffered, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
-import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
-import { isAndroid, tauriInvoke } from "./tauri.js";
+import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
+import { isAndroid, tauriInvoke, rustLog } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
-import { pickSendTime, openScheduledList, maybeAskExactAlarm, formatDue } from "./scheduled-ui.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
+import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { startCoreWatchdog } from "./core-watchdog.js";
 
+bootMark("velta-boot:imports");
 applyDocumentLang();
 translateTree(document);
 
@@ -92,6 +128,9 @@ let diagnosticsOpen = false;
 // bar): events keep being recorded into the store while paused, only the
 // rendering freezes; resuming re-renders to catch up.
 let diagnosticsPaused = false;
+// Which levels the open Diagnostics chat draws. A velta://diagnostics link
+// replaces this; the checkboxes follow it. Default is everything.
+let diagnosticsFilter = new Set(["error", "warning", "info"]);
 const DIAG_ICON_PAUSE = ICON.pause;
 const DIAG_ICON_PLAY = ICON.playDiag;
 let chatView = null;
@@ -146,6 +185,8 @@ const state = {
   // #57 category bar: active chip + lazy contact bot flags (P/B split).
   chatCategory: localStorage.getItem("velta-chat-category") || "all",
   contactBots: null, // null = not loaded; Map contactId -> bool once fetched
+  contactBotsError: null, // {acct, err}: last get_contacts failed (stall) — Retry banner
+  chatListError: null, // last refreshChatList error; state.chats keeps the last good list
   contactBotsAcct: null, // account the contactBots map belongs to
 };
 
@@ -165,11 +206,34 @@ window.addEventListener("unhandledrejection", e => appLog(`JS unhandled rejectio
 // take a moment while it probes for the background service.
 const $ = (id) => document.getElementById(id);
 
-function renderDiagnosticsMessages() {
+function shownDiagnostics() {
+  return diagnostics.messages.filter(m => diagnosticsFilter.has(normalizeDiagLevel(m.level)));
+}
+
+function syncDiagnosticsFilterChecks() {
+  for (const input of document.querySelectorAll("[data-diag-level]")) {
+    input.checked = diagnosticsFilter.has(input.dataset.diagLevel);
+  }
+}
+
+async function copyShownDiagnostics() {
+  const text = shownDiagnostics().map(diagnosticLine).join("\n");
+  if (!text) { toast(t("No matching diagnostics")); return false; }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t("Diagnostics copied — paste them to share"));
+    return true;
+  } catch {
+    toast(t("Couldn't copy"));
+    return false;
+  }
+}
+
+function renderDiagnosticsMessages({ force = false } = {}) {
   // Single choke point for every render path (open, live "changed" events,
   // resume): while paused the chat shows a frozen snapshot — the store keeps
-  // recording, resuming re-renders to catch up.
-  if (!diagnosticsOpen || diagnosticsPaused) return;
+  // recording, resuming re-renders to catch up. A filter change still redraws.
+  if (!diagnosticsOpen || (diagnosticsPaused && !force)) return;
   const history = $("history");
   if (!history) return;
   const scroll = $("history-scroll");
@@ -178,7 +242,7 @@ function renderDiagnosticsMessages() {
   // view away mid-read.
   const pinned = !scroll ||
     scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
-  history.replaceChildren(...diagnostics.messages.map(diagnosticRow));
+  history.replaceChildren(...shownDiagnostics().map(diagnosticRow));
   if (pinned) {
     requestAnimationFrame(() => {
       if (scroll) scroll.scrollTop = scroll.scrollHeight;
@@ -194,23 +258,112 @@ function renderInitialDiagnosticsChat() {
   list.replaceChildren(createChatItem(diagnostics.getChat(), false));
 }
 
+// The one "Restart: Core" path (Diagnostics button, watchdog banner, #240
+// auto-restart). kind: "manual" | "hung" | "dead". Resolves true on success.
+// #249: one restart at a time. The watchdog, the banner button and the UI
+// reconnect used to start overlapping restarts that failed each other
+// ("reconnecting", "requested during startup"); a second request now joins
+// the running one.
+let coreRestartInFlight = null;
+function restartCore(kind = "manual") {
+  if (coreRestartInFlight) {
+    diagnostics.append("info", `Core restart (${kind}) joined the one already running`);
+    return coreRestartInFlight;
+  }
+  const p = restartCoreOnce(kind);
+  coreRestartInFlight = p;
+  const clear = () => { if (coreRestartInFlight === p) coreRestartInFlight = null; };
+  p.then(clear, clear);
+  return p;
+}
+
+async function restartCoreOnce(kind = "manual") {
+  if (!core) {
+    diagnostics.append("warning", "Core is still starting; reloading the UI to retry initialization");
+    setTimeout(() => location.reload(), 150);
+    return true;
+  }
+  // PWA: a dead worker cannot be revived in place — reload boots a fresh
+  // one from the OPFS snapshot. The watchdog's restart history survives it.
+  if (kind === "dead" && core.backend?.kind === "worker-wasm") {
+    diagnostics.append("warning", "Core worker died; reloading to boot a new one");
+    setTimeout(() => location.reload(), 150);
+    return true;
+  }
+  try {
+    if (kind === "dead" && core.reconnect && await core.reconnect()) {
+      diagnostics.append("info", "Core reconnected after it died");
+    } else {
+      if (!core.restartIo) throw new Error("Core restart is unavailable for this backend");
+      await core.restartIo();
+    }
+    diagnostics.append("info", "Core restarted successfully");
+    toast(t("Core restarted"));
+    return true;
+  } catch (error) {
+    diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
+    errToast(t("Core restart failed: {why}", { why: error?.message || error }), 5000);
+    throw error;
+  }
+}
+
+// #240 Core watchdog: banner + liveness ping, started once the core is up.
+let coreWatchdog = null;
+let imexRunning = false;
+const WATCHDOG_HISTORY_KEY = "velta-core-restarts";
+function startWatchdog() {
+  if (coreWatchdog || !core || core.backend?.kind === "mock" || !core._callWithTimeout) return;
+  const banner = $("core-banner");
+  const text = $("core-banner-text");
+  const btn = $("core-banner-restart");
+  core.addEventListener("imex-progress", e => {
+    const p = e.detail?.progress || 0;
+    imexRunning = p > 0 && p < 1000;
+  });
+  const wlog = msg => {
+    try { rustLog(msg); } catch {}
+    diagnostics.append(/failed|died|cap|unresponsive|hung/.test(msg) ? "warning" : "info", msg);
+  };
+  // Restarts from before a PWA reload count toward the cap.
+  let history = [];
+  try { history = JSON.parse(sessionStorage.getItem(WATCHDOG_HISTORY_KEY) || "[]").filter(n => typeof n === "number"); } catch {}
+  coreWatchdog = startCoreWatchdog({
+    core,
+    restarts: history,
+    log: wlog,
+    isBusy: () => ({
+      transfer: imexRunning,
+      call: !!calls && ["incoming", "outgoing", "accepting", "active"].includes(calls.state),
+    }),
+    restart: async kind => {
+      if (kind !== "manual") {
+        try {
+          const h = JSON.parse(sessionStorage.getItem(WATCHDOG_HISTORY_KEY) || "[]");
+          sessionStorage.setItem(WATCHDOG_HISTORY_KEY, JSON.stringify([...h, Date.now()].slice(-5)));
+        } catch {}
+      }
+      if (btn) btn.disabled = true;
+      try { return await restartCore(kind); } finally { if (btn) btn.disabled = false; }
+    },
+    onShow: status => {
+      if (!banner) return;
+      banner.dataset.status = status;
+      text.textContent = status === "failed"
+        ? t("Core stopped and could not be restarted")
+        : status === "dead" ? t("Core stopped — restarting…") : t("Core not responding");
+      banner.hidden = false;
+    },
+    onHide: () => { if (banner) banner.hidden = true; },
+  });
+  btn?.addEventListener("click", () => coreWatchdog.manual());
+  addEventListener("velta-core-dead", e => coreWatchdog.dead(e.detail?.reason || "transport closed"));
+}
+
 function bindEarlyRecoveryActions() {
   $("btn-restart-core")?.addEventListener("click", async () => {
     diagnostics.append("info", "Core restart requested during startup");
-    if (!core) {
-      diagnostics.append("warning", "Core is still starting; reloading the UI to retry initialization");
-      setTimeout(() => location.reload(), 150);
-      return;
-    }
-    try {
-      if (!core.restartIo) throw new Error("Core restart is unavailable for this backend");
-      await core.restartIo();
-      diagnostics.append("info", "Core restarted successfully");
-      toast(t("Core restarted"));
-    } catch (error) {
-      diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
-      errToast(t("Core restart failed: {why}", { why: error?.message || error }), 5000);
-    }
+    if (coreWatchdog) { coreWatchdog.manual(); return; }
+    await restartCore("manual");
   }, { once: true });
 
   $("btn-reconnect-ui")?.addEventListener("click", async () => {
@@ -224,8 +377,15 @@ function bindEarlyRecoveryActions() {
       return;
     }
     try {
-      const ok = await core.reconnect?.();
-      if (!ok) throw new Error("Transport reconnect is unavailable");
+      // #249: a reconnect fails every pending call ("reconnecting"),
+      // including a restart already running — let that one finish instead.
+      if (coreRestartInFlight) {
+        diagnostics.append("info", "UI reconnect waits for the running core restart");
+        await coreRestartInFlight;
+      } else {
+        const ok = await core.reconnect?.();
+        if (!ok) throw new Error("Transport reconnect is unavailable");
+      }
       core.backend.connected = true;
       await refreshChatList();
       diagnostics.append("info", "UI reconnected successfully");
@@ -267,7 +427,8 @@ function openDiagnosticsChat() {
   const loggingSw = $("sw-logging");
   const devtoolsSw = $("sw-devtools");
   if (loggingSw) {
-    // Default OFF (V-09/#66) on both sides of the gate.
+    // Default OFF: missing key is off; only an explicit "1" writes velta.log
+    // (boot: heartbeats still write). About Velta has the same switch.
     loggingSw.checked = localStorage.getItem("velta-logging") === "1";
     if (!loggingSw.dataset.bound) {
       loggingSw.dataset.bound = "1";
@@ -296,6 +457,35 @@ function openDiagnosticsChat() {
       }
     });
   }
+  syncDiagnosticsFilterChecks();
+  for (const input of document.querySelectorAll("[data-diag-level]")) {
+    if (input.dataset.bound) continue;
+    input.dataset.bound = "1";
+    input.addEventListener("change", () => {
+      if (input.checked) diagnosticsFilter.add(input.dataset.diagLevel);
+      else diagnosticsFilter.delete(input.dataset.diagLevel);
+      renderDiagnosticsMessages({ force: true });
+    });
+  }
+  const copyBtn = $("btn-diag-copy");
+  if (copyBtn && !copyBtn.dataset.bound) {
+    copyBtn.dataset.bound = "1";
+    copyBtn.addEventListener("click", () => { copyShownDiagnostics(); });
+  }
+  const linkBtn = $("btn-diag-link");
+  if (linkBtn && !linkBtn.dataset.bound) {
+    linkBtn.dataset.bound = "1";
+    linkBtn.addEventListener("click", async () => {
+      const link = diagnosticsShareLink(diagnosticsFilter);
+      if (!link) { toast(t("No matching diagnostics")); return; }
+      try {
+        await navigator.clipboard.writeText(link);
+        toast(t("Link copied"));
+      } catch {
+        toast(t("Couldn't copy"));
+      }
+    });
+  }
   const pauseBtn = $("btn-diag-pause");
   if (pauseBtn && !pauseBtn.dataset.bound) {
     pauseBtn.dataset.bound = "1";
@@ -317,6 +507,13 @@ function openDiagnosticsChat() {
   renderDiagnosticsMessages();
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId: DIAGNOSTICS_CHAT_ID }, "");
   renderChatList();
+}
+
+async function openDiagnosticsFromLink(link) {
+  if (state.accountChanging) return;
+  diagnosticsFilter = new Set(link.levels);
+  openDiagnosticsChat();
+  if (link.copy) await copyShownDiagnostics();
 }
 
 diagnostics.addEventListener("changed", () => {
@@ -374,9 +571,8 @@ setInterval(() => {
 renderInitialDiagnosticsChat();
 bindEarlyRecoveryActions();
 
-// Apply the persisted Diagnostics logging switch at boot (default OFF,
-// V-09/#66). js_log gates itself, so this fires before the core connects
-// and there is no window where an early log line escapes the gate.
+// Apply the persisted logging switch at boot (default OFF). Missing
+// `velta-logging` stays off; only an explicit "1" opts into velta.log.
 if (window.__TAURI__) {
   const invoke = tauriInvoke();
   invoke?.("set_logging_enabled", { enabled: localStorage.getItem("velta-logging") === "1" })?.catch?.(() => {});
@@ -390,7 +586,7 @@ if (window.__TAURI__) {
   const listen = event.listen ? event.listen.bind(event) : tauri.listen.bind(tauri);
 
   function applySidecarStatus(status) {
-    diagnostics.append(status.error ? "error" : "info", `Embedded core: ${status.stage || (status.running ? "running" : "stopped")}${status.error ? ` — ${status.error}` : ""}`);
+    diagnostics.append((status.error || status.stage === "error") ? "error" : "info", `Embedded core: ${status.stage || (status.running ? "running" : "stopped")}${(status.error || status.message) ? ` — ${status.error || status.message}` : ""}`);
   }
 
   try {
@@ -405,6 +601,138 @@ if (window.__TAURI__) {
     });
   } catch (e) {
     console.warn("[velta] sidecar status setup failed:", e);
+  }
+
+  // Database locked (#178): accounts the OS-keychain key could not open.
+  // Blocking overlay — onboarding must never run over unreadable data, and
+  // nothing may look like a fresh install to the user.
+  try {
+    const showDbLocked = (payload) => {
+      // #178 phase 4: an app-lock PIN session starts locked — the sidecar is
+      // up but keyless; unlock_with_pin respawns it keyed. No reload button:
+      // a reload would add nothing.
+      if (payload?.mode === "pin" || payload?.mode === "hello") {
+        if (document.getElementById("db-locked")) return;
+        const hello = payload.mode === "hello";
+        const pin = !hello || payload.pin === true;
+        const el = document.createElement("div");
+        el.id = "db-locked";
+        const lead = hello && pin
+          ? "Unlock with Windows Hello, or enter your app-lock PIN. Nothing was reset."
+          : hello
+            ? "Unlock with Windows Hello to open this device's profiles. Nothing was reset."
+            : "Enter your app-lock PIN to unlock this device's profiles. Nothing was reset.";
+        el.innerHTML = `
+          <div class="db-locked-card">
+            <h2>Velta is locked</h2>
+            <p>${lead}</p>
+            ${hello ? `<button class="btn-primary db-hello-go" type="button">Unlock with Windows Hello</button>` : ""}
+            ${pin ? `<form class="db-pin-form">
+              <input class="text-field db-pin-input" type="password" required autocomplete="current-password" placeholder="PIN">
+              <button class="btn-primary db-pin-go" type="submit">Unlock</button>
+            </form>` : ""}
+            <p class="db-locked-hint db-pin-status" hidden></p>
+          </div>`;
+        document.body.appendChild(el);
+        const status = el.querySelector(".db-pin-status");
+        const helloGo = el.querySelector(".db-hello-go");
+        if (helloGo) {
+          helloGo.addEventListener("click", async () => {
+            helloGo.disabled = true;
+            try {
+              await invoke("unlock_with_hello");
+              location.reload();
+            } catch (err) {
+              const msg = String(err?.message || err || "");
+              status.textContent = msg.includes("cancelled")
+                ? "Windows Hello was cancelled."
+                : msg.includes("hello-unavailable")
+                  ? "Windows Hello is not set up. Use your PIN, or set it up in Windows settings."
+                  : `Couldn't unlock: ${msg}`;
+              status.hidden = false;
+              helloGo.disabled = false;
+            }
+          });
+        }
+        const go = el.querySelector(".db-pin-go");
+        const form = el.querySelector(".db-pin-form");
+        if (!form) return;
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          go.disabled = true;
+          try {
+            await invoke("unlock_with_pin", { pin: el.querySelector(".db-pin-input").value });
+            location.reload();
+          } catch (err) {
+            const msg = String(err?.message || err || "");
+            const wait = msg.startsWith("retry:") ? Number(msg.slice(6)) || 0 : 0;
+            const tick = (left) => {
+              if (left <= 0) { status.hidden = true; go.disabled = false; return; }
+              status.textContent = `Too many attempts — wait ${left} s.`;
+              status.hidden = false;
+              setTimeout(() => tick(left - 1), 1000);
+            };
+            if (wait > 0) tick(wait);
+            else {
+              status.textContent = msg.includes("corrupt")
+                ? "The PIN file is unreadable — restore your data via Profile management → Import backup."
+                : `Couldn't unlock: ${msg}`;
+              status.hidden = false;
+              go.disabled = false;
+            }
+          }
+        });
+        el.querySelector(".db-pin-input")?.focus();
+        return;
+      }
+      const locked = Array.isArray(payload?.locked) ? payload.locked.length : 0;
+      if (!locked || document.getElementById("db-locked")) return;
+      const el = document.createElement("div");
+      el.id = "db-locked";
+      el.innerHTML = `
+        <div class="db-locked-card">
+          <h2>Database locked</h2>
+          <p>${locked} profile${locked === 1 ? " was" : "s were"} not decrypted with the key stored on this device. Your data is intact — nothing was reset.</p>
+          <p class="db-locked-hint">Unlock your keychain (or credential manager) and try again, or restore via Profile management → Import backup.</p>
+          <button class="btn-primary db-locked-retry" type="button">Try again</button>
+        </div>`;
+      document.body.appendChild(el);
+      el.querySelector(".db-locked-retry").addEventListener("click", () => location.reload());
+    };
+    listen("velta-db-locked", ev => showDbLocked(ev.payload));
+    // Android: the biometric overlay can unlock while the PIN screen sits
+    // behind it — reload into the now-keyed core.
+    listen("velta-db-unlocked", () => { if (document.getElementById("db-locked")) location.reload(); });
+    invoke("get_db_lock_status").then(showDbLocked).catch(() => {});
+  } catch (e) {
+    console.warn("[velta] db-locked setup failed:", e);
+  }
+
+  // Encryption off / key missing (#178): a non-blocking notice so the user
+  // knows this device is NOT storing the database encrypted, or why
+  // encrypted profiles cannot open. Dismissible for the session only.
+  try {
+    invoke("get_db_key_issue").then((issue) => {
+      if (!issue || document.getElementById("db-key-notice")) return;
+      const missing = issue === "key-missing";
+      const el = document.createElement("div");
+      el.id = "db-key-notice";
+      el.setAttribute("role", missing ? "alert" : "status");
+      const title = missing ? t("Database key missing") : t("Database encryption is off");
+      const body = missing
+        ? t("Encrypted profiles exist, but this device's keychain has no key for them. No new key was created and nothing was reset. Restore the keychain or import a backup.")
+        : t("No system keychain is available (on Linux: a Secret Service such as GNOME Keyring or KWallet), so messages on this device are stored unencrypted. Enable a keychain and restart Velta to turn encryption on.");
+      el.innerHTML = `<div class="db-key-notice-text"><strong></strong><span></span></div><button type="button" class="db-key-notice-close"></button>`;
+      el.querySelector("strong").textContent = title;
+      el.querySelector("span").textContent = body;
+      const close = el.querySelector("button");
+      close.textContent = "×";
+      close.setAttribute("aria-label", t("Dismiss"));
+      close.addEventListener("click", () => el.remove());
+      document.body.appendChild(el);
+    }).catch(() => {});
+  } catch (e) {
+    console.warn("[velta] db-key notice setup failed:", e);
   }
 }
 
@@ -424,7 +752,26 @@ let chatListRenderDeferred = false;
 // Mirror diagnostics into velta.log (js_log): the in-app store is only
 // visible on the phone's splash footer, while velta.log is pullable via
 // adb (run-as) — every core/transport diagnostic must land in both.
+// #178: an encrypted PWA snapshot unlocks BEFORE the transport exists (the
+// worker gets the KEK in the boot message) so the 20s connect deadline
+// never races the unlock prompt.
+let bootDbKey = null;
+let bootUnlockSrc = null;
+let bootLockInfo = null;
+if (!window.__TAURI__ && !window.VeltaBridge) {
+  try {
+    const lock = await probeLock();
+    if (lock) {
+      bootLockInfo = lock;
+      ({ kek: bootDbKey, src: bootUnlockSrc } = await unlockInteractive(lock));
+    }
+  } catch (e) {
+    diagnostics.append("error", `Unlock failed: ${e?.message || e}`);
+  }
+}
 coreStartupPromise = createCore({
+  dbKey: bootDbKey,
+  unlockSrc: bootUnlockSrc,
   onDiagnostic: (level, message) => {
     diagnostics.append(level, message);
     notePushDiagnostic(message); // #110: relay "(U)" marks
@@ -434,6 +781,92 @@ coreStartupPromise = createCore({
     } catch {}
   },
 });
+
+// #178 phase 4: auto-lock — when enabled on an encrypted profile, returning
+// after N minutes hidden reloads the page and the boot path asks for the
+// passphrase/passkey/PIN again; the decrypted snapshot dies with the worker.
+// The setting is read per transition, so the select applies at once.
+//
+// Arming is timestamp-based, not timer-based: Android often freezes the
+// WebView with document.hidden still false (a timer would never arm), and
+// a hidden mobile tab throttles long setTimeouts anyway. Record when the
+// page went hidden; compare on return. The native foreground event covers
+// the Android case where visibilitychange never fires at all.
+if (bootLockInfo) {
+  let hiddenAt = 0;
+  const limitMs = () => (Number(localStorage.getItem("velta-autolock-mins")) || 0) * 60_000;
+  const lockIfOver = () => {
+    if (!hiddenAt) return;
+    const gone = Date.now() - hiddenAt;
+    hiddenAt = 0;
+    const limit = limitMs();
+    if (limit > 0 && gone >= limit) location.reload();
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (limitMs() > 0) hiddenAt = Date.now();
+    } else {
+      lockIfOver();
+    }
+  });
+  window.__TAURI__?.event?.listen?.("velta-foreground", lockIfOver);
+}
+
+// #178 phase 4 (desktop): auto-lock respawns the sidecar KEYLESS, so the
+// PIN screen returns — only meaningful when a PIN is the key root (the
+// keychain would just re-key without asking the user anything).
+// Same timestamp arming as the PWA path above — document.hidden lies on
+// Android, and velta-foreground is the reliable wake.
+if (window.__TAURI__) {
+  try {
+    const invoke = tauriInvoke();
+    if (invoke) {
+      Promise.all([
+        invoke("get_db_pin_state").catch(() => false),
+        invoke("get_db_hello_state").catch(() => false),
+      ]).then(([pinOn, helloOn]) => {
+        if (!pinOn && !helloOn) return;
+        let hiddenAt = 0;
+        const limitMs = () => (Number(localStorage.getItem("velta-autolock-mins")) || 0) * 60_000;
+        const lockIfOver = () => {
+          if (!hiddenAt) return;
+          const gone = Date.now() - hiddenAt;
+          hiddenAt = 0;
+          const limit = limitMs();
+          if (limit > 0 && gone >= limit && !document.getElementById("db-locked")) {
+            invoke("lock_now").catch(() => {});
+          }
+        };
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) {
+            if (limitMs() > 0) hiddenAt = Date.now();
+          } else {
+            lockIfOver();
+          }
+        });
+        window.__TAURI__?.event?.listen?.("velta-foreground", lockIfOver);
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.warn("[velta] desktop auto-lock setup failed:", e);
+  }
+}
+
+// #178 phase 4: backup reminder — stale after 30 days without a successful
+// export (or right after encryption was turned on), re-shown at most weekly
+// until one is exported. PWA only for now; the desktop reminder rides a
+// later slice.
+{
+  const now = Date.now();
+  const day = 86_400_000;
+  const lastBak = Number(localStorage.getItem("velta-last-backup")) || 0;
+  const reminded = Number(localStorage.getItem("velta-backup-reminded")) || 0;
+  const nudge = localStorage.getItem("velta-enc-nudge") === "1";
+  if (bootLockInfo && (((!lastBak || now - lastBak > 30 * day) && now - reminded > 7 * day) || (nudge && now - reminded > day))) {
+    toast(t("Encryption is on but there is no recent backup. Export one from Profile management → Export backup — without it, losing the passphrase or the passkey loses the data."), 9000);
+    try { localStorage.setItem("velta-backup-reminded", String(now)); localStorage.removeItem("velta-enc-nudge"); } catch {}
+  }
+}
 
 try {
   core = withLocalChat(await coreStartupPromise);
@@ -454,6 +887,9 @@ if (!core) {
   core = withLocalChat(new MockCore());
   core.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
 }
+bootMark("velta-boot:core");
+// Device-chat language card when the OS speaks ru/fr and the UI does not.
+import("./lang-cards.js").then(lc => lc.maybeAddLangCard(core)).catch(() => {});
 if (core?.transport?.readCoreFile) setWasmBlobReader((path) => core.transport.readCoreFile(path));
 // The core's per-transport Info events (IMAP/DNS/quota/idle chatter) flood
 // the Diagnostics chat within seconds and bury everything useful. Keep
@@ -559,7 +995,10 @@ core.addEventListener("account-changing", () => {
   chatItemCache = null;
   chatListDirty = { all: true, order: false, ids: new Set() };
   state.chats = [];
+  state.chatListError = null;
+  state.contactBotsError = null;
   state.query = "";
+  renderSyncBar(); // the new profile starts its own first-fetch window
   closeChatUI();
   closeAllPopups();
   // Side views (search, contacts, archived, …) hold the old profile's rows
@@ -583,6 +1022,9 @@ core.addEventListener("account-changed", () => {
   state.accountChanging = false;
   wireFingerprints();
   accountRefreshPromise = Promise.all([refreshAccounts(), refreshChatList()]);
+  // VENDORISSUES #23: one-time per account — profiles configured before the
+  // opt-in flip carry autorelay=1 from upstream's init_transports default.
+  core.migrateAutorelayDefault?.().catch(() => {});
 });
 
 // Tell the frontend where blobs live so media URLs can be resolved absolutely.
@@ -779,6 +1221,7 @@ async function refreshRelayStatusInner() {
       relayDownSince = 0;
     }
     renderRelayLine();
+    renderSyncBar();
   } catch { /* old cores without get_connectivity */ }
   // Per-relay segments (best effort — an old core or a stopped scheduler
   // leaves relaySegments empty and the line falls back to the combined view).
@@ -1026,8 +1469,13 @@ themeQuery.addEventListener?.("change", () => {
 function applyTheme() {
   const effective = state.theme === "auto" ? (themeQuery.matches ? "light" : "dark") : state.theme;
   document.documentElement.dataset.theme = effective;
-  const themeColors = { dark: "#0f0f14", brutal: "#22222b" };
+  // #277: pure black only on top of the dark theme (Auto counts when it
+  // resolves dark); light and brutal ignore the switch.
+  const amoled = effective === "dark" && localStorage.getItem("velta-amoled") === "1";
+  document.documentElement.toggleAttribute("data-amoled", amoled);
+  const themeColors = { dark: amoled ? "#000000" : "#0f0f14", brutal: "#22222b" };
   document.querySelector('meta[name="theme-color"]').content = themeColors[effective] || "#f4f4f4";
+  document.dispatchEvent(new CustomEvent("velta-theme-applied", { detail: { effective } }));
   localStorage.setItem("dw-theme", state.theme);
 }
 
@@ -1048,6 +1496,7 @@ async function exportSettingsToSaved() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
   try {
+    const { serializeSettings } = await loadSettingsTransfer();
     const text = serializeSettings(localStorage, new Date());
     const chatId = await savedMessagesChatId();
     if (!accountIsCurrent(epoch)) return;
@@ -1079,6 +1528,7 @@ function settingsDiffModal(changes, parsed) {
   });
 }
 async function applySettingsFromMessage(text) {
+  const { parseSettings, diffSettings, applySettings } = await loadSettingsTransfer();
   const parsed = parseSettings(text);
   if (!parsed) { errToast(t("This message isn't a valid Velta settings block")); return; }
   const changes = diffSettings(localStorage, parsed.values);
@@ -1093,7 +1543,8 @@ function refreshAfterSettingsApply(keys) {
   const has = k => keys.includes(k);
   // Strings are baked at render. Boot reapplies theme, scale and core copies.
   if (has("language")) { location.reload(); return; }
-  if (has("theme")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
+  if (has("theme") || has("amoled")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
+  if (has("stickers-in-attach")) window.dispatchEvent(new Event("velta-stickers-pref"));
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
     globalThis.VeltaChatAppearance?.apply();
@@ -1363,6 +1814,7 @@ async function refreshChatList({ fromDirty = false } = {}) {
       chatItemCache = null;
     }
     state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
+    state.chatListError = null;
     renderChatList();
     renderLocalChatCard();
     // Archived-folder button visibility (issue #13) — fire-and-forget count.
@@ -1382,6 +1834,8 @@ async function refreshChatList({ fromDirty = false } = {}) {
   } catch (err) {
     // A failed refresh leaves the cache unknown — the next one is full.
     chatListDirty.all = true;
+    // Keep the last good state.chats; say so instead of a silent stale list.
+    if (accountIsCurrent(epoch)) { state.chatListError = err || new Error("load failed"); try { renderChatList(); } catch { /* best effort */ } }
     // Never funnel refresh errors into the Diagnostics store: the store emits
     // "changed", a listener of which triggers another refresh — an error here
     // would spin an undebounced rerender loop (and leak renderer memory fast).
@@ -1565,6 +2019,7 @@ function setListView(view) {
   stopQrScanner();
   const wasQr = listView === "qr";
   listView = listView === view ? "chats" : view;
+  renderSyncBar(); // the strip only ever shows on the chats view
   if (listView === "qr" && !wasQr) qrTab = "mine"; // a fresh visit starts on the code
   for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
     b.classList.toggle("active", b.dataset.view === listView);
@@ -1828,12 +2283,19 @@ async function ensureContactBots(force = false) {
   if (!core?.getContacts) return;
   const acct = core.accountId;
   if (!force && state.contactBots && state.contactBotsAcct === acct) return;
+  // A failed/timed-out get_contacts must NOT become "no bots" (Bots chip
+  // showed 0 chats during core stalls): keep the previous flags, and with
+  // none yet, leave them unloaded and show the retry banner.
   try {
     const contacts = await core.getContacts();
     if (core.accountId !== acct) return;
     state.contactBots = new Map(contacts.map(c => [c.id, !!c.bot]));
-  } catch { state.contactBots = new Map(); }
-  state.contactBotsAcct = acct;
+    state.contactBotsAcct = acct;
+    state.contactBotsError = null;
+  } catch (err) {
+    if (core.accountId !== acct) return;
+    state.contactBotsError = { acct, err };
+  }
   if (state.chatCategory === "people" || state.chatCategory === "bots") renderChatList();
 }
 const chatIsBot = (contactId) => state.contactBotsAcct === core?.accountId && state.contactBots?.get(contactId) === true;
@@ -1846,7 +2308,8 @@ function visibleChats() {
   // #77: a boot-restored People/Bots view renders before any chip click,
   // so it must kick the bot-flag fetch itself — otherwise contact bots
   // classify as "people" until the next chip interaction.
-  if ((!state.contactBots || state.contactBotsAcct !== core?.accountId) && (cat === "people" || cat === "bots")) ensureContactBots();
+  // A failed fetch waits for Retry (no 30 s refetch loop on every render).
+  if ((!state.contactBots || state.contactBotsAcct !== core?.accountId) && (cat === "people" || cat === "bots") && state.contactBotsError?.acct !== core?.accountId) ensureContactBots();
   return state.chats.filter(c => chatCategoryOf(c, chatIsBot) === cat);
 }
 // One entry point for every category change (chip click, swipe): renderChatList
@@ -1878,7 +2341,9 @@ function syncChatCategoryBar() {
   }
 }
 
+let listCollapse = null; // #282
 function renderChatList() {
+  listCollapse?.refreshBadge();
   if (globalThis.__veltaAppEvaluating) { chatListRenderDeferred = true; return; }
   if (listView !== "chats") return; // another side view owns the container
   syncChatCategoryBar();
@@ -1949,8 +2414,44 @@ function renderChatList() {
       : t("No chats yet — start a new one");
     list.appendChild(empty);
   }
+  const botsCat = state.chatCategory === "people" || state.chatCategory === "bots";
+  const loadErr = state.chatListError || (botsCat && state.contactBotsError?.acct === core?.accountId ? state.contactBotsError.err : null);
+  if (loadErr) {
+    list.prepend(loadErrorBanner(document, {
+      err: loadErr, t, stale: state.chats.length > 0 && !(botsCat && state.contactBotsError && !state.chatListError),
+      onRetry: () => {
+        if (state.contactBotsError) { state.contactBotsError = null; ensureContactBots(true); }
+        if (state.chatListError) { state.chatListError = null; refreshChatList(); }
+        renderChatList();
+      },
+    }));
+  }
   syncArchivedLink();
   watchChatItemGhosts(list);
+  renderSyncBar();
+}
+
+// #233: first sync after login/restore — an empty chat list must not read as
+// broken. A slim strip between the category chips and the list, driven by the
+// same connectivity value the relay line uses: visible while the profile is
+// relay-configured, the list has no real chats yet and the core has not
+// finished its first fetch (connectivity < 4000). The text upgrades to
+// "Updating…" while the core is actively working (3000-3999, desktop
+// ConnectivityToast parity). Old cores without get_connectivity keep the
+// strip hidden (null) rather than stuck on forever.
+function renderSyncBar() {
+  const el = $("sync-bar");
+  if (!el) return;
+  const realChats = state.chats.some(c => c.id !== DIAGNOSTICS_CHAT_ID);
+  const show = listView === "chats" &&
+    core?.backend?.kind !== "mock" &&
+    !realChats &&
+    state.account?.configured !== false &&
+    relayConnectivity != null && relayConnectivity < 4000;
+  el.hidden = !show;
+  if (!show) return;
+  el.querySelector("[data-sync-text]").textContent =
+    t(relayConnectivity >= 3000 ? "Updating…" : "Fetching messages…");
 }
 
 // Delta Chat's "Archived chats (N)" row, last in the main list. Only the
@@ -2118,11 +2619,11 @@ function chatContextMenu(chat, x, y) {
   showContextMenu([
     grp ? null : { label: chat.pinned ? t("Unpin") : t("Pin to top"), icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
     grp ? null : { label: chat.muted ? t("Unmute") : t("Mute notifications"), icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-    ...(tauriInvoke() ? [{ label: t("Link previews: {mode}", { mode: t(LINK_PREVIEW_LABELS[linkPreviewMode(chat.id)]) }), icon: icons.link, onClick: () => {
+    ...(tauriInvoke() ? [{ label: t("Link previews: {mode}", { mode: t(LINK_PREVIEW_LABELS[linkPreviewMode(chat.id, core.accountId)]) }), icon: icons.link, onClick: () => {
       if (!accountIsCurrent(epoch)) return;
       const apply = (mode) => {
         if (!accountIsCurrent(epoch)) return;
-        setLinkPreviewMode(mode, chat.id);
+        setLinkPreviewMode(mode, chat.id, core.accountId);
         toast(t("Link previews: {mode} for this chat", { mode: t(LINK_PREVIEW_LABELS[mode]) }));
         if (state.activeChatId === chat.id && chatView?.open) {
           chatView.close();
@@ -2327,10 +2828,31 @@ async function openChat(chatId) {
   const navigation = ++chatNavigation, epoch = core.accountEpoch;
   const current = () => navigation === chatNavigation && accountIsCurrent(epoch);
   state.pendingChatId = chatId;
+  // click->open latency for the chat-open stats line (event.timeStamp is
+  // on the performance.now() clock).
+  const ev = typeof window !== "undefined" ? window.event : null;
+  chatView.noteOpenClick?.(ev?.timeStamp > 0 ? ev.timeStamp : performance.now());
   chatView.cancelOpen?.();
   renderChatList();
+  // Stall diagnostics + recovery (Refs #176): slow steps log
+  // "open chat N: STEP took N ms"; an open still waiting after
+  // 15 s releases the same-chat guard so a re-tap retries
+  // instead of being swallowed until every chained RPC timed out.
+  const openStarted = Date.now();
+  const step = (name, since) => {
+    const ms = Date.now() - since;
+    if (ms >= 1000) appLog(`open chat ${chatId}: ${name} took ${ms} ms`);
+  };
+  const guard = setTimeout(() => {
+    if (state.pendingChatId !== chatId || navigation !== chatNavigation) return;
+    appLog(`open chat ${chatId}: still waiting after ${Date.now() - openStarted} ms, guard released`);
+    state.pendingChatId = null;
+    renderChatList();
+  }, 15000);
   try {
+  let stepStarted = Date.now();
   const chat = await core.getChat(chatId);
+  step("get_chat", stepStarted);
   if (!current() || !chat) return;
   if (chat.kind === "deaddrop") {
     const ok = await confirmModal("Contact request", t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.", { name: chat.name }), t("Accept"), false);
@@ -2393,7 +2915,10 @@ async function openChat(chatId) {
     }).catch(() => {});
   }
   // Hand over the chat fetched above: the view used to fetch it again.
-  if (!await chatView.open(chatId, chat) || !current()) return;
+  stepStarted = Date.now();
+  const opened = await chatView.open(chatId, chat);
+  step("view open", stepStarted);
+  if (!opened || !current()) return;
   // History entry per open chat: Android BACK pops it (chat -> chat list)
   // via WryActivity's WebView-history navigation instead of exiting.
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");
@@ -2405,6 +2930,8 @@ async function openChat(chatId) {
     closeChatUI();
     errToast(t("Couldn't open chat: ") + (error.message || error));
   } finally {
+    clearTimeout(guard);
+    step("total", openStarted);
     if (state.pendingChatId === chatId && navigation === chatNavigation) state.pendingChatId = null;
   }
 }
@@ -2642,9 +3169,20 @@ function openMuteDialog(chat, valEl, epoch) {
   cancel.addEventListener("click", () => close());
 }
 
+async function copyContactAddr(addr) {
+  try { await navigator.clipboard.writeText(addr); toast(t("Address copied")); }
+  catch { errToast(t("Couldn't copy")); }
+}
+
 async function showChatInfo(chat) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
+  // #177: admin groups — who administers it decides which controls show.
+  if (chat.kind === "group" && !chat.isP2p && core.getGroupAdminId) {
+    try { chat.groupAdminId = await core.getGroupAdminId(chat.id); } catch { /* keep */ }
+    if (!accountIsCurrent(epoch)) return;
+  }
+  const caps = adminCaps(chat);
   // Local group: the roster, counts and rights change under the sheet — start
   // from the adapter's current view of the group.
   if (chat.isP2pGroup) {
@@ -2659,8 +3197,9 @@ async function showChatInfo(chat) {
   if (!chat.contact && chat.kind === "single" && chat.contactId && chat.contactId !== 1 && core.getContact) {
     try { chat.contact = { ...(await core.getContact(chat.contactId)), contactId: chat.contactId }; } catch {}
   }
+  const isContactAddrList = chat.kind === "single" && !chat.isP2p && chat.contactId && chat.contactId !== 1;
   const contactRows = chat.contact ? `
-    <div class="info-row"><span class="k">${escapeHtml(t("Address"))}</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
+    ${isContactAddrList ? `<div data-contact-addrs>${contactAddrRowsHtml([chat.contact.addr].filter(Boolean))}</div>` : `<div class="info-row"><span class="k">${escapeHtml(t("Address"))}</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>`}
     ${chat.contactId ? `<div class="info-row"><span class="k">${escapeHtml(t("Profile key"))}</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
     ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">${escapeHtml(t("Last seen"))}</span><span class="v">${chat.contact.online ? escapeHtml(t("online")) : timeTag(chat.contact.lastSeen, timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
   const isGroup = chat.kind === "group" || chat.kind === "channel";
@@ -2678,10 +3217,9 @@ async function showChatInfo(chat) {
   // of this profile…" is the single entry point).
   let relayRows = "";
   if (!chat.isP2p) {
-    const contactAddr = isContactProfile ? chat.contact?.addr : null;
-    if (contactAddr) {
-      relayRows = `<div class="info-row"><span class="k">${escapeHtml(t("Relay"))}</span><span class="v">${escapeHtml(String(contactAddr).split("@")[1] || contactAddr)}</span></div>`;
-    } else if (!isGroup) {
+    // 1:1 contacts: their relays are the "Relays" list in contactRows
+    // (contactAddrRowsHtml), no separate relay row.
+    if (!isGroup && !isContactProfile) {
       let transports = [];
       try { transports = await core.listTransports(); } catch { /* offline — fall back below */ }
       if (!transports.length && state.account.relay) transports = [{ addr: state.account.addr }];
@@ -2704,9 +3242,10 @@ async function showChatInfo(chat) {
       ${chat.contactId ? `<span class="chat-info-tile" data-caption-tile></span>` : ""}
     </div>
     <div class="profile-name">${escapeHtml(chat.name)}</div>
+    ${caps.isAdminGroup ? `<div class="admin-group-info" data-admin-info>${ICON.shieldCheck}<span data-admin-info-text>${escapeHtml(adminInfoText(chat, ""))}</span></div>` : ""}
     <div class="profile-description" data-desc hidden></div>
-    ${(isSelf || (isGroup && !chat.isP2pGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${escapeHtml(isSelf ? t("Edit profile") : chat.kind === "channel" ? t("Edit channel") : t("Edit group"))}</button></div>` : ""}
-    ${chat.kind === "group" && !chat.isP2pGroup ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">${escapeHtml(t("Add members"))}</button><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
+    ${(isSelf || (isGroup && !chat.isP2pGroup && caps.canEditGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${escapeHtml(isSelf ? t("Edit profile") : chat.kind === "channel" ? t("Edit channel") : t("Edit group"))}</button></div>` : ""}
+    ${chat.kind === "group" && !chat.isP2pGroup && caps.canAddMembers ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">${escapeHtml(t("Add members"))}</button><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
     ${chat.kind === "channel" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
     ${chat.isP2pGroup ? p2pGroupActionsHtml(chat) : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
@@ -2722,7 +3261,9 @@ async function showChatInfo(chat) {
     ${chat.isP2pGroup ? `<div class="profile-description" data-pg-hint style="font-size:13px;opacity:.75;padding:6px 2px" hidden></div>` : ""}
     ${contactRows}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v" data-muted-val>${escapeHtml(chat.muted ? t("Muted") : t("On"))}</span></div>` : `<div class="info-row"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
-    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
+    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? (caps.canSetTimer
+      ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>`
+      : `<div class="info-row" data-ephemeral data-admin-only aria-disabled="true" title="${escapeAttr(t("Only the group admin can do this"))}"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>`) : ""}
     ${!chat.isP2p ? `<div class="info-row"><span class="k">${escapeHtml(t("Storage"))}</span><span class="v" data-storage-val>…</span></div>
     <details class="info-details" data-old-messages>
       <summary class="info-row"><span class="k">${escapeHtml(t("Old messages"))}</span><span class="v">${escapeHtml(t("Clean up ›"))}</span></summary>
@@ -2771,7 +3312,7 @@ async function showChatInfo(chat) {
         ephVal.textContent = formatEphemeralTimer(t);
       } catch { ephVal.textContent = t("Off"); }
     })();
-    ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
+    if (caps.canSetTimer) ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
   }
   // Storage row: sum attachment bytes across the whole chat (paged newest→
   // oldest; text is negligible). Computed on sheet open — lazy by design,
@@ -2787,7 +3328,9 @@ async function showChatInfo(chat) {
         // Sheet closed (or chat switched) → stop burning RPCs on a row
         // nobody is watching.
         if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
+        const pageAt = performance.now();
         const page = await core.getMessages(chat.id, { beforeId, limit: 500 });
+        chatView?.noteOpenStat?.("storage", performance.now() - pageAt);
         if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
         const msgs = page.messages || [];
         // fileSize (not the core's raw fileBytes): rpc-core._mapMessage
@@ -3057,6 +3600,27 @@ async function showChatInfo(chat) {
     });
   }
 
+  // Every relay address of the contact (core: "Relays:" in the encryption
+  // info, from the contact's key), primary first. No key: the single
+  // "Address" row stays.
+  const addrSlot = body.querySelector("[data-contact-addrs]");
+  if (addrSlot && core.getContactEncryptionInfo) {
+    core.getContactEncryptionInfo(chat.contactId)
+      .then((info) => {
+        if (!accountIsCurrent(epoch) || !addrSlot.isConnected) return;
+        addrSlot.innerHTML = contactAddrRowsHtml(relayAddresses(info, chat.contact?.addr));
+      })
+      .catch(() => {});
+  }
+  addrSlot?.addEventListener("click", (e) => {
+    const row = e.target.closest("[data-copy-addr]");
+    if (row) copyContactAddr(row.dataset.copyAddr);
+  });
+  addrSlot?.addEventListener("keydown", (e) => {
+    const row = e.target.closest("[data-copy-addr]");
+    if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); copyContactAddr(row.dataset.copyAddr); }
+  });
+
   // Same formatted key as the Avatar modal (avatar-profile-fpr), filled in
   // once the contact's fingerprint resolves. The captioned identity tile
   // (avatar-profile-img) fills its slot in the same row as the velta-avatar.
@@ -3161,11 +3725,38 @@ async function showChatInfo(chat) {
     });
   }
 
+  // #177: the admin removes a member (relay admin groups only).
+  if (caps.canRemoveOthers && core.removeChatMember) {
+    body.addEventListener("click", async e => {
+      const btn = e.target.closest?.("[data-admin-remove]");
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const name = btn.dataset.name || "?";
+      const ok = await confirmModal("Remove member",
+        t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
+      if (!ok || !accountIsCurrent(epoch)) return;
+      try {
+        await core.removeChatMember(chat.id, Number(btn.dataset.adminRemove));
+        if (!accountIsCurrent(epoch)) return;
+        toast(t("Member removed"));
+        refreshChatList();
+        await modalHistorySettled();
+        showChatInfo(chat);
+      } catch (err) { errToast(t("Couldn't remove: ") + (err?.message || err)); }
+    }, true);
+  }
+
   if (isGroup && core.getChatMembers) {
     core.getChatMembers(chat.id).then(members => {
       const count = body.querySelector("[data-member-count]");
       const list = body.querySelector("[data-member-list]");
       if (count) count.textContent = members.length.toLocaleString();
+      const adminText = body.querySelector("[data-admin-info-text]");
+      if (adminText) {
+        const admin = members.find(m => m.id === chat.groupAdminId);
+        adminText.textContent = adminInfoText(chat, admin?.name);
+      }
       const hint = body.querySelector("[data-pg-hint]");
       if (hint) {
         hint.hidden = false;
@@ -3177,7 +3768,13 @@ async function showChatInfo(chat) {
         // Local P2P groups keep their reachability subtitle and Remove.
         mountMemberList(list, members.map(m => ({ ...m, self: m.self || m.id === 1, avatarUrl: m.avatar ? fileUrl(m.avatar) : null })), {
           rowOptions: m => {
-            if (!chat.isP2pGroup) return {};
+            if (!chat.isP2pGroup) {
+              // #177: admin badge; the admin gets Remove on everyone else.
+              const badge = caps.isAdminGroup && m.id === chat.groupAdminId ? adminBadgeHtml() : "";
+              const remove = canRemoveMember(chat, m)
+                ? `<button type="button" class="btn-text" data-admin-remove="${escapeAttr(m.id)}" data-name="${escapeAttr(m.name || "?")}" aria-label="${escapeAttr(t("Remove {name}", { name: m.name }))}">${escapeHtml(t("Remove"))}</button>` : "";
+              return badge || remove ? { actionsHtml: badge + remove } : {};
+            }
             const subtitle = (m.self ? t("you") : (m.online ? t("online") : t("offline")) + (m.introduced ? t(" · not paired") : "")) + (m.isCreator ? t(" · admin") : "");
             const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
             return { subtitle, actionsHtml: canRemove ? `<button type="button" class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="${escapeAttr(t("Remove {name}", { name: m.name }))}">${escapeHtml(t("Remove"))}</button>` : "" };
@@ -3208,6 +3805,8 @@ async function openChatMediaItem(kind, m) {
   if (kind === "files") {
     // Files open natively or in their own overlay (audio rows play inline).
     openAttachmentFile(m.filePath, m.fileName, {
+      core,
+      mime: m.fileMime || null,
       openHtml: chatView ? (p, n) => chatView._openHtmlIsolated(p, n) : null,
       onError: (t) => toast(t, 3000, { danger: true }),
     });
@@ -3264,7 +3863,8 @@ function bindChatHeadMenu() {
       // Phones have no room for a second header call icon (the name would
       // shrink to nothing at 320px): the video call lives here too.
       ...(chat.kind === "single" && !chat.isP2p ? [{ label: "Video call", onClick: () => startCallIfMicOk(chat, { video: true }) }] : []),
-      ...(chat.kind === "group" && !chat.isP2pGroup ? [{ label: "Group invite QR", onClick: () =>
+      // #177: only an admin group's admin may invite (chat-view loads groupAdminId).
+      ...(!adminCaps(chat).canAddMembers ? [] : chat.kind === "group" && !chat.isP2pGroup ? [{ label: "Group invite QR", onClick: () =>
         showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true }) }] : []),
       // Local P2P chats have no per-chat mute / pin (flags are relay-core state).
       ...(chat.isP2p ? [] : [
@@ -3340,8 +3940,14 @@ function bindChatHeadMenu() {
     input.placeholder = p2p ? t("Search in loaded messages…") : t("Search in chat…");
     const results = document.createElement("div");
     results.className = "modal-list";
+    // #238: the FTS query can take seconds on big accounts (or hang on a
+    // stall) — a thin sweep strip under the input shows the modal is alive.
+    // The P2P path filters loaded rows synchronously and never shows it.
+    const bar = document.createElement("progress");
+    bar.className = "search-load-bar";
+    bar.setAttribute("aria-label", t("Searching…"));
     const wrap = document.createElement("div");
-    wrap.append(input, results);
+    wrap.append(input, bar, results);
     const emptyHint = p2p
       ? t("Nothing found in loaded history.")
       : t("Nothing found.");
@@ -3364,15 +3970,19 @@ function bindChatHeadMenu() {
         const q = input.value.trim().toLowerCase();
         const mySeq = ++seq;
         results.replaceChildren();
-        if (q.length < 2) return;
+        if (q.length < 2) { bar.removeAttribute("data-on"); return; }
+        if (!p2p) bar.setAttribute("data-on", "");
         let hits = [];
         try {
           hits = await runSearch(q);
         } catch (e) {
+          if (mySeq !== seq) return; // a newer run owns the bar
+          bar.removeAttribute("data-on");
           results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">${escapeHtml(t("Search failed:"))} ${escapeHtml(String(e?.message || e))}</p>`;
           return;
         }
         if (mySeq !== seq || !accountIsCurrent(epoch)) return;
+        bar.removeAttribute("data-on");
         for (const m of hits) {
           const b = document.createElement("button");
           b.type = "button";
@@ -3497,10 +4107,10 @@ function newChatOptions() {
       // state is still current) and the pending pop closes it instantly —
       // Create appeared to do nothing (#151).
       await modalHistorySettled();
-      const name = await askGroupName();
-      if (!name || !accountIsCurrent(epoch)) return;
+      const res = await askGroupName();
+      if (!res || !accountIsCurrent(epoch)) return;
       {
-        const id = await core.createChat(name, picked.map(c => c.id), "group");
+        const id = await core.createChat(res.name, picked.map(c => c.id), res.admin ? "admin-group" : "group");
         if (!accountIsCurrent(epoch)) return;
         await refreshChatList();
         if (!accountIsCurrent(epoch)) return;
@@ -3625,18 +4235,26 @@ function askText(title, value, okLabel) {
   });
 }
 
+// Resolves { name, admin } or null. `admin` = the "Admin group" switch
+// (#177, core quilt #19): only the creator may then manage the group.
 function askGroupName() {
   return new Promise(resolve => {
     const body = document.createElement("div");
-    body.innerHTML = `<input class="text-field" maxlength="60" placeholder="${escapeHtml(t("Group name"))}" value="${escapeHtml(t("New group"))}">`;
+    body.innerHTML = `<input class="text-field" maxlength="60" placeholder="${escapeHtml(t("Group name"))}" value="${escapeHtml(t("New group"))}">
+      <label class="scale-opt admin-group-opt">
+        <input type="checkbox" role="switch" data-admin-group aria-describedby="admin-group-hint">
+        <span class="admin-group-opt-text"><span class="admin-group-opt-title">${ICON.shieldCheck}${escapeHtml(t("Admin group"))}</span>
+        <span class="admin-group-hint" id="admin-group-hint">${escapeHtml(t("Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat."))}</span></span>
+      </label>`;
     const input = body.querySelector("input");
+    const adminBox = body.querySelector("[data-admin-group]");
     // Fragment, not a wrapping div: the buttons land as direct children of
     // .modal-foot and inherit its one-row flex layout.
     const { foot, cancel, ok } = footButtons("Create group", { okType: "submit", okClass: "btn-text btn-primary" });
     ok.style.width = "auto"; // btn-primary defaults to the full-width onboarding bar
     const done = value => { resolve(value); close(); };
     const { close, form } = showModal({ title: "New group", body, foot, form: true, onClose: () => resolve(null) });
-    form.addEventListener("submit", () => done(input.value.trim() || t("New group")));
+    form.addEventListener("submit", () => done({ name: input.value.trim() || t("New group"), admin: adminBox.checked }));
     cancel.addEventListener("click", () => done(null));
     setTimeout(() => { input.focus(); input.select(); }, 60);
   });
@@ -3651,6 +4269,8 @@ function openProfileManagement() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
   const canImport = !!tauriInvoke();
+  // #178: snapshot encryption is a PWA-only feature (worker-wasm backend).
+  const pwaEnc = core.backend?.kind === "worker-wasm" && !!core.transport?.setEncryption;
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="pm-tabs" data-tabs>
@@ -3664,6 +4284,55 @@ function openProfileManagement() {
       <input type="checkbox" role="switch" data-sync-only>
       <span>${escapeHtml(t("Sync only active profile — other profiles won't receive messages until you switch to them"))}</span>
     </label>
+    ${pwaEnc ? `
+    <div style="margin:0 2px 10px;display:grid;gap:8px" data-encrypt-box>
+      <p class="pm-hint" data-enc-status></p>
+      <div data-enc-on hidden>
+        <form data-enc-form style="display:grid;gap:8px">
+          <input class="text-field" data-enc-pass type="password" minlength="8" required placeholder="${escapeHtml(t("Passphrase (8+ characters)"))}" autocomplete="new-password">
+          <input class="text-field" data-enc-pass2 type="password" minlength="8" required placeholder="${escapeHtml(t("Repeat passphrase"))}" autocomplete="new-password">
+          <button class="btn-primary" type="submit">${escapeHtml(t("Encrypt local data"))}</button>
+        </form>
+        ${prfSupported() ? `<button class="btn-text" type="button" data-enc-prf>${escapeHtml(t("Use a passkey instead"))}</button>` : ""}
+      </div>
+      <div data-enc-off hidden>
+        <button class="btn-primary" type="button" data-enc-disable>${escapeHtml(t("Turn off encryption"))}</button>
+      </div>
+      <div data-enc-lock hidden style="display:grid;gap:8px;border-top:1px solid var(--hairline);padding-top:10px">
+        <p class="pm-hint" data-lock-status>${escapeHtml(t("Quicker unlocks for this profile. The PIN and the recovery code wrap the same key — the passphrase or the passkey stays the master way in."))}</p>
+        <label class="pm-hint" style="display:grid;gap:4px">
+          <span>${escapeHtml(t("Lock when hidden"))}</span>
+          <select class="text-field" data-autolock>
+            <option value="0">${escapeHtml(t("Off"))}</option>
+            <option value="1">${escapeHtml(t("After 1 minute"))}</option>
+            <option value="5">${escapeHtml(t("After 5 minutes"))}</option>
+            <option value="15">${escapeHtml(t("After 15 minutes"))}</option>
+          </select>
+        </label>
+        <div style="display:grid;gap:6px">
+          <div data-pin-form hidden style="display:grid;gap:6px">
+            <input class="text-field" data-pin type="password" minlength="6" required placeholder="${escapeHtml(t("App-lock PIN (6+ characters)"))}" autocomplete="new-password">
+            <input class="text-field" data-pin2 type="password" minlength="6" required placeholder="${escapeHtml(t("Repeat PIN"))}" autocomplete="new-password">
+            <div class="pm-actions">
+              <button class="btn-primary" type="button" data-pin-save>${escapeHtml(t("Save PIN"))}</button>
+              <button class="btn-text" type="button" data-pin-cancel>${escapeHtml(t("Cancel"))}</button>
+            </div>
+          </div>
+          <div class="pm-actions" data-pin-actions hidden>
+            <button class="btn-text" type="button" data-pin-edit>${escapeHtml(t("Change PIN"))}</button>
+            <button class="btn-text" type="button" data-pin-remove style="color:var(--danger)">${escapeHtml(t("Remove PIN"))}</button>
+          </div>
+        </div>
+        <div style="display:grid;gap:6px">
+          <div class="pm-actions" data-rec-gen hidden>
+            <button class="btn-text" type="button" data-rec-new>${escapeHtml(t("Generate a recovery code"))}</button>
+          </div>
+          <div class="pm-actions" data-rec-actions hidden>
+            <button class="btn-text" type="button" data-rec-new>${escapeHtml(t("Replace the recovery code"))}</button>
+            <button class="btn-text" type="button" data-rec-remove style="color:var(--danger)">${escapeHtml(t("Remove the recovery code"))}</button>
+          </div>
+        </div>
+      </div>` : ""}
     <div class="pm-pane" data-pane="add">
       <p class="pm-hint">${t("Paste a <b>chatmail</b> invite link ({link}) or a relay domain — a new end-to-end encrypted profile is created on it.", { link: "<span>dcaccount:…</span>" })}</p>
       <form data-add-form>
@@ -3737,6 +4406,149 @@ function openProfileManagement() {
     }
   });
 
+  /* -- local data encryption (#178, PWA only) -- */
+  const encBox = body.querySelector("[data-encrypt-box]");
+  if (encBox) {
+    const statusEl = encBox.querySelector("[data-enc-status]");
+    const onBox = encBox.querySelector("[data-enc-on]");
+    const offBox = encBox.querySelector("[data-enc-off]");
+    // #178 phase 4: app-lock rows (PIN, recovery code, auto-lock).
+    const lockBox = encBox.querySelector("[data-enc-lock]");
+    const pinForm = lockBox.querySelector("[data-pin-form]");
+    const pinActions = lockBox.querySelector("[data-pin-actions]");
+    const recGen = lockBox.querySelector("[data-rec-gen]");
+    const recActions = lockBox.querySelector("[data-rec-actions]");
+    const alSel = lockBox.querySelector("[data-autolock]");
+    alSel.value = localStorage.getItem("velta-autolock-mins") || "0";
+    const refresh = async () => {
+      const lock = await probeLock();
+      if (lock) {
+        statusEl.textContent = t("Local data is encrypted. Unlocking needs the passphrase or passkey you chose — the key never leaves this device.");
+        onBox.hidden = true;
+        offBox.hidden = false;
+        lockBox.hidden = false;
+        pinForm.hidden = true;
+        pinActions.hidden = !lock.pin;
+        recGen.hidden = !!lock.recovery;
+        recActions.hidden = !lock.recovery;
+      } else {
+        statusEl.textContent = t("Local data is stored in plain text in this browser. Encryption protects it against access to the profile files (lost laptop, copied profile), not against malware while Velta is open.");
+        onBox.hidden = false;
+        offBox.hidden = true;
+        lockBox.hidden = true;
+      }
+    };
+    refresh();
+    const form = encBox.querySelector("[data-enc-form]");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pass = form.querySelector("[data-enc-pass]").value;
+      if (pass !== form.querySelector("[data-enc-pass2]").value) { errToast(t("The passphrases don't match.")); return; }
+      try {
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const kek = await deriveKekPassphrase(pass, salt);
+        await core.transport.setEncryption({ kek, meta: { v: 1, mode: "pass", salt: b64(salt), iter: 600000 } });
+        toast(t("Local data encryption is on. The passphrase is the only way to unlock this profile — write it down."));
+        try { localStorage.setItem("velta-enc-nudge", "1"); } catch {}
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't enable encryption: ") + (err?.message || err));
+      }
+    });
+    encBox.querySelector("[data-enc-prf]")?.addEventListener("click", async () => {
+      try {
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const cred = await prfCreate();
+        const prf = cred.getClientExtensionResults?.()?.prf;
+        if (!prf?.isSupported) throw new Error(t("This authenticator does not support passkey encryption (PRF)."));
+        const kek = await deriveKekPrf(await prfEval(cred.rawId, salt), salt);
+        await core.transport.setEncryption({ kek, meta: { v: 1, mode: "prf", salt: b64(salt), credId: b64(new Uint8Array(cred.rawId)) } });
+        toast(t("Local data encryption is on. Unlocking needs this passkey — keep a backup: losing the passkey means losing the data."));
+        try { localStorage.setItem("velta-enc-nudge", "1"); } catch {}
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't enable encryption: ") + (err?.message || err));
+      }
+    });
+    encBox.querySelector("[data-enc-disable]").addEventListener("click", async () => {
+      try {
+        await core.transport.disableEncryption();
+        toast(t("Local data encryption is off."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't turn encryption off: ") + (err?.message || err));
+      }
+    });
+
+    /* -- app lock: PIN, recovery code, auto-lock (#178 phase 4) -- */
+    const saveWrap = async (kind, secret, meta) => {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const kek = await deriveKekPassphrase(secret, salt);
+      await core.transport.setUnlockWrap({ kind, kek, meta: { v: 1, kind, salt: b64(salt), iter: 600000, ...meta } });
+    };
+    alSel.addEventListener("change", () => {
+      try { localStorage.setItem("velta-autolock-mins", alSel.value); } catch {}
+    });
+    lockBox.querySelector("[data-pin-edit]").addEventListener("click", () => {
+      pinActions.hidden = true;
+      pinForm.hidden = false;
+    });
+    lockBox.querySelector("[data-pin-cancel]").addEventListener("click", () => {
+      pinForm.reset();
+      pinForm.hidden = true;
+      pinActions.hidden = false;
+    });
+    lockBox.querySelector("[data-pin-save]").addEventListener("click", async () => {
+      if (!pinForm.reportValidity()) return;
+      const pin = pinForm.querySelector("[data-pin]").value;
+      if (pin !== pinForm.querySelector("[data-pin2]").value) { errToast(t("The PINs don't match.")); return; }
+      try {
+        await saveWrap("pin", pin);
+        toast(t("App-lock PIN saved — it unlocks this profile faster. The passphrase or the passkey still works."));
+        pinForm.reset();
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't save the PIN: ") + (err?.message || err));
+      }
+    });
+    lockBox.querySelector("[data-pin-remove]").addEventListener("click", async () => {
+      try {
+        await core.transport.removeUnlockWrap("pin");
+        toast(t("PIN removed."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't remove the PIN: ") + (err?.message || err));
+      }
+    });
+    // Shown once — the code IS the secret, it cannot be displayed again.
+    const genRecovery = async () => {
+      const alph = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      const raw = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => alph[b % alph.length]).join("");
+      try {
+        await saveWrap("recovery", raw);
+        const m = showModal({
+          title: t("Recovery code"),
+          body: `<p class="modal-hint">${escapeHtml(t("Write this down now — it is shown only once. It unlocks this profile if you lose the passphrase and the passkey."))}</p><p style="font-size:1.4em;letter-spacing:.08em;text-align:center"><b>${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}</b></p>`,
+          foot: `<button class="btn-primary" type="button" data-done>${escapeHtml(t("I wrote it down"))}</button>`,
+        });
+        m.modal.querySelector("[data-done]").addEventListener("click", m.close);
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't save the recovery code: ") + (err?.message || err));
+      }
+    };
+    lockBox.querySelectorAll("[data-rec-new]").forEach((b) => b.addEventListener("click", genRecovery));
+    lockBox.querySelector("[data-rec-remove]").addEventListener("click", async () => {
+      try {
+        await core.transport.removeUnlockWrap("recovery");
+        toast(t("Recovery code removed."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't remove the recovery code: ") + (err?.message || err));
+      }
+    });
+  }
+
   /* -- add profile -- */
   const relayInput = panes.add.querySelector("[data-relay]");
   const submitAdd = async () => {
@@ -3777,9 +4589,22 @@ function openProfileManagement() {
   let transferStarted = false;
   let progHandler = null;
   const transferPane = panes.device.querySelector("[data-transfer-pane]");
-  const cleanupTransfer = () => {
+  // Set once a receiver authenticated (ImexProgress 1..999). From then on
+  // only the explicit Cancel button stops the provider: an overlay tap, the
+  // Android back gesture or any closeAllPopups() used to call
+  // stop_ongoing_process and the receiver failed mid-tar with
+  // "connection lost: closed by peer: 0".
+  let receiverConnected = false;
+  let wakeHeld = false;
+  const releaseWake = () => { if (wakeHeld) { wakeHeld = false; wakeLockRelease(); } };
+  const cleanupTransfer = (explicit = false) => {
+    if (receiverConnected && !explicit) {
+      toast(t("Profile transfer continues in the background — keep Velta open on both devices"));
+      return; // progHandler stays to report completion and free the wake lock
+    }
     if (progHandler) { core.removeEventListener("imex-progress", progHandler); progHandler = null; }
-    if (transferStarted) core.stopOngoingProcess?.().catch?.(() => {});
+    releaseWake();
+    if (transferStarted) { transferStarted = false; core.stopOngoingProcess?.().catch?.(() => {}); }
   };
   panes.device.querySelector("[data-old]").addEventListener("click", () => {
     if (!accountIsCurrent(epoch)) return;
@@ -3787,28 +4612,41 @@ function openProfileManagement() {
     lock(true);
     transferPane.innerHTML = `
       <div class="qr-box" style="margin-top:10px"><div class="qr-loading">${escapeHtml(t("Preparing QR…"))}</div></div>
+      <div data-xfer></div>
       <div class="p2p-hint" style="opacity:.6">${escapeHtml(t("On the new device, tap \"Receive a profile on this device\" and scan or paste this code. Keep both devices on this screen until the transfer finishes."))}</div>
       <div style="margin-top:8px"><button type="button" class="btn-text" data-cancel>${escapeHtml(t("Cancel"))}</button></div>`;
+    wakeHeld = true;
+    wakeLockAcquire(); // screen-off/Doze must not stall the sender mid-transfer
+    const tracker = createTransferTracker({ core, kind: "send", invoke: tauriInvoke() })
+      .attach(transferPane.querySelector("[data-xfer]"));
     const transferDone = () => {
-      if (!accountIsCurrent(epoch)) return;
+      tracker.finish(true);
+      receiverConnected = false;
+      transferStarted = false; // finished: nothing to cancel
       cleanupTransfer();
+      if (!accountIsCurrent(epoch)) return;
       toast(t("Profile transferred to the second device"));
       close();
     };
     progHandler = (e) => {
-      if ((e.detail?.progress || 0) >= 1000) transferDone();
+      const p = e.detail?.progress || 0;
+      if (p >= 1000) transferDone();
+      else if (p > 0) receiverConnected = true;
+      else if (receiverConnected) { receiverConnected = false; tracker.finish(false); cleanupTransfer(); }
     };
     core.addEventListener("imex-progress", progHandler);
     // Blocks server-side until a device retrieves the backup; it can outlive
     // the RPC timeout — completion is detected via ImexProgress above.
-    core.provideBackup().then(transferDone).catch(() => {});
+    core.provideBackup().then(transferDone).catch((err) => tracker.finish(false, err?.message || err));
     transferPane.querySelector("[data-cancel]").addEventListener("click", () => {
-      cleanupTransfer();
+      tracker.finish(false, t("Cancelled"));
+      cleanupTransfer(true);
       transferPane.innerHTML = "";
       lock(false);
     });
     core.getBackupQrSvg().then((svg) => {
       if (accountIsCurrent(epoch)) {
+        tracker.set({ stage: tracker.state.seen ? tracker.state.stage : "waiting" });
         transferPane.querySelector(".qr-box").innerHTML = svg;
         // The card reserves a clear circle at 50% / 43.65% — same overlay
         // as the invite QR.
@@ -3816,6 +4654,7 @@ function openProfileManagement() {
           `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
       }
     }).catch((err) => {
+      tracker.finish(false, err?.message || err);
       if (accountIsCurrent(epoch)) transferPane.querySelector(".qr-box").innerHTML =
         `<div class="qr-loading">${escapeHtml(t("Couldn't prepare the transfer:"))}<br>${escapeHtml(String(err?.message || err))}</div>`;
     });
@@ -3824,7 +4663,10 @@ function openProfileManagement() {
     if (!accountIsCurrent(epoch)) return;
     // Hands over to its own full-screen code sheet + steps, replacing this
     // modal (closeAllPopups inside) — nothing to clean up here.
-    receiveSecondDeviceProfile(epoch, () => { transferStarted = true; });
+    // Receiving: the profile modal closing must NOT stop_ongoing_process —
+    // the current account may already be the one importing (reused
+    // unconfigured account), which cancelled the receive.
+    receiveSecondDeviceProfile(epoch);
   });
 
   /* -- export backup -- */
@@ -3832,6 +4674,11 @@ function openProfileManagement() {
   const passInput = panes.export.querySelector("[data-pass]");
   const exportBtn = panes.export.querySelector("[data-export]");
   const progressBox = panes.export.querySelector("[data-progress]");
+  // #178 phase 4: a successful export feeds the backup reminder (and clears
+  // the post-enable nudge).
+  const stampBackup = () => {
+    try { localStorage.setItem("velta-last-backup", String(Date.now())); localStorage.removeItem("velta-enc-nudge"); } catch {}
+  };
   const onAndroid = isAndroid();
   // #104: wasm core (PWA) has no folder picker — the backup tar is written
   // into memfs and downloaded by the browser; desktop/Android paths unchanged.
@@ -3876,6 +4723,7 @@ function openProfileManagement() {
     let androidUri = "";
     if (onAndroid && !pwaExport) {
       if (!invoke) { toast(t("Backup export needs the Velta app")); return; }
+      const { backupDownloadName } = await loadIdentityBackup();
       const name = backupDownloadName(state.account?.addr, new Date().toISOString().slice(0, 10));
       try {
         const picked = await invoke("plugin:dialog|save", { options: {
@@ -3897,28 +4745,41 @@ function openProfileManagement() {
     lock(true);
     exportBtn.disabled = true;
     progressBox.hidden = false;
-    progressBox.textContent = t("Exporting…");
+    progressBox.textContent = "";
+    const xferEl = document.createElement("div");
+    const noteEl = document.createElement("div");
+    progressBox.append(xferEl, noteEl);
+    // Core 1000 only means the tar is written; Android/PWA still save it.
+    const tracker = createTransferTracker({ core: null, kind: "export", invoke }).attach(xferEl);
     const onProg = (e) => {
       const p = e.detail?.progress || 0;
-      progressBox.textContent = p >= 1000 ? t("Backup written.") : t("Exporting… {n}%", { n: Math.round(p / 10) });
+      if (p > 0 && p < 1000) tracker.set({ stage: "exporting", permille: p, seen: true });
+      else if (p >= 1000) tracker.set({ stage: "exporting", permille: 999 });
     };
     core.addEventListener("imex-progress", onProg);
   try {
     if (pwaExport) {
       await runBackupExport(pass || null);
-      progressBox.textContent = t("Backup downloaded — check your browser downloads.");
+      tracker.finish(true);
+      noteEl.textContent = t("Backup downloaded — check your browser downloads.");
+      stampBackup();
     } else if (androidUri) {
       const dir = await invoke("backup_scratch_dir");
       await core.exportBackup(dir, pass || null);
-      progressBox.textContent = t("Saving…");
+      tracker.set({ stage: "saving" });
       await invoke("publish_backup", { dir, uri: androidUri });
-      progressBox.textContent = t("Backup saved.");
+      tracker.finish(true);
+      noteEl.textContent = t("Backup saved.");
+      stampBackup();
     } else {
       await core.exportBackup(dest, pass || null);
+      tracker.finish(true);
+      noteEl.textContent = t("Backup written.");
+      stampBackup();
     }
   } catch (err) {
+      tracker.finish(false, err?.message || err);
       errToast(t("Export failed: ") + (err?.message || err));
-      progressBox.hidden = true;
     } finally {
       core.removeEventListener("imex-progress", onProg);
       exportBtn.disabled = false;
@@ -3955,21 +4816,24 @@ function openProfileManagement() {
     // account-changing closed this modal. Progress rides a new one; the
     // core signals 1000 / 0, and `pending` carries an early RPC error.
     const prog = showProgressModal("Import backup", t("Restoring profile…"));
+    const importTracker = createTransferTracker({ core, kind: "import", invoke: tauriInvoke() }).attach(prog.xfer);
     let settled = false;
     let seen = false;
     const finishOk = () => {
       if (settled) return;
       settled = true;
       core.removeEventListener("imex-progress", onProg);
+      importTracker.finish(true);
       prog.update(t("Profile restored — restarting"));
       localStorage.setItem("velta-ask-notifications", "1");
-      core._tunnelReapply?.();
+      core._proxyReapply?.();
       setTimeout(() => location.reload(), 800);
     };
     const finishErr = async (msg) => {
       if (settled) return;
       settled = true;
       core.removeEventListener("imex-progress", onProg);
+      importTracker.finish(false, msg);
       prog.close();
       try { await core.stopOngoingProcess?.(); } catch { /* already finished */ }
       if (job.created && String(job.targetId) !== String(job.prevId)) {
@@ -4037,7 +4901,7 @@ function openProfileManagement() {
     }
   });
 
-  const { close } = showModal({ title: "Profile management", body, onClose: cleanupTransfer });
+  const { close } = showModal({ title: "Profile management", body, onClose: () => cleanupTransfer(false) });
 }
 
 // Ask for notification permission once the user has a working account —
@@ -4225,8 +5089,8 @@ async function claimAndConfigure(host, token) {
     let status, body;
     if (invoke) {
       // Native: the shell fetches (the renderer is CORS-bound) through the
-      // profile's proxy — the WebSocket transport / DNS tunnel when in use.
-      await invoke("tunnel_reapply").catch(() => {});
+      // profile's proxy — the selected SOCKS5 / WebSocket proxy when in use.
+      await invoke("proxy_reapply").catch(() => {});
       let proxy = null;
       try {
         const [en, url] = await Promise.all([core.getConfig("proxy_enabled"), core.getConfig("proxy_url")]);
@@ -4298,6 +5162,7 @@ async function createAccountFromRelayInvite(host, token) {
      • #/addrelay/<urlencoded dcaccount link>
      • velta://invite?url=<url-encoded i.delta.chat link>  (Windows custom scheme)
      • velta://chat?account=<id>&chat=<id>&t=<token>  (notification tap, issues #20/#23)
+     • velta://diagnostics?show=error&copy=1  (open the local log, copy those lines)
    A dcaccount: invite asks whether to add the relay to the current profile
    or create a new profile on it. Relay-adding needs a real core; in demo
    mode it tells the user instead. */
@@ -4417,6 +5282,12 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     else await createAccountFromRelayInvite(relayInvite.host, relayInvite.token);
     return true;
   }
+  const diagLink = parseDiagnosticsLink(rawUrl);
+  if (diagLink) {
+    if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
+    await openDiagnosticsFromLink(diagLink);
+    return true;
+  }
   const chatLink = extractChatLink(rawUrl);
   if (chatLink) {
     // A web page can fire velta://chat. Only notifications minted by this
@@ -4424,11 +5295,11 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     if (chatLinkToken && chatLink.token === chatLinkToken) await openChatFromLink(chatLink);
     return true;
   }
-  // DNS tunnel setup link: confirmed by the user before anything changes.
-  const tunnelLink = extractTunnelLink(rawUrl);
-  if (tunnelLink) {
+  // SOCKS5 proxy setup link: confirmed by the user before anything changes.
+  const proxyLink = extractProxyLink(rawUrl);
+  if (proxyLink) {
     if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
-    await acceptTunnelLink(tunnelLink, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer });
+    await acceptProxyLink(proxyLink, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer });
     return true;
   }
   // WebSocket transport link: validated and confirmed before anything changes.
@@ -4761,6 +5632,7 @@ function downloadBytes(bytes, name) {
 // offers CompressionStream (the shells' prep path decompresses before
 // import); byte-identical .tar where it doesn't.
 async function runBackupExport(pass) {
+  const { gzipBytes, backupDownloadName } = await loadIdentityBackup();
   const dir = "/backup/export";
   await core.exportBackup(dir, pass || null);
   const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
@@ -4774,6 +5646,7 @@ async function runBackupExport(pass) {
 }
 
 async function mailLoginForBackup() {
+  const { mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } = await loadIdentityBackup();
   const prefer = state.account?.addr;
   let transports = [];
   try { transports = await core.listTransports(); } catch { /* the db still has the login */ }
@@ -4797,6 +5670,7 @@ async function mailLoginForBackup() {
 
 async function runIdentityExport(pass) {
   if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
+  const { bytesToBase64, wrapIdentityBundle, buildIdentityBundle } = await loadIdentityBackup();
   // core 2.63.0 removed the legacy addr/mail_pw configs. The login is the
   // transport (flat password or the db's imap.password). Prefer the sending address.
   const login = await mailLoginForBackup();
@@ -4818,6 +5692,7 @@ async function runIdentityExport(pass) {
 
 async function runIdentityRestore(file, pass, onPhase) {
   onPhase(t("Reading backup…"));
+  const { unwrapIdentityBundle, base64ToBytes } = await loadIdentityBackup();
   // Wrong passphrase / corrupt file throw here — BEFORE any account is
   // created, so a bad file can never leave a stray behind.
   const bundle = await unwrapIdentityBundle(new Uint8Array(await file.arrayBuffer()), pass);
@@ -5021,14 +5896,14 @@ async function setMultiDevice(on, { quick = false } = {}) {
 
 function savedDownloadLimit() {
   const raw = localStorage.getItem("velta-download-limit");
-  const v = normalizeDownloadLimit(raw);
+  const v = raw == null || raw === "" ? "0" : raw === "655360" ? "1048576" : String(raw);
   if (raw != null && raw !== v) localStorage.setItem("velta-download-limit", v);
   return v;
 }
 
 function rebuildDrawer() {
   if (state.accountChanging) return;
-  // Rebuilds land from async paths (boot, refreshAccounts, tunnel status,
+  // Rebuilds land from async paths (boot, refreshAccounts, proxy status,
   // profile/relay edits, Local chat toggle), often while the drawer is open.
   // Carry the open drawer and account switcher over to the new DOM instead of
   // silently dropping them, and unhook the old drawer's document listeners.
@@ -5145,6 +6020,7 @@ function rebuildDrawer() {
       : undefined,
     onSetTheme: (mode) => { state.theme = mode; applyTheme(); },
     onProfileManagement: () => openProfileManagement(),
+    onPrivacySecurity: window.__TAURI__ && tauriInvoke() ? () => openPrivacySecurity() : null,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
     onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
@@ -5153,10 +6029,10 @@ function rebuildDrawer() {
     onScheduled: () => openAllScheduled(),
     onExportSettings: () => exportSettingsToSaved(),
     backendKind: core?.backend?.kind || null,
-    onTunnel: tunnelOffered()
-      ? () => openTunnelSettings({ showModal, confirmModal, askText, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
+    onProxy: proxyOffered()
+      ? () => openProxySettings({ showModal, confirmModal, askText, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
       : null,
-    tunnelLabel: describeTunnel(tunnelStatus()).headline,
+    proxyLabel: describeProxy(proxyStatus()).headline,
     // Native shells only; the PWA already speaks WebSocket (WebSocket relays).
     onWsTransport: window.__TAURI__
       ? async () => {
@@ -5200,6 +6076,255 @@ function rebuildDrawer() {
     drawer.el.style.transition = "";
   }
   ensureMultiDevice();
+}
+
+// #178 phase 4: app-wide Privacy & security (native shells). The database
+// key (DEK) is one per install, so its key root — the app-lock PIN on
+// desktop, the biometric lock on Android — and auto-lock live here, not in
+// the per-profile Profile management screen.
+function openPrivacySecurity() {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div style="display:grid;gap:8px" data-applock-box>
+      <p class="pm-hint" data-applock-status></p>
+      <p class="pm-hint" data-blob-status hidden></p>
+      <form data-pin-form hidden style="display:grid;gap:6px">
+        <input class="text-field" data-pin-cur type="password" placeholder="${escapeHtml(t("Current PIN"))}" autocomplete="current-password">
+        <input class="text-field" data-pin-new type="password" minlength="6" required placeholder="${escapeHtml(t("App-lock PIN (6+ characters)"))}" autocomplete="new-password">
+        <input class="text-field" data-pin-new2 type="password" minlength="6" required placeholder="${escapeHtml(t("Repeat PIN"))}" autocomplete="new-password">
+        <div class="pm-actions">
+          <button class="btn-primary" type="button" data-pin-save>${escapeHtml(t("Save PIN"))}</button>
+          <button class="btn-text" type="button" data-pin-cancel>${escapeHtml(t("Cancel"))}</button>
+        </div>
+      </form>
+      <div class="pm-actions ps-lock-actions">
+      <div data-pin-off-row hidden>
+        <button class="btn-text" type="button" data-pin-add>${escapeHtml(t("Add app-lock PIN"))}</button>
+      </div>
+      <div data-pin-rows hidden>
+        <button class="btn-text" type="button" data-pin-edit>${escapeHtml(t("Change PIN"))}</button>
+        <button class="btn-text" type="button" data-pin-remove style="color:var(--danger)">${escapeHtml(t("Remove PIN"))}</button>
+      </div>
+        ${isAndroid() ? `<button class="btn-text" type="button" data-bio-toggle></button>` : `<button class="btn-text" type="button" data-hello-toggle hidden></button>`}
+      </div>
+      <label class="pm-hint" style="display:grid;gap:4px">
+        <span>${escapeHtml(t("Lock when hidden"))}</span>
+        <select class="text-field" data-autolock>
+          <option value="0">${escapeHtml(t("Off"))}</option>
+          <option value="1">${escapeHtml(t("After 1 minute"))}</option>
+          <option value="5">${escapeHtml(t("After 5 minutes"))}</option>
+          <option value="15">${escapeHtml(t("After 15 minutes"))}</option>
+        </select>
+      </label>
+    </div>
+  `;
+  const cleanups = [];
+  /* -- app-lock PIN + auto-lock (#178 phase 4, native shell) -- */
+  const applockBox = body.querySelector("[data-applock-box]");
+  if (applockBox) {
+    const shell = tauriInvoke();
+    const statusEl = applockBox.querySelector("[data-applock-status]");
+    const pinForm = applockBox.querySelector("[data-pin-form]");
+    const pinCur = pinForm.querySelector("[data-pin-cur]");
+    const pinNew = pinForm.querySelector("[data-pin-new]");
+    const pinNew2 = pinForm.querySelector("[data-pin-new2]");
+    const pinOffRow = applockBox.querySelector("[data-pin-off-row]");
+    const pinRows = applockBox.querySelector("[data-pin-rows]");
+    const alSel = applockBox.querySelector("[data-autolock]");
+    alSel.value = localStorage.getItem("velta-autolock-mins") || "0";
+    alSel.addEventListener("change", () => {
+      try { localStorage.setItem("velta-autolock-mins", alSel.value); } catch {}
+      if (isAndroid() && tauriInvoke()) tauriInvoke()("set_autolock_mins", { mins: Number(alSel.value) || 0 }).catch(() => {});
+    });
+    // Android: the biometric lock replaces the PIN (the Keystore KEK is the
+    // user-auth root there); the result arrives as a velta-biometric event.
+    // #178 phase 5: the encryption decision's honest boundary — the
+    // message database is keyed, attachments are not; say what still rides
+    // on platform/disk encryption.
+    const blobEl = applockBox.querySelector("[data-blob-status]");
+    if (blobEl) {
+      blobEl.hidden = false;
+      if (isAndroid()) {
+        blobEl.textContent = t("Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).");
+      } else {
+        const shell2 = tauriInvoke();
+        if (shell2) {
+          shell2("volume_encryption_status").then((st) => {
+            const vol = st === "on"
+              ? " " + t("Disk encryption: on.")
+              : st === "off"
+                ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.")
+                : "";
+            blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.") + vol;
+          }).catch(() => {});
+        }
+      }
+    }
+    const bioBtn = applockBox.querySelector("[data-bio-toggle]");
+    if (bioBtn) {
+      let bioOn = false;
+      const refreshBio = async () => {
+        try {
+          bioOn = await tauriInvoke()("biometric_state");
+          bioBtn.textContent = bioOn ? t("Turn off the biometric lock") : t("Use the biometric lock");
+        } catch {}
+      };
+      // The prompt's error code + message rides in payload.detail (also in
+      // velta.log); surface it so a failure is diagnosable.
+      const bioFail = (why) => {
+        diagnostics.append("error", `Biometric lock: ${why || "failed"}`);
+        const w = String(why || "");
+        // no-key: the core runs without a database key yet; no-auth: no
+        // screen lock / fingerprint set up. Clear hints, not raw codes.
+        if (w.startsWith("no-key")) errToast(t("Database encryption isn't set up on this device yet. Restart Velta to finish it, then turn on the lock."), 8000);
+        else if (w.startsWith("no-auth")) errToast(t("Set up a screen lock (PIN, pattern or password) or a fingerprint in Android settings first."), 8000);
+        else errToast(w ? t("The biometric prompt did not succeed: {why}", { why: w }) : t("The biometric prompt did not succeed."), 6000);
+      };
+      const unlistenP = window.__TAURI__?.event?.listen?.("velta-biometric", (ev) => {
+        refreshBio();
+        if (ev?.payload && !ev.payload.ok) bioFail(ev.payload.detail);
+        else if (ev?.payload?.ok) toast(ev.payload.on ? t("Biometric lock is on.") : t("Biometric lock is off."));
+      });
+      cleanups.push(() => { Promise.resolve(unlistenP).then((un) => un?.()).catch(() => {}); });
+      bioBtn.addEventListener("click", () => {
+        tauriInvoke()("biometric_set", { on: !bioOn }).catch((err) => bioFail(String(err?.message || err)));
+      });
+      refreshBio();
+    }
+    // "set" (no PIN yet), "change", "remove" — the current PIN is asked for
+    // whenever one is set; the Rust side re-verifies it anyway.
+    let formMode = "set";
+    let helloOn = false;
+    const helloBtn = applockBox.querySelector("[data-hello-toggle]");
+    const refresh = async () => {
+      let on = false;
+      try { on = await shell("get_db_pin_state"); } catch {}
+      helloOn = false;
+      let helloOk = false;
+      if (!isAndroid() && shell) {
+        try { helloOk = await shell("hello_supported"); } catch {}
+        try { helloOn = await shell("get_db_hello_state"); } catch {}
+      }
+      if (helloBtn) {
+        helloBtn.hidden = !helloOk;
+        helloBtn.textContent = helloOn ? t("Turn off Windows Hello") : t("Unlock with Windows Hello");
+      }
+      // Android: the Velta PIN and the biometric / screen lock are both
+      // key roots for the same database key; either one unlocks.
+      if (isAndroid()) statusEl.textContent = on
+        ? t("App-lock PIN is on: Velta asks for it at every start. The biometric lock can be added for quicker unlocks.")
+        : t("Add a Velta app-lock PIN, or use the biometric lock (fingerprint or screen lock), to require it at every start. Either protects the database key of all profiles at rest.");
+      else if (helloOn && on) statusEl.textContent = t("Windows Hello or the app-lock PIN protects this device's database key.");
+      else if (helloOn) statusEl.textContent = t("Windows Hello protects this device's database key and is required at every start.");
+      else statusEl.textContent = on
+        ? t("App-lock PIN is on. The PIN — not the OS keychain — protects this profile's database key at rest, and auto-lock can re-lock the app.")
+        : helloOk
+          ? t("The database key lives in the OS keychain. Add a PIN or Windows Hello to require it at every start and to enable auto-lock.")
+          : t("The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.");
+      pinForm.hidden = true;
+      pinOffRow.hidden = on;
+      pinRows.hidden = !on;
+      pinCur.hidden = !on;
+      pinCur.required = on;
+    };
+    refresh();
+    const openForm = (mode) => {
+      formMode = mode;
+      pinForm.reset();
+      const pinOnly = mode === "remove" || mode === "hello";
+      pinNew.hidden = pinOnly;
+      pinNew2.hidden = pinOnly;
+      pinNew.required = !pinOnly;
+      pinNew2.required = !pinOnly;
+      pinCur.hidden = mode === "set";
+      pinCur.required = mode !== "set";
+      pinOffRow.hidden = true;
+      pinRows.hidden = true;
+      if (helloBtn) helloBtn.hidden = true;
+      pinForm.querySelector("[data-pin-save]").textContent = mode === "hello"
+        ? t("Unlock with Windows Hello")
+        : t("Save PIN");
+      pinForm.hidden = false;
+      (mode === "set" ? pinNew : pinCur).focus();
+    };
+    pinForm.addEventListener("submit", (e) => { e.preventDefault(); pinForm.querySelector("[data-pin-save]").click(); });
+    applockBox.querySelector("[data-pin-add]").addEventListener("click", () => openForm("set"));
+    applockBox.querySelector("[data-pin-edit]").addEventListener("click", () => openForm("change"));
+    applockBox.querySelector("[data-pin-remove]").addEventListener("click", () => openForm("remove"));
+    applockBox.querySelector("[data-pin-cancel]").addEventListener("click", refresh);
+    if (helloBtn) {
+      helloBtn.addEventListener("click", async () => {
+        if (helloOn) {
+          try {
+            await shell("clear_db_hello");
+            toast(t("Windows Hello is off."));
+            await refresh();
+          } catch (err) {
+            const msg = String(err?.message || err || "");
+            errToast(msg.includes("cancelled")
+              ? t("Windows Hello was cancelled.")
+              : msg.includes("hello-unavailable")
+                ? t("Set up Windows Hello in Windows settings first.")
+                : t("Couldn't change Windows Hello: ") + msg);
+          }
+          return;
+        }
+        if (!pinOffRow.hidden) {
+          try {
+            await shell("set_db_hello", { pin: null });
+            toast(t("Windows Hello is on."));
+            await refresh();
+          } catch (err) {
+            const msg = String(err?.message || err || "");
+            errToast(msg.includes("cancelled")
+              ? t("Windows Hello was cancelled.")
+              : msg.includes("hello-unavailable")
+                ? t("Set up Windows Hello in Windows settings first.")
+                : msg.includes("no-key")
+                  ? t("This profile has no database key yet — nothing for a PIN to protect.")
+                  : t("Couldn't change Windows Hello: ") + msg);
+          }
+          return;
+        }
+        openForm("hello");
+      });
+    }
+    pinForm.querySelector("[data-pin-save]").addEventListener("click", async () => {
+      if (!pinForm.reportValidity()) return;
+      try {
+        if (formMode === "hello") {
+          await shell("set_db_hello", { pin: pinCur.value });
+          toast(t("Windows Hello is on."));
+        } else if (formMode === "remove") {
+          await shell("clear_db_pin", { pin: pinCur.value });
+          toast(t("PIN removed."));
+        } else {
+          if (pinNew.value !== pinNew2.value) { errToast(t("The PINs don't match.")); return; }
+          await shell("set_db_pin", { old: pinCur.hidden ? null : pinCur.value, pin: pinNew.value });
+          toast(t("App-lock PIN saved — it is required at every start. Keep it safe: without it, restore from a backup."));
+        }
+        await refresh();
+      } catch (err) {
+        const msg = String(err?.message || err || "");
+        const wait = msg.startsWith("retry:") ? Number(msg.slice(6)) || 0 : 0;
+        errToast(wait > 0
+          ? t("Too many attempts — wait {n} s.", { n: wait })
+          : formMode === "hello"
+            ? (msg.includes("cancelled")
+              ? t("Windows Hello was cancelled.")
+              : msg.includes("hello-unavailable")
+                ? t("Set up Windows Hello in Windows settings first.")
+                : t("Couldn't change Windows Hello: ") + msg)
+          : t("Couldn't save the PIN: ") + (msg.includes("no-key")
+            ? (isAndroid() ? t("Database encryption isn't set up on this device yet. Restart Velta to finish it, then turn on the lock.") : t("This profile has no database key yet — nothing for a PIN to protect."))
+            : msg.includes("keychain-unavailable")
+              ? t("The OS keychain is unavailable.")
+              : msg || err));
+      }
+    });
+  }
+
+  showModal({ title: "Privacy & security", body, onClose: () => cleanups.forEach((fn) => fn()) });
 }
 
 // Profile editor flow: name + avatar picture.
@@ -5252,7 +6377,7 @@ async function pickProfileImage() {
   if (Array.isArray(picked)) picked = picked[0];
   if (!picked) return null;
   if (/^content:\/\//.test(picked)) {
-    picked = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()) });
+    picked = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()), encrypt: true });
   }
   return { path: picked, url: null }; // preview resolves via fileUrl()
 }
@@ -5313,11 +6438,13 @@ function showProgressModal(title, initialMessage) {
     <div style="display:flex;align-items:center;gap:14px;padding:8px 0">
       <div style="width:26px;height:26px;border:3px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:ob-spin .8s linear infinite"></div>
       <div style="font-size:15px;line-height:1.45" id="progress-text"></div>
-    </div>`;
+    </div>
+    <div data-xfer></div>`;
   body.querySelector("#progress-text").textContent = initialMessage;
   const { close } = showModal({ title, body });
   return {
     close,
+    xfer: body.querySelector("[data-xfer]"),
     update: (msg) => {
       const el = body.querySelector("#progress-text");
       if (el) el.textContent = msg;
@@ -5844,6 +6971,11 @@ const relayDetailsHtml = (meta, quotaText) => {
 
 // One C3 probe per relay domain per app session (the flag cache).
 const relayC3Flags = new Map();
+// Last good list_transports per account: a stalled core keeps showing it.
+const relaysLastGood = createLastGood();
+const relayStatesLastGood = createLastGood();
+// Extras wait on scheduler / metadata locks (up to 30 s in a stall).
+const RELAY_EXTRA_TIMEOUT_MS = 4000;
 
 async function openRelaysModal() {
   if (state.accountChanging) return;
@@ -5856,19 +6988,44 @@ async function openRelaysModal() {
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">${escapeHtml(t("Loading…"))}</div></div>
     <div style="margin-top:10px"><button type="button" class="btn-text" data-add>${escapeHtml(t("Add relay…"))}</button></div>
+    <div class="relay-auto"><label><input type="checkbox" data-auto-add><span>${escapeHtml(t("Add relays automatically"))}</span></label><p class="relay-auto-hint">${escapeHtml(t("Velta may onboard extra relays by itself so mail keeps flowing. Off — you pick the relays."))}</p></div>
     <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>${escapeHtml(t("calls (TURN)"))}</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>${escapeHtml(t("iroh transfers"))}</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>${escapeHtml(t("push notifications"))}</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>${escapeHtml(t("instant delivery"))}</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>${escapeHtml(t("web endpoints"))}</span></span><span class="relay-pair"><span class="relay-dot"></span><span>${escapeHtml(t("offered by the relay"))}</span></span></div>`;
   showModal({ title: "Relays", body });
   const listEl = body.querySelector("[data-list]");
 
+  // VENDORISSUES #23: automatic relay onboarding is opt-in — upstream core
+  // enables it in init_transports, the Velta quilt flip defaults it off.
+  // The checkbox mirrors core Config::Autorelay ("1" = on, null/"0" = off).
+  const autoEl = body.querySelector("[data-auto-add]");
+  core.getConfig("autorelay").then(v => {
+    if (accountIsCurrent(epoch)) autoEl.checked = String(v) === "1";
+  }).catch(() => {});
+  autoEl.addEventListener("change", async () => {
+    try {
+      await core.setConfig("autorelay", autoEl.checked ? "1" : "0");
+    } catch (err) {
+      toast(String(err?.message || err));
+      autoEl.checked = !autoEl.checked;
+    }
+  });
+
   const refresh = async () => {
-    let transports;
+    let transports, loadErr = null;
+    const scope = core.accountId;
     try {
       transports = await core.listTransports();
+      if (!Array.isArray(transports)) throw new Error("list_transports: no data");
+      relaysLastGood.ok(scope, transports);
     } catch (err) {
-      if (accountIsCurrent(epoch)) {
-        listEl.innerHTML = `<div class="p2p-hint" style="color:var(--danger)">${escapeHtml(t("Failed to load relays:"))} ${escapeHtml(String(err?.message || err))}</div>`;
+      if (!accountIsCurrent(epoch)) return;
+      const s = relaysLastGood.fail(scope, err);
+      loadErr = err;
+      if (!s.value) {
+        // Never "No relays configured." for a failed load.
+        listEl.replaceChildren(loadErrorBanner(document, { err, t, onRetry: () => { listEl.innerHTML = `<div class="p2p-hint" style="opacity:.6">${escapeHtml(t("Loading…"))}</div>`; refresh(); } }));
+        return;
       }
-      return;
+      transports = s.value;
     }
     if (!accountIsCurrent(epoch)) return;
     // Per-relay live status for the stale-transport hint (issue #11 slice 3):
@@ -5879,19 +7036,33 @@ async function openRelaysModal() {
     let smtpVia = null;
     try {
       if (core.getConnectivityHtml) {
-        const parsed = parseConnectivityHtml(await core.getConnectivityHtml());
+        const parsed = parseConnectivityHtml(await withTimeout(core.getConnectivityHtml(), RELAY_EXTRA_TIMEOUT_MS, "get_connectivity_html"));
         statusByDomain = new Map(parsed.segs.map(s => [s.domain, s]));
         smtpVia = parsed.smtpVia;
       }
     } catch { /* best effort */ }
     if (!accountIsCurrent(epoch)) return;
+    // Velta #24 (#189): per-relay paused state. Old cores lack the RPC —
+    // then every relay renders enabled and the toggle stays hidden.
+    // A failed load keeps the last known states (a stall must not show
+    // paused relays as on).
+    let stateByAddr = new Map();
+    try {
+      const states = (await core.listTransportStates?.()) || [];
+      relayStatesLastGood.ok(scope, states);
+      for (const s of states) stateByAddr.set(s.addr, s.enabled);
+    } catch (err) {
+      for (const s of relayStatesLastGood.fail(scope, err).value || []) stateByAddr.set(s.addr, s.enabled);
+    }
+    if (!accountIsCurrent(epoch)) return;
     // Per-relay capabilities (VENDORISSUES #15): calls/TURN, iroh, push —
     // as the relays themselves advertise over IMAP METADATA. Old cores lack
     // the RPC; the flags then stay silver ("not known yet").
     let metaByAddr = null;
-    try { metaByAddr = (await core.getServerMetadata?.()) || null; } catch { /* old core */ }
+    try { metaByAddr = (await withTimeout(core.getServerMetadata?.(), RELAY_EXTRA_TIMEOUT_MS, "get_server_metadata")) || null; } catch { /* old core / stall: flags stay "not known yet" */ }
     if (!accountIsCurrent(epoch)) return;
     listEl.replaceChildren();
+    if (loadErr) listEl.appendChild(loadErrorBanner(document, { err: loadErr, t, stale: true, onRetry: () => refresh() }));
     if (!transports.length) {
       const empty = document.createElement("div");
       empty.className = "p2p-hint"; empty.style.opacity = ".6";
@@ -5901,6 +7072,8 @@ async function openRelaysModal() {
     for (const tr of transports) {
       const row = document.createElement("div");
       const primary = state.account && tr.addr === state.account.addr;
+      // Velta #24 (#189): paused relay — dimmed card, off chip, toggle.
+      const relayOn = stateByAddr.get(tr.addr) !== false;
       const other = transports.find(x => x.addr !== tr.addr);
       const st = statusByDomain?.get((tr.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${escapeHtml(st.state === "down" ? t("unreachable — messages queue until it's back") : t("connecting…"))}</span>`;
@@ -5919,14 +7092,16 @@ async function openRelaysModal() {
         : isVia && failedOver
           ? ` <span class="relay-sending">${escapeHtml(t("· sending (failover)"))}</span>`
           : "";
+      const offMark = relayOn ? "" : ` <span class="relay-off-chip">${escapeHtml(t("off"))}</span>`;
       row.className = "relay-card";
+      if (!relayOn) row.classList.add("relay-off");
       row.innerHTML = `
         <div class="relay-line">
-          <span class="relay-addr">${escapeHtml(tr.addr)}${sendMark}${hint}</span>
+          <span class="relay-addr">${escapeHtml(tr.addr)}${sendMark}${offMark}${hint}</span>
           <span class="relay-flags">${relayFlagsHtml(tr.addr, metaByAddr?.[tr.addr] || null)}</span>
         </div>
         ${relayDetailsHtml(metaByAddr?.[tr.addr] || null, st?.quota)}
-        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>${escapeHtml(t("Use for sending"))}</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">${escapeHtml(t("Remove"))}</button></div>`;
+        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>${escapeHtml(t("Use for sending"))}</button>`}${core.setTransportEnabled ? `<button type="button" class="btn-text" data-toggle>${escapeHtml(relayOn ? t("Disable") : t("Enable"))}</button>` : ""}<button type="button" class="btn-text" data-remove style="color:var(--danger)">${escapeHtml(t("Remove"))}</button></div>`;
       // W flag: probe the relay's C3 endpoints (probeC3Relay). In the Tauri
       // shells the probe runs in Rust without a browser Origin (relays gate
       // browser origins); in the PWA it is the browser's own WebSocket, i.e.
@@ -5994,7 +7169,26 @@ async function openRelaysModal() {
         }
         refresh();
       });
+      // Velta #24 (#189): pause/resume. Sends exclude a paused relay
+      // immediately; fetch skips it at the next IO start.
+      row.querySelector("[data-toggle]")?.addEventListener("click", async () => {
+        try {
+          await core.setTransportEnabled(tr.addr, !relayOn);
+          toast(relayOn
+            ? t("Relay paused — it stops sending and fetching (fetch stops at the next reconnect)")
+            : t("Relay resumed"));
+        } catch (err) {
+          toast(String(err?.message || err));
+        }
+        refresh();
+      });
       listEl.appendChild(row);
+    }
+    if (transports.length && transports.every(tr => stateByAddr.get(tr.addr) === false)) {
+      const off = document.createElement("div");
+      off.className = "p2p-hint"; off.style.color = "var(--danger)";
+      off.textContent = t("All relays are paused — the profile is offline until one is enabled.");
+      listEl.appendChild(off);
     }
   };
   // Live refresh when the core reports a transport change (local or synced
@@ -6117,9 +7311,16 @@ function trackPhases(phases, addStep) {
 // (scanned or pasted). Used by the second-device modal and by onboarding.
 // Resolves true once the fresh account was created and selected; the transfer
 // itself runs fire-and-forget and reports via ImexProgress.
+// One receive at a time: a second scan while the first import ran used to
+// start another get_backup on the same (reused, still unconfigured) account.
+let profileReceiveRunning = false;
 async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   if (!core.addAccountWithBackup) {
     toast(t("Second-device setup is not available on this backend"));
+    return false;
+  }
+  if (profileReceiveRunning || core.backupReceiveRunning) {
+    toast(t("A profile transfer is already running — wait for it to finish"));
     return false;
   }
   const code = presetCode?.trim() || await acquireCode({
@@ -6133,15 +7334,21 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   onStart?.();
 
   const stepsBody = document.createElement("div");
-  stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
+  stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul><div data-xfer></div>`;
   showModal({ title: "Receiving profile", body: stepsBody });
   const stepsEl = stepsBody.querySelector("[data-steps]");
   const { addStep, finishSteps } = stepList(stepsEl);
 
   addStep(t("Preparing this device…"));
   let seenProgress = false;
+  profileReceiveRunning = true;
+  wakeLockAcquire();
+  const tracker = createTransferTracker({ core, kind: "receive", invoke: tauriInvoke() })
+    .attach(stepsBody.querySelector("[data-xfer]"));
+  const endReceive = () => { if (profileReceiveRunning) { profileReceiveRunning = false; wakeLockRelease(); } };
   const progHandler = (e) => {
     const p = e.detail?.progress || 0;
+    if (p >= 1000 || (p === 0 && seenProgress)) endReceive();
     if (p >= 1000) {
       finishSteps(true);
       addStep(t("Profile received — signing in"));
@@ -6165,6 +7372,8 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
     await core.addAccountWithBackup(code.trim());
   } catch (err) {
     core.removeEventListener("imex-progress", progHandler);
+    tracker.finish(false, err?.message || err);
+    endReceive();
     finishSteps(false);
     addStep(t("Transfer failed: ") + (err?.message || err));
     return false;
@@ -6318,7 +7527,7 @@ async function boot() {
     // after which a boot failure keeps the (partially working) UI instead
     // of falling back to the splash.
     // Link previews (shell-side fetch) use the active account's proxy: the
-    // user's own or the DNS tunnel's (tunnel.rs writes it into proxy_url).
+    // user's own or the selected SOCKS5 proxy (proxy.rs writes it into proxy_url).
     // A failed read throws, and link-preview.js then skips the fetch.
     setLinkPreviewProxySource(async () => {
       if (!core) throw new Error("core not ready");
@@ -6370,6 +7579,7 @@ async function boot() {
       // Chat-list bottom action bar: the "+" opens the same new-chat/group
       // context menu as before (anchored to its button), QR shows this
       // profile's invite code, scan opens the camera join flow.
+      listCollapse = initListCollapse({ getChats: () => state.chats });
       $("bar-menu").addEventListener("click", () => {
         if (drawer?.el?.classList.contains("open")) drawer.close();
         else drawer?.open();
@@ -6397,7 +7607,7 @@ async function boot() {
       bindChatHeadMenu();
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
-      // Velta invite cards (proxy / relay / combined / tunnel): every action
+      // Velta invite cards (proxy / relay / combined / SOCKS5 proxy): every action
       // is a tap, and each goes through its usual confirmation.
       bindInviteCards({
         useProxy: link => acceptWsLink(link, { confirmModal, toast, errToast, onChange: rebuildDrawer }),
@@ -6408,7 +7618,7 @@ async function boot() {
           if (!(await joinWithWsLink(proxy, relay.host, { confirmModal, toast, errToast, onChange: rebuildDrawer }))) return;
           await createAccountFromRelayInvite(normalizeHost(relay.host), relay.token);
         },
-        tunnel: link => acceptTunnelLink(link, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer }),
+        socks5: link => acceptProxyLink(link, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer }),
         copy: async text => { try { await copyLink(text, { clipboard: navigator.clipboard }); toast(t("Link copied")); } catch { errToast(t("Couldn't copy the link")); } },
       });
 
@@ -6446,6 +7656,7 @@ async function boot() {
       if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
       renderLcQueueTray();
     });
+    core.addEventListener("chat-members-changed", ev => chatView?.onMembersChanged(ev?.detail?.chatId || 0));
     core.addEventListener("chat-updated", ev => {
       if (!incrementalChatList()) scheduleChatListRefresh();
       refreshActiveChatHeader(ev?.detail?.chatId);
@@ -6472,6 +7683,7 @@ async function boot() {
     // mid-session; without this loop the only recovery is a full page reload.
     // Retries forever at a capped interval — the app should come back
     // whenever the core does, however long that takes.
+    startWatchdog();
     let reconnecting = false;
     addEventListener("velta-core-disconnected", () => {
       toast(t("Lost connection to local Delta Chat core — reconnecting…"), 4500);
@@ -6491,12 +7703,11 @@ async function boot() {
       })();
     });
 
-    // DNS tunnel row on Android and Windows, before a tunnel is saved.
-    refreshTunnelStatus().then(s => { if (tunnelOffered(s)) rebuildDrawer(); });
+    // SOCKS5 proxy row on every native shell, before a proxy is saved.
+    refreshProxyStatus().then(s => { if (proxyOffered(s)) rebuildDrawer(); });
     refreshWsTransportStatus().then(s => { if (s) rebuildDrawer(); });
-    bindTunnelNetworkEvents();
-    // Route switches, proxy changes and tunnel errors go to Velta Diagnostics.
-    initTunnelDiagnostics({ append: (level, text) => diagnostics.append(level, text) });
+    // Route switches and proxy changes go to Velta Diagnostics.
+    initProxyDiagnostics({ append: (level, text) => diagnostics.append(level, text) });
 
     appLog("boot: handleDeeplink");
     // Before any chat link is routed: a cold-start notification is parked in
@@ -6567,6 +7778,9 @@ async function boot() {
     // No usable UI yet → the splash is the error surface (it shows this log).
     if (!uiLive && !splashSession) splashSession = showSplash();
     throw err;
+  } finally {
+    bootMark("velta-boot:ui");
+    bootMeasure();
   }
 }
 
@@ -6605,12 +7819,13 @@ function startScheduled() {
   if (chatView) {
     chatView.scheduled = {
       count: chatId => scheduledRunner.doc.items.filter(x => x.accountId === core.accountId && x.chatId === chatId).length,
-      pickTime: () => pickSendTime({ browserOnly: schedBrowserOnly() }),
-      openList: chatId => openScheduledList({ runner: scheduledRunner, accountId: core.accountId, chatId, browserOnly: schedBrowserOnly() }),
+      pickTime: async () => (await loadScheduledUi()).pickSendTime({ browserOnly: schedBrowserOnly() }),
+      openList: async chatId => (await loadScheduledUi()).openScheduledList({ runner: scheduledRunner, accountId: core.accountId, chatId, browserOnly: schedBrowserOnly() }),
       add: async ({ chatId, text, quoteId, dueAt }) => {
         try {
           const r = await scheduledRunner.op({ op: "add", item: { accountId: core.accountId, chatId, text, quoteId, dueAt } });
           if (!r?.id) throw new Error(r?.error || "rejected");
+          const { formatDue, maybeAskExactAlarm } = await loadScheduledUi();
           toast(t("Scheduled for {time}", { time: formatDue(dueAt) }));
           if (android) maybeAskExactAlarm(invoke).catch(() => {});
           return true;
@@ -6632,8 +7847,9 @@ function startScheduled() {
   } catch { /* no shell */ }
 }
 
-function openAllScheduled() {
+async function openAllScheduled() {
   if (!scheduledRunner) return;
+  const { openScheduledList } = await loadScheduledUi();
   openScheduledList({ runner: scheduledRunner, accountId: null, chatName: scheduledChatName, browserOnly: schedBrowserOnly() });
 }
 

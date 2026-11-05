@@ -100,7 +100,6 @@ import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
-import { looksLikeSettings, parseSettings } from "./settings-transfer.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
@@ -112,13 +111,20 @@ import { senderColorVars } from "./name-color.js";
 // Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
 // first use; largeFileAvailable() is just "running in the Tauri shell".
 const largeFileAvailable = () => !!tauriInvoke();
+// Cheap header gate so Saved Messages can offer Apply without pulling
+// settings-transfer.js into the boot graph (strict parse is on Apply).
+function looksLikeSettings(text) {
+  return typeof text === "string" && text.length <= 4096 && /^\s*Velta settings v1\b/.test(text);
+}
 import { openInAppBrowser } from "./inapp-browser.js";
 import { lufiUploadFor } from "./lufi-store.js";
 import { parseCryptexLink, cryptexUploadFor } from "./cryptex.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
-import { t } from "./i18n.js";
+import { t, setLang } from "./i18n.js";
+import { langCardCode, langCardHtml, stripLangLink, markLangCardDone } from "./lang-cards.js";
+import { adminCaps, isAdminGroup, adminChipHtml } from "./admin-group.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -189,45 +195,69 @@ export async function saveAttachmentFile(core, msg) {
   return true;
 }
 
+// #279: how a tapped file opens. Media keeps the in-app lightbox on Android
+// and HTML its sandboxed iframe (webxdc never comes here). Documents go to
+// the system's default app through a decrypted copy (open_document), or in
+// the PWA: pdf/text in a new tab, everything else as a download.
+const PWA_TAB_RE = /\.(pdf|txt|text|log|md|csv)$/i;
+export function documentOpenPlan(path, name, { tauri = false, android = false } = {}) {
+  const ref = name || path || "";
+  if (/\.x?html?$/i.test(path || "") || /\.x?html?$/i.test(ref)) return "html";
+  if (tauri) return android && isMediaFilePath(path) ? "lightbox" : "native";
+  return PWA_TAB_RE.test(ref) ? "tab" : "download";
+}
+
 // Open a message's file with the platform's handler (see ChatView._openFile).
-export function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t) } = {}) {
+export async function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t), core = null, mime = null } = {}) {
   if (!path) return;
+  const invoke = tauriInvoke();
+  const plan = documentOpenPlan(path, name, { tauri: !!invoke, android: isAndroid() });
   // HTML attachments are untrusted web content: open them in a sandboxed
   // iframe (no allow-same-origin -> opaque origin, no access to the app or
   // the network context of this page) instead of the system browser.
-  if (/\.x?html?$/i.test(path)) {
+  if (plan === "html") {
     if (openHtml) return openHtml(path, name);
     onError(t("Open this HTML file from its message in the chat"));
     return;
   }
-  // Android: tauri-plugin-opener ships no file-open implementation on
-  // mobile (its Kotlin side only handles URLs — open_path dies in
-  // plugin-internal arg parsing), and the app's private storage is not
-  // reachable from other apps without a FileProvider anyway. Media opens
-  // in the lightbox instead; other types say so honestly.
-  if (isAndroid()) {
-    if (isMediaFilePath(path)) {
-      openImageLightbox(fileUrl(path), name || "image");
-      return;
-    }
-    onError(t("Opening this file type isn't supported on Android yet"));
+  if (plan === "lightbox") {
+    openImageLightbox(fileUrl(path), name || "image");
     return;
   }
-  const invoke = tauriInvoke();
-  if (invoke) {
-    // The core returns blob paths RELATIVE to the accounts dir; the opener
-    // scope pattern ($APPLOCALDATA/accounts/**) matches absolute paths
-    // only, so resolve before invoking (window.veltaAccountsDir is set at
-    // boot by app.js get_accounts_dir).
-    let abs = path;
-    if (!/^(?:[a-zA-Z]:[\\/]|\/)/.test(path) && window.veltaAccountsDir) {
-      abs = window.veltaAccountsDir.replace(/[\\/]+$/, "") + "/" + path.replace(/^[\\/]+/, "");
+  const fileName = attachmentName({ fileName: name, filePath: path });
+  try {
+    if (plan === "native") {
+      // Blobs are VLTA-encrypted under hash names: never hand the blobdir
+      // path out. Desktop gets back the decrypted copy to open; Android
+      // starts ACTION_VIEW itself and returns "".
+      const copy = await invoke("open_document", { src: path, name: fileName, mime: mime || null });
+      if (copy) await invoke("plugin:opener|open_path", { path: copy });
+      return;
     }
-    invoke("plugin:opener|open_path", { path: abs }).catch(err => {
-      onError(t("Could not open file: ") + (err.message || err) + " path=" + abs);
-    });
-  } else {
-    onError(t("File opening is only available in the Tauri app"));
+    const bytes = await attachmentBytes(core, path);
+    if (plan === "tab") {
+      const type = /\.pdf$/i.test(fileName) ? "application/pdf" : "text/plain;charset=utf-8";
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+      return;
+    }
+    triggerBrowserDownload(bytes, fileName);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg === "no-app") {
+      toast(t("No app can open this file"), 6000, {
+        danger: true,
+        action: {
+          label: "Save as…",
+          run: () => saveAttachmentFile(core, { filePath: path, fileName: name })
+            .then(ok => { if (ok) toast(t("Saved")); })
+            .catch(e => onError(t("Could not open file: ") + (e?.message || e))),
+        },
+      });
+      return;
+    }
+    onError(t("Could not open file: ") + msg);
   }
 }
 
@@ -312,7 +342,11 @@ const FWD_LABELS = { picture: "Forwarded a picture", video: "Forwarded a video",
 // to 2 to keep single replies chip-only.
 export const THREAD_BUTTON_MIN_REPLIES = 1;
 
+// #278: drawer → Chat appearance. "1" = Attach → Stickers, no composer button.
+export const stickersInAttach = () => { try { return localStorage.getItem("velta-stickers-in-attach") === "1"; } catch { return false; } };
+
 const ICO = {
+  sticker: ICON.sticker,
   reply: ICON.reply,
   clock: ICON.clock,
   thread: ICON.thread,
@@ -394,6 +428,7 @@ async function resolveAttachmentPath(originalPath, filename) {
     await invoke("plugin:fs|write_file", bytes, {
       headers: { path: encodeURIComponent(absDest) },
     });
+    await invoke("encrypt_upload", { path: absDest });
     return absDest;
   } catch (e) {
     rustLog(`resolveAttachmentPath failed: ${e}; falling back to original`);
@@ -568,7 +603,7 @@ function cssZoom() {
 // still starts on it (#87); the join/copy click after the swipe is swallowed.
 export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio";
 export function gestureSkipTarget(target) {
-  if (target?.closest?.(".invite-card, .ivc")) return false;
+  if (target?.closest?.(".invite-card, .ivc, .lang-card")) return false;
   if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
@@ -640,6 +675,9 @@ export class ChatView {
     this._deleteSeq = 0;
     this._deleteBatches = new Map();
     this._deleteByMsg = new Map();
+    // Committed deletes shown as a compact one-line "Message deleted" row
+    // for the rest of this chat session (scroll away/back keeps them).
+    this._tombstones = new Set();
     this.selection = new Set();
     this.replyTo = null;
     this.replyFragment = null;
@@ -755,8 +793,18 @@ export class ChatView {
       reload: 0,
     };
     this._loadBar(true);
+    // "open chat N: STEP took N ms" for steps >= 1 s (Refs #176).
+    let stepAt = Date.now();
+    const stats = this._beginOpenStats(chatId);
+    const step = (name) => {
+      const ms = Date.now() - stepAt;
+      stepAt = Date.now();
+      stats.steps[name] = (stats.steps[name] || 0) + ms;
+      if (ms >= 1000) this.core._rpcLog?.(`open chat ${chatId}: ${name} took ${ms} ms`);
+    };
     try {
       if (chat?.id !== chatId) chat = await this.core.getChat(chatId);
+      step("get_chat");
       if (this._openGen !== openGen) return false;
       // Opening position: while the chat has unread messages it opens at
       // the manual read marker, else at the first unread message; a fully
@@ -766,6 +814,7 @@ export class ChatView {
       let firstUnread = null;
       if (tracked && chat.unread > 0) {
         firstUnread = await this.core.getFirstUnreadMessageId(chatId).catch(() => null);
+        step("first unread");
         if (this._openGen !== openGen) return false;
       }
       let anchorId = firstUnread != null ? (marker ?? firstUnread) : null;
@@ -779,6 +828,7 @@ export class ChatView {
       }
       const load = (aroundId) => this.core.getMessages(chatId, aroundId != null ? { aroundId, before: 10, limit: 60 } : { limit: 40 });
       let page = await load(anchorId ?? restore?.anchorId);
+      step("messages");
       if (this._openGen !== openGen) return false;
       if (restore && !page.messages.some(m => m.id === restore.anchorId)) {
         // The anchor message is gone (deleted) — forget it, open at the bottom.
@@ -802,10 +852,16 @@ export class ChatView {
       this._session = session;
       // @mentions: members (+ fingerprint codes) before the first paint, but
       // never hold the chat open on slow lookups.
-      await Promise.race([this._loadMentionMembers(chat, session), new Promise(r => setTimeout(r, 600))]);
+      await Promise.race([
+        Promise.all([this._loadMentionMembers(chat, session), this._loadGroupAdmin(chat)]),
+        new Promise(r => setTimeout(r, 600)),
+      ]);
+      step("members");
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       this._clearHistory();
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
+      for (const id of this._tombstones) { this._rowCache.delete("m" + id); this._rowSigCache.delete("m" + id); }
+      this._tombstones.clear(); // reopen: the core no longer lists them
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
@@ -828,11 +884,16 @@ export class ChatView {
       this._renderReplyPreview();
       this.renderScheduledChip();
       this._scheduleLinkPreview();
+      stepAt = Date.now();
       this._rebuildItems(messages);
       this._createScroller();
+      step("render");
+      stats.rows = messages.length;
+      requestAnimationFrame(() => { stats.firstPaintMs = Math.round(performance.now() - stats.t0); });
       this._refreshPinnedBar();
       if (!tracked) {
         await this.core.markRead(chatId);
+        step("mark read");
         if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       }
       if (anchorId != null) {
@@ -854,6 +915,55 @@ export class ChatView {
     } finally {
       this._loadBar(false);
     }
+  }
+
+  // Chat-open timing (freeze investigation). One summary line per open,
+  // emitted ~10 s after open, plus a warning when any step took > 1 s.
+  // Never logs message content — only ids, counts and durations.
+  // Line: "chat-open stats chat=N click=Nms get_chat=Nms ... rows=N
+  //        firstPaint=Nms jumpPages=N jump=Nms storagePages=N storage=Nms
+  //        heightChanges=N vsUpdates=N"
+  _beginOpenStats(chatId) {
+    this._flushOpenStats();
+    const t0 = performance.now();
+    const clickAt = this._openClickAt;
+    this._openClickAt = null;
+    const stats = this._openStats = {
+      chatId, t0, click: clickAt != null ? Math.max(0, Math.round(t0 - clickAt)) : null,
+      steps: {}, rows: 0, firstPaintMs: null,
+      jumpPages: 0, jumpMs: 0, storagePages: 0, storageMs: 0,
+      heightChanges: 0, vsUpdates: 0, done: false,
+    };
+    stats.timer = setTimeout(() => this._flushOpenStats(), 10000);
+    return stats;
+  }
+
+  // Called from the jump-to-message loop and the chat-info storage walk.
+  noteOpenStat(kind, ms) {
+    const st = this._openStats;
+    if (!st || st.done) return;
+    if (kind === "jump") { st.jumpPages++; st.jumpMs += ms; }
+    else if (kind === "storage") { st.storagePages++; st.storageMs += ms; }
+  }
+
+  // Called by the chat list click handler right before openChat().
+  noteOpenClick(at = performance.now()) { this._openClickAt = at; }
+
+  _flushOpenStats() {
+    const st = this._openStats;
+    if (!st || st.done) return;
+    st.done = true;
+    clearTimeout(st.timer);
+    const r = Math.round;
+    const steps = Object.entries(st.steps).map(([k, v]) => `${k.replace(/\s+/g, "_")}=${r(v)}ms`).join(" ");
+    const line = `chat-open stats chat=${st.chatId} click=${st.click ?? "?"}ms ${steps} rows=${st.rows}`
+      + ` firstPaint=${st.firstPaintMs ?? "?"}ms jumpPages=${st.jumpPages} jump=${r(st.jumpMs)}ms`
+      + ` storagePages=${st.storagePages} storage=${r(st.storageMs)}ms`
+      + ` heightChanges=${st.heightChanges} vsUpdates=${st.vsUpdates}`;
+    rustLog(line);
+    const slow = [...Object.entries(st.steps), ["click", st.click || 0], ["jump", st.jumpMs], ["storage", st.storageMs]]
+      .filter(([, v]) => v > 1000).map(([k, v]) => `${k.replace(/\s+/g, "_")}=${r(v)}ms`);
+    if (slow.length) diagnosticsSink.append("warn", `chat-open slow chat=${st.chatId} ${slow.join(" ")}`);
   }
 
   // History loading strip under the chat header (see .chat-load-bar).
@@ -915,7 +1025,7 @@ export class ChatView {
     const newest = msgs[msgs.length - 1];
     // Unpin is for chats you can write in: members of someone else's channel
     // see the pins but no ✕ (#157). readOnly resolves via canSend.
-    const canUnpin = !this.readOnly;
+    const canUnpin = !this.readOnly && adminCaps(this.chat).canPin;
     const item = (m) => `
       <div class="pin-tray-item" data-pin-id="${m.id}">
         <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
@@ -956,38 +1066,87 @@ export class ChatView {
   // @mentions (docs/mentions.md): the open group's members as
   // { id, name, code, color, addr, avatar }. SELF (id 1) carries our own
   // display name; code = first fingerprint group, "" when only derived.
-  async _loadMentionMembers(chat, session) {
-    this._mentionMembers = [];
-    this._mentionKey = "";
+  // #177: admin groups — FullChat.groupAdminId on the chat object, read by
+  // adminCaps() for the pin / delete-for-everyone entries.
+  async _loadGroupAdmin(chat) {
+    if (!chat || chat.kind !== "group" || chat.isP2p || !this.core.getGroupAdminId) return;
+    try { chat.groupAdminId = await this.core.getGroupAdminId(chat.id); } catch { /* keep */ }
+    // The open race paints after 600 ms; a late id patches the admin chip
+    // into rows already on screen (later rows render it themselves).
+    if (this.chat === chat) this._patchAdminChips(chat);
+  }
+
+  _patchAdminChips(chat) {
+    if (!isAdminGroup(chat)) return;
+    const hist = document.getElementById("history");
+    hist?.querySelectorAll(`.msg-row[data-from="${chat.groupAdminId}"] .msg-meta`).forEach(meta => {
+      if (meta.querySelector(".admin-chip")) return;
+      const bot = meta.querySelector(".bot-chip");
+      // Same slot as the render: after edited / star / bot chip.
+      let anchor = meta.firstChild;
+      while (anchor && anchor.nodeType === 1 && anchor.matches(".edited, .star-ico, .bot-chip")) anchor = anchor.nextSibling;
+      meta.insertBefore(document.createRange().createContextualFragment(adminChipHtml()), anchor);
+    });
+  }
+
+  // refresh: member/contact change on the open chat — keep the current list
+  // until the new one lands (no "Loading members…" flash).
+  async _loadMentionMembers(chat, session, { refresh = false } = {}) {
+    if (!refresh) {
+      this._mentionMembers = [];
+      this._mentionKey = "";
+    }
+    this._mentionLoading = false;
     if (!chat || (chat.kind !== "group" && chat.kind !== "channel") || !this.core.getChatMembers) return;
+    this._mentionLoading = !refresh;
     try {
       const [list, selfName] = await Promise.all([
         this.core.getChatMembers(chat.id),
         this.core.getSelfDisplayName?.().catch(() => "") ?? "",
       ]);
       if (!this._isCurrent(session)) return;
+      this._mentionLoading = false;
       const members = (list || []).map(c => ({
         id: c.id, name: c.id === 1 ? (selfName || "") : (c.name || ""), code: "",
         color: c.color, addr: c.addr, avatar: c.avatar,
       })).filter(m => m.name.trim());
       this._mentionMembers = members;
       this._mentionKey = members.map(m => `${m.id}:${m.name}`).join("|");
+      if (this._mentions?.isOpen()) this._mentions.update();
       await Promise.all(members.map(m => fingerprintFor(m.id, m.addr).then(f => {
         if (!cachedFingerprintIsDerived(m.id)) m.code = fprCode(f);
       }).catch(() => {})));
       if (!this._isCurrent(session)) return;
       this._mentionKey = members.map(m => `${m.id}:${m.name}:${m.code}`).join("|");
     } catch { /* no members → no chips, plain text stays */ }
+    finally {
+      if (this._isCurrent(session) && this._mentionLoading) {
+        this._mentionLoading = false;
+        if (this._mentions?.isOpen()) this._mentions.update();
+      }
+    }
+  }
+
+  // Core ChatModified (members added/removed) or ContactsChanged (names,
+  // avatars): re-read the open chat's members. chatId 0 = any chat.
+  onMembersChanged(chatId = 0) {
+    const chat = this.chat;
+    if (!chat || (chatId && chatId !== chat.id)) return;
+    clearTimeout(this._membersTimer);
+    const session = this._session;
+    this._membersTimer = setTimeout(() => {
+      if (this.chat === chat && this._isCurrent(session)) this._loadMentionMembers(chat, session, { refresh: true });
+    }, 300);
   }
 
   _mentionAvatar(m) {
     const contact = m.id > 0 ? ` contact-id="${m.id}"` : "";
-    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(m.avatar)}"` : ""}></velta-avatar>`;
+    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(fileUrl(m.avatar))}"` : ""}></velta-avatar>`;
   }
 
   _applyGroupComposer(chat) {
     const b = document.getElementById("btn-sticker");
-    if (b) b.hidden = !!chat?.isP2pGroup;
+    if (b) b.hidden = !!chat?.isP2pGroup || stickersInAttach();
   }
 
   // One TypingSender per open local chat; switching chats stops the old one.
@@ -1565,6 +1724,9 @@ export class ChatView {
 
   onMsgsDeleted(chatId, ids) {
     this._releaseHolds(ids);
+    // Our own committed deletes stay as compact tombstones until reopen.
+    ids = ids.filter(id => !this._tombstones.has(id));
+    if (!ids.length) return;
     if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
     this.items = this.items.filter(it => !(it.type === "msg" && ids.includes(it.msg.id)));
     for (const id of ids) {
@@ -1653,7 +1815,23 @@ export class ChatView {
     this._coreReplyTimer = setTimeout(() => { this._refreshCoreReplyCounts(); }, 300);
   }
 
+  // One query at a time (#249): each call holds one of the core's three DB
+  // connections, so stacking them on every new message starved the account.
+  // A refresh asked for while one runs is folded into a single rerun.
   async _refreshCoreReplyCounts() {
+    if (this._coreReplyInFlight) { this._coreReplyAgain = true; return; }
+    this._coreReplyInFlight = true;
+    try {
+      do {
+        this._coreReplyAgain = false;
+        await this._refreshCoreReplyCountsOnce();
+      } while (this._coreReplyAgain);
+    } finally {
+      this._coreReplyInFlight = false;
+    }
+  }
+
+  async _refreshCoreReplyCountsOnce() {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
     let counts = null;
@@ -1964,8 +2142,14 @@ export class ChatView {
     // childNodes ("Element with index N was not found… There're only N-1").
     // The next update re-syncs the rendered list, so swallow exactly that
     // known race instead of letting it escape as an uncaught rejection.
+    const self = this;
     const wrap = (name, orig) => function (...args) {
       if (debugLog.enabled) debugLog(`vs.${name} n=${args[0]?.length ?? ""} t=${Date.now() % 100000}`);
+      const st = self._openStats;
+      if (st && !st.done) {
+        if (name === "onItemHeightDidChange") st.heightChanges++;
+        else if (name === "setItems" || name === "update" || name === "rerender") st.vsUpdates++;
+      }
       const r = orig.apply(this, args);
       if (r && typeof r.catch === "function") {
         r.catch(err => {
@@ -2030,7 +2214,7 @@ export class ChatView {
   }
 
   _rowCacheSig(item) {
-    const hold = this._holdKey(item.msg.id);
+    const hold = this._holdKey(item.msg.id) || (this._tombstones.has(item.msg.id) ? "t" : "");
     const sig = this._rowSignature(item.msg);
     return hold ? sig + "\n" + hold : sig;
   }
@@ -2104,6 +2288,7 @@ export class ChatView {
     img.hidden = true;
     img.addEventListener("error", () => { img.hidden = true; });
     img.addEventListener("load", () => { img.hidden = false; });
+    this._webxdcSenderChip(bubble, m, alive);
     bubble.prepend(img);
     const setIcon = info => {
       if (info?.icon && alive()) img.src = appIconUrl(parentId, info.icon);
@@ -2121,7 +2306,31 @@ export class ChatView {
     };
     bubble.addEventListener("click", open);
     bubble.addEventListener("keydown", e => {
+      if (e.target?.closest?.(".svc-chip")) return;
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); }
+    });
+  }
+
+  // #265: the sender as a profile chip ("You" for own). A leading copy of
+  // the name in the app's text becomes the chip instead of repeating it.
+  _webxdcSenderChip(bubble, m, alive) {
+    const s = m.webxdcSender;
+    const own = s?.id === 1; // own: a plain "You" chip, there is no self profile to open
+    const name = own ? t("You") : String(s?.name || "").trim();
+    if (!s || !name) return;
+    const text = String(m.text || "");
+    const full = bubble.textContent || "";
+    const at = full.lastIndexOf(text);
+    if (!text || at < 0) return;
+    const real = String(s.name || "").trim();
+    const lead = !!real && text.startsWith(real) && !/^[\p{L}\p{N}]/u.test(text.slice(real.length));
+    const rest = lead ? text.slice(real.length) : " " + text;
+    const chip = own ? `<span class="svc-chip is-self">${escapeHtml(name)}</span>` : `<button type="button" class="svc-chip" data-contact-id="${Number(s.id)}" aria-label="${escapeAttr(t("Open profile of {name}", { name }))}">${escapeHtml(name)}</button>`;
+    bubble.innerHTML = escapeHtml(full.slice(0, at)) + chip + escapeHtml(rest) + escapeHtml(full.slice(at + text.length));
+    bubble.addEventListener("click", e => {
+      if (!e.target?.closest?.("button.svc-chip") || !alive()) return;
+      e.stopPropagation();
+      avatarProfileOpener?.({ contactId: s.id, name });
     });
   }
 
@@ -2171,6 +2380,7 @@ export class ChatView {
     const row = document.createElement("div");
     row.className = "msg-row" + (out ? " out" : "") + (showAvatar ? " with-avatar" : "") + (m.originalMsgId ? " has-original" : "");
     row.dataset.msgid = m.id;
+    if (m.from != null) row.dataset.from = m.from;
     if (this.selection.size) row.classList.add("selectable");
     if (this.selection.has(m.id)) row.classList.add("selected");
 
@@ -2186,13 +2396,23 @@ export class ChatView {
     }
 
     const holdKey = this._deleteByMsg.get(m.id);
+    if (holdKey == null && this._tombstones.has(m.id)) {
+      inner += `<div class="bubble msg-deleted is-compact"><div class="msg-deleted-label">${escapeHtml(t("Message deleted"))}</div></div>`;
+      row.innerHTML = inner;
+      if (item.readMarker) row.append(this._readMarkerEl());
+      return row;
+    }
     if (holdKey != null) {
       const batch = this._deleteBatches.get(holdKey);
       const elapsed = batch ? Math.min(batch.ms, Math.max(0, Date.now() - batch.started)) : 0;
       const undo = batch && !batch.committing
         ? `<button type="button" class="msg-undo" data-undo>${escapeHtml(t("Undo"))}<span class="msg-undo-bar" style="animation-duration:${batch.ms}ms;animation-delay:-${elapsed}ms"></span></button>`
         : "";
-      inner += `<div class="bubble msg-deleted"><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
+      // While Undo is offered the tombstone keeps the original bubble's
+      // height, so the list doesn't jump and Undo restores in place.
+      const keepH = batch?.heights.get(m.id) || 0;
+      const hold = keepH ? ` style="min-height:${keepH}px"` : "";
+      inner += `<div class="bubble msg-deleted"${hold}><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
       row.innerHTML = inner;
       if (item.readMarker) row.append(this._readMarkerEl());
       row.querySelector("[data-undo]")?.addEventListener("click", (e) => {
@@ -2339,8 +2559,12 @@ export class ChatView {
       // no stored original (hasHtml false): no button, because it could open
       // nothing.
       const fullMsg = m.hasHtml === true;
+      // Language card (lang-cards.js): device chat + device sender only.
+      const langCard = langCardCode(m.text, { trusted: this.chat?.kind === "device" && m.fromDevice === true });
+      const bodyText = langCard ? stripLangLink(m.text) : m.text;
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
-      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text, { mentions: this._mentionMembers })}`;
+      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(bodyText, { mentions: this._mentionMembers })}`;
+      if (langCard) bubble += langCardHtml(langCard, { esc: escapeHtml });
       // Velta invite links (proxy / relay / tunnel) → action cards; the
       // links themselves render as token-free chips (invite-cards.js).
       bubble += inviteCardsHtml(m.text, { sender: m.from === 1 ? "" : (m.overrideSenderName || m.fromContact?.name || ""), lang: uiLang() });
@@ -2352,11 +2576,10 @@ export class ChatView {
         }
       }
       if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">${escapeHtml(t("Show Full Message…"))}</button></div>`;
-      // Settings export (settings-transfer.js): only in Saved Messages, only
-      // our own original messages (no forwards, no saved copies of someone
-      // else's), and only when the strict parser accepts the block.
+      // Settings export: Saved Messages, own original only. Header gate is
+      // cheap; settings-transfer.js (lazy) parses strictly on Apply.
       if (this.chat?.kind === "saved" && m.from === 1 && !m.fwdFrom && !m.originalMsgId
-        && looksLikeSettings(m.text) && parseSettings(m.text)) {
+        && looksLikeSettings(m.text)) {
         bubble += `<div class="msg-settings-act"><button type="button" class="btn-text" data-apply-settings>${escapeHtml(t("Apply these settings"))}</button></div>`;
       }
       // Plain text only. A baked sender preview is an image, and fetching
@@ -2376,6 +2599,9 @@ export class ChatView {
     // chip stays in the meta row where it never fights it. Sticker bubbles carry no meta.
     const botChip = m.kind === "msg" && !out && m.viewtype !== "sticker" && m.fromContact?.bot
       ? `<span class="bot-chip" title="${escapeHtml(t("Sent by a bot"))}">${escapeHtml(t("bot"))}</span>` : "";
+    // #177: admin chip on the group admin's messages (own ones too), after the bot chip.
+    const adminChip = m.kind === "msg" && m.viewtype !== "sticker" && isAdminGroup(this.chat) && m.from === this.chat.groupAdminId
+      ? adminChipHtml() : "";
     const star = m.starred ? labelled(svg(P.star, "star-ico"), t("Starred")).replace("<path ", '<path fill="currentColor" ') : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
     // Failed sends: a small red reason badge in the meta row (floats left,
@@ -2395,16 +2621,16 @@ export class ChatView {
     // otherwise only when the whole older history is loaded (pages still
     // ahead would silently under-count).
     const replyN = this._replyCountFor(m.id);
-    // Passive count next to the timestamp (phones; desktop has the side
-    // button). Not a tap target — the side button and the menu open threads.
+    // Passive count after the timestamp ("03:25 · 1 reply"), every screen
+    // size. Not a tap target — the side button and the menu open threads.
     const repliesChip = replyN > 0
-      ? `<span class="msg-replies-count">${escapeHtml(replyN === 1 ? t("1 reply") : t("{n} replies", { n: replyN }))}</span>`
+      ? `<span class="msg-replies-count"><span aria-hidden="true">· </span>${escapeHtml(replyN === 1 ? t("1 reply") : t("{n} replies", { n: replyN }))}</span>`
       : "";
     if (replyN >= THREAD_BUTTON_MIN_REPLIES && replyN > 0 && !inThread) {
       const label = escapeHtml(replyN === 1 ? t("Show 1 reply") : t("Show {n} replies", { n: replyN }));
-      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}<span aria-hidden="true">${replyN}</span></button>`;
+      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}</button>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
+    bubble += `<span class="msg-meta">${edited}${star}${botChip}${adminChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}${repliesChip}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
@@ -2486,9 +2712,9 @@ export class ChatView {
     // Link preview hydration: only plain-text first-link messages carry the
     // slot; failed/off settings resolve null and the slot stays hidden.
     const lpSlot = row.querySelector("[data-lp]");
-    if (lpSlot && linkPreviewMode(chatId) === "fetch" && lpSlot.dataset.lpDone !== "1") {
+    if (lpSlot && linkPreviewMode(chatId, this.core.accountId) === "fetch" && lpSlot.dataset.lpDone !== "1") {
       lpSlot.dataset.lpDone = "1";
-      linkPreview(m.text, chatId).then((p) => {
+      linkPreview(m.text, chatId, this.core.accountId).then((p) => {
         if (!p || !alive() || !lpSlot.isConnected) return;
         lpSlot.innerHTML = linkPreviewCardHtml(p, firstLinkOf(m.text));
         lpSlot.hidden = false;
@@ -2592,24 +2818,11 @@ export class ChatView {
       // natural-size-capped box the CSS used to produce) before revealing.
       const reveal = () => {
         if (!alive()) return;
-        if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap) {
-          const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
-          wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
-          wrap.classList.toggle("is-land", mediaImg.naturalWidth > mediaImg.naturalHeight);
-          // Stickers match the official Android cap (175dp, see the reserve
-          // above) — the photo cap made stickers render up to 450px AND
-          // jump from the reserve.
-          const cap = m.viewtype === "sticker" ? 175 : 450;
-          wrap.style.setProperty("--img-w", `${mediaImg.naturalWidth}px`);
-          wrap.style.setProperty("--img-r", r.toFixed(4));
-          wrap.style.setProperty("--img-cap", `${cap}px`);
-          // px terms only (#27): no % inside min() — a percentage here
-          // collapses the box in Safari's shrink-to-fit bubble. max-width
-          // on the wrap handles the narrow-bubble clamp instead.
-          wrap.style.width = `min(${mediaImg.naturalWidth}px, 480px, calc(min(${cap}px, 45vh) * ${r.toFixed(4)}))`;
-          // The core had no dimensions for this message (the reserved box was
-          // a 4/3 guess) — remember the true shape so the NEXT render
-          // reserves the exact box and the decode causes no jump.
+        if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap && wrap.classList.contains("no-dims")) {
+          // Stable heights: the reserved box is final. An unknown-size image
+          // stays in the fixed 4/3 placeholder (object-fit: contain, see
+          // .img-wrap.no-dims) — resizing here made rows change height after
+          // they were shown. Only remember the shape for the next render.
           if (!(m.dimensionsWidth > 0)) rememberMediaDims(this.core.accountId, m.id, mediaImg.naturalWidth, mediaImg.naturalHeight);
         }
         if (wrap && !wrap.dataset.ready) {
@@ -2897,6 +3110,13 @@ export class ChatView {
       if (applyBtn) {
         e.stopPropagation();
         window.dispatchEvent(new CustomEvent("velta-apply-settings", { detail: { text: m.text, msgId: m.id, chatKind: this.chat?.kind } }));
+        return;
+      }
+      const langBtn = e.target.closest("[data-lang-card]");
+      if (langBtn && this.chat?.kind === "device" && m.fromDevice === true) {
+        e.stopPropagation();
+        const code = langCardCode(m.text, { trusted: true });
+        if (code) { markLangCardDone(); setLang(code); location.reload(); }
         return;
       }
       const cxBtn = e.target.closest("[data-cryptex-dl]");
@@ -3210,6 +3430,7 @@ export class ChatView {
     const touch = this._offerSelectText();
     // Deleted (held for undo, or committing): nothing to reply to, forward,
     // download or resend. Delete commits it now instead of waiting for undo.
+    if (this._tombstones.has(m.id)) return; // already deleted: nothing to act on
     const heldKey = this._deleteByMsg.get(m.id);
     if (heldKey != null) {
       const held = deletedMessageActions({
@@ -3269,7 +3490,7 @@ export class ChatView {
     // Local P2P groups: no pin / forward / save / react / delete (relay-core
     // features the mesh engine has no equivalent for).
     const p2pg = !!this.chat?.isP2pGroup;
-    if (this.core.pinMessage && !p2pg && !this.readOnly) {
+    if (this.core.pinMessage && !p2pg && !this.readOnly && adminCaps(this.chat).canPin) {
       items.push({
         label: m.pinned ? t("Unpin") : t("Pin"),
         pair: "keep",
@@ -3498,7 +3719,7 @@ export class ChatView {
     return msgs.length === ids.length
       && this.chat?.kind !== "saved"
       && this.chat?.encrypted !== false
-      && msgs.every(m => m.from === 1);
+      && msgs.every(m => adminCaps(this.chat).canDeleteForAll(m.from));
   }
 
   // Shared by the modal and the phone sheet's inline Delete row.
@@ -3548,6 +3769,50 @@ export class ChatView {
     const ids = batch.ids;
     this._forgetBatch(key);
     this._repaintMsgs(ids);
+  }
+
+  // A committing batch keeps its key (for the RPC) but its rows render as
+  // tombstones: drop the per-message hold so _renderMsgItem picks the
+  // compact branch.
+  _forgetBatchHolds(batch) {
+    for (const id of batch.ids) if (this._deleteByMsg.get(id) === batch.key) this._deleteByMsg.delete(id);
+  }
+
+  // Held (original-height) tombstone -> compact row. Height animates
+  // ~180 ms (none under prefers-reduced-motion); the scroller is told once,
+  // after the final height. A row above the viewport collapses instantly
+  // with a matching scrollTop shift so the visible content doesn't move.
+  _collapseTombstones(ids) {
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const id of ids) {
+      const item = this.msgIndex.get(id);
+      if (!item) continue;
+      const oldRow = this.listEl?.querySelector?.(`[data-msgid="${id}"]`);
+      const fromH = oldRow?.getBoundingClientRect?.().height || 0;
+      const above = !!(oldRow && this.scrollEl
+        && oldRow.getBoundingClientRect().bottom <= this.scrollEl.getBoundingClientRect().top);
+      this._rowCache.delete(item.key);
+      this._rowSigCache.delete(item.key);
+      if (!oldRow) continue; // not mounted: it renders compact when it is
+      const fresh = this._buildItem(item);
+      oldRow.replaceWith(fresh);
+      this._rowCache.set(item.key, fresh);
+      this._rowSigCache.set(item.key, this._rowCacheSig(item));
+      const toH = fresh.getBoundingClientRect?.().height || 0;
+      const done = () => this.vs?.onItemHeightDidChange?.(item);
+      if (above) {
+        if (this.scrollEl && fromH > toH) this.scrollEl.scrollTop -= fromH - toH;
+        done();
+        continue;
+      }
+      if (reduce || !(fromH > toH) || typeof fresh.animate !== "function") { done(); continue; }
+      fresh.style.overflow = "hidden";
+      const anim = fresh.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 180, easing: "ease-out" });
+      let settled = false;
+      const finish = () => { if (settled) return; settled = true; fresh.style.overflow = ""; done(); };
+      anim.onfinish = finish;
+      anim.oncancel = finish;
+    }
   }
 
   _forgetBatch(key) {
@@ -3613,12 +3878,16 @@ export class ChatView {
     }
     batch.committing = true;
     clearTimeout(batch.timer);
-    this._repaintMsgs(batch.ids);
+    // Undo window over: collapse to the compact one-line row.
+    for (const id of batch.ids) this._tombstones.add(id);
+    this._forgetBatchHolds(batch);
+    this._collapseTombstones(batch.ids);
     try {
       await this.core.deleteMessages(batch.chatId, batch.ids, { forAll: batch.forAll });
     } catch (err) {
       const ids = batch.ids;
       this._forgetBatch(key);
+      for (const id of ids) this._tombstones.delete(id);
       this._repaintMsgs(ids);
       if (String(this.core.accountId) === String(batch.accountId)) {
         errToast(t("Couldn't delete messages: ") + (err.message || err), 4500);
@@ -3631,9 +3900,8 @@ export class ChatView {
       this.exitSelection();
       this.onChatsChanged();
     }
-    // The core event removes the rows when it arrives. If this view is still
-    // the one that deleted them, drop the rows now so the list doesn't wait.
-    if (this._isCurrent(batch.session) && this.chat?.id === batch.chatId) this.onMsgsDeleted(batch.chatId, ids);
+    // The rows stay as compact tombstones for this session (onMsgsDeleted
+    // keeps tombstoned ids); reopening the chat no longer lists them.
   }
 
   _forward(ids) {
@@ -3866,7 +4134,8 @@ export class ChatView {
       () => (this.chat && this.core ? { accountId: this.core.accountId, chatId: this.chat.id } : null));
     // @mention picker (groups/channels only: _mentionMembers is [] elsewhere).
     this._mentions = attachMentionPicker(input, document.getElementById("main-composer"),
-      () => (this.chat && !this.chat.readOnly ? this._mentionMembers : null), m => this._mentionAvatar(m));
+      () => (this.chat && !this.chat.readOnly ? this._mentionMembers : null), m => this._mentionAvatar(m),
+      () => !!this._mentionLoading && !!this.chat && !this.chat.readOnly);
     input.addEventListener("keydown", e => {
       if (this._mentions.handleKey(e)) return;
       if (this._recentCmds.handleKey(e)) return;
@@ -3934,6 +4203,7 @@ export class ChatView {
       for (const ev of ["pointerup", "pointercancel", "pointerleave"]) send.addEventListener(ev, clear);
     }
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
+    window.addEventListener("velta-stickers-pref", () => this._applyGroupComposer(this.chat));
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
       const pm = this.pendingMedia;
@@ -3964,6 +4234,11 @@ export class ChatView {
         { label: "Video", icon: ICO.video, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
+      // #278: the sticker picker moved here from the composer (same picker,
+      // same quote handling as the button).
+      if (stickersInAttach() && !this.chat?.isP2pGroup) {
+        attachItems.push({ label: "Stickers", icon: ICO.sticker, onClick: () => this._toggleStickerPicker() });
+      }
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
       if (largeFileAvailable() && !this.chat?.isP2p) {
@@ -4033,7 +4308,7 @@ export class ChatView {
       getStickers: () => this.core.getStickers(),
       onPick: (path) => {
         if (!this._isCurrent(session) || !this.chat) return;
-        this._sendArchivedAware(session.chatId, { text: "", viewtype: "sticker", file: path })
+        this._sendArchivedAware(session.chatId, { viewtype: "sticker", file: path, ...this._quoteFields() })
           .then((msg) => { if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); } })
           .catch((err) => { if (this._isCurrent(session)) errToast(t("Couldn't send sticker: ") + (err.message || err)); });
       },
@@ -4103,6 +4378,7 @@ export class ChatView {
       await invoke("plugin:fs|write_file", bytes, {
         headers: { path: encodeURIComponent(filePath) },
       });
+      await invoke("encrypt_upload", { path: filePath });
       return filePath;
     }
     const write = this.core?.transport?.writeCoreFile;
@@ -4180,6 +4456,13 @@ export class ChatView {
     return { quoteId, quoteText, prefix };
   }
 
+  // Send fields for a text-less send (sticker, app): the active reply rides
+  // along like it does for files, so every type shows its quote header.
+  _quoteFields() {
+    const { quoteId, quoteText, prefix } = this._takeQuote();
+    return { text: prefix, quoteId, quoteText };
+  }
+
   _scheduleLinkPreview() {
     clearTimeout(this._lpTimer);
     this._lpTimer = setTimeout(() => { this._refreshLinkPreview(); }, 300);
@@ -4200,7 +4483,7 @@ export class ChatView {
     const bar = document.getElementById("link-preview-draft");
     const text = document.getElementById("composer-input")?.value || "";
     const url = senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
     });
@@ -4211,10 +4494,10 @@ export class ChatView {
     }
     if (this._lpPreview?.url === url && !bar.hidden) return;
     const token = ++this._lpSeq;
-    const preview = await linkPreview(text, this.chat?.id);
+    const preview = await linkPreview(text, this.chat?.id, this.core.accountId);
     if (!this._isCurrent(session) || token !== this._lpSeq) return;
     const urlNow = senderPreviewUrl(document.getElementById("composer-input")?.value || "", {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
     });
@@ -4315,7 +4598,7 @@ export class ChatView {
     this._mentions?.hide();
     if (!this.editingMsg) recordCommand(this.core.accountId, session.chatId, text);
     const url = senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: false,
       dismissed: this._lpDismissed,
     });
@@ -4483,7 +4766,7 @@ export class ChatView {
       const picked = paths[i];
       let resolved;
       if (/^content:\/\//.test(picked)) {
-        resolved = await invoke("resolve_content_uri", { uri: picked, filename: `${Date.now()}-${i}` });
+        resolved = await invoke("resolve_content_uri", { uri: picked, filename: `${Date.now()}-${i}`, encrypt: true });
       } else {
         await invoke("allow_picked_path", { path: picked }).catch(e => rustLog(`allow_picked_path: ${e}`));
         resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
@@ -4541,7 +4824,7 @@ export class ChatView {
     if (!this._isCurrent(session) || !this.chat || !app?.file) return;
     try {
       const msg = await this._sendArchivedAware(session.chatId, {
-        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", text: "",
+        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", ...this._quoteFields(),
       });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
@@ -4558,7 +4841,7 @@ export class ChatView {
     const path = await this._writeBlobForSend(filename, bytes);
     if (!this._isCurrent(session)) throw new Error("Chat closed");
     const msg = await this._sendArchivedAware(session.chatId, {
-      viewtype: "webxdc", file: path, filename, text: "",
+      viewtype: "webxdc", file: path, filename, ...this._quoteFields(),
     });
     if (!this._isCurrent(session)) return;
     this.appendOutgoing(msg);
@@ -4580,7 +4863,7 @@ export class ChatView {
       });
       if (!path) throw new Error("built-in app could not be prepared");
       if (!this._isCurrent(session)) return;
-      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", text: "" });
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", ...this._quoteFields() });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -4625,7 +4908,7 @@ export class ChatView {
         writeFile: (n, b) => this._writeBlobForSend(n, b),
       });
       if (!path || !this._isCurrent(session)) return;
-      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", text: "" });
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", ...this._quoteFields() });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -4728,7 +5011,7 @@ export class ChatView {
       // (the raw content id has no extension).
       let resolved;
       if (/^content:\/\//.test(picked)) {
-        resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()) });
+        resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()), encrypt: true });
         if (!this._isCurrent(session)) return;
         diagnosticsSink.append("info", `attachment copied to ${resolved}`);
       } else {
@@ -4742,7 +5025,7 @@ export class ChatView {
       const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
       if (kind === "image" || Object.keys(exts).includes(extOf(resolved))) {
         const mime = exts[extOf(resolved).toLowerCase()] || "image/png";
-        const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: resolved }));
+        const bytes = await attachmentBytes(this.core, resolved);
         const blob = new Blob([bytes], { type: mime });
         if (!this._isCurrent(session)) return;
         this._setPendingMedia("image", blob, resolved, name);
@@ -4794,7 +5077,7 @@ export class ChatView {
       let path = file;
       if (/^content:\/\//i.test(file)) {
         if (!invoke) throw new Error("Sending that file needs the Velta app");
-        path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()) });
+        path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()), encrypt: true });
       } else if (invoke) {
         // Send to / Open with: the user's own pick is the consent, as with
         // the file picker (V-07/#65), then copy it next to the accounts.
@@ -4811,7 +5094,7 @@ export class ChatView {
       if (kind === "image") {
         const path = resolved[0];
         const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
-        const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path }));
+        const bytes = await attachmentBytes(this.core, path);
         if (!this._isCurrent(session)) return null;
         const name = path.replace(/\\/g, "/").split("/").pop() || "image";
         this._setPendingMedia("image", new Blob([bytes], { type: exts[extOf(path)] || "image/png" }), path, name);
@@ -4898,6 +5181,7 @@ export class ChatView {
     const session = this._session;
     if (!this._isCurrent(session) || !path) return;
     openAttachmentFile(path, name, {
+      core: this.core,
       openHtml: (p, n) => this._openHtmlIsolated(p, n),
       onError: (text) => { if (this._isCurrent(session)) errToast(text); },
     });
@@ -5541,7 +5825,9 @@ export class ChatView {
           return;
         }
         const firstMsg = this.items.find(i => i.type === "msg");
+        const pageAt = performance.now();
         const { messages, hasMore } = await this.core.getMessages(session.chatId, { beforeId: firstMsg?.msg.id ?? null, limit: 40 });
+        this.noteOpenStat("jump", performance.now() - pageAt);
         if (!this._isCurrent(session)) return;
         this.hasMore = hasMore;
         if (!messages.length) break;

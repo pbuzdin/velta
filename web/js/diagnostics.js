@@ -37,6 +37,27 @@ export const diagnosticsSink = {
   },
 };
 
+// OPFS checkpoint failures (wasm PWA): checkpoints are best-effort, but
+// once they fail (quota exceeded, storage evicted) NOTHING is being saved
+// — every swallow-until-now meant "profile updated" could be data loss
+// with no diagnostics trace. One line per failure streak; the next
+// success clears it. `ok`/`err` come from the checkpoint promise.
+let checkpointFailing = false;
+export function reportCheckpoint(ok, err) {
+  if (ok) {
+    checkpointFailing = false;
+    return;
+  }
+  if (checkpointFailing) return;
+  checkpointFailing = true;
+  try {
+    diagnosticsSink.append(
+      "warning",
+      `OPFS checkpoint failed: ${String(err?.message || err || "unknown")}. Changes may not survive a reload.`,
+    );
+  } catch { /* no diagnostics channel here — the save itself still resolved */ }
+}
+
 // CI build paths in core log lines ("/home/runner/work/velta/velta/core/src/
 // sql.rs:971: …"): keep the repo-relative "core/src/…:line" part only.
 export function stripBuildPaths(text) {
@@ -121,6 +142,50 @@ export class DiagnosticsStore extends EventTarget {
 // left-aligned monospace pill with a hover copy-to-clipboard button in its
 // top-right corner.
 const LEVEL_EMOJI = { error: "❌", warning: "⚠️", info: "ℹ️" };
+export const DIAG_LEVELS = ["error", "warning", "info"];
+const LEVEL_TOKEN = {
+  error: "error", "❌": "error",
+  warning: "warning", warn: "warning", "⚠️": "warning",
+  info: "info", "ℹ️": "info",
+};
+
+export function levelFromToken(token) {
+  return LEVEL_TOKEN[String(token || "").trim().toLowerCase()] || null;
+}
+
+export function normalizeDiagLevel(level) {
+  return levelFromToken(level) || "info";
+}
+
+export function diagnosticLine(message) {
+  // 24-hour everywhere (AGENTS.md §5.1): a bare locale time string
+  // renders "03:21 AM" on en-US devices.
+  const emoji = LEVEL_EMOJI[normalizeDiagLevel(message.level)] || "ℹ️";
+  const text = String(message.text || "").replace(/^\[[A-Z]+\] /, "");
+  const time = new Date(message.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  return `${time}  ${emoji} ${text}` + (message.count > 1 ? ` ×${message.count}` : "");
+}
+
+// velta://diagnostics?show=error&copy=1 opens the log with those levels
+// checked and copies the visible lines. No install token: the link only
+// shows this device's own log. An unknown show= value is not a diagnostics link.
+export function parseDiagnosticsLink(raw) {
+  let url;
+  try { url = new URL(String(raw)); } catch { return null; }
+  if (url.protocol !== "velta:" || url.hostname !== "diagnostics") return null;
+  const show = url.searchParams.get("show");
+  const levels = show == null
+    ? DIAG_LEVELS.slice()
+    : DIAG_LEVELS.filter(l => show.split(",").some(part => levelFromToken(part) === l));
+  if (show != null && levels.length === 0) return null;
+  return { levels, copy: url.searchParams.get("copy") === "1" };
+}
+
+export function diagnosticsShareLink(levels) {
+  const show = DIAG_LEVELS.filter(l => levels.has(l));
+  if (!show.length) return null;
+  return `velta://diagnostics?${new URLSearchParams({ show: show.join(","), copy: "1" })}`;
+}
 
 const COPY_SVG =
   ICON.copy;
@@ -131,13 +196,7 @@ export function diagnosticRow(message) {
   row.dataset.msgid = message.id;
   const bubble = document.createElement("div");
   bubble.className = "service-msg";
-  const emoji = LEVEL_EMOJI[message.level] || "ℹ️";
-  const text = String(message.text).replace(/^\[[A-Z]+\] /, "");
-  bubble.textContent =
-    // 24-hour everywhere (AGENTS.md §5.1): a bare locale time string
-    // renders "03:21 AM" on en-US devices.
-    `${new Date(message.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })}  ${emoji} ${text}` +
-    (message.count > 1 ? ` ×${message.count}` : "");
+  bubble.textContent = diagnosticLine(message);
   const copy = document.createElement("button");
   copy.type = "button";
   copy.className = "diag-copy";

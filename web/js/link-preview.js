@@ -13,7 +13,7 @@ import { tauriInvoke } from "./tauri.js";
 const CACHE = new LruCache({ maxItems: 100, maxBytes: 2 * 1024 * 1024,
   sizeOf: (v, k) => (String(k).length + (v ? JSON.stringify(v).length : 0)) * 2 }); // url -> {title, description, image} | null (failed)
 const SETTING_KEY = "velta-link-preview";
-const PER_CHAT_KEY = "velta-link-preview-chats"; // { [chatId]: "off" | "picture" | "fetch" }
+const PER_CHAT_KEY = "velta-link-preview-chats"; // { [`${accountId}:${chatId}`]: "off" | "picture" | "fetch" }
 
 // Drawer hint under Link previews. The fetch is this device's IP.
 export const LINK_PREVIEW_IP_WARNING =
@@ -33,23 +33,32 @@ function storedMode(raw) {
 }
 
 // Per-chat entry wins. Missing entry follows the drawer. Unset and "0" are off.
-export function linkPreviewMode(chatId = null) {
+// The map is keyed by `${accountId}:${chatId}`: chat ids are per account, so a
+// bare chatId would leak one account's per-chat grant — its link-fetch IP
+// consent — to an unrelated chat with the same id in another account.
+// Legacy bare-chatId entries are ignored here and purged on the next write.
+export function linkPreviewMode(chatId = null, accountId = null) {
   try {
-    if (chatId != null) {
+    if (chatId != null && accountId != null) {
       const per = JSON.parse(localStorage.getItem(PER_CHAT_KEY) || "{}");
-      if (per[chatId] != null) return storedMode(per[chatId]);
+      const hit = per[`${accountId}:${chatId}`];
+      if (hit != null) return storedMode(hit);
     }
     return storedMode(localStorage.getItem(SETTING_KEY));
   } catch { return "off"; }
 }
 
 // chatId + mode null clears that chat's override. Off removes the global key.
-export function setLinkPreviewMode(mode, chatId = null) {
+export function setLinkPreviewMode(mode, chatId = null, accountId = null) {
   try {
-    if (chatId != null) {
+    if (chatId != null && accountId != null) {
       const per = JSON.parse(localStorage.getItem(PER_CHAT_KEY) || "{}");
-      if (mode == null) delete per[chatId];
-      else per[chatId] = storedMode(mode);
+      if (mode == null) delete per[`${accountId}:${chatId}`];
+      else per[`${accountId}:${chatId}`] = storedMode(mode);
+      // Purge legacy bare-chatId entries (pre-account-scoping).
+      for (const k of Object.keys(per)) {
+        if (!k.includes(":")) delete per[k];
+      }
       localStorage.setItem(PER_CHAT_KEY, JSON.stringify(per));
       return;
     }
@@ -121,8 +130,8 @@ function invoke(cmd, args) {
 
 const inFlight = new Map(); // url -> Promise (dedupe concurrent renders); removed when settled
 
-// The shell fetches with the proxy the user configured (their own SOCKS5/HTTP
-// proxy or the Android DNS tunnel, both live in the core's proxy_url). app.js
+// The shell fetches with the proxy the user configured (their own or Velta's
+// selected SOCKS5/WebSocket proxy, written into the core's proxy_url). app.js
 // registers a reader for the active account. Fail closed: no reader yet, or
 // a reader that throws, means no fetch — never a direct one.
 let proxySource = null;
@@ -146,9 +155,9 @@ export function activeProxyUrl(enabled, url) {
 // Resolves {title, description, image} or null (off/failed/no Tauri).
 // `picture` may call this from the composer. Incoming rows must call it
 // only for `fetch` — a picture-mode receive must not contact the site.
-export async function linkPreview(text, chatId = null) {
+export async function linkPreview(text, chatId = null, accountId = null) {
   if (!tauriInvoke()) return null;
-  if (linkPreviewMode(chatId) === "off") return null;
+  if (linkPreviewMode(chatId, accountId) === "off") return null;
   const url = firstLink(text);
   if (!url || !/^https:\/\//.test(url)) return null;
   // Invite links on the registered domains render as invite cards in the

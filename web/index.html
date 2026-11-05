@@ -53,6 +53,9 @@
       <button type="button" data-cat="bots" data-i18n="Bots">Bots</button>
       <button type="button" data-cat="system" data-i18n="System">System</button>
     </div>
+    <div id="sync-bar" role="status" hidden>
+      <span data-sync-text data-i18n="Fetching messages…">Fetching messages…</span>
+    </div>
     <nav id="chat-list" class="chat-list" role="listbox" aria-label="Chats" data-i18n-aria="Chats"></nav>
     <footer class="list-bar" role="toolbar" aria-label="Chat list actions" data-i18n-aria="Chat list actions">
       <button type="button" id="bar-chats" class="bar-btn" data-view="chats" title="Chats" aria-label="Chats" data-i18n-label="Chats">
@@ -78,6 +81,11 @@
 
   <!-- Main chat column -->
   <main id="main" class="main">
+    <div id="core-banner" class="core-banner" role="status" aria-live="polite" hidden>
+      <svg data-icon="warn" class="core-banner-ico"></svg>
+      <span id="core-banner-text" class="core-banner-text" data-i18n="Core not responding">Core not responding</span>
+      <button id="core-banner-restart" class="core-banner-btn" type="button" data-i18n="Restart core">Restart core</button>
+    </div>
     <div id="no-chat" class="no-chat">
       <div class="no-chat-badge" data-i18n="Select a chat to start messaging">Select a chat to start messaging</div>
       <p class="no-chat-sub" data-i18n="End-to-end encrypted · powered by chatmail relays">End-to-end encrypted · powered by chatmail relays</p>
@@ -173,6 +181,13 @@
         <button id="btn-diag-pause" class="icon-btn" type="button" title="Pause diagnostics" aria-label="Pause diagnostics" data-i18n-label="Pause diagnostics" aria-pressed="false">
           <svg data-icon="pause"></svg>
         </button>
+        <div class="diag-filter" role="group" aria-label="Show" data-i18n-aria="Show">
+          <label class="diag-switch"><input type="checkbox" data-diag-level="error" checked> <span aria-hidden="true">❌</span> <span data-i18n="Errors">Errors</span></label>
+          <label class="diag-switch"><input type="checkbox" data-diag-level="warning" checked> <span aria-hidden="true">⚠️</span> <span data-i18n="Warnings">Warnings</span></label>
+          <label class="diag-switch"><input type="checkbox" data-diag-level="info" checked> <span aria-hidden="true">ℹ️</span> <span data-i18n="Info">Info</span></label>
+        </div>
+        <button id="btn-diag-copy" class="btn-text" type="button" data-i18n="Copy">Copy</button>
+        <button id="btn-diag-link" class="btn-text" type="button" data-i18n="Copy link">Copy link</button>
         <label class="diag-switch"><input type="checkbox" id="sw-logging"> <span data-i18n="Logging">Logging</span></label>
         <label class="diag-switch"><input type="checkbox" id="sw-devtools"> <span data-i18n="DevTools">DevTools</span></label>
         <div class="btn-group" role="group" aria-label="Restart" data-i18n-aria="Restart">
