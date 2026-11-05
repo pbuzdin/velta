@@ -3593,6 +3593,8 @@ do-not-regress rules; dates mark when the lesson was learned.
   every layout pass; spacing rules must target `.history-scroll`, never `.history`.
   Also: inline `onclick` attributes die under the CSP (no `unsafe-inline`) — wire
   listeners in DOM code, never as HTML attributes.
+- **Article card (#252) is not on master** — removed in 1.5.3 (PR #276)
+  and archived on `feat/article-card-252`. Do not re-land it piecemeal.
 - **Collapsible chat list (#282)** — `app/js/list-collapse.js`: a floating
   chevron above the list bar's Menu button, rendered only at the two-pane
   breakpoint (`(min-width: 821px)`, same as the layout). It and Ctrl/⌘+B

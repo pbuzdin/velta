@@ -4,8 +4,19 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.5.2` (copied from `src-tauri/tauri.conf.json`)  
+**Current stable version:** `1.5.3` (copied from `src-tauri/tauri.conf.json`)  
 **Bundled core:** `deltachat-core-rust 2.66.0` (copied from `../core/Cargo.toml`)
+
+## What's new in 1.5.3
+
+- **Pure black (AMOLED)** option for the dark theme; elevated surfaces stay
+  slightly grey.
+- **Stickers in attachments menu** (opt-in) moves the sticker button there.
+- **Documents open in the default app** from a decrypted copy (desktop,
+  Android with Save as… fallback; PWA opens pdf/text in a tab).
+- **Collapsible chat list** on wide windows (chevron or Ctrl/⌘+B).
+- Replies, webxdc sender chips and the @mention picker fixes; the article
+  card is no longer on master.
 
 ## What's new in 1.5.2
 
