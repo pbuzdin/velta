@@ -634,7 +634,7 @@ migration.
 
 ### 23. Automatic relay onboarding is opt-in (core configure + Relays modal)
 
-**Tracker: pbuzdin/velta#relays. Status: patched locally (quilt ops "#23 autorelay opt-in …", 1 op, 1 file).**
+**Tracker: pbuzdin/velta#284. Status: patched locally (quilt ops "#23 autorelay opt-in …", 1 op, 1 file).**
 Upstream core 2.66 turns `Config::Autorelay` on at the end of every
 `init_transports`: a background task then silently onboards extra transports
 from a hardcoded candidate list (nine.testrun.org, chatmail.cc, …) until the
