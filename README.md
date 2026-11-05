@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk)** (~55 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe)** (~14 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg)** (~38 MB) — always the latest release; sizes approximate
+**[Android](https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe)** (~15 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg)** (~41 MB) — always the latest release; sizes approximate
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -131,6 +131,12 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
 - **Archived chats row** — when you have archived chats, an **Archived (n)**
   row sits at the bottom of the chat list; archived chats keep their menu
   and in-chat search.
+- **Velta Prism** — every person gets a stable color from their name, reused
+  for avatars, sender names in groups, and call rosters, so you can tell people
+  apart without photos.
+- **Encryption at rest and app lock** — the message database (and, on native
+  apps, attachments) is encrypted at rest; a PIN, biometrics, or Windows Hello
+  can lock the app. Details under [Privacy & security](#privacy--security).
 
 <details>
 <summary>Local chat (beta)</summary>
