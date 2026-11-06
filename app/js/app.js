@@ -1,6 +1,8 @@
 // app.js — Velta bootstrap: chat list, navigation, modals, PWA
 import { initListCollapse } from "./list-collapse.js";
 import { sendFailover, createFailoverLog, isStrictOn, SEND_STRICT_KEY } from "./relay-failover.js";
+// #286: module-top so boot-time relay status refreshes never hit a TDZ.
+const relayFailoverLog = createFailoverLog();
 import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
@@ -6982,8 +6984,6 @@ const relaysLastGood = createLastGood();
 const relayStatesLastGood = createLastGood();
 // Extras wait on scheduler / metadata locks (up to 30 s in a stall).
 const RELAY_EXTRA_TIMEOUT_MS = 4000;
-
-const relayFailoverLog = createFailoverLog();
 
 async function openRelaysModal() {
   if (state.accountChanging) return;
