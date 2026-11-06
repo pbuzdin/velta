@@ -1,6 +1,7 @@
-name: Build Linux .deb
+name: Build Linux (.deb, AppImage, Arch)
 
-# #291: manual Linux desktop build (x86_64 .deb). Not wired into release.yml yet.
+# #291: manual Linux desktop build (x86_64 .deb + AppImage, plus an Arch
+# pacman package repackaged from the .deb via packaging/arch/PKGBUILD). Not wired into release.yml yet.
 on:
   workflow_dispatch:
 
@@ -65,17 +66,65 @@ jobs:
           cp core/target/release/deltachat-rpc-server \
             velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-unknown-linux-gnu
 
-      - name: Build Tauri .deb
+      - name: Build Tauri .deb + AppImage
         working-directory: ./velta-app
         env:
+          # linuxdeploy is itself an AppImage: no FUSE on runners.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          NO_STRIP: true
           # createUpdaterArtifacts signs bundles; same secrets as Windows.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: tauri build --bundles deb
+        run: tauri build --bundles deb,appimage
 
       - name: Upload .deb
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: velta-linux-deb
           path: velta-app/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: velta-linux-appimage
+          path: velta-app/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  build-arch:
+    needs: build-linux
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: false
+
+      - name: Download .deb
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: velta-linux-deb
+          path: deb
+
+      # makepkg refuses root: build as a throwaway user. The .deb is placed
+      # under the source name, so makepkg uses it instead of downloading.
+      - name: makepkg (velta-bin)
+        run: |
+          pacman -Syu --noconfirm --needed git
+          deb=$(ls deb/*.deb | head -n1)
+          ver=$(basename "$deb" | sed -E 's/^Velta_([^_]+)_amd64\.deb$/\1/')
+          useradd -m builder
+          mkdir -p /tmp/pkg && cp packaging/arch/PKGBUILD /tmp/pkg/
+          sed -i "s/^pkgver=.*/pkgver=${ver}/" /tmp/pkg/PKGBUILD
+          cp "$deb" "/tmp/pkg/Velta_${ver}_amd64.deb"
+          chown -R builder /tmp/pkg
+          su builder -c "cd /tmp/pkg && makepkg --nodeps --noconfirm"
+          mkdir -p out && cp /tmp/pkg/*.pkg.tar.zst out/
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: velta-arch-pkg
+          path: out/*.pkg.tar.zst
           if-no-files-found: error

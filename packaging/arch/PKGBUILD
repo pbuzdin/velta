@@ -1,0 +1,26 @@
+# velta-bin: repackages the official Velta .deb (Tauri build, #291).
+# Not published to the AUR. Local build: put Velta_<ver>_amd64.deb next to
+# this file (or let makepkg fetch it from the release), then `makepkg -si`.
+pkgname=velta-bin
+pkgver=1.5.3
+pkgrel=1
+pkgdesc="Velta: Delta Chat client (Tauri desktop build, repackaged from the .deb)"
+arch=('x86_64')
+url="https://velta.cc"
+license=('GPL-3.0-or-later')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'librsvg' 'openssl' 'hicolor-icon-theme')
+provides=('velta')
+conflicts=('velta')
+options=('!strip' '!debug')
+source=("Velta_${pkgver}_amd64.deb::https://github.com/pbuzdin/velta/releases/download/v${pkgver}/Velta_${pkgver}_amd64.deb")
+sha256sums=('SKIP')
+noextract=("Velta_${pkgver}_amd64.deb")
+
+package() {
+  cd "$srcdir"
+  bsdtar -xf "Velta_${pkgver}_amd64.deb" data.tar.gz data.tar.xz data.tar.zst 2>/dev/null || true
+  local data
+  data=$(ls data.tar.* | head -n1)
+  bsdtar -xf "$data" -C "$pkgdir"
+  chmod -R u=rwX,go=rX "$pkgdir"
+}
