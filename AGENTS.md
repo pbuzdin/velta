@@ -3703,3 +3703,12 @@ do-not-regress rules; dates mark when the lesson was learned.
   version bump re-mojibaked `sw.js`/`Cargo.toml` exactly this way (the BOM
   check passed, the content was already corrupted; caught by an external
   PR). Read AND write with explicit UTF-8, or use the edit tools / WSL.
+
+## Linux .deb build (#291)
+
+`.github/workflows/build-linux.yml`: manual `workflow_dispatch` on ubuntu-24.04
+x86_64. It installs the Tauri GTK/WebKit deps, builds the rpc-server sidecar
+(staged as `binaries/deltachat-rpc-server-x86_64-unknown-linux-gnu`;
+`tauri.linux.conf.json` ships it as `externalBin`, so it lands next to the exe,
+which `find_sidecar` checks), runs `tauri build --bundles deb`, and uploads
+artifact `velta-linux-deb`. It is not in release.yml yet.
