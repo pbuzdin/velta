@@ -58,8 +58,13 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[cfg(windows)]
 const SIDECAR_NAME: &str = "deltachat-rpc-server.exe";
-#[cfg(not(any(windows, target_os = "android")))]
+#[cfg(target_os = "macos")]
 const SIDECAR_NAME: &str = "deltachat-rpc-server";
+// #295: Linux packages install Velta's core as /usr/bin/velta-rpc-server so
+// they never clash with distro `deltachat-rpc-server` packages. Only
+// absolute candidates below are tried; PATH is never searched.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "android"))))]
+const SIDECAR_NAME: &str = "velta-rpc-server";
 
 #[cfg(not(target_os = "android"))]
 fn find_sidecar(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {

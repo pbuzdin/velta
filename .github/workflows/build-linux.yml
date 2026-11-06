@@ -64,7 +64,7 @@ jobs:
         run: |
           mkdir -p velta-app/src-tauri/binaries
           cp core/target/release/deltachat-rpc-server \
-            velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-unknown-linux-gnu
+            velta-app/src-tauri/binaries/velta-rpc-server-x86_64-unknown-linux-gnu
 
       - name: Build Tauri .deb + AppImage
         working-directory: ./velta-app
@@ -76,6 +76,33 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: tauri build --bundles deb,appimage
+
+      # #295: no file may be named deltachat-rpc-server (distro packages own it).
+      - name: Check package file lists (no deltachat-rpc-server)
+        run: |
+          set -e
+          deb=$(ls velta-app/src-tauri/target/release/bundle/deb/*.deb | head -n1)
+          dpkg-deb -c "$deb" | tee /tmp/deb.list
+          grep -q '/usr/bin/velta-rpc-server$' /tmp/deb.list
+          ! grep -q 'deltachat-rpc-server' /tmp/deb.list
+          app=$(ls velta-app/src-tauri/target/release/bundle/appimage/*.AppImage | head -n1)
+          chmod +x "$app"
+          (cd /tmp && "$OLDPWD/$app" --appimage-extract >/dev/null)
+          find /tmp/squashfs-root | tee /tmp/appimage.list | grep -q 'usr/bin/velta-rpc-server$'
+          ! grep -q 'deltachat-rpc-server' /tmp/appimage.list
+
+      # Debian/Ubuntu: install alongside a distro deltachat-rpc-server if the
+      # archive has one (skipped otherwise).
+      - name: Smoke install next to distro deltachat-rpc-server
+        run: |
+          deb=$(ls velta-app/src-tauri/target/release/bundle/deb/*.deb | head -n1)
+          if apt-cache show deltachat-rpc-server >/dev/null 2>&1; then
+            sudo apt-get install -y deltachat-rpc-server
+          else
+            echo "no deltachat-rpc-server in this archive; installing ours alone"
+          fi
+          sudo apt-get install -y "./$deb"
+          test -x /usr/bin/velta-rpc-server
 
       - name: Upload .deb
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -121,6 +148,19 @@ jobs:
           chown -R builder /tmp/pkg
           su builder -c "cd /tmp/pkg && makepkg --nodeps --noconfirm"
           mkdir -p out && cp /tmp/pkg/*.pkg.tar.zst out/
+
+      # #295: file list check + install next to Arch's deltachat-rpc-server.
+      - name: Check + smoke install (pacman)
+        run: |
+          set -e
+          pkg=$(ls out/*.pkg.tar.zst | head -n1)
+          pacman -Qlp "$pkg" | tee /tmp/arch.list
+          grep -q '/usr/bin/velta-rpc-server$' /tmp/arch.list
+          ! grep -q 'deltachat-rpc-server' /tmp/arch.list
+          pacman -S --noconfirm deltachat-rpc-server
+          pacman -U --noconfirm "$pkg"
+          test -x /usr/bin/velta-rpc-server
+          test -x /usr/bin/deltachat-rpc-server
 
       - name: Upload Arch package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
