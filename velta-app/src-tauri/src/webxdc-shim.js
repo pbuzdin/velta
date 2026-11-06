@@ -16,7 +16,7 @@
     };
     window.RTCPeerConnection = rtcBlocked;
     window.webkitRTCPeerConnection = rtcBlocked;
-    // No capture either (Phase 0, docs/research/docs/research/archive/webxdc-group-calls.md):
+    // No capture either (Phase 0, docs/research/archive/webxdc-group-calls.md):
     // the browser already refuses it in the opaque origin; this makes the
     // refusal uniform (NotAllowedError) on every shell.
     var md = navigator.mediaDevices;

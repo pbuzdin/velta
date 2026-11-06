@@ -28,7 +28,7 @@ pub const WEBXDC_SHIM: &str = include_str!("webxdc-shim.js");
 // 'webrtc'" for every webxdc app. WebRTC is instead disabled in the injected
 // shim, which stubs the RTCPeerConnection constructors before the app's
 // scripts run (see webxdc-shim.js).
-/// Phase 0 of docs/research/docs/research/archive/webxdc-group-calls.md: no webxdc document may
+/// Phase 0 of docs/research/archive/webxdc-group-calls.md: no webxdc document may
 /// use the mic, camera, screen capture or location. Chromium already refuses
 /// getUserMedia in the opaque origin ("Invalid security origin"); this header
 /// (+ the iframe `allow` list and the shim stub) is defence in depth for
