@@ -34,7 +34,8 @@ of the progress/loader ideas #231–#238, #233 (first-sync strip) and #238
   network; uncached `get_config` not blocked by a setter (generation counter);
   wake-pending flag so skipped wakes aren't lost; `get_connectivity_html`
   answers "Connecting…" during an IO restart. `tests/core-stall/stop_io_stall.py`
-  extended. Quilt is 196 ops / 37 files after #29 (1.5.2).
+  extended. The #29 state was 196 ops / 37 files (1.5.2); the current quilt,
+  including #30 strict pinned sending, is **200 ops / 37 files**.
 
 ## Upstream findings
 

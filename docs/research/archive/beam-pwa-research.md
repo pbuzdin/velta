@@ -1,5 +1,10 @@
 # Velta Beam in the PWA — research (2026-10-16)
 
+Status: ARCHIVED 2026-11-07. Step A (ordinary webxdc in the wasm PWA) shipped;
+the initial "PWA refuses webxdc" finding below is historical. The iroh and
+WebRTC transport options remain deferred research, not an active plan. Current
+host behavior and security constraints live in `docs/agents/webxdc.md`.
+
 Refs: app/webxdc/send-direct/, app/js/webxdc-manager.js (PWA gate at line ~294),
 docs/agents/webxdc.md, docs/iroh-layer-plan.md, docs/research/wasm-patches/.
 

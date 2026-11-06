@@ -1,12 +1,15 @@
 # Landing checklist — wasm patches into production `core/`
 
-**Status:** DRAFT (Day 9, burn-down Day 10–12, 2026-10-06). **Not green.** Nothing on this list
-authorises a merge by itself; Pavel signs off the final box.
+**Status (refreshed 2026-11-07): NOT GREEN.** The opt-in wasm PWA works, but
+that does not authorize landing its patch series into production `core/`.
+Nothing on this list authorises a merge by itself; Pavel signs off the final
+box. Historical Day-number evidence below is retained as evidence, not as a
+substitute for rerunning the gate on the landing checkout.
 
 > **Production `core/` stays stock until this checklist is green.**
 > "Stock" = upstream chatmail/core + Velta's production quilt
-> (`python3 tools/apply-core-patches.py verify` → all ops present, 21/21 at
-> 2.63.0, plus `tree-check --fetch` green), with
+> (`python3 tools/apply-core-patches.py verify` → all ops present, currently
+> **200/200 at 2.66.0**, plus `tree-check --fetch` green), with
 > `core/Cargo.lock` unchanged by wasm work. Until then the wasm port lives
 > only in the opt-in layer (`docs/research/wasm-patches/` +
 > `tools/apply-wasm-core-patches.py apply-on-copy`) and in scratch copies.
@@ -14,8 +17,8 @@ authorises a merge by itself; Pavel signs off the final box.
 
 Related: [patch home README](wasm-patches/README.md) ·
 [spike log](wasm-core-mail-proxy-spike.md) ·
-[port inventory](wasm-core-port-inventory.md) ·
-[PLAN-PWA-WEBSOCKET.MD §4b](../../PLAN-PWA-WEBSOCKET.MD) ·
+[port inventory](archive/wasm-core-port-inventory.md) ·
+[archived PLAN-PWA-WEBSOCKET.MD §4b](archive/PLAN-PWA-WEBSOCKET.MD) ·
 [COREUPDATE.md](../../COREUPDATE.md)
 
 Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker.
@@ -23,22 +26,24 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 
 ## 0. Preconditions (decision)
 
-- ✅ OQ-1 in `PLAN-PWA-WEBSOCKET.MD` resolved in favour of Architecture C
+- ✅ OQ-1 in `archive/PLAN-PWA-WEBSOCKET.MD` resolved in favour of Architecture C
   (non-custodial with addresses) — **decided by Pavel 2026-10-06**.
-- ✅ C2 (worker-wasm transport in `app/js`) has a consumer ready to use the
-  landed core — **Day 15: opt-in `WorkerWasmTransport` wired into
-  `createCore()`** (`?wasm=1` / `localStorage velta-wasm=1`, non-native
-  shells only); the real app UI boots over the wasm core in a worker (rig,
-  no demo fallback). OPFS persistence + single-tab gate still pending (C4)
-  — accounts are ephemeral until then.
+- ✅ C2/C4 browser consumer: `WorkerWasmTransport` boots the real app UI over
+  the wasm core in a worker (no demo fallback), and the PWA dist sets
+  `window.VELTA_PWA.wasmCore`. OPFS snapshot persistence and the single-tab
+  Web Locks gate are implemented (#106/#123); restart and storage-eviction
+  checks remain separately listed in §5. This makes the PWA a consumer of the
+  opt-in build, not approval to modify production `core/`.
 - ⬜ Decision recorded: land as cfg-gated patches in `core/` **vs.** keep the
   opt-in layer forever **vs.** upstream to chatmail/core first. Prefer
   upstream (`cfg(target_arch = "wasm32")`, track chatmail/core #8559).
 
 ## 1. Patch series hygiene
 
-- ✅ Series is discrete, ordered, applies cleanly onto current master `core/`
-  (10/10, `verify-copy` OK) — Day 6–10, `0010` Day 18.
+- ✅ Series is discrete and ordered: ten files — 0001–0008, 0010, 0011 — with
+  an intentional 0009 gap. Current 2.66 attachment routing lives in 0011.
+  Historical apply/verify runs are recorded in `wasm-patches/README.md`;
+  rerun `apply-on-copy` and `verify-copy` on the actual landing checkout.
 - ✅ No spike leftovers in subjects/comments: Day 10 re-export with
   `wasm(<area>):` subjects, WASM-CORE ids and a "Native impact" line per
   patch; stale `/workspace/velta-wasm-port` path comment fixed.
@@ -78,8 +83,7 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 | 0004/0008 | `[patch.crates-io]` async-imap, astral-tokio-tar (=0.6.4 since Day 11), mail-builder | **vendored sources used on native too** (Cargo `[patch]` cannot be per-target) — see §2 |
 | 0005/0008 | `accounts`/`context`/`imex`: `path_exists`/`path_is_dir`/`path_is_file` | wrappers call `Path::exists/is_dir/is_file` on native |
 | 0007 | `Time::now()` → `tools::time_now()` (context, imap, idle, key, quota, scheduler, smtp, migrations, wal_checkpoint), ratelimit `now()` | wrapper calls `Time::now()` on native |
-| 0007 | `blob`: `image_metadata` takes `BufRead + Seek`; `sync_fs` facade | target-neutral refactor; recode output byte-identical (avatar golden `d57cb5ce…`) |
-| 0009 | `blob_tests` call sites | test-only |
+| 0011 | `blob`: `sync_fs` facade and memfs `open_blob` routing for the 2.66 attachment port | native re-exports `std::fs`; native `open_blob` is unchanged; wasm key-only paths fail closed |
 
 ## 2. Lockfile / reproducibility
 
@@ -101,13 +105,13 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
   | async-imap | 0.12.0 crates.io (2.63) | 0.12.0 **vendored** | 2 files / 10 lines, all `cfg`-gated (idle timeout import); #112 re-vendor |
   | astral-tokio-tar | 0.6.4 | **0.6.4 vendored** (Day 11 rebase) | ✅ downgrade removed: vendor = crates.io 0.6.4 + 61 wasm lines; native lock now 0.6.4 + rustix 1.1.4 like stock. Ungated: `canonicalize` via `tokio::fs` (same result, blocking pool). Day 11 nextest 1135/1135. 2.63 note (#112): stock `core/` declares 0.7.0; the series pins `=0.6.4` — wasm-copy-only downgrade, production `core/` untouched |
   | mail-builder | 1.0.0 crates.io (2.63) | 1.0.0 **vendored** | 3 files / ~88 lines, `SystemTime` imports `cfg`-gated; #112 re-vendor |
-  | wasm-bindgen / js-sys / web-sys / sqlite-wasm-rs / wasmtimer / indexed_db_futures | 0.2.100 … | 0.2.129 … | **not in native graphs** (wasm-only) |
+  | wasm-bindgen / js-sys / web-sys / sqlite-wasm-rs / wasmtimer / indexed_db_futures | 0.2.100 … | 0.2.130 … | **not in native graphs** (wasm-only) |
 
   Native crate bumps need release-notes mention and their own native test
   pass (§3) independent of the wasm work.
 - ✅ wasm-bindgen crate version == `wasm-bindgen-cli` in CI (derived from
   `PROVENANCE`, Day 9) and documented for local builds — Day 24: the pinned
-  version (0.2.129) and the local-build matching requirement are documented
+  version (0.2.130) and the local-build matching requirement are documented
   in [`packages/velta-wasm/README.md`](../../packages/velta-wasm/README.md).
 - ✅ Pinned nightly (`nightly-2026-08-01`, needed for rusqlite `cfg_select!`)
   replaced by stable, or the nightly pin is accepted for the wasm target
@@ -127,8 +131,10 @@ Native builds must not change behaviour because of the wasm patches.
 - ✅ Full `cargo nextest run -p deltachat --lib` on the copy:
   **1135/1135** (1 skipped) — Day 8; re-run Day 10 (hygiene) and Day 11
   (astral-tokio-tar 0.6.4 rebase): **1135/1135, 1 skipped, 0 warnings**.
-- ✅ Avatar golden parity: copy and stock both produce `d57cb5ce…af.png`
-  for `test_selfavatar_in_blobdir`; 0009 changes no golden — Day 8.
+- ✅ Avatar golden parity: copy and stock both produced `d57cb5ce…af.png`
+  for `test_selfavatar_in_blobdir` in the historical Day 8 run. The retired
+  0009 changed no golden; current 0011 leaves native `open_blob` unchanged.
+  Rerun the parity check on the landing tree.
 - ✅ Same nextest run with the **landed** lock (Day 13): `deltachat --lib`
   1135/1135 (1 skipped); `deltachat-jsonrpc` + `deltachat-rpc-server` 2/2.
   `deltachat_ffi` has no testable rust target (`cdylib, staticlib`; C-side
@@ -136,8 +142,10 @@ Native builds must not change behaviour because of the wasm patches.
 - ✅ Golden / fixture hashes unchanged vs. stock across the whole suite:
   the embedded golden/fixture expectations pass on both stock CI and the
   wasm-series copy (Day 13 run); no intentional golden changes.
-- ⬜ `python3 tools/apply-core-patches.py verify` → 13/13 **after** the
-  wasm series is in `core/` (the two layers coexist).
+- ⬜ `python3 tools/apply-core-patches.py verify` → **200/200 after** the
+  wasm series is in `core/` (the two layers coexist). Adjust only if the
+  production applicator itself changes before landing; never hardcode a lower
+  historical count.
 - ⬜ Android APK + Windows sidecar (`velta-core-service` archived 2026-10-20, out of scope) build from the
   landed tree; smoke per COREUPDATE.md §2 frontend contract (RPC/event
   surface unchanged). Sidecar done Day 12b. **Proposed waiver for the APK
@@ -196,16 +204,14 @@ Native builds must not change behaviour because of the wasm patches.
   (2026-10-08). Networking e2e alice→bob green on each distinct day (#96).
 - ✅ e2e runnable in CI: `workflow_dispatch` input `e2e=true` (manual only;
   proxy fetched pinned at `452cd0d`, allowlisted to nine.testrun.org) — Day 10.
-- ⬜ e2e against relay-native websockify (`/imap`, `/smtp` + CORS, C3) on a
-  test deploy of `pbuzdin/relay`. Day 19 finding: relay `/new` must be
-  same-origin (or CORS-enabled) too — the PWA's in-browser account-minting
-  fetch is refused today, so C3 scope is `/new` + `/imap` + `/smtp`.
-  Day 22: fork branch `websockify-c3` built (upstream PR #1030 websockify +
-  `ws_allowed_origins` Origin allowlist + per-IP limit_conn + `/new` CORS,
-  spike log Day 22). Day 23: branch PUSHED to `pbuzdin/relay` and extended
-  with the wasm-core bridge scheme (`/tcp/{host}/993|465` + `/dns/`, TLS
-  targets inside wasm) — remaining: test-relay deploy, then run the e2e
-  with `RELAY_WS_URL=wss://<relay>` and the in-browser minting check.
+- ⬜ Relay-native websockify interoperability (`/imap`, `/smtp` + CORS, C3)
+  remains an open landing-checklist item and needs either a test-deploy e2e or
+  Pavel's explicit waiver. It no longer blocks the **standalone** PWA proxy:
+  that implementation uses approved `/dns/` and `/tcp/` tunnels plus
+  authenticated WebSocket `/cm-new/` signup, so stock Chatmail `/new` CORS is
+  not on the signup path. Full `wss://` URLs and private paths survive worker
+  networking. Do not mark this relay-native item green merely because the
+  standalone proxy works.
 - ⬜ Interop: wasm client ↔ native Velta (Android/desktop) message both ways,
   Autocrypt/SecureJoin verified.
 - ⬜ Persistence (OPFS) restart test; storage-eviction backup path (C4).
@@ -229,14 +235,12 @@ Native builds must not change behaviour because of the wasm patches.
 - ⬜ Security review: TLS stays in wasm (no proxy termination), proxy
   allowlist (never port 25), no credentials in logs, CSP
   `'wasm-unsafe-eval'` scope.
-- ✅ Upstream status re-checked (chatmail/core #8559, relay #1030) — drop
-  any patch upstream already covers. **Day 27 re-check (2026-10-07):**
-  core #8559 still an uncommented proposal (socket-security `WebSocket`
-  variant + WS-as-stream-transport — same direction as our series, nothing
-  merged, no client work); relay #1030 still an open draft awaiting review
-  since Aug 31, no CORS/allowlist at all upstream — nothing to drop, the
-  Velta series and the relay hardening stay ahead. Re-check per core bump
-  and at landing.
+- ✅ Upstream status re-checked on **2026-11-07** (chatmail/core #8559, relay
+  #1030): #8559 remains open with no merged client implementation; #1030
+  remains an open draft. Nothing in the current wasm series can be dropped on
+  the basis of those two entries. Separately, core #8711 merged on 2026-10-27
+  and its `configured_addr` removal is already reflected in production 2.66.
+  Recheck every entry per core bump and at landing.
 
 ## 7. Process
 

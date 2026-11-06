@@ -1,4 +1,4 @@
-// Phase 0 of docs/research/webxdc-group-calls.md: webxdc apps never get the
+// Phase 0 of docs/research/archive/webxdc-group-calls.md: webxdc apps never get the
 // mic, camera, screen or location on any shell. Browser-level proof (fake
 // devices, auto-granting UI) lives in scripts/e2e-webxdc-media-deny.mjs and
 // scripts/e2e-webxdc-pwa.mjs.

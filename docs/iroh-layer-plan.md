@@ -3,7 +3,7 @@
 Status: proposal, 2026-10-06. Docs only, no code yet. Evidence and citations:
 [`research/iroh-layer-research.md`](research/iroh-layer-research.md). Related:
 [`agents/p2p.md`](agents/p2p.md) (Local chat engine),
-[`../PLAN-PWA-WEBSOCKET.MD`](../PLAN-PWA-WEBSOCKET.MD) (PWA, Architecture C).
+[`research/archive/PLAN-PWA-WEBSOCKET.MD`](research/archive/PLAN-PWA-WEBSOCKET.MD) (PWA, Architecture C).
 
 Pavel's requirement: "iroh chat and calls will have separate chat folders and
 these chats will be marked with an 'iroh' chip near their avatars". iroh is a

@@ -19,7 +19,7 @@ const parse = context.parseConnectivityHtml;
 
 const FIXTURE = `<!DOCTYPE html><html><body>
 <h3>Incoming Messages</h3><ul>
-<li class="transport"><span class="green dot"></span> <b>d13.buro.dev:</b> Connected<br />
+<li class="transport"><span class="green dot"></span> <b>mail.example.org:</b> Connected<br />
 <ul class="quota-list"><li>325 MiB of 900 MiB used<div class="bar"><div class="progress grey" style="width: 36%">36%</div></div></li></ul></li>
 <li class="transport"><span class="green dot"></span> <b>chatmail.uk:</b> Connected<br />
 <ul class="quota-list"><li>224 MiB of 2 GiB used<div class="bar"><div class="progress grey" style="width: 10%">10%</div></div></li></ul></li>
@@ -30,7 +30,7 @@ const FIXTURE = `<!DOCTYPE html><html><body>
 test("#79: parseConnectivityHtml extracts the SMTP loop's bound transport", () => {
   const { segs, smtpState, smtpVia } = parse(FIXTURE);
   assert.equal(segs.length, 2);
-  assert.equal(segs[0].domain, "d13.buro.dev");
+  assert.equal(segs[0].domain, "mail.example.org");
   assert.equal(smtpState, "ok");
   assert.equal(smtpVia, "ada@nine.testrun.org");
 });

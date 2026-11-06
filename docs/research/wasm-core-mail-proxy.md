@@ -8,7 +8,7 @@ rewritten so they make sense in-repo.
 
 Date of research: 2026-10-05. Scope of the original pass: read-only research;
 no production app code was changed. Inputs: this Velta tree (vendored core
-2.62.0 in `core/`, `PLAN-PWA-WEBSOCKET.MD`), `chatmail/core`, `chatmail/relay`
+2.62.0 in `core/`, `archive/PLAN-PWA-WEBSOCKET.MD`), `chatmail/core`, `chatmail/relay`
 (+ fork `pbuzdin/relay`), web/GitHub search, and a dry `cargo check` of the
 vendored core for wasm targets (logs were produced outside the repo during
 research).

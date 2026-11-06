@@ -1,4 +1,4 @@
-// Webxdc in the wasm PWA (Step A, docs/research/beam-pwa-research.md):
+// Webxdc in the wasm PWA (Step A, docs/research/archive/beam-pwa-research.md):
 // service-worker route (app/webxdc-host/sw-route.js), in-frame loader
 // (app/webxdc-host/frame.js), host bridge (webxdc-manager.js) and the Beam
 // "no realtime in the web app" state. Browser-level coverage (real SW,

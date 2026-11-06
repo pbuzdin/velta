@@ -718,3 +718,14 @@ joined on `mime_in_reply_to` without an index and rescanned on every
 "Restart core" overlap; #29 looks the quoted message up by the `rfc724_mid`
 index and makes overlapping restarts no-ops. Upstream candidate: applies to
 stock core as-is.
+
+### 30. Strict pinned sending (#286, #288)
+
+**Status: patched locally (quilt ops "#30 …", 4 ops, 1 file).** The Relays
+modal's "Only send via the pinned relay" option sets the Velta-owned UI key
+`ui.velta.send_strict`. With both that key and a send pin present, the SMTP
+connect loop retains only the pinned transport, closes an existing connection
+bound to another transport, and reports failure against that pinned address
+instead of silently failing over. Receiving remains multi-relay, and the
+option is inert without a pin. These ops must stay after #11 and #24 because
+their anchors include those patches' send-pin and paused-relay logic.
