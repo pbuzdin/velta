@@ -83,7 +83,7 @@ jobs:
           set -e
           deb=$(ls velta-app/src-tauri/target/release/bundle/deb/*.deb | head -n1)
           dpkg-deb -c "$deb" | tee /tmp/deb.list
-          grep -q '/usr/bin/velta-rpc-server$' /tmp/deb.list
+          grep -q 'usr/bin/velta-rpc-server$' /tmp/deb.list
           ! grep -q 'deltachat-rpc-server' /tmp/deb.list
           app=$(ls velta-app/src-tauri/target/release/bundle/appimage/*.AppImage | head -n1)
           chmod +x "$app"
