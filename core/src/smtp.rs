@@ -76,6 +76,10 @@ pub(crate) struct Smtp {
 /// it. Unset, empty, or naming a removed transport = no pin.
 pub(crate) const VELTA_SEND_TRANSPORT_KEY: &str = "ui.velta.send_transport";
 
+/// Velta patch (#30, #286): "1" = send only via the pinned transport, no
+/// failover. Receiving stays multi-relay. Ignored without a pin.
+pub(crate) const VELTA_SEND_STRICT_KEY: &str = "ui.velta.send_strict";
+
 /// Velta patch (#11): how long a pinned transport that failed to connect
 /// yields to the most recently successful one. Bounds the cost of a dead pin
 /// to one connect timeout per window; after it the pin is tried first again.
@@ -314,6 +318,23 @@ impl Smtp {
         // transport is paused, sending fails — the profile is offline by
         // choice.
         let velta_disabled = crate::transport::velta_disabled_transports(context).await?;
+        // Velta patch (#30, #286): "Only send via the pinned relay".
+        let velta_strict = velta_pin.is_some()
+            && context
+                .get_ui_config(VELTA_SEND_STRICT_KEY)
+                .await?
+                .is_some_and(|v| v.trim() == "1");
+        if velta_strict
+            && let (Some(pin), Some(bound)) =
+                (velta_pin, self.connection.as_ref().map(|c| c.transport_id))
+            && pin != bound
+        {
+            info!(
+                context,
+                "Velta: strict pin, closing connection on transport {bound}."
+            );
+            self.disconnect();
+        }
         // Velta patch (#24, #260): pausing a relay closes its LIVE connection
         // too — the candidate filter below only stops new connects, so
         // queued mail kept flowing through the paused relay until the
@@ -347,6 +368,12 @@ impl Smtp {
         let mut transports = upstream_sorted_transports(context).await?;
         transports.retain(|(_, lp)| !velta_disabled.contains(&lp.addr.to_lowercase()));
         velta_pin_first(&mut transports, velta_pin, &self.velta_connect_failed);
+        let velta_strict_addr = if velta_strict {
+            transports.retain(|(id, _)| Some(*id) == velta_pin);
+            transports.first().map(|(_, lp)| lp.addr.clone())
+        } else {
+            None
+        };
         for (transport_id, lp) in transports {
             info!(context, "Trying to connect to transport {transport_id}.");
             match self
@@ -376,6 +403,9 @@ impl Smtp {
                         .insert(transport_id, tools::Time::now());
                 }
             }
+        }
+        if let Some(addr) = velta_strict_addr {
+            bail!("Only sending via the pinned relay {addr}: it failed to connect");
         }
         bail!("Failed to connect to any SMTP server");
     }
