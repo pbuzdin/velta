@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": null,
+    "externalBin": [
+      "binaries/deltachat-rpc-server"
+    ]
+  }
+}
