@@ -3716,3 +3716,9 @@ artifacts `velta-linux-deb` and `velta-linux-appimage` (`--bundles deb,appimage`
 container) repackages that .deb with `packaging/arch/PKGBUILD` (velta-bin,
 makepkg as user `builder`) into artifact `velta-arch-pkg`. Not on the AUR.
 It is not in release.yml yet.
+**#295:** on Linux the core ships as `/usr/bin/velta-rpc-server` (`SIDECAR_NAME`
+in sidecar.rs, `tauri.linux.conf.json` externalBin), never `deltachat-rpc-server`,
+which distro packages own. `find_sidecar` only tries absolute paths and never
+searches PATH. CI fails if a .deb, AppImage or Arch file list contains
+`deltachat-rpc-server`, then installs ours next to the distro one. The PKGBUILD
+has no provides or conflicts entries. Windows, macOS and Android are unchanged.

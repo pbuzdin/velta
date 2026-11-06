@@ -7,7 +7,7 @@ test("#291: manual Linux .deb workflow on ubuntu-24.04, not in release.yml", () 
   assert.match(wf, /workflow_dispatch:/);
   assert.match(wf, /runs-on: ubuntu-24\.04/);
   assert.match(wf, /libwebkit2gtk-4\.1-dev/);
-  assert.match(wf, /deltachat-rpc-server-x86_64-unknown-linux-gnu/);
+  assert.match(wf, /velta-rpc-server-x86_64-unknown-linux-gnu/);
   assert.match(wf, /tauri build --bundles deb,appimage/);
   assert.match(wf, /name: velta-linux-deb/);
   const rel = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
@@ -17,7 +17,7 @@ test("#291: manual Linux .deb workflow on ubuntu-24.04, not in release.yml", () 
 test("#291: Linux bundles the sidecar as externalBin (installed next to the exe)", () => {
   const c = JSON.parse(readFileSync(new URL("../velta-app/src-tauri/tauri.linux.conf.json", import.meta.url), "utf8"));
   assert.equal(c.bundle.resources, null);
-  assert.deepEqual(c.bundle.externalBin, ["binaries/deltachat-rpc-server"]);
+  assert.deepEqual(c.bundle.externalBin, ["binaries/velta-rpc-server"]);
 });
 
 test("#291: AppImage + Arch package (velta-bin PKGBUILD repackages the .deb)", () => {
@@ -30,4 +30,15 @@ test("#291: AppImage + Arch package (velta-bin PKGBUILD repackages the .deb)", (
   assert.match(pb, /^pkgname=velta-bin$/m);
   assert.match(pb, /webkit2gtk-4\.1/);
   assert.match(pb, /bsdtar -xf "\$data" -C "\$pkgdir"/);
+});
+
+test("#295: Linux core is velta-rpc-server; PKGBUILD has no provides/conflicts; CI checks lists", () => {
+  const pb = readFileSync(new URL("../packaging/arch/PKGBUILD", import.meta.url), "utf8");
+  assert.doesNotMatch(pb, /^(provides|conflicts)=/m);
+  const sc = readFileSync(new URL("../velta-app/src-tauri/src/sidecar.rs", import.meta.url), "utf8");
+  assert.match(sc, /not\(any\(target_os = "macos", target_os = "android"\)\)\)\)\]\nconst SIDECAR_NAME: &str = "velta-rpc-server";/);
+  assert.match(sc, /#\[cfg\(target_os = "macos"\)\]\nconst SIDECAR_NAME: &str = "deltachat-rpc-server";/);
+  const wf = readFileSync(new URL("../.github/workflows/build-linux.yml", import.meta.url), "utf8");
+  assert.equal((wf.match(/! grep -q 'deltachat-rpc-server'/g) || []).length, 3);
+  assert.match(wf, /pacman -S --noconfirm deltachat-rpc-server/);
 });

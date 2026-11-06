@@ -2,7 +2,7 @@
   "bundle": {
     "resources": null,
     "externalBin": [
-      "binaries/deltachat-rpc-server"
+      "binaries/velta-rpc-server"
     ]
   }
 }
