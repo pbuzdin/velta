@@ -2808,10 +2808,14 @@ async fn test_velta_config_read_not_blocked_by_sql_holder() -> Result<()> {
                 .await?
                 .is_some_and(|v| v.trim() == "1");
         if velta_strict
-            && let (Some(pin), Some(bound)) = (velta_pin, self.connection.as_ref().map(|c| c.transport_id))
+            && let (Some(pin), Some(bound)) =
+                (velta_pin, self.connection.as_ref().map(|c| c.transport_id))
             && pin != bound
         {
-            info!(context, "Velta: strict pin, closing connection on transport {bound}.");
+            info!(
+                context,
+                "Velta: strict pin, closing connection on transport {bound}."
+            );
             self.disconnect();
         }
 """,

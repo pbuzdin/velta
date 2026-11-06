@@ -325,10 +325,14 @@ impl Smtp {
                 .await?
                 .is_some_and(|v| v.trim() == "1");
         if velta_strict
-            && let (Some(pin), Some(bound)) = (velta_pin, self.connection.as_ref().map(|c| c.transport_id))
+            && let (Some(pin), Some(bound)) =
+                (velta_pin, self.connection.as_ref().map(|c| c.transport_id))
             && pin != bound
         {
-            info!(context, "Velta: strict pin, closing connection on transport {bound}.");
+            info!(
+                context,
+                "Velta: strict pin, closing connection on transport {bound}."
+            );
             self.disconnect();
         }
         // Velta patch (#24, #260): pausing a relay closes its LIVE connection
