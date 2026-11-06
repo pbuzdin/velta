@@ -3629,6 +3629,12 @@ do-not-regress rules; dates mark when the lesson was learned.
   Save as…). Copies older than a day are swept on each open. PWA: pdf/text
   open as a blob URL in a new tab, other files download. Android media stays
   in the lightbox, HTML in the sandboxed iframe (`documentOpenPlan`).
+  5. SHOW IN FOLDER (#279): desktop Tauri only (`canShowInFolder`: hidden
+  on Android and in the PWA). The message menu item makes the same
+  `open_document` copy and reveals it, selected, with
+  `plugin:opener|reveal_item_in_dir` (`{ paths: [copy] }`, allowed by
+  `opener:default`). It reveals the decrypted temp copy (swept after a day),
+  never the ciphertext blob.
   Debug order: reproduce → read the resolved `capabilities.json` under
   `target/<target>/release/build/velta-app-*/out/` → error toast now carries the
   resolved path. Verify with a REBUILT binary — config fixes never reach a

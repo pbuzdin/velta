@@ -261,6 +261,30 @@ export async function openAttachmentFile(path, name = null, { openHtml = null, o
   }
 }
 
+// #279: desktop Tauri only (Windows/macOS/Linux). Android has no file
+// manager "reveal" and the PWA has no filesystem. Blobs are VLTA ciphertext
+// under hash names, so the decrypted, original-named open-docs copy (the
+// same one open_document makes, swept after a day) is what gets revealed,
+// selected, via plugin:opener|reveal_item_in_dir.
+export function canShowInFolder({ tauri = !!tauriInvoke(), android = isAndroid() } = {}) {
+  return !!tauri && !android;
+}
+
+export async function showAttachmentInFolder(path, name = null, { onError = (t) => errToast(t), mime = null } = {}) {
+  const invoke = tauriInvoke();
+  if (!path || !canShowInFolder({ tauri: !!invoke })) return false;
+  try {
+    const fileName = attachmentName({ fileName: name, filePath: path });
+    const copy = await invoke("open_document", { src: path, name: fileName, mime: mime || null });
+    if (!copy) return false;
+    await invoke("plugin:opener|reveal_item_in_dir", { paths: [copy] });
+    return true;
+  } catch (err) {
+    onError(t("Couldn't show in folder: ") + (err?.message || err));
+    return false;
+  }
+}
+
 // Image extensions the lightbox can show when native opening is unavailable
 // (Android) — animated webp included, the <img> element animates it.
 export function isMediaFilePath(path) {
@@ -358,6 +382,7 @@ const ICO = {
   trash: ICON.trash,
   info: ICON.info,
   download: ICON.download,
+  folder: ICON.folder,
   photo: ICON.photo,
   video: ICON.video,
   camera: ICON.camera,
@@ -3485,6 +3510,14 @@ export class ChatView {
       items.push({
         label: "Download", short: t("Download"), pair: "file", icon: ICO.download,
         onClick: () => this._saveAttachment(m.id),
+      });
+    }
+    // #279: desktop only, downloaded files only.
+    if ((m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
+      && m.filePath && (!m.downloadState || m.downloadState === "Done") && canShowInFolder()) {
+      items.push({
+        label: "Show in folder", short: t("Folder"), pair: "file", icon: ICO.folder,
+        onClick: () => showAttachmentInFolder(m.filePath, m.fileName, { mime: m.fileMime || null }),
       });
     }
     // Local P2P groups: no pin / forward / save / react / delete (relay-core

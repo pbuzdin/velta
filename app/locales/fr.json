@@ -1624,5 +1624,8 @@
   "Sending via {via} — {failed} failed": "Envoi via {via} — échec de {failed}",
   "Only send via the pinned relay": "Envoyer uniquement via le relais épinglé",
   "No fallback: if the pinned relay fails, messages wait for it. Receiving still uses every relay. Applies to this device.": "Pas de repli : si le relais épinglé échoue, les messages l'attendent. La réception utilise toujours tous les relais. S'applique à cet appareil.",
-  "Only sending via {relay} — it is not reachable, messages wait for it": "Envoi uniquement via {relay} — injoignable, les messages l'attendent"
+  "Only sending via {relay} — it is not reachable, messages wait for it": "Envoi uniquement via {relay} — injoignable, les messages l'attendent",
+  "Show in folder": "Afficher dans le dossier",
+  "Folder": "Dossier",
+  "Couldn't show in folder: ": "Impossible d'afficher dans le dossier : "
 }
