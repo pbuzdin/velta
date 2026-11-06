@@ -718,3 +718,14 @@ joined on `mime_in_reply_to` without an index and rescanned on every
 "Restart core" overlap; #29 looks the quoted message up by the `rfc724_mid`
 index and makes overlapping restarts no-ops. Upstream candidate: applies to
 stock core as-is.
+
+### 30. Strict pinned send relay (#286, tracker #288)
+
+**Status: patched locally (quilt ops "#30 …").** Velta-owned ui key
+`ui.velta.send_strict` ("1" = on). With a pin (#11 / #164), sending tries
+only the pinned transport: no failover. A live connection bound to another
+transport is closed, and a failed pin bails with "Only sending via the
+pinned relay {addr}: it failed to connect", so mail stays queued. Receiving
+is untouched. No pin, or a paused pin (#24), means the key has no effect.
+Ops anchor on #11/#24 text and must stay after them. Upstream candidate: no
+(Velta UI policy).

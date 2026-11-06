@@ -853,7 +853,6 @@
   "connecting…": "connexion…",
   "Stop using for sending": "Ne plus utiliser pour l'envoi",
   "· sending": "· envoi",
-  "send failed, switched to {relay} for now": "échec de l'envoi, bascule vers {relay} pour l'instant",
   "· sending (failover)": "· envoi (secours)",
   "Use for sending": "Utiliser pour l'envoi",
   "Send via {addr}?": "Envoyer via {addr} ?",
@@ -1621,5 +1620,9 @@
   "Hide chat list": "Masquer la liste des discussions",
   "Show chat list": "Afficher la liste des discussions",
   "No app can open this file": "Aucune application ne peut ouvrir ce fichier",
-  "Save as…": "Enregistrer sous…"
+  "Save as…": "Enregistrer sous…",
+  "Sending via {via} — {failed} failed": "Envoi via {via} — échec de {failed}",
+  "Only send via the pinned relay": "Envoyer uniquement via le relais épinglé",
+  "No fallback: if the pinned relay fails, messages wait for it. Receiving still uses every relay. Applies to this device.": "Pas de repli : si le relais épinglé échoue, les messages l'attendent. La réception utilise toujours tous les relais. S'applique à cet appareil.",
+  "Only sending via {relay} — it is not reachable, messages wait for it": "Envoi uniquement via {relay} — injoignable, les messages l'attendent"
 }

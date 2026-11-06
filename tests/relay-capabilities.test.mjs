@@ -67,7 +67,7 @@ test("failover hint: the pinned relay says where sends went, the carrier says fa
   // The pin's row: "· sending — send failed, switched to X for now" only
   // when the bound transport differs from the pin; the carrier row gets
   // "(failover)". No failover → plain "· sending".
-  assert.match(app, /t\("· sending"\)\)\}\$\{failedOver \? " — " \+ escapeHtml\(t\("send failed, switched to \{relay\} for now", \{ relay: smtpVia \}\)\) : ""\}/);
+  assert.match(app, /t\("Sending via \{via\} — \{failed\} failed", \{ via: smtpVia, failed: tr\.addr \}\)/);
   assert.match(app, /· sending \(failover\)/);
   assert.match(app, /const failedOver = !!viaDomain && viaDomain !== pinnedDomain;/);
 });

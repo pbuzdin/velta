@@ -853,7 +853,6 @@
   "connecting…": "подключение…",
   "Stop using for sending": "Не использовать для отправки",
   "· sending": "· отправка",
-  "send failed, switched to {relay} for now": "отправить не удалось, пока отправка идёт через {relay}",
   "· sending (failover)": "· отправка (резервный)",
   "Use for sending": "Использовать для отправки",
   "Send via {addr}?": "Отправлять через {addr}?",
@@ -1621,5 +1620,9 @@
   "Hide chat list": "Скрыть список чатов",
   "Show chat list": "Показать список чатов",
   "No app can open this file": "Нет приложения для открытия этого файла",
-  "Save as…": "Сохранить как…"
+  "Save as…": "Сохранить как…",
+  "Sending via {via} — {failed} failed": "Отправка через {via} — {failed} не сработал",
+  "Only send via the pinned relay": "Отправлять только через закреплённый релей",
+  "No fallback: if the pinned relay fails, messages wait for it. Receiving still uses every relay. Applies to this device.": "Без запасного пути: если закреплённый релей не работает, сообщения ждут его. Получение по-прежнему идёт через все релеи. Только для этого устройства.",
+  "Only sending via {relay} — it is not reachable, messages wait for it": "Отправка только через {relay} — он недоступен, сообщения ждут его"
 }

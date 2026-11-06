@@ -50,6 +50,20 @@ parsing (segments + SMTP dot + smtp-via) is pinned by
 `tests/relay-offline-state.test.mjs` — both run the production functions
 via the slice harness.
 
+## Send failover status + strict pin (#286)
+
+`app/js/relay-failover.js`: `sendFailover(pin, smtpVia)` is non-null when
+the SMTP loop is bound to a relay other than the pin. The Relays modal then
+shows a `.relay-failover` status banner (role=status, `--text` on
+`--bg-sidebar`, the `.load-error` surface) reading "Sending via X — Y
+failed". The sending segment's tooltip says the same, and
+`createFailoverLog` writes one diagnostics line when the fallback starts,
+changes or ends. The checkbox "Only send via the pinned relay" stores
+`ui.velta.send_strict` ("1"/unset, per device) and is read by core patch
+#288 (quilt #30): no failover for sending, receive unchanged. With strict on
+and the pin not OK, the banner reads "Only sending via X — it is not
+reachable, messages wait for it". Tests: `tests/send-failover-286.test.mjs`.
+
 ## Relay detail chips (`#relay-detail`)
 
 Reworked in 1.4.52 from a stacked detail bar into one chip per relay-line

@@ -2790,6 +2790,69 @@ async fn test_velta_config_read_not_blocked_by_sql_holder() -> Result<()> {
         where='replace',
         text='        // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            // Velta #27 (interrupt_recently_seen): remember the wake for the next start.\n            self.velta_wake_pending.store(true, Ordering::SeqCst);\n            return;\n        };',
     ),
+
+    # ---- VENDORISSUES #30 (#286): strict pinned send relay ----
+    # `ui.velta.send_strict` = "1": with a pin set, sending uses ONLY the
+    # pinned transport (no failover); receiving is untouched. Ops must stay
+    # after #11 and #24 (they anchor on their text).
+    dict(
+        id="#30 strict pin drops a foreign bound connection (smtp.rs)",
+        file="core/src/smtp.rs",
+        applied="let velta_strict = velta_pin.is_some()",
+        anchor="        let velta_disabled = crate::transport::velta_disabled_transports(context).await?;\n",
+        where="after",
+        text="""        // Velta patch (#30, #286): "Only send via the pinned relay".
+        let velta_strict = velta_pin.is_some()
+            && context
+                .get_ui_config(VELTA_SEND_STRICT_KEY)
+                .await?
+                .is_some_and(|v| v.trim() == "1");
+        if velta_strict
+            && let (Some(pin), Some(bound)) = (velta_pin, self.connection.as_ref().map(|c| c.transport_id))
+            && pin != bound
+        {
+            info!(context, "Velta: strict pin, closing connection on transport {bound}.");
+            self.disconnect();
+        }
+""",
+    ),
+    dict(
+        id="#30 strict pin: only the pinned transport is tried (smtp.rs)",
+        file="core/src/smtp.rs",
+        applied="transports.retain(|(id, _)| Some(*id) == velta_pin);",
+        anchor="        velta_pin_first(&mut transports, velta_pin, &self.velta_connect_failed);\n",
+        where="after",
+        text="""        let velta_strict_addr = if velta_strict {
+            transports.retain(|(id, _)| Some(*id) == velta_pin);
+            transports.first().map(|(_, lp)| lp.addr.clone())
+        } else {
+            None
+        };
+""",
+    ),
+    dict(
+        id="#30 strict pin: error names the relay (smtp.rs)",
+        file="core/src/smtp.rs",
+        applied="Only sending via the pinned relay",
+        anchor='        bail!("Failed to connect to any SMTP server");\n',
+        where="before",
+        text="""        if let Some(addr) = velta_strict_addr {
+            bail!("Only sending via the pinned relay {addr}: it failed to connect");
+        }
+""",
+    ),
+    dict(
+        id="#30 strict pin key (smtp.rs)",
+        file="core/src/smtp.rs",
+        applied="pub(crate) const VELTA_SEND_STRICT_KEY: &str",
+        anchor="pub(crate) const VELTA_SEND_TRANSPORT_KEY: &str = \"ui.velta.send_transport\";\n",
+        where="after",
+        text="""
+/// Velta patch (#30, #286): "1" = send only via the pinned transport, no
+/// failover. Receiving stays multi-relay. Ignored without a pin.
+pub(crate) const VELTA_SEND_STRICT_KEY: &str = "ui.velta.send_strict";
+""",
+    ),
 ]
 
 
