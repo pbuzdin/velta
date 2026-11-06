@@ -124,7 +124,7 @@ class VeltaWebChromeClient(
   // once the OS permission is there. Only the Velta UI itself may capture
   // (1:1 and group calls run in the host page); webxdc frames
   // (webxdc.localhost, opaque "null") and anything else are denied before
-  // the OS prompt. KEEP — Phase 0 of docs/research/webxdc-group-calls.md.
+  // the OS prompt. KEEP — Phase 0 of docs/research/archive/webxdc-group-calls.md.
   override fun onPermissionRequest(request: PermissionRequest) {
     if (!WebPermissionPolicy.mayCapture(request.origin?.toString())) {
       request.deny()

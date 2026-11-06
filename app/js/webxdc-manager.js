@@ -33,7 +33,7 @@ const infoCache = new LruCache({ maxItems: 100, maxBytes: 2 * 1024 * 1024,
 
 // Wasm PWA host (no Tauri shell): apps run through the service worker's
 // webxdc route (app/webxdc-host/sw-route.js + frame.js, Step A of
-// docs/research/beam-pwa-research.md).
+// docs/research/archive/beam-pwa-research.md).
 export function isPwaHost() {
   return typeof window !== "undefined" && !window.__TAURI__ && !!window.VELTA_PWA?.wasmCore;
 }
@@ -574,7 +574,7 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   iframe.setAttribute("sandbox", isPwaHost()
     ? "allow-scripts allow-same-origin allow-downloads allow-forms allow-modals"
     : "allow-scripts allow-downloads allow-forms allow-modals");
-  // KEEP: webxdc never gets capture/location (Phase 0, webxdc-group-calls.md);
+  // KEEP: webxdc never gets capture/location (Phase 0, docs/research/archive/webxdc-group-calls.md);
   // trusted call apps use the HOST's media via webxdc.veltaCall instead.
   iframe.setAttribute("allow", WEBXDC_FRAME_ALLOW);
   iframe.setAttribute("referrerpolicy", "no-referrer");

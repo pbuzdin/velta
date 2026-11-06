@@ -1,6 +1,10 @@
 # Trusted webxdc app for group audio calls — research and design
 
-Status: research/design only, 2026-10-20. No code. Core 2.64. Sources: this
+Status: ARCHIVED 2026-11-07 (research/design written 2026-10-20 against core
+2.64). Group calls have since been implemented; see `app/js/group-call.js` and
+`docs/agents/group-calls.md`. The "No code" statement, estimates, and phase
+checklist below are historical design evidence, not an active implementation
+queue. Sources: this
 repo (`docs/agents/webxdc.md`, `docs/agents/calls.md`, `app/js/calls.js`,
 `app/js/webxdc-manager.js`, `app/webxdc-host/*`, `webxdc_serve.rs`,
 `VeltaWebChromeClient.kt`, `docs/research/iroh-layer-research.md` with its

@@ -45,6 +45,37 @@ identity).
 Returning users with a configured profile never see it — do not regress
 this into an unconditional boot splash.
 
+## One-tap PWA invitations
+
+`app/js/pwa-onboarding.js` recognizes the signed proxy-token shape in
+`?invite=` before the existing SecureJoin handler, so ordinary Delta Chat
+contact/group invites keep their old meaning. The same-origin onboarding
+configuration supplies one full `wss://` proxy URL (paths are supported) and
+only signup-capable `{short-id: chatmail-host}` relays. The corresponding proxy
+administrator command is `tools/deploy-ws-proxy.sh relay add ID HOST`; it
+validates Chatmail without calling `/new`.
+
+Deployment-specific hostnames are configuration, not source constants. Keep
+real values out of the open-source tree, documentation, tests, and generated
+PWA artifacts. A private static `onboarding.json` can be injected into the
+served tree after precache generation; a same-origin runtime endpoint can serve
+the same configuration when a static public file is not acceptable. A static
+file remains visible to clients, and a successful proxy probe proves
+reachability rather than identity.
+
+The capture runs before `createCore`: the bearer token is removed from the
+visible URL, stored in the existing proxy-token store, and the relay choice is
+parked in `sessionStorage velta-pwa-onboarding`. A reload is mandatory because
+the wasm worker captures its proxy once. Boot then probes only registry hosts,
+uses the requested `r` or the fastest responsive entry, and calls
+`configureWithQr(dcaccount:https://host/new)` (or `addAccountWithQr` for an
+existing configured profile). The worker turns stock `POST /new` into an
+authenticated `wss://<proxy>/cm-new/<host>` exchange, preserving any proxy path;
+this avoids the CORS failure of both direct Chatmail signup and an HTTP proxy.
+The proxy only forwards an empty signup POST to allowlisted Chatmail hosts.
+This automatic path deliberately skips the nickname modal and never calls core
+`initTransports` autopick. The token itself is never written into diagnostics.
+
 ## Second-device flow (`secondDeviceFlow`)
 
 Drawer → "Profile management…" → **Second device** tab (post-1.4.34 the

@@ -188,7 +188,7 @@ Follows COREUPDATE patch discipline: do not break Android/desktop; keep
 wasm work opt-in / documented until native checks are clean on a full toolchain.
 
 ### Inventory
-See [`wasm-core-port-inventory.md`](wasm-core-port-inventory.md). Mechanical
+See [`wasm-core-port-inventory.md`](archive/wasm-core-port-inventory.md). Mechanical
 `git apply` of prototype patches: only **0002** clean; 0001/0003–0007/0010 need
 hand port (Cargo + tls/blob drift).
 

@@ -17,7 +17,7 @@ Velta shares one web frontend (`app/`) between:
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
 - **Browser/PWA** — the same frontend as a static site with a WebAssembly build of the Delta Chat core in the tab (forward-ported by Velta's wasm patch series). Mail goes out through a WebSocket proxy on a chatmail relay (the PWA origin and the proxy host can be different domains). A refresh keeps the signed-in account, database included: the browser copy is written when login or an identity restore finishes, when the page goes to the background, and every few seconds, and a copy cut off by a reload is ignored in favour of the previous one. A crash can drop the last few seconds until the next sync. A new deploy reaches an open PWA on its next load; a page that was already open shows an update notice. A public build is published at [velta.cc/web](https://velta.cc/web) by CI (it mints new chatmail accounts through the configured relay even from another origin). Serving `app/` without the wasm dist still falls back to a mock core (UI smoke test). How to host your own copy: [docs/pwa-self-host.md](docs/pwa-self-host.md); standalone WebSocket proxy in one command: [docs/deploy-pwa-websocket-proxy.md](docs/deploy-pwa-websocket-proxy.md).
 
-The UI is plain HTML/CSS/ES modules (no bundler). The backend is the [Delta Chat core](https://github.com/chatmail/core) at version `2.66.0`, vendored in `core/` and carried with Velta's patch series: 188 quilt insertions across patches #10-#29 (relay controls, admin groups, encryption at rest, reply-thread and stall fixes), applied and verified by `tools/apply-core-patches.py` — what each patch does lives in [VENDORISSUES.MD](VENDORISSUES.MD). The wasm build carries its own small forward-port series (`tools/apply-wasm-core-patches.py`). JSON-RPC is the only core contract across shells ([docs/json-rpc-contract.md](docs/json-rpc-contract.md)).
+The UI is plain HTML/CSS/ES modules (no bundler). The backend is the [Delta Chat core](https://github.com/chatmail/core) at version `2.66.0`, vendored in `core/` and carried with Velta's patch series: 200 quilt operations across 37 files, in patches #10–#30 (relay controls, admin groups, encryption at rest, reply-thread and stall fixes), applied and verified by `tools/apply-core-patches.py` — what each patch does lives in [VENDORISSUES.MD](VENDORISSUES.MD). The wasm build carries its own small forward-port series (`tools/apply-wasm-core-patches.py`). JSON-RPC is the only core contract across shells ([docs/json-rpc-contract.md](docs/json-rpc-contract.md)).
 
 ## Screenshots
 
@@ -710,13 +710,13 @@ Windows does **not** allow a normal desktop app to intercept a specific `https:/
 Take an official Android invite link:
 
 ```
-https://i.delta.chat/#DD1FDB8A5621D4A89DE00542234A2D9967B07594&v=3&i=fbrK144cdHV&s=GI2Y07eCqylGp6j5J_QCZ1vz&a=0so6eoc9s%40d13.buro.dev&n=Pavel
+https://i.delta.chat/#DD1FDB8A5621D4A89DE00542234A2D9967B07594&v=3&i=fbrK144cdHV&s=GI2Y07eCqylGp6j5J_QCZ1vz&a=0so6eoc9s%40mail.example.org&n=Pavel
 ```
 
 Encode the part after `url=` and build a `velta://` link:
 
 ```
-velta://invite?url=https%3A%2F%2Fi.delta.chat%2F%23DD1FDB8A5621D4A89DE00542234A2D9967B07594%26v%3D3%26i%3DfbrK144cdHV%26s%3DGI2Y07eCqylGp6j5J_QCZ1vz%26a%3D0so6eoc9s%2540d13.buro.dev%26n%3DPavel
+velta://invite?url=https%3A%2F%2Fi.delta.chat%2F%23DD1FDB8A5621D4A89DE00542234A2D9967B07594%26v%3D3%26i%3DfbrK144cdHV%26s%3DGI2Y07eCqylGp6j5J_QCZ1vz%26a%3D0so6eoc9s%2540mail.example.org%26n%3DPavel
 ```
 
 Quick JavaScript helper:

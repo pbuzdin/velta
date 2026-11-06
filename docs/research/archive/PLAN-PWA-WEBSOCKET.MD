@@ -1,8 +1,13 @@
 # PLAN — Velta PWA + restricted WebSocket relay
 
-Status: proposal (2026-10-05). Covers (a) a chatmail relay fork with limited
-account creation and WebSocket-only client transport, (b) the Velta update
-that produces a standalone PWA served from its own folder.
+Status: ARCHIVED 2026-11-07 (originally proposed 2026-10-05). Architecture C
+shipped as the opt-in-built wasm PWA with a restricted standalone WebSocket
+proxy, OPFS persistence, and authenticated `/cm-new/` signup. This document is
+the historical design and alternatives record, not an active work queue.
+Current operations: `docs/pwa-self-host.md` and
+`docs/deploy-pwa-websocket-proxy.md`. The production-core wasm merge gate
+remains separately tracked in `docs/research/wasm-core-landing-checklist.md`;
+unbuilt alternatives and stricter bootstrap ideas here are not approved work.
 
 ## 1. Concept read-back and the one hard constraint
 
@@ -53,7 +58,7 @@ no gateway custody — but also no email interop, and a real wasm port of the
 engine (tokio/iroh) is its own project. The same PWA shell can grow this as
 a second transport later; plan for it, don't build it first.
 
-See also [`docs/iroh-layer-plan.md`](docs/iroh-layer-plan.md) §8: the
+See also [`docs/iroh-layer-plan.md`](../../../docs/iroh-layer-plan.md) §8: the
 planned email-backed iroh live layer (iroh folder/chip, Message-ID dedup)
 reaches the PWA only relay-only, preferably as a wasm build of the link
 engine on iroh 1.0 after Architecture C lands.
@@ -82,9 +87,9 @@ self-host the PWA; SW that pins the installed version; reproducible builds;
 strict CSP (`script-src 'self' 'wasm-unsafe-eval'`). Browser storage has no
 DB encryption at rest yet and can be evicted — identity/key backup (V2.5
 pattern) is mandatory. Grounded in
-[`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
+[`docs/research/wasm-core-mail-proxy.md`](../../../docs/research/wasm-core-mail-proxy.md);
 spike log (alice→bob e2e PASS locally + 3× CI; real-relay deploy still open):
-[`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md). Ownership / opt-in patch home: [`docs/research/wasm-patches/README.md`](docs/research/wasm-patches/README.md). Landing gate (production `core/` stays stock until green): [`docs/research/wasm-core-landing-checklist.md`](docs/research/wasm-core-landing-checklist.md).
+[`docs/research/wasm-core-mail-proxy-spike.md`](../../../docs/research/wasm-core-mail-proxy-spike.md). Ownership / opt-in patch home: [`docs/research/wasm-patches/README.md`](../../../docs/research/wasm-patches/README.md). Landing gate (production `core/` stays stock until green): [`docs/research/wasm-core-landing-checklist.md`](../../../docs/research/wasm-core-landing-checklist.md).
 
 ## 2. Architecture comparison — A vs B vs C
 
@@ -284,9 +289,9 @@ three copies (tauri.conf, android conf, AGENTS §8).
 ## 4b. Architecture C — phased steps (wasm core + mail proxy)
 
 Grounded in
-[`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md)
+[`docs/research/wasm-core-mail-proxy.md`](../../../docs/research/wasm-core-mail-proxy.md)
 and the spike log
-[`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+[`docs/research/wasm-core-mail-proxy-spike.md`](../../../docs/research/wasm-core-mail-proxy-spike.md).
 Reuse MPL core patches / Unlicense proxy patterns from
 `experintellia/slothfulchat-web`; **do not** copy the GPL web app or desktop
 frontend into Velta. Coexist with Velta's existing 13 core patches
@@ -302,7 +307,7 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   deploy/hit a real relay's `/imap`+`/smtp` (all e2e used the local
   allowlisted `ws-tcp-proxy`), and CI e2e passes on ≥3 *different days*
   (all 3 so far are 2026-10-06). Details:
-  [`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+  [`docs/research/wasm-core-mail-proxy-spike.md`](../../../docs/research/wasm-core-mail-proxy-spike.md).
 - **C1 — Port wasm patches onto Velta core 2.62 (applies on copy; not
   merged).** 10-patch Velta-owned series (`docs/research/wasm-patches/`)
   applies beside Velta's 2.62-era production quilt (13 ops; verify-copy
@@ -310,7 +315,7 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   clean-room facade `velta-tokio-wasm` (MPL-2.0; replaced the imported
   `tokio-wasm-shim`, Day 12a) + vendored forks (async-imap, mail-builder,
   astral-tokio-tar). Landing gate = checklist §7
-  ([`docs/research/wasm-core-landing-checklist.md`](docs/research/wasm-core-landing-checklist.md),
+  ([`docs/research/wasm-core-landing-checklist.md`](../../../docs/research/wasm-core-landing-checklist.md),
   18 boxes open 2026-10-06) — production `core/` stays stock until then.
   Release-profile wasm CI job; rebase checklist per core bump (COREUPDATE
   §0b).
@@ -381,9 +386,9 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
     trust is PWA code origin + browser storage. **CHOSEN.** Spike effectively
     done (e2e round-trip PASS locally + CI; real-relay deploy open) — landing
     gated on the checklist. Research:
-    [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
+    [`docs/research/wasm-core-mail-proxy.md`](../../../docs/research/wasm-core-mail-proxy.md);
     spike log:
-    [`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+    [`docs/research/wasm-core-mail-proxy-spike.md`](../../../docs/research/wasm-core-mail-proxy-spike.md).
   - **B — P2P-only:** keys in the browser, no addresses / no mail interop.
   If users refuse server custody but still need addresses, pick **C** (not
   only B).

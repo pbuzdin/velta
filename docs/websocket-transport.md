@@ -93,8 +93,8 @@ velta://ws?u=wss%3A%2F%2Fproxy.example.org&n=Office&t=<invite token>
 Only `u` (required), `n` (name, ≤ 64 chars) and `t` (invite token:
 base64url payload `.` 43-char base64url HMAC, ≤ 1024 chars), each once,
 ≤ 2048 chars. `deploy-ws-proxy.sh invite` prints these links. In the PWA an
-invite link adds the proxy to "WebSocket relays" instead (bare
-`wss://<domain>` only).
+invite link adds the proxy to "WebSocket relays" instead. Full `wss://` URLs,
+including private paths, are preserved.
 Opening or scanning it shows a confirm dialog warning that all chat traffic
 goes through that server. Android claims `velta://ws` in the manifest;
 desktop uses the existing `velta` scheme.

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase 0 of docs/research/webxdc-group-calls.md — desktop/Android-shaped
+// Phase 0 of docs/research/archive/webxdc-group-calls.md — desktop/Android-shaped
 // webxdc frame (cross-origin, sandbox WITHOUT allow-same-origin, the real
 // WEBXDC_CSP + Permissions-Policy headers and iframe allow list, with and
 // without the injected shim) in Chromium with fake devices and an

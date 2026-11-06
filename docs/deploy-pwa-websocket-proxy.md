@@ -6,6 +6,7 @@ TCP sockets, so the core talks to IMAP/SMTP through a WebSocket byte tunnel:
 | Endpoint | Behaviour |
 |---|---|
 | `wss://<proxy>/dns/<host>` | one text frame, a JSON array of IPs, then close. `[]` = this proxy won't dial that host. |
+| `wss://<proxy>/cm-new/<host>` | one empty `POST https://<host>/new`, then the Chatmail JSON credentials and close. Only allowlisted hosts; the same invite authenticates the socket. |
 | `wss://<proxy>/tcp/<ip>/<port>` | binary bytes to `<ip>:<port>`. TLS to the mail server runs inside, end to end in wasm: the proxy never sees plaintext mail. |
 
 Two ways to get one:
@@ -68,6 +69,23 @@ the bridge caps total tunnels (`MAX_CONNS`, default 500).
 
 To change the allowlist later, re-run the command with the new `--allow`,
 or edit `/etc/velta-ws-proxy/config` and `systemctl restart velta-ws-proxy`.
+
+Additional signup-capable Chatmail relays can be approved without changing the
+static list or restarting the service:
+
+```sh
+sudo tools/deploy-ws-proxy.sh relay add alpha mail.example.org
+```
+
+The command normalizes the hostname, requires a public DNS address, and fetches
+only `https://<host>/` (never `/new`, which would create an account). The home
+page must advertise the matching `DCACCOUNT:https://<host>/new` marker without
+a cross-origin redirect. Valid entries live in
+`/etc/velta-ws-proxy/relays.json` as
+`{"v":1,"relays":{"alpha":"mail.example.org"}}`. The bridge re-reads them for
+connection decisions; `ALLOW_HOSTS` remains in force, and a malformed registry
+fails closed for all dynamic entries. Relay IDs are routing labels only—users
+cannot add hosts or turn the proxy into an open TCP relay.
 
 ## 3. Invite links
 
@@ -166,15 +184,41 @@ Compatibility rules for anything that mints or parses tokens: keep `v` at
   with its token, selects it and reloads. The token is kept in this
   browser's `localStorage` (`velta-ws-relay-tokens`) and offered as a
   subprotocol on every socket to that proxy (`installWsInvite` in
-  `worker-wasm.js`; the wasm core itself is unchanged).
+  `worker-wasm.js`; the wasm core itself is unchanged). Full URLs such as
+  `wss://ws.example.org/private/path` are preserved; older bare-host installs
+  keep their existing storage and behavior.
+- **One-tap onboarding:** the owner-only Veltar command
+  `/pwa invite NAME [r ID] [30d|12h|YYYY-MM-DD] [uses N]` mints the same
+  signed proxy token as a `https://<pwa>/web?invite=<token>&r=<id>` link.
+  Same-origin onboarding configuration supplies the full proxy URL and the
+  signup-capable `{id: hostname}` registry. The PWA scrubs the token from the
+  visible URL, installs the proxy, reloads the worker, and creates the
+  Chatmail profile without another setup screen. With no `r`, only registry
+  relays are probed and the fastest responsive one is selected; the core's
+  arbitrary candidate pool is not used. Keep the PWA registry in sync with
+  approved entries in the proxy's `relays.json`.
+
+  Real deployment hostnames belong in private configuration, not in the
+  open-source tree, documentation, tests, or a committed PWA artifact. A static
+  `onboarding.json` can be generated privately and added to the served tree
+  after service-worker precache generation. If the hostnames must not appear in
+  a publicly readable static file, serve the equivalent configuration from a
+  trusted same-origin runtime endpoint instead. In either model, a probe is a
+  liveness check, not proof of proxy identity.
 - **Per visitor, no invites:** drawer → **WebSocket relays** → add
   `ws.example.org` → select it (the page reloads). The app checks it with
   `/dns/ws.example.org`.
 - **Baked in:** `node scripts/build-pwa.mjs --ws-proxy wss://ws.example.org`
   (see [`pwa-self-host.md`](pwa-self-host.md); keep that URL out of git).
 
-New-account signup (`/cm-new/`) is not part of this proxy; use an
-existing account or a relay that has the relay module.
+New-account signup uses `wss://<proxy>/cm-new/<host>` rather than the old HTTP
+route: the stock Chatmail response has no CORS header, and an HTTP proxy would
+have the same problem. The worker wraps the response as a `Response` for the
+wasm core. The bridge permits only an empty `POST /new` to an allowlisted host,
+rejects cross-origin redirects and malformed or oversized responses, and never
+logs the returned address or password. Unlike IMAP/SMTP traffic, these initial
+signup credentials are visible to the proxy (as they were with the HTTP route).
+Non-allowlisted signup hosts close with 1008; upstream failures close with 1011.
 
 The Android and Windows apps can use the same proxy as a native transport —
 see [websocket-transport.md](websocket-transport.md).

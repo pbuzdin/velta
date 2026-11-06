@@ -3,7 +3,7 @@
 Closes open signup on a chatmail deployment and gates account creation
 behind single-use invite links (`https://<relay-domain>/i/<token>`).
 Implements the R1/V2 slice of the Velta PWA plan
-(`PLAN-PWA-WEBSOCKET.MD` in the velta repo).
+(`docs/research/archive/PLAN-PWA-WEBSOCKET.MD` in the velta repo).
 
 Two files, deployed to the relay box:
 

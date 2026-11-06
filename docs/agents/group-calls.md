@@ -1,6 +1,6 @@
 # Group audio calls — agent notes
 
-Design: [`../research/webxdc-group-calls.md`](../research/webxdc-group-calls.md)
+Design: [`../research/archive/webxdc-group-calls.md`](../research/archive/webxdc-group-calls.md)
 (decisions 2026-10-20: Velta runs the call, the app only gets
 `webxdc.veltaCall`; cap 6; full mesh, no media server; relay-only;
 trust = built-in hash list only; PWA via status-update signaling).

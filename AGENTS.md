@@ -173,8 +173,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/iroh-layer-plan.md        # iroh second layer over chatmail: iroh folder + chip, link protocol, dedup, calls, phases (proposal)
 ├── docs/research/iroh-layer-research.md # what core 2.62's iroh exposes (webxdc realtime, backup), keys, calls, upstream, wasm — file:line cites
 ├── docs/research/android-native-hybrid-ui.md # Android native chat list/history + WebView for the rest: options, cost, WebView hotspots, recommendation (research)
-├── PLAN-PWA-WEBSOCKET.MD         # PWA + restricted-WS-relay plan; §4b = Architecture C track (OQ-1 decided = C)
-├── PLAN-UNIFIEDPUSH.MD           # Google-free background push for Android (ntfy + UnifiedPush distributor): verified core token path (push.rs → /private/devicetoken IMAP metadata), notifier-key swap, relay state, work items — issue #110
+├── docs/research/archive/PLAN-PWA-WEBSOCKET.MD # archived PWA plan; Architecture C shipped; production-core wasm gate stays open
+├── docs/research/archive/PLAN-UNIFIEDPUSH.MD   # archived Android UnifiedPush plan (#110); current behavior in docs/agents/web-push.md
 ├── docs/research/wasm-core-mail-proxy-spike.md    # wasm spike log, day-by-day — status header = current state
 ├── docs/research/wasm-core-landing-checklist.md   # landing gate: every ⬜→✅ box; master core/ stays stock until green
 ├── docs/research/wasm-core-lock-landing-plan.md   # ordered review/merge steps for the core/Cargo.lock diff at landing
@@ -187,7 +187,6 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/invite-cards.md           # invite cards in chat + relay-invite signup
 ├── docs/mentions.md / reply-threads.md / chat-appearance.md / settings-transfer.md # feature notes
 ├── docs/research/websockify-c3-deploy.md          # C3 runbook: deploy the websockify-c3 relay, verify, RELAY_WS_URL e2e
-├── docs/research/ws-relay-endpoints-probe.md      # external WS endpoints vs the C3 contract — chatmail.uk /ygg-ws = Yggdrasil peering, not a mail tunnel (10-09)
 ├── docs/research/wasm-patches/   # 10-patch wasm series (series.txt, VENDORED.md, pinned locks + PROVENANCE); 0011 = blob sync_fs + memfs open_blob (PWA attachments, #261); README = e2e rules (attachment round-trip, IncomingMsg vs MsgsChanged, #271/#272)
 ├── packages/attachment-crypto/ # velta-attachment VLTA format (#22 / #178): wrap + seekable 64 KiB chunks; native only
 ├── packages/velta-wasm/      # MPL wasm wrapper — README = local wasm-pack build + e2e recipes
@@ -280,7 +279,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (196 ops, 37 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (200 ops, 37 files;
 intent in VENDORISSUES.MD):
 
 **Refer to core patches by their GitHub tracker issue (e.g. #250), not the quilt op number.** Quilt numbers (#20, #23…) are not clickable and collide with old issue numbers. Use them only where the applicator or series files need them (op ids, `VENDORISSUES.MD` section numbers), and put the issue next to them: "#250 (quilt #29)". Closed #178 still tracks the live quilt #20 and #22-attachment ops, and closed #189 tracks quilt #24. They stay closed because the feature shipped. Wasm series work is tracked in #112 (closed) and #261.
@@ -301,7 +300,7 @@ intent in VENDORISSUES.MD):
 | #178 (quilt #20) | keyed SQLCipher open: `VELTA_DB_KEY` (`x'<64 hex>'`) in `Accounts::load_accounts`/`add_account` (#178). Unset env keeps upstream empty-passphrase behavior. 3 ops | accounts.rs |
 | #181 (quilt #21) | `start_io_for_all_accounts` / `stop_io_for_all_accounts` clone the contexts under a short `accounts.read()` and start/stop with NO account manager lock (stops in parallel) (#181, 1.4.90). They held `accounts.write()` across `Scheduler::stop` (up to 30 s per IMAP/SMTP task), freezing every RPC (`get_context`): the 30 s chat-open timeouts, worst with a saved DNS tunnel. Test hook `VELTA_TEST_STOP_IO_DELAY_MS` (no-op unset) for `tests/core-stall/stop_io_stall.py` | deltachat-jsonrpc/src/api.rs, scheduler.rs |
 | #229 (quilt #22, config) | `set_raw_config` / `get_raw_config` no longer hold `config_cache` across SQL (setters + cache fills serialize on `config_mtx`): a long SQL holder plus any `set_config` froze every RPC via the fair RwLock (#229, after 1.5.0). Slow-SQL diagnostics: `velta_take_slow_sql_log()` → velta.log `core slow sql: …` (Android watchdog) | sql.rs, lib.rs, sql_tests.rs |
-| #178 (quilt #22, attachments) | Native attachment encryption (#178): the shared `velta-attachment` crate derives a profile key from the raw DEK, wraps a random key per blob, and authenticates independent 64 KiB chunks for seek/Range reads. Core encrypts writes and legacy blobs, hashes plaintext for dedup, decrypts all consumers, and exports standard plaintext backup entries. Since 11-04 `change_passphrase` re-derives `attachment_key` (blobs under the old passphrase key are not re-wrapped — no caller yet). The #22 slow-SQL timing in `Sql::call` uses `crate::tools::SystemTime`, never `std::time::Instant` — `Instant::now()` panics on wasm32 (unreachable trap in `add_account`, #261). 41 ops | Cargo.toml/lock, blob.rs + tests, context.rs, imex.rs + transfer.rs, message.rs, mimefactory.rs, net/http.rs, webxdc.rs and other plaintext readers |
+| #178 (quilt #22, attachments) | Native attachment encryption (#178): the shared `velta-attachment` crate derives a profile key from the raw DEK, wraps a random key per blob, and authenticates independent 64 KiB chunks for seek/Range reads. Core encrypts writes and legacy blobs, hashes plaintext for dedup, decrypts all consumers, and exports standard plaintext backup entries. Since 11-04 `change_passphrase` re-derives `attachment_key` (blobs under the old passphrase key are not re-wrapped — no caller yet). The #22 slow-SQL timing in `Sql::call` uses `crate::tools::SystemTime`, never `std::time::Instant` — `Instant::now()` panics on wasm32 (unreachable trap in `add_account`, #261). 51 ops | Cargo.toml/lock, blob.rs + tests, context.rs, imex.rs + transfer.rs, message.rs, mimefactory.rs, net/http.rs, webxdc.rs and other plaintext readers |
 | #284 (quilt #23) | Automatic relay onboarding is opt-in: `init_transports` defaults `Config::Autorelay` to **false** (upstream sets true), the Relays modal toggles it ("Add relays automatically" → generic `setConfig`), and a one-time per-account JS migration (`migrateAutorelayDefault`, marker `velta-autorelay-default` in localStorage) flips legacy profiles off. Velta's "Relays you pick" is the brand — upstream's auto-onboard adds transports from a candidate list silently (#relays) | configure.rs |
 | #189 (quilt #24) | Per-relay enable/disable (#189): `ui.velta.disabled_transports` ui-key holds paused addrs (JSON); `velta_disabled_transports/set_transport_enabled/transport_states` in transport.rs; sends exclude paused relays (smtp connect loop), inbox loops + `background_fetch_any` skip them at load (toggle applies at next IO start); a pin on a paused relay is voided. RPCs `set_transport_enabled` + `list_transport_states` (`VeltaTransportState`). Since 11-04 pausing closes a relay's LIVE SMTP connection too (was: 60 s stale timeout). 11 ops | transport.rs, smtp.rs, scheduler.rs, deltachat-jsonrpc/src/api.rs + api/types/login_param.rs, smtp/smtp_tests.rs |
 | #242 (quilt #25) | `Imap::update_metadata` does the IMAP METADATA + TURN DNS work WITHOUT `context.metadata` held; a short write lock reads the expiry before and stores the result after (#241). A dead proxy held it 30 s, freezing `get_server_metadata` (Relays modal) and call ICE lookups | imap.rs |
@@ -561,8 +560,10 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   notifications block (stash removed before use — no reload loops). Note:
   adding a relay to an EXISTING profile (`addRelayFlow`) is not gated —
   multi-transport mail in wasm still rides the single active tunnel, a
-  deeper design question. The probe runbook + chatmail.uk verdict:
-  docs/research/ws-relay-endpoints-probe.md.
+  deeper design question. Current invited standalone-proxy onboarding:
+  docs/agents/onboarding.md; approved-registry and probe contract:
+  docs/deploy-pwa-websocket-proxy.md. A probe proves reachability/liveness,
+  not proxy trust.
 - **Invite-only account creation (R1/V2 v1, 10-09).** Open signup is
   CLOSED on the private relay: nginx `/new` + `/cgi-bin/newemail.py`
   return 403; the only path is an invite link `https://<relay>/i/<token>`.
@@ -951,7 +952,7 @@ prompt fired without user activation is silently dropped by browsers, so
 it piggybacks on the next `pointerdown` via `navigator.userActivation`.
 There is no Web Push yet — a notification only fires while the page
 context (or its worker) can observe the message; background delivery is
-the UnifiedPush track (PLAN-UNIFIEDPUSH.MD, #110) for Android and a
+the UnifiedPush track (docs/research/archive/PLAN-UNIFIEDPUSH.MD, #110) for Android and a
 future Web-Push/VAPID track for browsers.
 
 **Share into Velta (#97)** uses that same queue. KEEP: `MainActivity`
@@ -1476,7 +1477,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `send_msg` `{viewType:"Sticker"}` + `{viewtype:"Sticker"}` on a real
   binary and delete the snake twins if camelCase wins (probe script:
   temp `sticker-probe.mjs` pattern — real rpc-server, throwaway account
-  on `d13.buro.dev`, `send_msg`/`send_sticker` to a probe group chat).
+  on `mail.example.org`, `send_msg`/`send_sticker` to a probe group chat).
 - `app/js/components.js` defines the Elena custom elements
   (`<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`,
   `<velta-video>`). KEEP: the chat-head subtitle (`cht-status`, `statusLine()`) renders
@@ -2220,6 +2221,14 @@ thread, which delivers every core RPC response to the WebView). Guarded by
 (account, chat); `rpc timeout` lines end with `; oldest: METHOD Ns, …`; the
 Android bridge logs `core rpc slow`, `core rpc in flight (N): …` (watchdog,
 calls > 8 s) and `core runtime stalled`.
+
+**Deferred JSON-RPC deduplication (preserved from the 2026-10-15 audit):**
+`rpc-core.js` still has two similar send/timeout blocks. The second deliberately
+keeps its pending entry on timeout so a late answer can follow the `onLate`
+path. Do not extract a shared `_sendTracked` helper merely to remove those
+lines: this is the #25 event-loss path. Any refactor must preserve the distinct
+timeout policies and include soak testing plus `tests/rpc-event-poll.test.mjs`
+and the single-reader coverage.
 
 ### 6.2 JavaScript / Frontend
 

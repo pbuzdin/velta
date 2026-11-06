@@ -1,5 +1,5 @@
 // webxdc-host/sw-route.js — the PWA service worker's webxdc route (Step A,
-// docs/research/beam-pwa-research.md). Loaded into sw.js via importScripts
+// docs/research/archive/beam-pwa-research.md). Loaded into sw.js via importScripts
 // (scripts/build-pwa.mjs); also loaded by tests/webxdc-pwa.test.mjs.
 //
 // <scope>webxdc-run/<account>/<msg>/<path>:
@@ -27,7 +27,7 @@
   var FRAME_HEADERS = {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": WEBXDC_FRAME_CSP,
-    // No mic/camera/screen/location for webxdc (docs/research/webxdc-group-calls.md Phase 0).
+    // No mic/camera/screen/location for webxdc (docs/research/archive/webxdc-group-calls.md Phase 0).
     "Permissions-Policy": WEBXDC_PERMISSIONS_POLICY,
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",

@@ -27,8 +27,9 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | `scripts/e2e-velta-wasm-network.mjs` | alice→bob e2e over a local `ws-tcp-proxy` → public chatmail (`PACKAGE_ROOT`, `WS_TCP_PROXY`) |
 | [`../wasm-core-landing-checklist.md`](../wasm-core-landing-checklist.md) | What must be green before **any** merge into production `core/` |
 
-Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py`;
-13 ops at the series’ 2.62 baseline, 21 ops at core 2.63.0, 23 ops at core 2.64.0, 25 ops at core 2.65.0).
+Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py`).
+The current core 2.66.0 quilt is **200 operations across 37 files**; historical
+baselines used 13 ops at 2.62, 21 at 2.63.0, 23 at 2.64.0, and 25 at 2.65.0.
 
 > **Refreshed for 2.66.0 (2026-11-04, #260/#261).** 0007's blob.rs hunks
 > dropped; new 0011 ports the #22 attachment-encryption blob: sync_fs
@@ -86,11 +87,12 @@ CC=clang wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist 
 Bare `apply` is refused. Applying onto master `core/` requires an explicit
 dangerous flag (not for CI). Default dest `.wasm-core-apply/` is gitignored.
 
-**Verified Day 6:** 9/9 patches apply cleanly onto a copy of master `core/`;
-`cargo check` wasm lib **PASS** on that copy. (Historical: 0010 was added
-Day 18 — the series is 10 patches, verified 10/10 on the 2.62 baseline.
-Re-verified on the 2.63 baseline in #112: apply-on-copy + verify-copy
-10/10, wasm32 check PASS, wasm-pack PASS, opt-in CI smoke + e2e green.)
+**Current series:** 10 patches — 0001–0008, 0010, and 0011. The 0009 gap is
+intentional: that test-only patch was retired at 2.66.0, while 0011 carries
+the current memfs/open_blob port. Historical validation includes 9/9 at Day 6
+and 10/10 on the 2.63 baseline in #112 (apply/verify, wasm32 check, wasm-pack,
+and opt-in CI smoke/e2e). Use the commands above to validate the current
+checkout rather than treating those historical runs as current evidence.
 
 ## Pinned lockfiles (Day 9)
 
@@ -124,9 +126,11 @@ would silently break the pinned `wasm-bindgen-cli`. So:
 - Master `core/Cargo.lock` is never written (CI asserts `git diff --exit-code -- core/`).
 - CI installs `wasm-bindgen-cli` at `wasm_bindgen_version` from `PROVENANCE`.
 
-Pinned Day 9 against master `core/Cargo.lock` sha256 `03978ad9…7ea5`:
-wasm-bindgen 0.2.129, rusqlite 0.40.2, libsqlite3-sys 0.38.2, png 0.18.0
-(both locks).
+Current `PROVENANCE` pins `wasm_bindgen_version=0.2.130`; CI and local builds
+must use the matching `wasm-bindgen-cli`. The Day 9 pin was wasm-bindgen
+0.2.129, rusqlite 0.40.2, libsqlite3-sys 0.38.2, and png 0.18.0; treat that
+paragraph as history and read `PROVENANCE` plus the pinned locks for the
+current hashes and resolved versions.
 
 ## Patch series (commit order)
 
@@ -138,7 +142,8 @@ See [`series.txt`](series.txt). Rough mapping to inventory WASM-CORE ids:
 | 0002–0004 `wasm(cargo)` | Cargo target gates + rusqlite 0.40, tokio shim, `[patch.crates-io]` |
 | 0005–0006 `wasm(net,accounts)`, `wasm(blob,cargo)` | http/proxy wasm modules + cfg stubs, blob ReadDir |
 | 0007–0008 `wasm(net,blob,time)`, `wasm(fs,net,tls)` | ws_tcp, clocks, blob sync_fs, fetch, path_exists, connect_tcp, JsClock |
-| 0009 `wasm(tests)` | blob_tests ↔ `image_metadata` BufReadSeek call sites (test-only; avatar golden unchanged from master) |
+| 0010 `wasm(scheduler)` | `stop()` without `tokio_util::TaskTracker` on wasm32 |
+| 0011 `wasm(blob)` | 2.66 attachment-compatible sync_fs facade and memfs `open_blob` routing; 0009 was retired |
 
 Day 10 hygiene: subjects carry WASM-CORE ids + a "Native impact" line;
 0 warnings (wasm + native), no new rustfmt diffs. Gating audit and the
@@ -185,4 +190,4 @@ In CI the in-repo wrapper builds to `$RUNNER_TEMP/velta-wasm-copy/packages/velta
 
 - Spike log: [`../wasm-core-mail-proxy-spike.md`](../wasm-core-mail-proxy-spike.md)
 - Landing checklist: [`../wasm-core-landing-checklist.md`](../wasm-core-landing-checklist.md)
-- Inventory: [`../wasm-core-port-inventory.md`](../wasm-core-port-inventory.md)
+- Inventory: [`../archive/wasm-core-port-inventory.md`](../archive/wasm-core-port-inventory.md)

@@ -6,11 +6,12 @@ Velta-owned forward-port of chatmail/core 2.62+ for wasm32. Reuses MPL patch
 
 Relationship to tools/apply-core-patches.py:
   - apply-core-patches.py  → Velta's production quilt (Android/desktop;
-                              25 ops at core 2.65.0, 13 at this series' 2.62
-                              baseline). This 10-patch series quilt-refreshed
-                              for 2.63.0 in #112,
-                              0007/0010 refreshed for 2.64.0, 0002/0004/0006/0008 for 2.65.0.
-  - THIS script            → wasm32 ports; MUST stay opt-in.
+                              200 ops across 37 files at core 2.66.0).
+  - THIS script            → 10 opt-in wasm32 patches: 0001–0008, 0010, 0011.
+                              The 0009 gap is intentional (retired at 2.66.0);
+                              0011 carries the attachment-compatible memfs port.
+                              Pinned PROVENANCE selects wasm-bindgen 0.2.130.
+                              This series MUST stay opt-in.
 
 Safety:
   - Default `apply` / `apply-on-copy` writes to a *copy* under

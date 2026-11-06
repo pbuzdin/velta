@@ -9,6 +9,7 @@
 #   sudo ./deploy-ws-proxy.sh --uninstall
 #   sudo ./deploy-ws-proxy.sh invite [NAME] [--expires 30d|2027-01-31] [--uses N] [--json]
 #   sudo ./deploy-ws-proxy.sh invite --list [--json] | --revoke ID | --reset ID
+#   sudo ./deploy-ws-proxy.sh relay add ID CHATMAIL_HOST
 #
 # Invite links (on by default for new installs): every WebSocket must carry a
 # token signed with the proxy's secret (/etc/velta-ws-proxy/secret), sent as
@@ -24,6 +25,8 @@
 # Endpoints (what the PWA speaks):
 #   wss://<domain>/dns/<host>        -> one text frame: JSON array of IPv4/IPv6, then close
 #                                       ([] when <host> is not allowlisted)
+#   wss://<domain>/cm-new/<host>     -> empty POST to an allowlisted Chatmail /new,
+#                                       then its JSON credentials; same invite auth
 #   wss://<domain>/tcp/<ip>/<port>   -> binary byte tunnel to <ip>:<port>; only IPs that an
 #                                       allowlisted host resolves to, only --ports
 # Docs: docs/deploy-pwa-websocket-proxy.md
@@ -39,6 +42,14 @@ LISTEN_PORT=8153
 STATE=/var/lib/velta-ws-proxy
 
 usage() { sed -n '2,30p' "$0"; exit 2; }
+
+# ---- relay registry subcommand: validate Chatmail before allowing it ----
+if [ "${1:-}" = "relay" ] && [ "${2:-}" = "add" ]; then
+  [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
+  [ -f "$LIB/bridge.py" ] || { echo "proxy not installed; run the deploy first" >&2; exit 1; }
+  [ "$#" -eq 4 ] || { echo "usage: $0 relay add ID CHATMAIL_HOST" >&2; exit 2; }
+  exec python3 "$LIB/bridge.py" --add-relay "$3" "$4"
+fi
 
 # ---- invite subcommand: needs an installed proxy, touches only $ETC ----
 if [ "${1:-}" = "invite" ]; then
@@ -154,6 +165,7 @@ ALLOW_PORTS=$PORTS
 AUTH=$AUTH
 PUBLIC_URL=$scheme://$DOMAIN
 REVOKED_FILE=$ETC/revoked
+RELAYS_FILE=$ETC/relays.json
 CFG
 
 cat > "$LIB/bridge.py" <<'PY'
@@ -166,8 +178,10 @@ With AUTH=1 every handshake must offer the subprotocol tok.<invite token>
 An invite minted with --uses N ("u":N in the signed payload) admits at most
 N distinct devices: each client offers dev.<random per-install id>, and the
 ids seen per invite persist in $STATE_DIRECTORY/uses.json."""
-import asyncio, base64, fcntl, hashlib, hmac, ipaddress, json, os, secrets, socket, sys, time
+import asyncio, base64, fcntl, hashlib, hmac, ipaddress, json, os, re, secrets, socket, sys, time
 from http import HTTPStatus
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 import websockets
 
 ALLOW_HOSTS = {h.strip().lower().rstrip(".") for h in os.environ.get("ALLOW_HOSTS", "").split(",") if h.strip()}
@@ -176,11 +190,58 @@ MAX_CONNS = int(os.environ.get("MAX_CONNS", "500"))
 IDLE = int(os.environ.get("IDLE_TIMEOUT", "900"))
 AUTH = os.environ.get("AUTH", "0") == "1"
 REVOKED_FILE = os.environ.get("REVOKED_FILE", "")
+RELAYS_FILE = os.environ.get("RELAYS_FILE", "/etc/velta-ws-proxy/relays.json")
 USES_FILE = os.path.join(os.environ.get("STATE_DIRECTORY", "/var/lib/velta-ws-proxy").split(":")[0], "uses.json")
 USES_MAX = 10000
 SUBPROTOCOL = "velta.v1"
 TOKEN_MAX = 1024
 active = 0
+
+
+# Extra Chatmail relays approved by the administrator. ALLOW_HOSTS remains the
+# local/static set; these entries are re-read for each connection decision.
+RELAY_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?")
+HOST_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+
+
+def normalize_host(raw):
+    try:
+        host = raw.strip().rstrip(".").encode("idna").decode("ascii").lower()
+        ipaddress.ip_address(host)
+        return ""
+    except ValueError:
+        pass
+    except (AttributeError, UnicodeError):
+        return ""
+    if not 4 <= len(host) <= 253 or "." not in host:
+        return ""
+    return host if all(HOST_LABEL.fullmatch(label) for label in host.split(".")) else ""
+
+
+def read_relays(path=None, strict=False):
+    path = path or RELAYS_FILE
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or data.get("v") != 1 or not isinstance(data.get("relays"), dict):
+            raise ValueError("bad relay registry")
+        out = {}
+        for rid, raw in data["relays"].items():
+            if not isinstance(rid, str) or not RELAY_ID.fullmatch(rid) or not isinstance(raw, str):
+                raise ValueError("bad relay registry entry")
+            host = normalize_host(raw)
+            if not host:
+                raise ValueError("bad relay host")
+            out[rid] = host
+        return out
+    except (OSError, ValueError):
+        if strict:
+            raise
+        return {}
+
+
+def allowed_hosts():
+    return ALLOW_HOSTS | set(read_relays().values())
 
 
 # ---- invite tokens: b64url(json payload) "." b64url(HMAC-SHA256(secret, payload part)) ----
@@ -422,7 +483,7 @@ async def resolve(host):
 
 async def allowed_ips():
     ips = set()
-    for h in ALLOW_HOSTS:
+    for h in allowed_hosts():
         ips.update(await resolve(h))
     return ips
 
@@ -443,15 +504,47 @@ async def pipe_tcp_to_ws(reader, ws):
     await ws.close()
 
 
+def chatmail_new(host):
+    """Empty POST to an approved host's stock signup endpoint; no open HTTP relay."""
+    req = Request(f"https://{host}/new", data=b"", method="POST",
+                  headers={"User-Agent": "Velta-PWA-signup/1.0"})
+    with urlopen(req, timeout=20) as response:
+        final = urlsplit(response.geturl())
+        if final.scheme != "https" or normalize_host(final.hostname or "") != host:
+            raise ValueError("cross-origin signup redirect")
+        body = response.read(65537)
+    if len(body) > 65536:
+        raise ValueError("signup response too large")
+    data = json.loads(body)
+    if (not isinstance(data, dict) or not isinstance(data.get("email"), str)
+            or not isinstance(data.get("password"), str)
+            or not data["email"].lower().endswith("@" + host)):
+        raise ValueError("bad Chatmail signup response")
+    return body.decode("utf-8")
+
+
 async def handler(ws, path=None):
     global active
     if path is None:
         path = ws.request.path if hasattr(ws, "request") else ws.path
     parts = path.split("?")[0].strip("/").split("/")
     if len(parts) == 2 and parts[0] == "dns":
-        host = parts[1].lower().rstrip(".")
-        ips = await resolve(host) if host in ALLOW_HOSTS else []
+        host = normalize_host(parts[1])
+        ips = await resolve(host) if host in allowed_hosts() else []
         await ws.send(json.dumps(ips))
+        await ws.close()
+        return
+    if len(parts) == 2 and parts[0] == "cm-new":
+        host = normalize_host(parts[1])
+        if host not in allowed_hosts() or not await resolve(host):
+            await ws.close(1008, "signup host not allowed")
+            return
+        try:
+            body = await asyncio.wait_for(asyncio.to_thread(chatmail_new, host), 25)
+        except (OSError, ValueError, asyncio.TimeoutError):
+            await ws.close(1011, "Chatmail signup failed")
+            return
+        await ws.send(body)
         await ws.close()
         return
     if len(parts) != 3 or parts[0] != "tcp" or not parts[2].isdigit():
@@ -581,16 +674,62 @@ def cli_invites():
     print(f"invite id: {iid}", file=sys.stderr)
 
 
+def check_chatmail(raw):
+    host = normalize_host(raw)
+    if not host:
+        raise SystemExit("bad relay hostname")
+    try:
+        infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError as e:
+        raise SystemExit(f"relay DNS failed: {e}")
+    if not any(public(i[4][0]) for i in infos):
+        raise SystemExit("relay has no public address")
+    req = Request(f"https://{host}/", headers={"User-Agent": "Velta-relay-check/1.0"})
+    try:
+        with urlopen(req, timeout=12) as response:
+            final = urlsplit(response.geturl())
+            if final.scheme != "https" or normalize_host(final.hostname or "") != host:
+                raise SystemExit("relay redirected to another origin")
+            body = response.read(200000).decode("utf-8", "replace").lower()
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"relay HTTPS check failed: {e}")
+    if f"dcaccount:https://{host}/new" not in body:
+        raise SystemExit("not a Chatmail relay: its home page has no matching dcaccount signup link")
+    return host
+
+
+def add_relay(rid, raw):
+    if not RELAY_ID.fullmatch(rid):
+        raise SystemExit("relay id must be 1-32 lowercase letters, digits or hyphens")
+    host = check_chatmail(raw)
+    relays = read_relays(strict=True) if os.path.exists(RELAYS_FILE) else {}
+    relays[rid] = host
+    tmp = RELAYS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"v": 1, "relays": dict(sorted(relays.items()))}, f, indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, RELAYS_FILE)
+    print(f"Added {rid} = {host}; new connections can use it immediately.")
+
+
 async def main():
     global KEY
     global USES
     if "--mint" in sys.argv or "--list-invites" in sys.argv or "--reset" in sys.argv:
         return cli_invites()
+    if "--add-relay" in sys.argv:
+        if len(sys.argv) != 4:
+            raise SystemExit("usage: bridge.py --add-relay ID CHATMAIL_HOST")
+        return add_relay(sys.argv[2], sys.argv[3])
     if AUTH:
         KEY = load_secret()
         USES = Uses(USES_FILE)
     if "--check" in sys.argv:
-        print("allow hosts:", sorted(ALLOW_HOSTS), "ports:", sorted(ALLOW_PORTS), "invites:", "required" if AUTH else "off")
+        print("allow hosts:", sorted(allowed_hosts()), "ports:", sorted(ALLOW_PORTS), "invites:", "required" if AUTH else "off")
+        print("relay registry:", json.dumps(read_relays(), sort_keys=True))
         print("allowed IPs:", sorted(await allowed_ips()))
         return
     port = int(os.environ.get("LISTEN_PORT", "8153"))

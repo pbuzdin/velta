@@ -2,9 +2,10 @@
 
 How the lock diff is reviewed and merged when the wasm series lands in
 production `core/` (landing checklist §2, "Landing plan for `core/Cargo.lock`").
-The Day-10 analysis below is evidence already gathered via
-`cargo tree -i` on the pinned copy for x86_64-linux, aarch64-android and
-x86_64-windows; this plan turns it into ordered steps with owners.
+The Day-10 analysis below is historical evidence gathered via `cargo tree -i`
+on the pinned copy for x86_64-linux, aarch64-android and x86_64-windows.
+Versions were refreshed for the 2.66 opt-in series on 2026-11-07; the required
+landing-time graph diff remains the authority, not this table.
 
 ## What changes in the native graph
 
@@ -13,11 +14,11 @@ x86_64-windows; this plan turns it into ordered steps with owners.
 | rusqlite | 0.37.0 | **0.40.2** | API bump (`fallible_uint` for u64 ToSql); full lib nextest green on the copy (Day 8/11/13). Watch: nightly `cfg_select!` dependency — see the §2 nightly box (Day 24 note) |
 | libsqlite3-sys (`bundled-sqlcipher-vendored-openssl`) | 0.35.0 | **0.38.2** | Bundled **SQLCipher 4.6.1 → 4.14.0** (SQLite 3.46.1 → 3.51.3). Same SQLCipher 4 file format; Day 11 upgrade↔rollback PASS on a real-schema Velta DB. Remaining: same harness on a copied production Android DB (issue #92, device day) |
 | hashlink | 0.10.0 | 0.12.2 | rusqlite statement cache; internal, no API surface of ours |
-| tokio | 1.53.1 | 1.53.1 (via `velta-tokio-wasm`) | Facade only — native compiles `pub use tokio::*`, no version change (Day 12) |
-| async-imap | 0.11.3 crates.io | 0.11.3 **vendored** | 6 changed lines, `cfg`-gated (Day 11 machine diff); vendored = no version movement |
+| tokio | 1.53.3 | 1.53.3 (via `velta-tokio-wasm`) | Facade only — native compiles `pub use tokio::*`, no intended version change; confirm in the landing graph |
+| async-imap | 0.12.0 crates.io | 0.12.0 **vendored** | 6 changed lines, `cfg`-gated; vendored = no version movement |
 | astral-tokio-tar | 0.6.4 | 0.6.4 **vendored** | 61 changed lines (Day 11 diff); vendored = no version movement |
-| mail-builder | 0.5.0 crates.io | 0.5.0 **vendored** | 17 changed lines; vendored = no version movement |
-| wasm-bindgen / js-sys / web-sys / sqlite-wasm-rs / wasmtimer / indexed_db_futures | — | 0.2.129 … | **not in native graphs** — wasm-only, no native review needed |
+| mail-builder | 1.0.0 crates.io | 1.0.0 **vendored** | ~17 changed lines; vendored = no version movement |
+| wasm-bindgen / js-sys / web-sys / sqlite-wasm-rs / wasmtimer / indexed_db_futures | — | 0.2.130 … | **not in native graphs** — wasm-only, no native review needed |
 
 Net: the native review surface is **rusqlite + libsqlite3-sys (+ hashlink)**
 — one dependency bump with a SQLCipher upgrade. The vendored crates keep

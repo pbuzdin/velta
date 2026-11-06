@@ -1,7 +1,10 @@
 # Wasm core port inventory — slothfulchat → Velta 2.62.0
 
-**Date:** 2026-10-05. Side-tree work only (`/workspace/velta-wasm-port/` on the
-spike host). **Nothing from this port is in Velta `master` `core/` yet.**
+**Status:** ARCHIVED 2026-11-07. This is the historical 2026-10-05 side-tree
+inventory against core 2.62, not the current patch list. The current opt-in
+series has ten files (0001–0008, 0010, 0011) at 2.66; see
+`docs/research/wasm-patches/README.md`, `series.txt`, and `VENDORED.md`.
+Production `core/` still carries only the native production quilt.
 
 Licensing: prototype core patches are dual `MPL-2.0 OR GPL-3.0`; the
 `tokio-wasm-shim` and `core-wasm` wrapper are MPL-2.0; `ws-tcp-proxy` is
@@ -96,7 +99,7 @@ ReadDir edit is adjacent to Velta’s animated-WebP helpers — rebase carefully
 
 ## Ownership (Day 5)
 **Velta-owned** wasm port of chatmail core 2.62+ — not a slothfulchat-web fork.
-MPL patch ideas only. See [`wasm-patches/README.md`](wasm-patches/README.md).
+MPL patch ideas only. See [`wasm-patches/README.md`](../wasm-patches/README.md).
 
 ## Patch home (Day 5 decision)
 **Opt-in** `tools/apply-wasm-core-patches.py` + `docs/research/wasm-patches/`.

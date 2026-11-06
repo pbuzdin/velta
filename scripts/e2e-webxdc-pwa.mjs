@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// E2E for webxdc in the PWA (Step A, docs/research/beam-pwa-research.md):
+// E2E for webxdc in the PWA (Step A, docs/research/archive/beam-pwa-research.md):
 // builds a PWA dist with a STUB wasm core (the core is not needed: a tiny
 // host page stands in for webxdc-manager's bridge), serves it, and drives
 // Chromium through the real generated sw.js + webxdc-host/frame.js + the
@@ -157,7 +157,7 @@ try {
   await fr.waitForFunction(() => document.querySelector('#list').textContent.includes('demo.bin'), null, { timeout: 10000 })
   check(true, 'Beam: status-update offer listed')
   check(await fr.evaluate(() => { try { return !!parent.document } catch { return false } }) === false, 'Beam: cannot touch the host DOM')
-  // Phase 0 (webxdc-group-calls.md): no capture in the PWA frame even with an auto-granting UI.
+  // Phase 0 (docs/research/archive/webxdc-group-calls.md): no capture in the PWA frame even with an auto-granting UI.
   const gum = await fr.evaluate(() => navigator.mediaDevices.getUserMedia({ audio: true }).then(() => 'GRANTED', (e) => 'denied:' + e.name))
   check(gum.startsWith('denied'), `Beam: getUserMedia denied in the PWA frame (${gum})`)
 

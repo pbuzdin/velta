@@ -134,7 +134,7 @@ if ('serviceWorker' in navigator) {
 }
 `)
 
-// 4b. webxdc in the PWA (Step A, docs/research/beam-pwa-research.md): the
+// 4b. webxdc in the PWA (Step A, docs/research/archive/beam-pwa-research.md): the
 //     SW's webxdc route (app/webxdc-host/sw-route.js) inlines the loader
 //     (app/webxdc-host/frame.js) and the SAME shim the native webxdc://
 //     handler injects — copied from the Tauri tree, single source of truth.

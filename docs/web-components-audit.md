@@ -75,7 +75,7 @@ impact is new.
 Tauri desktop and Android load `app/` from local disk or the app bundle, so
 network-bound first-paint gains there are small: the measured unthrottled
 load paints the first chat row in about 0.3 s. The payoff is in the **PWA
-path** (`PLAN-PWA-WEBSOCKET.MD`, Architecture C). There the static HTML+CSS
+path** (`research/archive/PLAN-PWA-WEBSOCKET.MD`, Architecture C). There the static HTML+CSS
 arrives long before the module graph and the wasm core finish loading and
 starting. Phase 1 of the plan targets that case. Accessibility fixes (phases
 0, 2 and 3) apply equally to every shell.

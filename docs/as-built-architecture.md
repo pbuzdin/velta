@@ -15,6 +15,22 @@ This document records the product that is in the tree at `cd59531` (app 1.4.67).
 
 > **Update (post-1.4.69):** Material Components has since been removed from the Tauri APK: no app dependency, AppCompat theme parents, and a Gradle `exclude` rule strips the transitive AAR from the app runtime classpath (`-PveltaKeepMaterial=true` opts back in). `showMessageDialog` is therefore unusable on Android; shipping JS never calls it. See AGENTS.md §4.3.4. The Material statements below describe the `cd59531` snapshot.
 
+> **Current architecture addendum (2026-11-07):** the metadata and most of the
+> body below remain a historical `cd59531` / core 2.63.0 snapshot. Current
+> production `core/` is 2.66.0 with a 200-operation, 37-file quilt (#10–#30).
+> The standalone browser PWA is now a real wasm-core shell, not a remote
+> sidecar: `scripts/build-pwa.mjs` packages `packages/velta-wasm` with `app/`,
+> `worker-wasm.js` owns OPFS snapshot persistence, and WebSocket mail tunnels
+> terminate IMAP/SMTP TLS inside wasm. Signed proxy invitations select only
+> administratively registered relays and use authenticated `/cm-new/` signup.
+> The wasm patch series is still an opt-in apply-on-copy layer for producing
+> that artifact; the working PWA does **not** authorize merging those patches
+> into production `core/`. Read the snapshot's "PWA unfinished" and "not a
+> release target" statements as history; [`../README.md`](../README.md),
+> [`pwa-self-host.md`](pwa-self-host.md), and
+> [`deploy-pwa-websocket-proxy.md`](deploy-pwa-websocket-proxy.md) are the
+> current operational references.
+
 ---
 
 ## Overview
@@ -33,7 +49,7 @@ Velta exists so a Delta Chat-compatible messenger can ship without Google or App
 
 - The mail core is mandatory. Issues #29 and #31 were closed wontfix on 2026-09-30 (`AGENTS.md`, "No built-in Yggdrasil, and the chatmail core stays mandatory"). `core/src/transport.rs` is one IMAP/SMTP relay, not a plugin slot. Local chat wraps the booted core; it does not uninstall it.
 - The UI is the unbundled `app/` tree. `AGENTS.md` §3 and the README ("What it is") fix the frontend as plain HTML/CSS/ES modules. Elena (`app/vendor/elena.js`, `@elenajs/core` v1.0.1) supplies `<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`, and `<velta-video>` (`app/js/components.js`).
-- Push on Android, when a distributor is present, is UnifiedPush (`org.unifiedpush.android:connector`), not FCM. `PLAN-UNIFIEDPUSH.MD` and `UnifiedPushService.kt` are the record. The vendored core still contains APNs and FCM token helpers in `core/src/push.rs` because that file is upstream Delta Chat. Velta never obtains an FCM or APNs device token. It passes one opaque `webpush:` string from the UnifiedPush connector into `set_push_device_token` (`velta-app/src-tauri/src/lib.rs`).
+- Push on Android, when a distributor is present, is UnifiedPush (`org.unifiedpush.android:connector`), not FCM. `docs/research/archive/PLAN-UNIFIEDPUSH.MD` and `UnifiedPushService.kt` are the record. The vendored core still contains APNs and FCM token helpers in `core/src/push.rs` because that file is upstream Delta Chat. Velta never obtains an FCM or APNs device token. It passes one opaque `webpush:` string from the UnifiedPush connector into `set_push_device_token` (`velta-app/src-tauri/src/lib.rs`).
 - Privacy is a standing rule: zero analytics and telemetry (`AGENTS.md`, verified there against the tree on 2026-09-15, with the Windows WebView2 install bootstrapper called out as the only documented exception). A fresh search of `app/` finds no Sentry, Firebase, gtag, PostHog, or similar. The shell `Cargo.toml` has no analytics crate.
 
 Pain that this document is not trying to redesign: chatmail is store-and-forward, so a single tick means the sending relay accepted the message and a double tick is a read receipt (`README.md`, "Message ticks"). Background delivery on Android is a foreground service plus `JobScheduler` (`BackgroundFetchJob.kt`) plus optional UnifiedPush, not Play Services. The browser product that would host the core in wasm behind a websocket relay is unfinished on purpose.
@@ -237,7 +253,7 @@ Audio calls (beta) use the core for signaling: offer and answer SDP ride in encr
 
 webxdc mini-apps render in an opaque-origin sandbox iframe (`app/js/webxdc-manager.js`) without `allow-same-origin`. State sync is the core's encrypted status updates. Realtime channels are not wired.
 
-Native shells offer saved client-side SOCKS5 proxies (`app/js/proxy.js`, `velta-app/src-tauri/src/proxy.rs`), including loopback, LAN, and public endpoints, optional credentials, QR/deep-link sharing, and chat cards. The proxy keeper writes the selected URL into the core's existing `proxy_url`; a manually configured proxy is never overwritten. The old DNS tunnel runtime is archived and stale `socks5://velta-tunnel:` URLs are cleared. Velta ships no proxy server. A proxy operator can see destination relays and timing.
+The optional Android DNS tunnel (`velta-app/src-tauri/src/tunnel.rs`, `velta-app/soar-tunnel`) loads `libsoartunnel.so` only after the user accepts a `velta://tunnel` link. It sets the core's existing `proxy_url` (HTTP CONNECT, SOCKS5, or Shadowsocks — `core/src/net/proxy.rs`). Velta ships no tunnel server. A proxy the user set themselves wins. This is not a Google or Apple API. The operator of the tunnel can see which relays are contacted and when; the README says so.
 
 ### Logo
 
@@ -349,7 +365,7 @@ Rejected. `AGENTS.md` §3 and §4.2: plain HTML/CSS/ES modules, no transpiler, E
 
 ### 3. Firebase Cloud Messaging, Play Services, or APNs
 
-Rejected. `PLAN-UNIFIEDPUSH.MD` and `UnifiedPushService.kt` register with a distributor the user chose. `build.gradle.kts` has no `com.google.firebase` and no `play-services`. The core's `push.rs` can store an Apple or FCM token if some other client sets one; this shell does not. Background delivery without a distributor is `JobScheduler` plus the foreground service, which is worse for battery than push and is the documented trade (`README.md`, notifications). The cost of refusing Play Services is accepted: no instant push until a UnifiedPush app is installed, and Doze can still delay the scheduled fetch.
+Rejected. `docs/research/archive/PLAN-UNIFIEDPUSH.MD` and `UnifiedPushService.kt` register with a distributor the user chose. `build.gradle.kts` has no `com.google.firebase` and no `play-services`. The core's `push.rs` can store an Apple or FCM token if some other client sets one; this shell does not. Background delivery without a distributor is `JobScheduler` plus the foreground service, which is worse for battery than push and is the documented trade (`README.md`, notifications). The cost of refusing Play Services is accepted: no instant push until a UnifiedPush app is installed, and Doze can still delay the scheduled fetch.
 
 ### 4. Embedding the JPEG as the sidebar mark, or generating icons with a new tool
 
@@ -377,7 +393,7 @@ Threat model, as the code actually draws it:
 - **Loopback media server.** `lib.rs` binds `127.0.0.1` on an ephemeral port, puts a 128-bit token in the path, compares it in constant time, and strips it from logs. Other local apps can connect; they cannot read files without the token. Scope is the accounts directory. Sandboxed frames send `Origin: null` and are refused.
 - **Link previews.** "Load on this device" fetches HTTPS from this device (256 KB page, 512 KB image, in-memory for the session) and reveals the user's IP to the site. The drawer says so. "Send a picture" renders a card locally and does not make the recipient fetch the URL. Invite links are not previewed.
 - **Tracker stripping.** `app/js/trackers.js` drops known tracking query params on paste and on open. Local only.
-- **SOCKS5 proxy.** Opt-in. The proxy operator sees destination relays and timing; credentials and shared links need the same trust warning. Off by default. Velta is a client and ships no proxy server.
+- **DNS tunnel.** Opt-in. The tunnel operator sees destination relays and timing. Off by default. Not shipped with a baked server.
 - **UnifiedPush.** The distributor and the chatmail notifier see that a device is registered and when a wake is sent. They do not see message bodies (the wake only triggers `background_fetch`). No distributor means no registration.
 - **Updater.** Desktop `tauri-plugin-updater` fetches `latest.json` from the GitHub releases URL in `tauri.conf.json` when the user asks, verifies minisign, and runs the installer. Android downloads the APK and hands it to the system package installer. This is a user-triggered update, not a metric.
 - **WebView2 bootstrapper.** On Windows, if the runtime is missing, Tauri's download bootstrapper contacts Microsoft. `AGENTS.md` is the record. Velta does not add its own call home next to it.
@@ -385,7 +401,7 @@ Threat model, as the code actually draws it:
 - **webxdc.** Opaque origin, no `allow-same-origin`. An app does not read the mail account.
 - **Telemetry.** There is no analytics event, no crash SDK, and no remote log sink in `app/` or `velta-app`. Do not add one. Diagnostics stay on the device (next section).
 
-Secrets, keystores, and account databases are not copied into this document. Signing material moved out of the repo tree on 2026-11-04 (`C:\Users\pave\secrets\velta`); CI recreates `signing/` fresh from repo secrets.
+Secrets, keystores, and account databases are not copied into this document. `signing/` is gitignored local material and stays there.
 
 ---
 
@@ -421,7 +437,7 @@ A rollout that closed the gap would live outside `gen/android`: a cargo `[patch]
 
 Icon files are already the JPEG pipeline. They are not part of a rollout.
 
-Local chat, wasm, and SOCKS5 proxies stay behind the switches they already have. This document does not turn any of them on by default.
+Local chat, wasm, and the DNS tunnel stay behind the switches they already have. This document does not turn any of them on by default.
 
 ---
 
@@ -491,7 +507,7 @@ Logo rasters, telemetry, the mail stack, local chat, and the theme system alread
 - `C:\Users\pave\Velta\velta\tools\generate-icons.py` — icon pipeline.
 - `C:\Users\pave\Velta\velta\docs\web-components-plan.md`, `docs\web-components-audit.md`, `docs\native-elements.md`, `docs\accessibility-and-keybindings.md` — UI audits. Not implemented by this document.
 - `C:\Users\pave\Velta\velta\docs\agents\p2p.md` — local chat limits and the #31 wontfix.
-- `C:\Users\pave\Velta\velta\PLAN-UNIFIEDPUSH.MD` — why push is not FCM.
+- `C:\Users\pave\Velta\velta\docs\research\archive\PLAN-UNIFIEDPUSH.MD` — why push is not FCM.
 - Delta Chat core: https://github.com/chatmail/core (vendored at `core/`, version 2.63.0). Autocrypt level 1 key data: https://autocrypt.org/level1.html#openpgp-based-key-data.
 - UnifiedPush: the connector artifact `org.unifiedpush.android:connector` used in `build.gradle.kts`.
 

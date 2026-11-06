@@ -59,6 +59,13 @@ test("probeDnsVia asks the active tunnel about the other host", () => withFakeWS
   assert.equal(await p, true);
 }));
 
+test("probeDnsVia preserves an invited proxy's full path", () => withFakeWS(async () => {
+  const p = probeDnsVia("wss://proxy.example.org/vp-test", "mail.example.org");
+  assert.equal(FakeWS.instances[0].url, "wss://proxy.example.org/vp-test/dns/mail.example.org");
+  FakeWS.instances[0].serve('["9.9.9.9"]');
+  assert.equal(await p, true);
+}));
+
 test("create-account gates: probe before create, auto-switch with reload resume", () => {
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
@@ -90,7 +97,7 @@ test("worker sends /new to the configured relay's /cm-new when the page is on an
   const self = { postMessage() {}, location: page };
   const { chatmailNewUrl, relayBaseFromWsUrl } = new Function("self", "navigator", "setInterval", src + "\nreturn { chatmailNewUrl, relayBaseFromWsUrl };")(self, {}, () => ({}));
   const relay = relayBaseFromWsUrl("wss://relay.example.org");
-  assert.deepEqual(relay, { origin: "https://relay.example.org", hostname: "relay.example.org" });
+  assert.deepEqual(relay, { origin: "https://relay.example.org", hostname: "relay.example.org", ws: "wss://relay.example.org" });
   assert.equal(relayBaseFromWsUrl(""), null);
   assert.equal(relayBaseFromWsUrl("https://relay.example.org"), null);
   assert.equal(chatmailNewUrl("https://mail.example.org/new", { method: "POST" }, page, relay), "https://relay.example.org/cm-new/mail.example.org");
@@ -127,3 +134,25 @@ test("probe_c3_relay: Rust command exists, is registered and sends no Origin", (
   assert.match(lib, /pub mod c3_probe;/);
   assert.match(lib, /generate_handler!\[[^\]]*c3_probe::probe_c3_relay/);
 });
+
+test("worker mints Chatmail credentials over the full-path WebSocket proxy", () => withFakeWS(async () => {
+  const src = readFileSync(new URL("../app/js/worker-wasm.js", import.meta.url), "utf8");
+  const page = { href: "https://pwa.example.org/web/worker-wasm.js", origin: "https://pwa.example.org", hostname: "pwa.example.org" };
+  const self = { postMessage() {}, location: page, WebSocket: FakeWS };
+  const api = new Function("self", "navigator", "setInterval", src + "\nreturn { chatmailNewUrl, chatmailNewWsUrl, chatmailNewFetch, relayBaseFromWsUrl };")(self, {}, () => ({}));
+  const relay = api.relayBaseFromWsUrl("wss://proxy.example.org/vp-test");
+  const proxied = api.chatmailNewUrl("https://mail.example.org/new", { method: "POST" }, page, relay);
+  assert.equal(api.chatmailNewWsUrl(proxied, relay), "wss://proxy.example.org/vp-test/cm-new/mail.example.org");
+  const pending = api.chatmailNewWsUrl(proxied, relay);
+  const responsePromise = api.chatmailNewFetch(pending);
+  const ws = FakeWS.instances.at(-1);
+  assert.equal(ws.url, "wss://proxy.example.org/vp-test/cm-new/mail.example.org");
+  ws.serve(JSON.stringify({ email: "random@mail.example.org", password: "not-a-real-password" }));
+  const response = await responsePromise;
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).email, "random@mail.example.org");
+
+  const failed = api.chatmailNewFetch(pending);
+  FakeWS.instances.at(-1).serve("<html>not json</html>");
+  await assert.rejects(failed, /WebSocket proxy failed/);
+}));

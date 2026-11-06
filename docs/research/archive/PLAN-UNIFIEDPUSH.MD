@@ -1,5 +1,11 @@
 # PLAN: UnifiedPush (ntfy) — Google-free background push for Velta Android
 
+Status: ARCHIVED 2026-11-07. Android UnifiedPush is implemented; browser Web
+Push is a separate implemented path. See `docs/agents/web-push.md`, the Android
+shell, and `AGENTS.md` for current behavior. The core 2.62 facts, relay-specific
+checks, estimates, and work order below are historical, not an active work
+queue; device-specific validation is not rerun by this archival.
+
 Goal: messages and calls reach the phone with the core process dead — relay →
 ntfy → ntfy Android app (UnifiedPush distributor) → Velta wakes, fetches,
 posts its usual MessagingStyle notification. No FCM, no Google.

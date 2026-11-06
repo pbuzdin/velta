@@ -603,9 +603,9 @@ held (stops in parallel). A test hook, `VELTA_TEST_STOP_IO_DELAY_MS`
 7.7 s, after it 3–4 ms. Upstream fix: no `Accounts` lock across IO
 start/stop.
 
-### 22. Attachment encryption at rest: wrapped keys and seekable chunks (core blob I/O)
+### 22A. Attachment encryption at rest: wrapped keys and seekable chunks (core blob I/O)
 
-**Tracker: pbuzdin/velta#178. Status: patched locally (quilt ops "#22 attachment encryption …", 40 ops, 16 files).**
+**Tracker: pbuzdin/velta#178. Status: patched locally (quilt ops "#22 attachment encryption …" plus "#22 change_passphrase …", 51 ops, 16 files).**
 The shared `packages/attachment-crypto` crate (`velta-attachment`) lives outside
 `core/` so the whole-tree quilt has no undeclared files and the desktop shell
 does not link the entire core. For Velta raw SQLCipher DEKs it derives an
@@ -653,7 +653,7 @@ and failover already covers outages).
 
 ### 24. Per-relay enable/disable: pause a relay without deleting it
 
-**Tracker: pbuzdin/velta#189. Status: patched locally (quilt ops "#24 …", 10 ops, 5 files).**
+**Tracker: pbuzdin/velta#189. Status: patched locally (quilt ops "#24 …", 11 ops, 6 files).**
 The Relays modal offered only "Use for sending" (#11/#164) and Remove — the only way
 to stop a misbehaving relay was deleting it, losing the address. Paused transports
 live in the Velta-owned ui key `ui.velta.disabled_transports` (JSON array of
@@ -670,7 +670,7 @@ only stopped new connects, so a connected relay kept sending until the 60 s
 stale-connection timeout — exactly the "stop a misbehaving relay now" case
 the feature exists for.
 
-### 22. Config cache lock held across SQL awaits (core/src/sql.rs)
+### 22B. Config cache lock held across SQL awaits (core/src/sql.rs)
 
 **Tracker: pbuzdin/velta#229. Status: patched locally (quilt ops "#22 …").**
 `Sql::set_raw_config` held `config_cache.write()` across its INSERT, and a
@@ -719,13 +719,13 @@ joined on `mime_in_reply_to` without an index and rescanned on every
 index and makes overlapping restarts no-ops. Upstream candidate: applies to
 stock core as-is.
 
-### 30. Strict pinned send relay (#286, tracker #288)
+### 30. Strict pinned sending (#286, #288)
 
-**Status: patched locally (quilt ops "#30 …").** Velta-owned ui key
-`ui.velta.send_strict` ("1" = on). With a pin (#11 / #164), sending tries
-only the pinned transport: no failover. A live connection bound to another
-transport is closed, and a failed pin bails with "Only sending via the
-pinned relay {addr}: it failed to connect", so mail stays queued. Receiving
-is untouched. No pin, or a paused pin (#24), means the key has no effect.
-Ops anchor on #11/#24 text and must stay after them. Upstream candidate: no
-(Velta UI policy).
+**Status: patched locally (quilt ops "#30 …", 4 ops, 1 file).** The Relays
+modal's "Only send via the pinned relay" option sets the Velta-owned UI key
+`ui.velta.send_strict`. With both that key and a send pin present, the SMTP
+connect loop retains only the pinned transport, closes an existing connection
+bound to another transport, and reports failure against that pinned address
+instead of silently failing over. Receiving remains multi-relay, and the
+option is inert without a pin. These ops must stay after #11 and #24 because
+their anchors include those patches' send-pin and paused-relay logic.

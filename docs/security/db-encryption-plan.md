@@ -2,7 +2,15 @@
 
 Refs #178
 
-Status: phases 0–3 (desktop + Android + PWA) IMPLEMENTED 2026-10-30. Desktop ships:
+Status refreshed 2026-11-07: phases 0–5 are implemented. Native attachment
+encryption is now part of production quilt #22A (51 operations); the PWA keeps
+whole-OPFS-snapshot encryption because wasm has no raw SQLCipher DEK. Remaining
+work is device verification, optional authenticator/KDF upgrades, and the old
+passphrase-change blob re-wrap migration if that API gains a caller. The
+chronological implementation log below is preserved; later addenda supersede
+earlier "open", "WIP", and option-A decision statements.
+
+Implementation log (2026-10-30 onward). Desktop ships:
 keyring DEK (`chat.velta.dbkey`), keyed sidecar via the `VELTA_DB_KEY` env
 var (core quilt patch #20), one-time pre-spawn `sqlcipher_export` migration
 with rollback (`velta-app/src-tauri/src/db_key.rs`), and a locked screen for
@@ -46,12 +54,7 @@ stays the root of security, stated in the UI), PBKDF2-SHA256 not Argon2id
 (phase 3 deferral), and the boot now resets its key state first, so an
 in-process re-boot cannot inherit a previous unlock.
 
-Update 2026-11-02: native attachment encryption SHIPPED (quilt #22,
-`packages/attachment-crypto`, VLTA wrap + 64 KiB chunks). PWA stays on
-whole-OPFS-snapshot encryption (no raw DEK in WASM). Large-file/Lufi
-staging is unchanged.
-
-Update 2026-10-31 (1.4.89): release status — Android profile-data encryption SHIPPED; desktop and PWA are PREVIEW. Android actually encrypts now — the Keystore
+Update 2026-10-31 (1.4.89): release status — Android profile-data encryption SHIPPED; desktop and PWA are PREVIEW; attachment encryption is WIP (not encrypted yet). Android actually encrypts now — the Keystore
 wrap buffer was 16 bytes short (GCM tag), so no DEK was ever stored and the
 core ran keyless; fixed with `VeltaKeystore.pack`. Android also gained the
 Velta app-lock PIN, the screen-lock fallback for the biometric lock (API
@@ -144,7 +147,17 @@ One random 256-bit key (DEK) per install, generated with the OS CSPRNG. All acco
 
 ### 2.5 Blobs (attachments)
 
-**DECIDED 2026-10-30 (#178 phase 5): option A.** The message database is
+**Current status (supersedes the option-A decision below):** native attachment
+encryption shipped in quilt #22A. `packages/attachment-crypto` derives a profile
+key from the raw DEK, wraps a random key per blob, and authenticates independent
+64 KiB chunks for seek and Range reads. Core encrypts new writes and migrates
+legacy blobs, while backup export remains standard plaintext. Missing keys and
+malformed or modified ciphertext fail closed. The PWA continues to encrypt the
+whole OPFS snapshot instead. `change_passphrase` re-derives the attachment key,
+but blobs under an old passphrase key are not re-wrapped yet; no JSON-RPC caller
+exists today. See `VENDORISSUES.MD` §22A for the implementation contract.
+
+**Historical decision (2026-10-30, #178 phase 5): option A.** The message database is
 SQLCipher-encrypted (phases 0–4); the blob directory `<account>/dc.db-blobs/`
 stays plaintext and relies on platform isolation, exactly as the core
 maintainers argue. Concretely: Android app-private storage is file-based
@@ -263,6 +276,6 @@ Total for 0–4 is about 3–5 weeks.
 1. Does the wasm build link SQLCipher (`sqlite-wasm-rs` feature) or plain SQLite? The plan does not rely on it (snapshot encryption), but it changes the size or fallback.
 2. Encryption on by default for new installs, or opt-in at first? Proposal: on by default for desktop and Android once phase 1–2 are stable. Opt-in for PWA (passkey UX).
 3. Offer a recovery code by default, or only backups?
-4. Is blob encryption (option B) wanted at all, given upstream's stance?
+4. Resolved for native profiles: blob encryption shipped in quilt #22A (see §2.5). The remaining migration question is re-wrapping old blobs if passphrase change gains a caller.
 5. Linux without Secret Service: is a passphrase prompt at each start acceptable, or allow a "store key in plain file" option with a warning?
 6. Should settings transfer (`docs/settings-transfer.md`) carry the app-lock setting?

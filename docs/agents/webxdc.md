@@ -84,7 +84,7 @@ Refuses to open in a plain browser (no Tauri, not the wasm PWA): toast
 "webxdc apps run in the Velta app" — the `webxdc.localhost` handler exists
 only in the Tauri shell. The wasm PWA has its own host (next section).
 
-## Wasm PWA host (Step A of docs/research/beam-pwa-research.md, 2026-10-16)
+## Wasm PWA host (Step A of docs/research/archive/beam-pwa-research.md, 2026-10-16)
 
 Files: `app/webxdc-host/sw-route.js` (importScripts'd by the generated
 sw.js), `app/webxdc-host/frame.js` (loader, runs in the app frame), the

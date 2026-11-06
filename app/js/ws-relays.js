@@ -4,6 +4,8 @@
 import { invoke, tauriInvoke } from "./tauri.js";
 const LIST_KEY = "velta-ws-relays";
 const ACTIVE_KEY = "velta-ws-relay";
+// Optional full wss URL per host. Bare-host installs keep using the old keys.
+const URLS_KEY = "velta-ws-relay-urls";
 // Invite tokens per relay host ({host: token}), from velta://ws?…&t= links.
 // Sent as the WebSocket subprotocol "tok.<token>" (browsers cannot set
 // headers on a WebSocket, and a query string would land in access logs).
@@ -69,11 +71,53 @@ export function activeWsRelay() {
   return list[0] || "";
 }
 
+function relayUrls() {
+  try {
+    const v = JSON.parse(localStorage.getItem(URLS_KEY) || "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+function storedProxyUrl(host) {
+  const raw = relayUrls()[host];
+  if (typeof raw !== "string") return "";
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "wss:" || normalizeHost(u.hostname) !== host || u.username || u.password || u.search || u.hash) return "";
+    return raw.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+/** Save a canonical full proxy URL for a host (including an nginx path). */
+export function setWsRelayUrl(host, url) {
+  const h = normalizeHost(host);
+  if (!h) return false;
+  const all = relayUrls();
+  if (!url) delete all[h];
+  else {
+    let u;
+    try { u = new URL(url); } catch { return false; }
+    if (u.protocol !== "wss:" || normalizeHost(u.hostname) !== h || u.username || u.password || u.search || u.hash) return false;
+    const clean = url.replace(/\/+$/, "");
+    if (clean === `wss://${h}`) delete all[h];
+    else all[h] = clean;
+  }
+  localStorage.setItem(URLS_KEY, JSON.stringify(all));
+  return true;
+}
+
 // Untouched installs keep the baked URL, including a non-wss dev proxy.
 export function wsProxyUrl() {
+  const active = activeWsRelay();
+  const custom = storedProxyUrl(active);
+  if (custom) return custom;
   const stored = storedList();
-  const active = localStorage.getItem(ACTIVE_KEY);
-  if (stored && active && stored.includes(active)) return `wss://${active}`;
+  const selected = localStorage.getItem(ACTIVE_KEY);
+  if (stored && selected && stored.includes(selected)) return `wss://${selected}`;
   const baked = bakedProxyUrl();
   if (baked) return baked;
   if (stored?.[0]) return `wss://${stored[0]}`;
@@ -162,8 +206,14 @@ export function editWsRelay(from, raw) {
   if (!next || !list.includes(from)) return null;
   if (next !== from && list.includes(next)) return null;
   const active = activeWsRelay() === from ? next : activeWsRelay();
+  const custom = storedProxyUrl(from);
   write(list.map((h) => (h === from ? next : h)), active);
-  if (next !== from) { const tok = wsRelayToken(from); setWsRelayToken(from, ""); if (tok) setWsRelayToken(next, tok); }
+  if (next !== from) {
+    const tok = wsRelayToken(from);
+    setWsRelayToken(from, ""); if (tok) setWsRelayToken(next, tok);
+    setWsRelayUrl(from, "");
+    if (custom) { const u = new URL(custom); u.hostname = next; setWsRelayUrl(next, u.href); }
+  }
   return next;
 }
 
@@ -173,6 +223,7 @@ export function removeWsRelay(host) {
   const next = list.filter((h) => h !== host);
   write(next, activeWsRelay() === host ? next[0] : activeWsRelay());
   setWsRelayToken(host, "");
+  setWsRelayUrl(host, "");
   return true;
 }
 
@@ -228,15 +279,28 @@ export function probeC3Relay(host) {
   if (tauriInvoke()) {
     return invoke("probe_c3_relay", { host }).then((v) => v === true, () => false);
   }
-  return probeDns(`wss://${host}/dns/${host}`);
+  const h = normalizeHost(host);
+  return h ? probeDns(`${storedProxyUrl(h) || `wss://${h}`}/dns/${h}`) : Promise.resolve(false);
 }
 
 // Whether the active tunnel will resolve some other mail host. Stock
 // chatmail has no tunnel; create-account and autopick use this to stay on
 // the page's proxy instead of switching to a host that cannot answer.
 export function probeDnsVia(proxyHost, name) {
-  const proxy = normalizeHost(proxyHost);
+  const raw = String(proxyHost || "");
+  let proxy = "";
+  let base = "";
+  if (raw.includes("://")) {
+    try {
+      const u = new URL(raw);
+      proxy = normalizeHost(u.hostname) || "";
+      if (u.protocol === "wss:" && !u.username && !u.password && !u.search && !u.hash) base = raw.replace(/\/+$/, "");
+    } catch { /* rejected below */ }
+  } else {
+    proxy = normalizeHost(raw) || "";
+    if (proxy) base = storedProxyUrl(proxy) || `wss://${proxy}`;
+  }
   const host = normalizeHost(name);
-  if (!proxy || !host) return Promise.resolve(false);
-  return probeDns(`wss://${proxy}/dns/${host}`);
+  if (!proxy || !base || !host) return Promise.resolve(false);
+  return probeDns(`${base}/dns/${host}`);
 }

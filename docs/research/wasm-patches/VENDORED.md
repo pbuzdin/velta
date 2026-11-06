@@ -124,8 +124,12 @@ wasm-pack + smoke + e2e (see checklist §7).
 | 0006 | blob/cargo: `ReadDir` cfg for memfs, serde_urlencoded | Cargo.toml, blob.rs | low | none |
 | 0007 | net/blob/time: `ws_tcp`, wasm clocks, blob `sync_fs`, fetch | 18 files (blob, tools, net/*, imap, smtp, sql/migrations, ratelimit…) | **high** — `Time::now()`→`tools::time_now()` sweep touches many call sites; re-grep `Time::now()` after each bump | mechanical refactors; avatar golden unchanged |
 | 0008 | fs/net/tls: `path_exists`/`is_dir`, wasm `connect_tcp`, JsClock, mail-builder 1.0 | Cargo.toml, accounts, context, imex, net, tools | medium | wrappers = `Path::exists/is_dir` |
-| 0009 | tests: blob_tests use `BufRead + Seek` `image_metadata` | blob/blob_tests.rs | low | test-only |
+| 0011 | blob: sync_fs facade and memfs `open_blob` for the 2.66 attachment port | blob.rs | medium — re-anchor after #22 attachment changes; key-only paths stay on std::fs because wasm has no raw DEK | none — native re-exports std::fs and keeps `open_blob` unchanged |
 | 0010 | scheduler: `stop()` without `tokio_util::TaskTracker` on wasm32 | scheduler.rs | low — one function, cfg-split | none — native path byte-identical |
+
+Patch 0009 was intentionally retired at 2.66.0: the production #22 attachment
+operations had already moved the blob tests to the new `open_blob` call sites.
+The series therefore has ten files with a deliberate 0009 gap.
 
 Upstream tracking: chatmail/core #8559 (wasm32 target), relay #1030
 (websockify). Drop any patch upstream covers.

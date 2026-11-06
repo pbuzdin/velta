@@ -4,7 +4,7 @@ What Velta's vendored-core patches (quilt `tools/apply-core-patches.py`,
 VENDORISSUES.MD) wait for upstream, and the texts we filed. Velta never
 posts in chatmail/deltachat repos from automation; filing is Pavel's call.
 
-## Status (2026-10-10, core 2.63.0)
+## Status (rechecked 2026-11-07, current vendored core 2.66.0)
 
 - **#7 animated WebP — DONE upstream, patch retired.** chatmail/core
   **#8777** ("fix: do not reencode animated WebPs into JPEG") merged
@@ -12,25 +12,32 @@ posts in chatmail/deltachat repos from automation; filing is Pavel's call.
   (`0001-*.patch`, branch `fix/animated-webp-byte-exact`) is deleted.
 - **#10 sending transport — FILED: chatmail/core#8798** (2026-10-04,
   "Client-facing signal for which SMTP transport actually sent a
-  message"; text below). Open; a maintainer asked for the use case
-  (2026-10-06), answered the same day (user-facing "Sent via <relay>" +
-  delivery debugging); no API shape agreed yet. When a core carries it,
-  port Velta's `relaySmtpVia` consumer and drop quilt patch #10.
+  message"; text below). Still open as of 2026-11-07; a maintainer asked for
+  the use case (2026-10-06), answered the same day (user-facing
+  "Sent via <relay>" + delivery debugging); no API shape is agreed. When a
+  core carries it, port Velta's `relaySmtpVia` consumer and drop quilt patch
+  #10.
 - **#8771 — MERGED 2026-10-06, in 2.63.0:** the SMTP loop connects to the
   most recently successful transport first (`smtp_success` table). Velta
   patch #11 keeps this as the failover order behind the user's pin.
-- **#8711 — open DRAFT** ("refactor: remove ConfiguredAddr"; removes
-  `Config::ConfiguredAddr` and `maybe_update_sending_transport`;
-  `get_primary_self_addr` becomes "first transport by id"). Velta patch #11
-  was re-keyed to the ui key `ui.velta.send_transport` (2026-10-10) so this
-  cannot break it; rpc-core tolerates `configured_addr` becoming an unknown
-  key. Watch it at every re-vendor.
+- **#8711 — MERGED 2026-10-27** as `9e346ac65004e340dae3ac9c6ef264eb80e39312`
+  ("refactor!: remove `configured_addr` config"), with the removal present in
+  the 2.66 line. Velta patch #11 was re-keyed to the ui key
+  `ui.velta.send_transport` before that merge, and rpc-core tolerates the old
+  key being absent. Keep this as merged history; do not list it as an open
+  draft at later re-vendors.
 - Removal series context: #8619, #8705, #8703, #8709, #8797 merged
   (#8797, in 2.63.0, resets `transport_id`/`from` in `Smtp::disconnect`);
   umbrella #8572.
 - Not filed: #11 (user-chosen send transport), #12 (bounded
   `background_fetch`), #13 (push-token events). Candidates if upstream
   wants them.
+- **Wasm / browser upstreams (2026-11-07):** chatmail/core#8559 ("Add
+  WebSocket support") remains open with no merged client implementation;
+  chatmail/relay#1030 ("feat: setup websockify") remains an open draft.
+  Velta's opt-in wasm series and standalone authenticated WebSocket proxy
+  therefore still have local deltas to carry. Recheck both at every core bump
+  and before any production-core wasm landing.
 
 ## Issue text — expose which transport the SMTP loop is bound to
 
