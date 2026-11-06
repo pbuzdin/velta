@@ -51,7 +51,7 @@ upstream replaces the whole tree and wipes them. **The quilt
 `tools/apply-core-patches.py` is the single source of truth: every Velta
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
-vanished in 2.63.0. Current quilt at core 2.66.0 — **149 ops in 34 files**
+vanished in 2.63.0. Current quilt at core 2.66.0 — **196 ops in 37 files**
 (intent per patch in VENDORISSUES.MD; upstream status — none implemented,
 multi-relay heading "fully automatic" upstream, escalation posture — in
 VENDORISSUES.MD "Upstream status (assessed 2026-10-29)"):
@@ -71,9 +71,15 @@ VENDORISSUES.MD "Upstream status (assessed 2026-10-29)"):
 | #19 | 46 | chat.rs, receive_imf.rs, securejoin.rs, qr.rs, tools.rs, mimeparser.rs, ephemeral.rs, message.rs, jsonrpc, tests | admin groups (#177) |
 | #20 | 3 | accounts.rs | keyed SQLCipher open via `VELTA_DB_KEY` (#178) |
 | #21 | 2 | deltachat-jsonrpc/src/api.rs, scheduler.rs | start/stop_io_for_all_accounts release the account lock (#181) |
-| #22 | 40 | blob.rs and blob consumers, Cargo.toml/lock | native attachment encryption VLTA (#178) |
+| #22 (attachments) | 51 | blob.rs and blob consumers, Cargo.toml/lock, context.rs | native attachment encryption VLTA (#178), including attachment-key re-derivation on passphrase change |
+| #22 (config) | 8 | sql.rs, sql/sql_tests.rs, lib.rs | config cache no longer held across SQL; serialized setters/cache fills and slow-SQL diagnostics (#229) |
 | #23 | 1 | configure.rs | autorelay default off (#relays) |
-| #24 | 10 | transport.rs, smtp.rs, scheduler.rs, jsonrpc | per-relay enable/disable (#189) |
+| #24 | 11 | transport.rs, smtp.rs, scheduler.rs, jsonrpc, smtp/smtp_tests.rs | per-relay enable/disable, including closing a paused relay's live SMTP connection (#189) |
+| #25 | 4 | imap.rs | metadata updates release `context.metadata` across IMAP/DNS work (#242) |
+| #26 | 8 | sql.rs, sql/sql_tests.rs | generation-guarded config cache fills without `config_mtx` on cache-miss reads (#243) |
+| #27 | 13 | scheduler.rs, scheduler/connectivity.rs | replay scheduler interrupts skipped by `try_read()` on the next start (#244) |
+| #28 | 1 | scheduler/connectivity.rs | lock-free connectivity response during IO start/stop (#245) |
+| #29 | 1 | chat.rs | `get_reply_counts` looks up quoted messages by `rfc724_mid` with an indexed `CROSS JOIN` (#250) |
 
 Re-vendor steps:
 
@@ -82,7 +88,7 @@ Re-vendor steps:
 # 2. re-apply the quilt
 python3 tools/apply-core-patches.py apply                # CONFLICT = anchor moved; nothing is written
 # 3. prove it
-python3 tools/apply-core-patches.py verify               # must report 149/149 (any missing marker fails)
+python3 tools/apply-core-patches.py verify               # must report 196/196 (any missing marker fails)
 python3 tools/apply-core-patches.py tree-check --fetch   # pristine v<Cargo.toml version> + quilt == core/
 python3 tools/apply-core-patches.py self-test            # if you touched the tool
 # 4. build + targeted tests (WSL on Windows)

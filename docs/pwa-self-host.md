@@ -191,21 +191,30 @@ websocat -H 'Origin: https://evil.example' \
 # → 403
 ```
 
-### What still has to be same-origin
+### New-account minting through the WebSocket proxy
 
 **Mail I/O** (IMAP/SMTP through the tunnel) is origin-A → websocket-B.
 Identity restore and an already-created address work with nothing else.
 
-**New-account minting** (`POST /new`) is different. Stock chatmail sends no
-CORS header, so the wasm worker rewrites that POST to
-`https://<pwa-origin>/cm-new/<relay-host>`. A static host on A has no such
-path unless you add it. Practical options:
+With the standalone invite-authenticated proxy, **new-account minting uses the
+same WebSocket connection family**. The worker turns stock Chatmail `POST /new`
+into `wss://<proxy>[/path]/cm-new/<relay-host>` and wraps the returned JSON as
+a `Response` for wasm. This avoids the missing CORS header on direct Chatmail
+signup and requires no HTTP `/cm-new/` route on origin A. Full proxy paths are
+preserved.
 
-1. Serve the PWA from the relay (`https://relay.example.org/app/`). Then
-   `/cm-new/` is already on that host. Simplest.
-2. Keep the PWA on A and reverse-proxy `/cm-new/` on A the same way the
-   relay module does (see `location ~ ^/cm-new/` in
-   [`relay-modules.md`](relay-modules.md)).
+The proxy permits only an empty `POST /new` to an administratively approved
+Chatmail host. It rejects cross-origin redirects and malformed or oversized
+responses. Unlike IMAP/SMTP contents, the initial signup credentials are visible
+to the proxy, so the proxy configuration must come from a trusted deployment
+origin; a successful health probe alone does not authenticate a proxy.
+
+Older HTTP-only relay-module deployments still need one of these options:
+
+1. Serve the PWA from the relay (`https://relay.example.org/app/`), where
+   `/cm-new/` is already available.
+2. Reverse-proxy `/cm-new/` on origin A as described in
+   [`relay-modules.md`](relay-modules.md).
 3. Skip in-tab signup: restore an identity backup, or create the address
    out of band and type the credentials.
 

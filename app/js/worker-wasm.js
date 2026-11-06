@@ -22,19 +22,19 @@ let rawDek = null; // in-memory only; re-wrapping for the PIN/recovery wraps (ph
 let crypt = null;
 
 // Stock chatmail POST /new has no CORS header, so the browser cannot read
-// the minted address. /cm-new/<host> on the configured mail relay (the
-// wsProxyUrl host; the page origin when none is set) is the relay proxy, so
-// a PWA served from another origin (velta.cc/web/) still mints through it.
+// the minted address. With a configured WS proxy, /cm-new/<host> is an
+// authenticated WebSocket request on that proxy (the HTTP route has the same
+// CORS problem). Without one, the page origin's HTTP endpoint is the fallback.
 // ponytail: pathname /new only; a /new_email QR still goes direct.
-let relayBase = null; // { origin, hostname } of the mail relay, set at init
+let relayBase = null; // { origin, hostname, ws } of the mail relay, set at init
 
-// wss://relay.example/… → { origin: "https://relay.example", hostname }.
+// wss://relay.example/… → HTTP origin plus the full WS base (including path).
 function relayBaseFromWsUrl(ws) {
   try {
     const u = new URL(String(ws || ""));
     if (u.protocol !== "wss:" && u.protocol !== "ws:") return null;
     const origin = (u.protocol === "wss:" ? "https://" : "http://") + u.host;
-    return { origin, hostname: u.hostname };
+    return { origin, hostname: u.hostname, ws: String(ws).replace(/\/+$/, "") };
   } catch {
     return null;
   }
@@ -55,11 +55,57 @@ function chatmailNewUrl(input, init, page, relay) {
   }
 }
 
+function chatmailNewWsUrl(proxied, relay) {
+  if (!relay?.ws) return "";
+  const url = new URL(proxied);
+  return relay.ws + url.pathname + url.search;
+}
+
+// The proxy returns the same JSON body as stock POST /new. Invite credentials
+// ride in the WebSocket subprotocols installed below, never in this URL.
+function chatmailNewFetch(url, signal) {
+  return new Promise((resolve, reject) => {
+    let ws = null;
+    let settled = false;
+    let timer = null;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener?.("abort", aborted);
+      try { ws?.close(); } catch {}
+    };
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new TypeError("Chatmail signup through the WebSocket proxy failed"));
+    };
+    const aborted = () => fail();
+    timer = setTimeout(fail, 25000);
+    if (signal?.aborted) return fail();
+    signal?.addEventListener?.("abort", aborted, { once: true });
+    try { ws = new self.WebSocket(url); } catch { return fail(); }
+    ws.onerror = fail;
+    ws.onclose = () => fail();
+    ws.onmessage = ev => {
+      if (settled || typeof ev.data !== "string" || ev.data.length > 65536) return fail();
+      try {
+        const data = JSON.parse(ev.data);
+        if (!data || typeof data.email !== "string" || typeof data.password !== "string") return fail();
+        settled = true;
+        cleanup();
+        resolve(new Response(ev.data, { status: 200, headers: { "Content-Type": "application/json" } }));
+      } catch { fail(); }
+    };
+  });
+}
+
 const _fetch = typeof self.fetch === "function" ? self.fetch.bind(self) : null;
 if (_fetch) {
   self.fetch = (input, init) => {
     const proxied = chatmailNewUrl(input, init, self.location, relayBase);
     if (!proxied) return _fetch(input, init);
+    const wsUrl = chatmailNewWsUrl(proxied, relayBase);
+    if (wsUrl) return chatmailNewFetch(wsUrl, init?.signal);
     return _fetch(proxied, { method: "POST", redirect: init?.redirect, signal: init?.signal });
   };
 }
