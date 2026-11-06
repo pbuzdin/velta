@@ -3711,4 +3711,8 @@ x86_64. It installs the Tauri GTK/WebKit deps, builds the rpc-server sidecar
 (staged as `binaries/deltachat-rpc-server-x86_64-unknown-linux-gnu`;
 `tauri.linux.conf.json` ships it as `externalBin`, so it lands next to the exe,
 which `find_sidecar` checks), runs `tauri build --bundles deb`, and uploads
-artifact `velta-linux-deb`. It is not in release.yml yet.
+artifacts `velta-linux-deb` and `velta-linux-appimage` (`--bundles deb,appimage`,
+`APPIMAGE_EXTRACT_AND_RUN=1`). Job `build-arch` (archlinux:base-devel
+container) repackages that .deb with `packaging/arch/PKGBUILD` (velta-bin,
+makepkg as user `builder`) into artifact `velta-arch-pkg`. Not on the AUR.
+It is not in release.yml yet.
