@@ -3790,16 +3790,20 @@ do-not-regress rules; dates mark when the lesson was learned.
 
 ## Linux .deb build (#291)
 
-`.github/workflows/build-linux.yml`: manual `workflow_dispatch` on ubuntu-24.04
-x86_64. It installs the Tauri GTK/WebKit deps, builds the rpc-server sidecar
-(staged as `binaries/deltachat-rpc-server-x86_64-unknown-linux-gnu`;
+`.github/workflows/build-linux.yml`: manual `workflow_dispatch`, x86_64, in a
+Debian 12 container (glibc 2.36) on an ubuntu-24.04 host. Both Rust binaries
+must build inside that container; sidecar and Rust caches are isolated from
+older Ubuntu builds. It installs the Tauri GTK/WebKit 4.1 deps, builds the
+rpc-server sidecar (staged as `binaries/velta-rpc-server-x86_64-unknown-linux-gnu`;
 `tauri.linux.conf.json` ships it as `externalBin`, so it lands next to the exe,
-which `find_sidecar` checks), runs `tauri build --bundles deb`, and uploads
-artifacts `velta-linux-deb` and `velta-linux-appimage` (`--bundles deb,appimage`,
+which `find_sidecar` checks), and uploads artifacts `velta-linux-deb` and `velta-linux-appimage` (`--bundles deb,appimage`,
 `APPIMAGE_EXTRACT_AND_RUN=1`). Job `build-arch` (archlinux:base-devel
 container) repackages that .deb with `packaging/arch/PKGBUILD` (velta-bin,
 makepkg as user `builder`) into artifact `velta-arch-pkg`. Not on the AUR.
-It is not in release.yml yet.
+It stays out of release.yml and the README until more testing. CI runs
+`tools/check-glibc.py 2.36` over every ELF in the .deb, extracted AppImage and
+AppImage runtime, rejecting newer GLIBC requirements and reporting the maximum.
+`APPIMAGE_EXTRACT_AND_RUN=1` lets linuxdeploy work without FUSE in the container.
 **#295:** on Linux the core ships as `/usr/bin/velta-rpc-server` (`SIDECAR_NAME`
 in sidecar.rs, `tauri.linux.conf.json` externalBin), never `deltachat-rpc-server`,
 which distro packages own. `find_sidecar` only tries absolute paths and never

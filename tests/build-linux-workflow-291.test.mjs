@@ -2,10 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-test("#291: manual Linux .deb workflow on ubuntu-24.04, not in release.yml", () => {
+test("#291: manual Linux .deb workflow in Debian 12, not in release.yml", () => {
   const wf = readFileSync(new URL("../.github/workflows/build-linux.yml", import.meta.url), "utf8");
   assert.match(wf, /workflow_dispatch:/);
-  assert.match(wf, /runs-on: ubuntu-24\.04/);
+  assert.match(wf, /container: debian:12/);
+  assert.match(wf, /shared-key: debian12-glibc236/);
+  assert.match(wf, /key: sidecar-linux-debian12-glibc236/);
+  assert.match(wf, /python3 tools\/check-glibc\.py 2\.36 \/tmp\/deb-root \/tmp\/squashfs-root/);
+  assert.match(wf, /APPIMAGE_EXTRACT_AND_RUN: 1/);
   assert.match(wf, /libwebkit2gtk-4\.1-dev/);
   assert.match(wf, /velta-rpc-server-x86_64-unknown-linux-gnu/);
   assert.match(wf, /tauri build --bundles deb,appimage/);
