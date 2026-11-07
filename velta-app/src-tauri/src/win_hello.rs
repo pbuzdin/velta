@@ -74,7 +74,7 @@ fn spawn_prompt_focuser() {
                     let mut found: Option<HWND> = None;
                     let _ = EnumWindows(Some(find_dialog), LPARAM(&mut found as *mut _ as isize));
                     if let Some(hwnd) = found {
-                        if unsafe { GetForegroundWindow() } != hwnd {
+                        if GetForegroundWindow() != hwnd {
                             let _ = SetForegroundWindow(hwnd);
                             let _ = SetWindowPos(
                                 hwnd,
