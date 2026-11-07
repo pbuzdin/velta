@@ -4,8 +4,21 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.5.3` (copied from `src-tauri/tauri.conf.json`)  
+**Current stable version:** `1.5.4` (copied from `src-tauri/tauri.conf.json`)  
 **Bundled core:** `deltachat-core-rust 2.66.0` (copied from `../core/Cargo.toml`)
+
+## What's new in 1.5.4
+
+- **Windows Hello works end to end** (Windows): the database key is held
+  through the system KeyCredentialManager surface, the prompt auto-focuses,
+  and the app-lock PIN can remain as the other way in.
+- **Text-only mode**: hide attachments and link previews for unknown
+  senders (default), everyone, or nobody — reveal per item.
+- **Show in folder** (desktop) in the message context menu; **relay send
+  failover status** with an optional strict pinned-relay mode.
+- **Attachment encryption at rest is out of preview** — native profiles
+  encrypt blobs, thumbnails and upload staging with the database key.
+- **Linux packages**: .deb, AppImage and Arch.
 
 ## What's new in 1.5.3
 

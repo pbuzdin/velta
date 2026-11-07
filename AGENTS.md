@@ -2955,7 +2955,11 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   fenced to OS components; measured Win11 26300), and the default NGC
   decryption key refuses third-party decrypt (NTE_BAD_KEYSET, no prompt).
   KeyCredentialManager has no delete API — "clear" drops the wrap and leaves
-  the dormant credential. The wrap is `<data>/dbkey.wrap.hello` (`VLTHW` +
+  the dormant credential. The prompt (CredentialUIBroker's "Credential
+  Dialog Xaml Host") is auto-focused by a watcher thread while create/sign
+  is in flight — from an unpackaged desktop app it otherwise opens behind
+  the calling window; the WinRT API takes no parent HWND. The wrap is
+  `<data>/dbkey.wrap.hello` (`VLTHW` +
   version + `nonce‖ct`, 66 bytes). `hello_wrap_path` is `#[cfg(windows)]`
   and `hello_wrap_ct` is `#[cfg(any(windows, test))]`: a macOS release build
   denies unused functions (`-D warnings`), and an ungated helper fails the
