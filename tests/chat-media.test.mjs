@@ -8,6 +8,12 @@ import {
 } from "../app/js/chat-media.js";
 import { LruCache } from "../app/js/lru.js";
 
+// #300: text-only mode covers unresolved senders (fail closed); these fixtures
+// are metadata-only and this suite tests gallery mechanics, not the policy —
+// every sender counts as known here.
+const { setKnownContactIds } = await import("../app/js/text-only-mode.js");
+setKnownContactIds(() => ({ has: () => true }));
+
 const VT = { Webxdc: "webxdc", Image: "image", Gif: "image", Sticker: "sticker", Video: "video", Audio: "audio", Voice: "voice", File: "file" };
 
 // Fake core: per-viewtype id lists (oldest first, like the core) + batched loader.

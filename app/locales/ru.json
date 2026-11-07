@@ -1627,5 +1627,19 @@
   "Only sending via {relay} — it is not reachable, messages wait for it": "Отправка только через {relay} — он недоступен, сообщения ждут его",
   "Show in folder": "Показать в папке",
   "Folder": "Папка",
-  "Couldn't show in folder: ": "Не удалось показать в папке: "
+  "Couldn't show in folder: ": "Не удалось показать в папке: ",
+  "Text-only mode": "Текстовый режим",
+  "Text-only mode: {state}": "Текстовый режим: {state}",
+  "Unknown senders": "Неизвестные отправители",
+  "All messages": "Все сообщения",
+  "Hidden — Text-only mode": "Скрыто — текстовый режим",
+  "Download and show": "Скачать и показать",
+  "Link preview hidden — Text-only mode": "Предпросмотр ссылки скрыт — текстовый режим",
+  "Load preview": "Загрузить предпросмотр",
+  "Don't load attachments or link previews unless you choose to show them. Text and links stay visible.": "Не загружать вложения и предпросмотры ссылок, пока вы их не откроете. Текст и ссылки остаются видны.",
+  "PWA onboarding is unavailable": "Онбординг PWA недоступен",
+  "Finding your relay…": "Ищем ваш релей…",
+  "Creating your profile on {host}…": "Создаём профиль на {host}…",
+  "send failed, switched to {relay} for now": "не удалось отправить, пока переключились на {relay}",
+  "Automatic setup failed: ": "Не удалось настроить автоматически: "
 }

@@ -1627,5 +1627,19 @@
   "Only sending via {relay} — it is not reachable, messages wait for it": "Envoi uniquement via {relay} — injoignable, les messages l'attendent",
   "Show in folder": "Afficher dans le dossier",
   "Folder": "Dossier",
-  "Couldn't show in folder: ": "Impossible d'afficher dans le dossier : "
+  "Couldn't show in folder: ": "Impossible d'afficher dans le dossier : ",
+  "Text-only mode": "Mode texte seul",
+  "Text-only mode: {state}": "Mode texte seul : {state}",
+  "Unknown senders": "Expéditeurs inconnus",
+  "All messages": "Tous les messages",
+  "Hidden — Text-only mode": "Masqué — mode texte seul",
+  "Download and show": "Télécharger et afficher",
+  "Link preview hidden — Text-only mode": "Aperçu du lien masqué — mode texte seul",
+  "Load preview": "Charger l'aperçu",
+  "Don't load attachments or link previews unless you choose to show them. Text and links stay visible.": "Ne charge pas les pièces jointes ni les aperçus de liens tant que vous ne choisissez pas de les afficher. Le texte et les liens restent visibles.",
+  "PWA onboarding is unavailable": "Onboarding PWA indisponible",
+  "Finding your relay…": "Recherche de votre relais…",
+  "Creating your profile on {host}…": "Création de votre profil sur {host}…",
+  "send failed, switched to {relay} for now": "échec d'envoi, bascule vers {relay} pour l'instant",
+  "Automatic setup failed: ": "Échec de la configuration automatique : "
 }

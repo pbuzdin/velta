@@ -90,6 +90,7 @@ import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTranspor
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
+import { setKnownContactIds, clearReveals } from "./text-only-mode.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
@@ -3296,7 +3297,7 @@ async function showChatInfo(chat) {
   }
   if (body.querySelector("[data-media]") && mediaChatId) {
     mountChatMedia(body, {
-      core, chatId: mediaChatId, fileUrl,
+      core, chatId: mediaChatId, fileUrl, chat,
       isCurrent: () => accountIsCurrent(epoch) && body.isConnected,
       appInfo: (id) => prefetchInfo(id),
       appIconUrl: (id, icon) => appIconUrl(id, icon),
@@ -3933,6 +3934,13 @@ function bindChatHeadMenu() {
     const tag = String(e.detail?.tag || "");
     if (tag.startsWith("#")) openChatSearch(tag);
   });
+  // Text-only mode (#300) changed in the drawer: the drawer handler already
+  // cleared the session's revealed items; re-render the open chat so covered
+  // bubbles swap to placeholders (and back) without a reload.
+  window.addEventListener("velta-text-only-changed", () => {
+    const id = chatView?.chat?.id;
+    if (id != null) { chatView.close(); openChat(id); }
+  });
   function openChatSearch(prefill = "") {
     const epoch = core.accountEpoch;
     const chat = activeChat();
@@ -4018,6 +4026,8 @@ const knownContactsOnly = () => localStorage.getItem(KNOWN_CONTACTS_KEY) !== "0"
 // Contact ids with an existing 1:1 chat — state.chats singles carry
 // dmChatContact, so this is free (no per-contact RPCs).
 const knownContactIds = () => new Set(state.chats.filter(c => c.kind === "single" && c.contactId).map(c => c.contactId));
+// Text-only mode (#300) classifies group senders with the same #169 definition.
+setKnownContactIds(knownContactIds);
 
 // The shared checkbox row for the filtered surfaces; onChange refilters.
 function knownContactsToggleRow(onChange) {
@@ -5628,6 +5638,7 @@ async function accountTapFlow(id) {
   try {
     toast(t("Switching account…"));
     const account = await core.switchAccount(id);
+    clearReveals(); // text-only reveals are session+account scoped (#300)
     const epoch = core.accountEpoch;
     await accountRefreshPromise;
     if (accountIsCurrent(epoch)) toast(t("Switched to {name}", { name: account.displayName || account.addr }));

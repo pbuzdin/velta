@@ -18,6 +18,7 @@ import { foldText, virtualWindow, buildSearchRow, buildVirtualScroller } from ".
 import { LruCache } from "./lru.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
 import { P, svg } from "./icons.js";
+import { coversMessage, itemKey, isItemRevealed, revealItem } from "./text-only-mode.js";
 
 export const MEDIA_SECTIONS = [
   { key: "apps", label: "Apps", types: ["Webxdc"], layout: "list", search: "Search apps", empty: "No apps found" },
@@ -172,6 +173,9 @@ export function mountChatMedia(root, opts) {
 function mountSection(host, section, ids, cache, opts) {
   const { core, viewportH = 280, doc = document, isCurrent = () => true } = opts;
   const fileUrl = opts.fileUrl || ((p) => p);
+  // Text-only mode (#300): mixed-sender galleries hide only unknown senders'
+  // items; a revealed item (same key as the chat bubble) renders normally.
+  const coveredNow = (m) => coversMessage(m, opts.chat) && !isItemRevealed(itemKey(core.accountId, m.id));
   host.replaceChildren();
   const grid = section.layout === "grid";
   const infos = new Map();
@@ -233,6 +237,16 @@ function mountSection(host, section, ids, cache, opts) {
     }
     const full = cache.get(m.id);
     if (!full) { node.classList.add("media-loading"); node.dataset.loading = "1"; node.setAttribute("aria-busy", "true"); return node; }
+    if (coveredNow(full)) {
+      // No media URL, no open/save/play/goto — only the reveal button.
+      node.innerHTML = grid
+        ? `<span class="media-tile-inner media-textonly-cover" role="img" aria-label="${escapeHtml(t("Hidden — Text-only mode"))}"></span>`
+          + `<button type="button" class="btn-text media-reveal" data-media-reveal aria-label="${escapeHtml(t("Show"))}">${escapeHtml(t("Show"))}</button>`
+        : `<span class="member-text"><span class="member-name">${escapeHtml(mediaItemName(full, infos.get(full.id)))}</span>`
+          + `<span class="member-sub">${escapeHtml(t("Hidden — Text-only mode"))}</span></span>`
+          + `<span class="member-actions"><button type="button" class="btn-text" data-media-reveal>${escapeHtml(t("Show"))}</button></span>`;
+      return node;
+    }
     // A tile is a div holding two real buttons (open, show in chat): no
     // nested interactive content, both reachable by keyboard.
     if (grid) node.innerHTML = `<button type="button" class="media-open" data-media-open>${mediaTileHtml(section, full, { fileUrl })}</button>`
@@ -305,6 +319,16 @@ function mountSection(host, section, ids, cache, opts) {
     if (!node) return;
     const m = itemAt(node);
     if (!m) return;
+    if (e.target?.closest?.("[data-media-reveal]")) {
+      // #300: explicit reveal of this one item, then rebuild its tiles/rows.
+      revealItem(itemKey(core.accountId, m.id));
+      for (const [i, rendered] of state.rendered) {
+        if (rendered.dataset.msgId === String(m.id)) { release(rendered); state.rendered.delete(i); }
+      }
+      render();
+      return;
+    }
+    if (coveredNow(m)) return; // covered tiles/rows open nothing
     if (e.target?.closest?.("[data-media-goto]")) { opts.onShowInChat?.(m); return; }
     if (e.target?.closest?.("[data-media-save]")) { opts.onSave?.(m); return; }
     if (e.target?.closest?.(".vp")) return; // the inline player's own controls
@@ -317,6 +341,7 @@ function mountSection(host, section, ids, cache, opts) {
     e.preventDefault?.();
     const m = itemAt(node);
     if (!m) return;
+    if (coveredNow(m)) return; // #300: reveal via the row's own button
     if (section.key === "audio") playInline(node, m);
     else opts.onOpen?.(section.key, m);
   });

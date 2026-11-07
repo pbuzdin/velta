@@ -102,7 +102,8 @@ import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
-import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
+import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
+import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealItem } from "./text-only-mode.js";
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
@@ -382,6 +383,7 @@ const ICO = {
   trash: ICON.trash,
   info: ICON.info,
   download: ICON.download,
+  shield: ICON.shield,
   folder: ICON.folder,
   photo: ICON.photo,
   video: ICON.video,
@@ -632,6 +634,10 @@ export function gestureSkipTarget(target) {
   if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
+
+// Text-only mode (#300): the viewtypes whose whole bubble content is media
+// (plain text, captions and links stay visible on covered messages).
+const COVERED_VIEWTYPES = new Set(["image", "gif", "sticker", "video", "audio", "voice", "webxdc", "file", "vcard"]);
 
 export class ChatView {
   constructor(core, { onChatsChanged, onForward, onOpenChat, onBack }) {
@@ -2367,6 +2373,20 @@ export class ChatView {
     return el;
   }
 
+  // Text-only mode (#300): compact placeholder for a covered attachment.
+  // The only interactive element is the reveal button (data-act="reveal",
+  // handled in the row click delegation) — no download/open/lightbox paths.
+  _hiddenCard(m) {
+    const kindLabel = { image: t("Photo"), gif: t("Photo"), sticker: t("Sticker"), video: t("Video"),
+      audio: t("Audio"), voice: t("Voice message"), webxdc: t("Webxdc app"), file: t("File"), vcard: t("Contact") }[m.viewtype] || t("File");
+    const act = m.downloadState === "Done" ? t("Show") : t("Download and show");
+    return `<div class="msg-file msg-textonly">
+      <div class="file-ico">${ICO.shield}</div>
+      <div><div class="file-name">${escapeHtml(m.fileName || kindLabel)}</div><div class="file-size">${escapeHtml(t("Hidden — Text-only mode"))}</div></div>
+      <button type="button" class="btn-text" data-act="reveal">${escapeHtml(act)}</button>
+    </div>`;
+  }
+
   _renderMsgItem(item, { inThread = false } = {}) {
     const m = item.msg;
     let threadBtn = "";
@@ -2399,6 +2419,11 @@ export class ChatView {
     }
     const out = m.from === 1;
     const showAvatar = !out && (this.chat.kind === "group");
+    // Text-only mode (#300): covered media/preview content stays hidden until
+    // the user reveals this one item. Computed once per render; isItemRevealed
+    // makes a revealed message survive virtual-scroll row reuse.
+    const covered = coversMessage(m, this.chat)
+      && !isItemRevealed(itemKey(this.core.accountId, m.id));
     // Event-driven inserts (onIncoming) can carry rows before decoration —
     // never let a missing fromContact kill the whole render pass.
     const fc = m.fromContact || { id: m.from, name: t("Unknown"), color: "#888" };
@@ -2471,6 +2496,12 @@ export class ChatView {
       } else {
         bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(t("Transfer"))}">${pct}%</progress><div class="mfp-pct">${pct}%</div></div>`;
       }
+    } else if (covered && COVERED_VIEWTYPES.has(m.viewtype)) {
+      // Text-only mode (#300): the placeholder replaces the whole media branch
+      // (no <img>/<audio>/<velta-video>, no download/open actions — only the
+      // explicit reveal button), so no media URL is ever assigned. The reveal
+      // handler is in the row click delegation below ("reveal").
+      bubble += this._hiddenCard(m);
     } else if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
       // Demo stickers are emoji placeholders, not files — render the emoji.
       if (m.viewtype === "sticker" && typeof m.filePath === "string" && m.filePath.startsWith("mock:")) {
@@ -2737,7 +2768,8 @@ export class ChatView {
     // Link preview hydration: only plain-text first-link messages carry the
     // slot; failed/off settings resolve null and the slot stays hidden.
     const lpSlot = row.querySelector("[data-lp]");
-    if (lpSlot && linkPreviewMode(chatId, this.core.accountId) === "fetch" && lpSlot.dataset.lpDone !== "1") {
+    const hydrateLp = () => {
+      if (!lpSlot || lpSlot.dataset.lpDone === "1") return;
       lpSlot.dataset.lpDone = "1";
       linkPreview(m.text, chatId, this.core.accountId).then((p) => {
         if (!p || !alive() || !lpSlot.isConnected) return;
@@ -2752,6 +2784,19 @@ export class ChatView {
           lpImg.addEventListener("error", onLpImg, { once: true });
         }
       });
+    };
+    if (lpSlot && linkPreviewMode(chatId, this.core.accountId) === "fetch") {
+      if (covered) {
+        // Text-only mode (#300): no preview fetch (cached or not) before an
+        // explicit reveal; the button carries the IP consequence.
+        lpSlot.hidden = false;
+        lpSlot.innerHTML = `<span class="lp-hidden-note">${escapeHtml(t("Link preview hidden — Text-only mode"))}</span><button type="button" class="btn-text" data-lp-reveal title="${escapeHtml(t(LINK_PREVIEW_IP_WARNING))}">${escapeHtml(t("Load preview"))}</button>`;
+        lpSlot.querySelector("[data-lp-reveal]")?.addEventListener("click", () => {
+          if (!alive()) return;
+          revealItem(itemKey(this.core.accountId, m.id));
+          hydrateLp();
+        });
+      } else hydrateLp();
     }
     // A cached row (virtual scroller / chat re-open) keeps its call card but
     // the old wiring stopped with the previous chat session: wire it again.
@@ -3120,6 +3165,19 @@ export class ChatView {
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
+        else if (mediaAction.dataset.act === "reveal") {
+          // Text-only mode (#300): an explicit user action reveals exactly
+          // this item, then rebuilds the row in place. Content that is not
+          // downloaded yet goes through the normal download flow only now.
+          revealItem(itemKey(this.core.accountId, m.id));
+          if (m.downloadState && m.downloadState !== "Done" && m.downloadState !== "InProgress") this._downloadMedia(m.id);
+          const it = liveItem();
+          if (!it) return;
+          const fresh = this._buildItem(it);
+          row.replaceWith(fresh);
+          this._rowCache.set(it.key, fresh);
+          this.vs?.onItemHeightDidChange?.(it);
+        }
         else if (mediaAction.dataset.act === "show-original") this._showOriginal(m);
         else if (mediaAction.dataset.act === "thread") this._openThread(m, mediaAction);
         return;
@@ -3452,6 +3510,9 @@ export class ChatView {
     if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
     const m = item.msg;
     if (m.kind === "service") return;
+    // Text-only mode (#300): covered content keeps no Download / Save sticker /
+    // Show in folder actions (the reveal button on the bubble is the only path).
+    const covered = coversMessage(m, this.chat) && !isItemRevealed(itemKey(this.core.accountId, m.id));
     const touch = this._offerSelectText();
     // Deleted (held for undo, or committing): nothing to reply to, forward,
     // download or resend. Delete commits it now instead of waiting for undo.
@@ -3495,7 +3556,7 @@ export class ChatView {
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
     if (canEditMsg(m, this.chat)) items.push({ label: "Edit", pair: "own", icon: ICO.edit, onClick: () => this._setEdit(item) });
-    if (!this.chat?.isP2p && m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
+    if (!covered && !this.chat?.isP2p && m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
       items.push({
         label: "Save sticker", short: t("Sticker"), pair: "file", icon: ICO.download,
         onClick: () => {
@@ -3505,7 +3566,7 @@ export class ChatView {
     }
     // Image, video, and file bubbles. Stickers keep Save sticker. A file that
     // is still on the server (downloadState not Done) is fetched first.
-    if ((m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
+    if (!covered && (m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
       && (m.filePath || (m.downloadState && m.downloadState !== "Done"))) {
       items.push({
         label: "Download", short: t("Download"), pair: "file", icon: ICO.download,
@@ -3513,7 +3574,7 @@ export class ChatView {
       });
     }
     // #279: desktop only, downloaded files only.
-    if ((m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
+    if (!covered && (m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
       && m.filePath && (!m.downloadState || m.downloadState === "Done") && canShowInFolder()) {
       items.push({
         label: "Show in folder", short: t("Folder"), pair: "file", icon: ICO.folder,
@@ -4516,7 +4577,7 @@ export class ChatView {
     const bar = document.getElementById("link-preview-draft");
     const text = document.getElementById("composer-input")?.value || "";
     const url = senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && !senderPreviewBlocked() && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
     });
@@ -4631,7 +4692,7 @@ export class ChatView {
     this._mentions?.hide();
     if (!this.editingMsg) recordCommand(this.core.accountId, session.chatId, text);
     const url = senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
+      enabled: !!(this.chat && !this.editingMsg && !senderPreviewBlocked() && linkPreviewMode(this.chat.id, this.core.accountId) === "picture"),
       hasFile: false,
       dismissed: this._lpDismissed,
     });
