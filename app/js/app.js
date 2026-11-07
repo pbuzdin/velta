@@ -6220,24 +6220,31 @@ function openPrivacySecurity() {
     });
     // Android: the biometric lock replaces the PIN (the Keystore KEK is the
     // user-auth root there); the result arrives as a velta-biometric event.
-    // #178 phase 5: the encryption decision's honest boundary — the
-    // message database is keyed, attachments are not; say what still rides
-    // on platform/disk encryption.
+    // #184: keyed native profiles encrypt blobs, thumbnails and upload
+    // staging with a key derived from the database key. The unencrypted
+    // note is only true in a keyless session (no OS keychain), where the
+    // database itself is plaintext; disk encryption stays defense in depth.
     const blobEl = applockBox.querySelector("[data-blob-status]");
     if (blobEl) {
       blobEl.hidden = false;
       if (isAndroid()) {
-        blobEl.textContent = t("Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).");
+        blobEl.textContent = t("Attachments and thumbnails are encrypted at rest with a key derived from your database key.");
       } else {
         const shell2 = tauriInvoke();
         if (shell2) {
-          shell2("volume_encryption_status").then((st) => {
-            const vol = st === "on"
-              ? " " + t("Disk encryption: on.")
-              : st === "off"
-                ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.")
-                : "";
-            blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.") + vol;
+          shell2("get_db_key_issue").then((issue) => {
+            if (issue) {
+              blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.");
+              return;
+            }
+            return shell2("volume_encryption_status").then((st) => {
+              const vol = st === "on"
+                ? " " + t("Disk encryption: on.")
+                : st === "off"
+                  ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) for defense in depth.")
+                  : "";
+              blobEl.textContent = t("Attachments and thumbnails are encrypted at rest with a key derived from your database key.") + vol;
+            });
           }).catch(() => {});
         }
       }
