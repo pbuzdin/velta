@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Velta V logo</title>
+  <defs>
+    <!-- top caps: bright ice blue -->
+    <linearGradient id="capL" gradientUnits="userSpaceOnUse" x1="294" y1="240" x2="294" y2="338">
+      <stop offset="0" stop-color="#c3eafe"/>
+      <stop offset="1" stop-color="#92dbfb"/>
+    </linearGradient>
+    <linearGradient id="capR" gradientUnits="userSpaceOnUse" x1="727" y1="240" x2="727" y2="331">
+      <stop offset="0" stop-color="#c3eafe"/>
+      <stop offset="1" stop-color="#92dbfb"/>
+    </linearGradient>
+    <!-- left stroke, outer face -->
+    <linearGradient id="leftOuter" gradientUnits="userSpaceOnUse" x1="300" y1="270" x2="450" y2="810">
+      <stop offset="0" stop-color="#57acdf"/>
+      <stop offset="1" stop-color="#1f5593"/>
+    </linearGradient>
+    <!-- left stroke, inner face -->
+    <linearGradient id="leftInner" gradientUnits="userSpaceOnUse" x1="430" y1="270" x2="560" y2="655">
+      <stop offset="0" stop-color="#6fb6e5"/>
+      <stop offset="1" stop-color="#3a80c2"/>
+    </linearGradient>
+    <!-- left stroke, bottom cap -->
+    <linearGradient id="leftFoot" gradientUnits="userSpaceOnUse" x1="556" y1="662" x2="528" y2="830">
+      <stop offset="0" stop-color="#58b4ec"/>
+      <stop offset="1" stop-color="#4a90c4"/>
+    </linearGradient>
+    <!-- right stroke, inner face -->
+    <linearGradient id="rightInner" gradientUnits="userSpaceOnUse" x1="660" y1="290" x2="580" y2="490">
+      <stop offset="0" stop-color="#57baee"/>
+      <stop offset="1" stop-color="#3f8fcc"/>
+    </linearGradient>
+    <!-- right stroke, outer face -->
+    <linearGradient id="rightOuter" gradientUnits="userSpaceOnUse" x1="740" y1="280" x2="640" y2="610">
+      <stop offset="0" stop-color="#4e9ad2"/>
+      <stop offset="1" stop-color="#2f6dad"/>
+    </linearGradient>
+    <!-- right stroke, dark end cap -->
+    <linearGradient id="rightFoot" gradientUnits="userSpaceOnUse" x1="575" y1="480" x2="612" y2="620">
+      <stop offset="0" stop-color="#2e6fae"/>
+      <stop offset="1" stop-color="#19447d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- left stroke -->
+  <polygon points="198,240 389,240 350,338" fill="url(#capL)"/>
+  <polygon points="198,240 350,338 512,664 512,830" fill="url(#leftOuter)"/>
+  <polygon points="350,338 389,240 600,660 512,664" fill="url(#leftInner)"/>
+  <polygon points="512,664 600,660 512,830" fill="url(#leftFoot)"/>
+
+  <!-- right stroke -->
+  <polygon points="632,240 822,240 681,331" fill="url(#capR)"/>
+  <polygon points="632,240 681,331 605,498 539,465" fill="url(#rightInner)"/>
+  <polygon points="681,331 822,240 618,625 605,498" fill="url(#rightOuter)"/>
+  <polygon points="539,465 605,498 618,625" fill="url(#rightFoot)"/>
+</svg>

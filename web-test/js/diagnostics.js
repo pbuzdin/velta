@@ -1,0 +1,257 @@
+// diagnostics.js — local-only startup/core log presented as a device chat.
+import { tauriInvoke } from "./tauri.js";
+import { ICON } from "./icons.js";
+export const DIAGNOSTICS_CHAT_ID = -9007199254740991;
+
+// Verbose tracing (poll ticks, scroller calls, media URLs, event dumps).
+// Off by default: at the old cadences this alone produced megabytes of
+// console output and js_log IPC per hour. Enable with
+// localStorage.setItem("velta-debug", "1") or ?debug in the URL.
+export const VELTA_DEBUG = (() => {
+  try {
+    return localStorage.getItem("velta-debug") === "1" || new URLSearchParams(location.search).has("debug");
+  } catch { return false; }
+})();
+
+export function debugLog(msg) {
+  if (!VELTA_DEBUG) return;
+  console.log("[velta]", msg);
+  try {
+    const invoke = tauriInvoke();
+    if (invoke) invoke("js_log", { msg }).catch(() => {});
+  } catch {}
+}
+debugLog.enabled = VELTA_DEBUG;
+
+// Global sink so deep UI code (media loading, attachments, QR scanning) can
+// surface diagnostic lines into the Velta Diagnostics chat, where they are
+// visible via a simple screencap — no adb root or logcat needed. Entries are
+// also mirrored into velta.log (adb + run-as readable).
+export const diagnosticsSink = {
+  append(level, text) {
+    if (window.__veltaDiagnostics) window.__veltaDiagnostics.append(level, text);
+    try {
+      const invoke = tauriInvoke();
+      if (invoke) invoke("js_log", { msg: `[sink:${level}] ${text}` }).catch(() => {});
+    } catch {}
+  },
+};
+
+// OPFS checkpoint failures (wasm PWA): checkpoints are best-effort, but
+// once they fail (quota exceeded, storage evicted) NOTHING is being saved
+// — every swallow-until-now meant "profile updated" could be data loss
+// with no diagnostics trace. One line per failure streak; the next
+// success clears it. `ok`/`err` come from the checkpoint promise.
+let checkpointFailing = false;
+export function reportCheckpoint(ok, err) {
+  if (ok) {
+    checkpointFailing = false;
+    return;
+  }
+  if (checkpointFailing) return;
+  checkpointFailing = true;
+  try {
+    diagnosticsSink.append(
+      "warning",
+      `OPFS checkpoint failed: ${String(err?.message || err || "unknown")}. Changes may not survive a reload.`,
+    );
+  } catch { /* no diagnostics channel here — the save itself still resolved */ }
+}
+
+// CI build paths in core log lines ("/home/runner/work/velta/velta/core/src/
+// sql.rs:971: …"): keep the repo-relative "core/src/…:line" part only.
+export function stripBuildPaths(text) {
+  return String(text).replace(/(?:[A-Za-z]:)?[\\/](?:[^\s:"'\\/]+[\\/])*?(?=core[\\/]src[\\/])/g, "");
+}
+
+// Core info lines that repeat on every connectivity render and say nothing
+// new after the first time: kept once per session.
+const ONCE_PER_SESSION = [/connectivity: root name hidden:/];
+
+export class DiagnosticsStore extends EventTarget {
+  constructor() {
+    super();
+    this.messages = [];
+    this.nextId = 1;
+    this._seenOnce = new Set();
+    this.append("info", "Velta UI loaded");
+  }
+
+  append(level, text) {
+    text = stripBuildPaths(text);
+    const once = ONCE_PER_SESSION.find(re => re.test(text));
+    if (once) {
+      if (this._seenOnce.has(once)) return null;
+      this._seenOnce.add(once);
+    }
+    const message = {
+      id: this.nextId++,
+      chatId: DIAGNOSTICS_CHAT_ID,
+      kind: "service",
+      viewtype: "text",
+      level,
+      from: 0,
+      text: `[${String(level).toUpperCase()}] ${text}`,
+      ts: Date.now(),
+      state: "read",
+      fromContact: { id: 0, name: "Velta", color: "#5aa2e6" },
+    };
+    // Collapse identical consecutive entries (e.g. "Event polling failed"
+    // repeating every 250ms while the core is busy): keep one row and a
+    // counter instead of churning the store and the chat-list item. The
+    // visible text is unchanged, so no "changed" event is needed here.
+    const last = this.messages[this.messages.length - 1];
+    if (last && last.text === message.text) {
+      last.count = (last.count || 1) + 1;
+      last.ts = message.ts;
+      return last;
+    }
+    message.count = 1;
+    this.messages.push(message);
+    // Ring cap: 120 rows ≈ 600 DOM nodes with the copy buttons — the DOM
+    // budget watchdog flags the refill either way, keep the worst case small.
+    if (this.messages.length > 120) this.messages.splice(0, this.messages.length - 120);
+    this.dispatchEvent(new CustomEvent("changed", { detail: message }));
+    return message;
+  }
+
+  getChat() {
+    const last = this.messages[this.messages.length - 1];
+    return {
+      id: DIAGNOSTICS_CHAT_ID,
+      name: "Velta Diagnostics",
+      kind: "device",
+      pinned: true,
+      muted: true,
+      archived: false,
+      verified: false,
+      encrypted: false,
+      unread: 0,
+      avatarColor: "#5aa2e6",
+      lastMsg: last?.text || "Startup diagnostics",
+      lastTs: last?.ts || Date.now(),
+      lastFrom: null,
+      lastState: "received",
+      memberCount: 0,
+    };
+  }
+}
+
+// Console-style row (Chrome DevTools look) for a diagnostics entry, shared by
+// the direct renderer in app.js and chat-view's fallback path. Each row is a
+// left-aligned monospace pill with a hover copy-to-clipboard button in its
+// top-right corner.
+const LEVEL_EMOJI = { error: "❌", warning: "⚠️", info: "ℹ️" };
+export const DIAG_LEVELS = ["error", "warning", "info"];
+const LEVEL_TOKEN = {
+  error: "error", "❌": "error",
+  warning: "warning", warn: "warning", "⚠️": "warning",
+  info: "info", "ℹ️": "info",
+};
+
+export function levelFromToken(token) {
+  return LEVEL_TOKEN[String(token || "").trim().toLowerCase()] || null;
+}
+
+export function normalizeDiagLevel(level) {
+  return levelFromToken(level) || "info";
+}
+
+export function diagnosticLine(message) {
+  // 24-hour everywhere (AGENTS.md §5.1): a bare locale time string
+  // renders "03:21 AM" on en-US devices.
+  const emoji = LEVEL_EMOJI[normalizeDiagLevel(message.level)] || "ℹ️";
+  const text = String(message.text || "").replace(/^\[[A-Z]+\] /, "");
+  const time = new Date(message.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  return `${time}  ${emoji} ${text}` + (message.count > 1 ? ` ×${message.count}` : "");
+}
+
+// velta://diagnostics?show=error&copy=1 opens the log with those levels
+// checked and copies the visible lines. No install token: the link only
+// shows this device's own log. An unknown show= value is not a diagnostics link.
+export function parseDiagnosticsLink(raw) {
+  let url;
+  try { url = new URL(String(raw)); } catch { return null; }
+  if (url.protocol !== "velta:" || url.hostname !== "diagnostics") return null;
+  const show = url.searchParams.get("show");
+  const levels = show == null
+    ? DIAG_LEVELS.slice()
+    : DIAG_LEVELS.filter(l => show.split(",").some(part => levelFromToken(part) === l));
+  if (show != null && levels.length === 0) return null;
+  return { levels, copy: url.searchParams.get("copy") === "1" };
+}
+
+export function diagnosticsShareLink(levels) {
+  const show = DIAG_LEVELS.filter(l => levels.has(l));
+  if (!show.length) return null;
+  return `velta://diagnostics?${new URLSearchParams({ show: show.join(","), copy: "1" })}`;
+}
+
+const COPY_SVG =
+  ICON.copy;
+
+export function diagnosticRow(message) {
+  const row = document.createElement("div");
+  row.className = "msg-row service";
+  row.dataset.msgid = message.id;
+  const bubble = document.createElement("div");
+  bubble.className = "service-msg";
+  bubble.textContent = diagnosticLine(message);
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "diag-copy";
+  copy.title = "Copy to clipboard";
+  copy.setAttribute("aria-label", "Copy to clipboard");
+  copy.innerHTML = COPY_SVG;
+  copy.addEventListener("click", async e => {
+    e.stopPropagation();
+    const done = ok => {
+      copy.innerHTML = ok ? ICON.check : ICON.close;
+      setTimeout(() => { copy.innerHTML = COPY_SVG; }, 1200);
+    };
+    try {
+      await navigator.clipboard.writeText(message.text);
+      done(true);
+    } catch {
+      done(false);
+    }
+  });
+  row.appendChild(bubble);
+  row.appendChild(copy);
+  return row;
+}
+
+// #102: core send/relay failures worth surfacing on the relay status line.
+// The scheduler repeats "Retry." warnings on every pass — match the failing
+// pipeline, not the retry cadence, and only at warning/error level (Info
+// chatter like "SMTP connected" must never raise the state).
+export function isSendFailureDiagnostic(level, message) {
+  if (level !== "warning" && level !== "error") return false;
+  return /send_smtp_messages failed|failed to send message/i.test(String(message || ""));
+}
+
+// #102: the relay line's transient "sending delayed" state plus the 60 s
+// error-toast throttle (Retry warnings repeat every scheduler pass — never
+// toast per retry). Cleared on SmtpMessageSent or connectivity 3000+.
+export function createRelaySendErrorState({ now = () => Date.now(), toastGapMs = 60000 } = {}) {
+  let active = false;
+  let lastErrorToast = -Infinity; // first error toasts immediately
+  return {
+    get active() { return active; },
+    note(level) {
+      const raised = !active;
+      active = true;
+      let toastIt = false;
+      if (level === "error" && now() - lastErrorToast >= toastGapMs) {
+        lastErrorToast = now();
+        toastIt = true;
+      }
+      return { raised, toast: toastIt };
+    },
+    clear() {
+      const was = active;
+      active = false;
+      return was;
+    },
+  };
+}

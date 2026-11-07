@@ -1,0 +1,193 @@
+/* ../../../../tmp/css-liquid-glass/src/glass/liquid-glass.css */
+:where(.lg-host, .lg-cover) {
+  --lg-r: 30px;
+  --lg-dark: 0;
+  --lg-spec: calc(0.13 + 0.25 * var(--lg-dark));
+  --lg-glint-exp: calc(1.35 + 0.1 * var(--lg-dark));
+  --lg-glint-sat: calc(3.1 - 1.1 * var(--lg-dark));
+  --lg-rim-exp: calc(0.84 + 0.41 * var(--lg-dark));
+  --lg-rim-sat: calc(2.2 - 0.9 * var(--lg-dark));
+  --lg-underlay: calc(0.14 - 0.11 * var(--lg-dark));
+  --lg-shadow-o: calc(0.35 * (1 - var(--lg-dark)));
+  --lg-caustic-o: calc(0.7 * (1 - var(--lg-dark)));
+}
+:where(.lg-host) {
+  position: relative;
+}
+.lg-cover {
+  pointer-events: none;
+}
+.lg-host[data-lg-dark] + .lg-cover {
+  --lg-dark: 1;
+}
+.lg-host::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: calc(7px * var(--lg-s, 1)) solid var(--lg-shadow, oklch(0.24 0.05 236.8));
+  transform: translateY(calc(26px * var(--lg-s, 1))) scaleX(0.93);
+  filter: blur(calc(17px * var(--lg-s, 1)));
+  opacity: var(--lg-shadow-o, 0.35);
+}
+.lg-host > :where(:not(.lg-layer, .lg-defs)) {
+  position: relative;
+  z-index: 2;
+}
+.lg-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.lg-tick {
+  pointer-events: none;
+  background: rgb(128 128 128 / 0.004);
+}
+.lg-tick[data-tick] {
+  background: rgb(128 128 128 / 0.008);
+}
+.lg-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.lg-reflect {
+  z-index: 1;
+  border-radius: 0;
+}
+.lg-caustic {
+  transform: translateY(calc(12px * var(--lg-s, 1))) scale(0.86);
+  filter: blur(calc(10px * var(--lg-s, 1)));
+}
+.lg-caustic-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-sizing: border-box;
+  border: calc(9px * var(--lg-s, 1)) solid var(--lg-caustic, #fff);
+  opacity: var(--lg-caustic-o, 0.7);
+  mask-image:
+    radial-gradient(
+      70% 120% at 78% 0%,
+      rgb(0 0 0 / 0.58) 0%,
+      rgb(0 0 0 / 0.42) 35%,
+      rgb(0 0 0 / 0.18) 62%,
+      transparent 85%),
+    radial-gradient(
+      70% 120% at 22% 100%,
+      rgb(0 0 0 / 0.58) 0%,
+      rgb(0 0 0 / 0.42) 35%,
+      rgb(0 0 0 / 0.18) 62%,
+      transparent 85%),
+    linear-gradient(rgb(0 0 0 / 0.4) 0 0);
+  mask-composite: add, add;
+}
+.lg-pane {
+  transform: translateZ(0);
+  background-image: linear-gradient(var(--lg-tint, transparent), var(--lg-tint, transparent));
+}
+.lg-edge {
+  z-index: 1;
+  transform: translateZ(0);
+  --w: calc(var(--lg-rim-w, 0.7px) * var(--lg-s, 1));
+  --d: calc(var(--lg-rim-fade, 2px) * var(--lg-s, 1));
+  --r: var(--lg-r);
+  mask-image:
+    var(--lg-arc),
+    linear-gradient(
+      to bottom,
+      #000 var(--w),
+      transparent var(--d)),
+    linear-gradient(
+      to top,
+      #000 var(--w),
+      transparent var(--d)),
+    linear-gradient(
+      to right,
+      #000 var(--w),
+      transparent var(--d)),
+    linear-gradient(
+      to left,
+      #000 var(--w),
+      transparent var(--d)),
+    radial-gradient(
+      circle var(--r) at 100% 100%,
+      transparent calc(var(--r) - var(--d)),
+      #000 calc(var(--r) - var(--w))),
+    radial-gradient(
+      circle var(--r) at 0 100%,
+      transparent calc(var(--r) - var(--d)),
+      #000 calc(var(--r) - var(--w))),
+    radial-gradient(
+      circle var(--r) at 100% 0,
+      transparent calc(var(--r) - var(--d)),
+      #000 calc(var(--r) - var(--w))),
+    radial-gradient(
+      circle var(--r) at 0 0,
+      transparent calc(var(--r) - var(--d)),
+      #000 calc(var(--r) - var(--w)));
+  mask-size:
+    auto,
+    calc(100% - 2 * var(--r)) 100%,
+    calc(100% - 2 * var(--r)) 100%,
+    100% calc(100% - 2 * var(--r)),
+    100% calc(100% - 2 * var(--r)),
+    var(--r) var(--r),
+    var(--r) var(--r),
+    var(--r) var(--r),
+    var(--r) var(--r);
+  mask-position:
+    0 0,
+    var(--r) 0,
+    var(--r) 100%,
+    0 var(--r),
+    100% var(--r),
+    0 0,
+    100% 0,
+    0 100%,
+    100% 100%;
+  mask-repeat: no-repeat;
+  mask-composite:
+    intersect,
+    add,
+    add,
+    add,
+    add,
+    add,
+    add,
+    add,
+    add;
+}
+.lg-edge[data-ring] {
+  mask-image: var(--lg-arc), var(--lg-ring);
+  mask-size: auto, 100% 100%;
+  mask-position: 0 0, 0 0;
+  mask-composite: intersect, add;
+}
+.lg-fold {
+  --lg-arc: linear-gradient(#000 0 0);
+  --w: 0px;
+  --d: calc(var(--lg-r) * var(--lg-fold-k, 0.39));
+}
+.lg-glint {
+  --lg-arc: var(--lg-arc-glint);
+}
+.lg-rim {
+  --lg-arc: var(--lg-arc-rim);
+}
+.lg-spec {
+  background: rgb(255 255 255 / var(--lg-spec, 0.13));
+  --lg-arc: var(--lg-arc-glint);
+}
+.lg-underlay {
+  z-index: 1;
+  background-color: rgb(255 255 255 / var(--lg-underlay, 0.14));
+}
+.lg-host[data-lg-dark] {
+  --lg-dark: 1;
+}
