@@ -1,6 +1,6 @@
 [package]
 name = "velta-app"
-version = "1.5.3"
+version = "1.5.4"
 description = "Velta — Delta Chat client"
 edition = "2021"
 rust-version = "1.89"
@@ -116,6 +116,8 @@ windows = { version = "0.59", features = [
     "Security_Credentials",
     "Security_Cryptography",
     "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 sha2 = "0.10"
 
