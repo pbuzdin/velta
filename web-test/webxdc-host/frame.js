@@ -1,5 +1,5 @@
 // webxdc-host/frame.js — webxdc loader for the wasm PWA (Step A of
-// docs/research/beam-pwa-research.md). Runs INSIDE the app iframe.
+// docs/research/archive/beam-pwa-research.md). Runs INSIDE the app iframe.
 //
 // The service worker answers the frame's navigation to
 // <scope>webxdc-run/<account>/<msg>/<path> with a tiny document that inlines

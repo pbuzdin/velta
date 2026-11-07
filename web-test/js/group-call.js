@@ -1,5 +1,5 @@
 // group-call.js — the media side of Velta group audio calls (full mesh,
-// audio only). docs/research/webxdc-group-calls.md, docs/agents/group-calls.md.
+// audio only). docs/research/archive/webxdc-group-calls.md, docs/agents/group-calls.md.
 //
 // The HOST runs this, never the webxdc app: the trusted group-call app only
 // draws the UI through webxdc.veltaCall (webxdc-manager.js). One

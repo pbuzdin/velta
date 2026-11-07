@@ -1673,36 +1673,67 @@ button.reaction-chip { font: inherit; color: inherit; }
 #main-composer .icon-btn { width: 48px; height: 48px; margin-bottom: 0; }
 #main-composer .icon-btn svg { width: var(--ico-5); height: var(--ico-5); }
 
-/* PWA liquid composer: overlap the lower history just enough to give the
-   refraction live content, without changing the native shells' layout. */
-.chat-view:has(.composer-input-wrap.lg-host) #main-composer {
-  margin-top: -26px;
-  padding-top: 32px;
-  z-index: 2;
-}
-.chat-view:has(.composer-input-wrap.lg-host) .history { padding-bottom: 44px; }
-.composer-input-wrap.lg-host {
+/* PWA liquid composer: one shared dock over the lower history. At rest the
+   controls flank the input; input focus gives it a full-width row above them. */
+.chat-view:has(#main-composer.lg-host) .history { padding-bottom: 92px; }
+#main-composer.liquid-composer {
   --composer-veil: color-mix(in srgb, var(--bg-sidebar) 4%, transparent);
   --lg-rim-w: .65px;
   --lg-rim-fade: 2px;
   --lg-shadow-o: .12;
   --lg-caustic-o: .18;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  grid-template-rows: minmax(48px, auto);
+  align-items: end;
+  column-gap: 4px;
+  row-gap: 6px;
+  margin-top: -48px;
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
   background: transparent;
-  border-color: transparent;
+  border: 0;
+  z-index: 2;
 }
-.composer-input-wrap.lg-host .lg-pane {
-  background-image: none;
-  background-color: var(--composer-veil);
-  transition: background-color .18s ease-out;
+#main-composer.liquid-composer[hidden] { display: none; }
+.lg-tick:has(+ #main-composer.liquid-composer[hidden]),
+#main-composer.liquid-composer[hidden] + .lg-cover { display: none; }
+#main-composer.liquid-composer > #btn-attach { grid-column: 1; grid-row: 1; }
+#main-composer.liquid-composer > .composer-input-wrap {
+  grid-column: 2; grid-row: 1;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
-.composer-input-wrap.lg-host + .lg-cover { --lg-underlay: .02; --lg-spec: .18; }
-.composer-input-wrap.lg-host:focus-within {
+#main-composer.liquid-composer > #btn-send { grid-column: 3; grid-row: 1; }
+#main-composer.liquid-composer .icon-btn { background: transparent; border-radius: 50%; }
+#main-composer.liquid-composer #btn-sticker { width: 44px; height: 44px; margin-right: 2px; }
+#main-composer.liquid-composer:has(#composer-input:focus) {
   --composer-veil: color-mix(in srgb, var(--bg-sidebar) 82%, transparent);
+  grid-template-rows: minmax(48px, auto) 48px;
+}
+#main-composer.liquid-composer:has(#composer-input:focus) > .composer-input-wrap {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+#main-composer.liquid-composer:has(#composer-input:focus) > #btn-attach,
+#main-composer.liquid-composer:has(#composer-input:focus) > #btn-send { grid-row: 2; }
+#main-composer.liquid-composer:has(#composer-input:focus-visible) {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+#main-composer.liquid-composer .lg-pane {
+  background-image: none;
+  background-color: var(--composer-veil);
+  transition: background-color .2s ease-out;
+}
+#main-composer.liquid-composer + .lg-cover { --lg-underlay: .02; --lg-spec: .18; }
+@media (hover: hover) and (pointer: fine) {
+  #main-composer.liquid-composer .icon-btn:hover {
+    background: color-mix(in srgb, var(--text) 9%, transparent);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .composer-input-wrap.lg-host .lg-pane { transition: none; }
+  #main-composer.liquid-composer .lg-pane { transition: none; }
 }
 
 /* ---------- Elena components ---------- */
@@ -3576,6 +3607,12 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-row-audio .media-audio { margin-top: 2px; }
 .media-audio .vp { height: 30px; background: none; padding: 0; }
 .media-audio .vp-play { width: 26px; height: 26px; }
+/* Text-only mode (#300): covered gallery items show no media, only a reveal
+   button (same in-memory exception as the chat bubble). */
+.media-tile .media-textonly-cover { display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev); }
+.media-tile .media-reveal { position: absolute; inset: 0; margin: auto; height: 30px; max-width: calc(100% - 12px); border-radius: 15px; background: rgba(0,0,0,.55); color: #fff; font-size: 12.5px; }
+.msg-textonly .btn-text { flex: none; }
+.msg-link-preview .lp-hidden-note { display: block; font-size: 12.5px; color: var(--text-dim); margin-bottom: 2px; }
 
 /* ---------- Settings transfer (settings-transfer.js) ---------- */
 /* "Apply these settings" inside a Saved Messages bubble: the scoped
@@ -3861,3 +3898,7 @@ html[data-theme="brutal"] .core-banner-btn { border: 2px solid var(--nb-ink); bo
 .load-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 10px; padding: 6px 6px 6px 12px; border-left: 3px solid var(--danger); border-radius: 8px; background: var(--bg-sidebar); color: var(--text); font-size: 14px; }
 .load-error .btn-text { flex: none; }
 html[data-theme="brutal"] .load-error { border: 2px solid var(--nb-ink, var(--text)); border-left-width: 4px; }
+/* #286: send failover / strict-wait status in the Relays modal. Same
+   surface as .load-error (--text on --bg-sidebar: AA in every theme). */
+.relay-failover { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg-sidebar); color: var(--text); font-size: 13.5px; line-height: 1.35; }
+html[data-theme="brutal"] .relay-failover { border: 2px solid var(--nb-ink, var(--text)); border-left-width: 4px; }

@@ -1,17 +1,19 @@
-// PWA-only liquid glass for the message field. Native shells keep the stock composer.
+// PWA-only liquid glass for the whole composer dock. Native shells keep the stock composer.
 import { createLiquidGlass } from "../vendor/liquid-glass.js";
 
-const host = document.querySelector("#main-composer .composer-input-wrap");
+const host = document.getElementById("main-composer");
 if (window.VELTA_PWA?.wasmCore && host) {
   host.classList.add("liquid-composer");
+  // Keep the top-row sticker button still between pointerdown/up when the input blurs.
+  document.getElementById("btn-sticker")?.addEventListener("pointerdown", (event) => event.preventDefault());
   const syncTheme = () => host.toggleAttribute("data-lg-dark", document.documentElement.dataset.theme !== "light");
   syncTheme();
   new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   const glass = createLiquidGlass(host, {
-    radius: 18,
+    radius: 24,
     rim: 0.85,
-    blur: 2,
+    blur: 12,
     reflectStrength: 1.6,
     promote: "#history-scroll",
   });

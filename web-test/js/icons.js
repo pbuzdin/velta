@@ -40,6 +40,8 @@ export const P = {
   camera: '<path d="M4 8h3l1.8-2.5h6.4L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 01-1-1z"/><circle cx="12" cy="13" r="3.5"/>',
   photo: '<rect x="3" y="5" width="18" height="14" rx="2"/>' + DOT(9, 10, 1.6) + '<path d="M4 17l5-5 3.5 3.5L16 12l4 4"/>',
   download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/>',
+  // #279: "Show in folder" — outline folder on the 24 grid.
+  folder: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
   pin: '<path d="M9 3h6M10 3v6l-3.5 4v2h11v-2L14 9V3M12 15v6"/>',
   lock: '<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
   star: '<path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z"/>',

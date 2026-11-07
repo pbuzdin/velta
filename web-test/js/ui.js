@@ -3,6 +3,7 @@ import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
 import { shouldNotifyIncoming } from "./notify-policy.js";
 import { fileUrl } from "./media.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
+import { textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
 import { trackingStripEnabled, setTrackingStripEnabled } from "./trackers.js";
 import { APP_VERSION } from "./version.gen.js";
 import { formatSplashVersion } from "./format.js";
@@ -1499,6 +1500,14 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         </fieldset>
         <div class="bar-opts-hint">${t("Send a picture attaches a snapshot; other people do not open the site.")} ${t(LINK_PREVIEW_IP_WARNING)}</div>
       </details>` : ""}
+      <details class="drawer-details">
+        <summary>${ICON.shield}<span>${t("{label}: {state}", { label: t("Text-only mode"), state: t(TEXT_ONLY_LABELS[textOnlyMode()]) })}</span></summary>
+        <fieldset class="scale-opts" data-textonly-opts>
+          <legend class="vh">${t("Text-only mode")}</legend>
+          ${[["unknown", "Unknown senders"], ["off", "Off"], ["all", "All messages"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="text-only-mode" data-to-value="${value}"${value === textOnlyMode() ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
+        </fieldset>
+        <div class="bar-opts-hint">${t("Don't load attachments or link previews unless you choose to show them. Text and links stay visible.")}</div>
+      </details>
       <label class="ctx-item" title="${escapeHtml(t("Drops utm and click-id parameters when you paste or open a link. Undo brings them back."))}">${ICON.cleanLink}<span>${escapeHtml(toggleText("Strip tracking from links", trackingStripEnabled() ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
       <label class="ctx-item">${ICON.enterKey}<span>${escapeHtml(toggleText("Send on Enter", localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
       <label class="ctx-item" title="${escapeHtml(t("Off also stops seen-status sync between your own devices"))}">${ICON.tick2}<span>${escapeHtml(toggleText("Show and send read receipts", localStorage.getItem("velta-mdns") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
@@ -1802,6 +1811,16 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     const summary = drawer.querySelector("[data-lp-opts]")?.closest("details")?.querySelector("summary span");
     if (summary) summary.textContent = t("Link previews: {mode}", { mode: LINK_PREVIEW_LABELS[mode] });
     toast(t("Link previews: {mode}", { mode: LINK_PREVIEW_LABELS[mode] }));
+  });
+  drawer.querySelector("[data-textonly-opts]")?.addEventListener("change", e => {
+    const mode = (e.target.closest?.("[data-to-value]") || e.target)?.dataset?.toValue;
+    if (!mode || mode === textOnlyMode()) return;
+    setTextOnlyMode(mode); // also clears the session's revealed items
+    const summary = drawer.querySelector("[data-textonly-opts]")?.closest("details")?.querySelector("summary span");
+    if (summary) summary.textContent = t("{label}: {state}", { label: t("Text-only mode"), state: t(TEXT_ONLY_LABELS[mode]) });
+    toast(t("Text-only mode: {state}", { state: t(TEXT_ONLY_LABELS[mode]) }));
+    // app.js re-renders the open chat and clears reveal state on this event.
+    window.dispatchEvent(new CustomEvent("velta-text-only-changed"));
   });
   drawer.querySelector('[data-toggle="strip-trackers"]')?.addEventListener("change", e => {
     const on = e.target.checked;

@@ -1,5 +1,6 @@
 // app.js — Velta bootstrap: chat list, navigation, modals, PWA
 import { initListCollapse } from "./list-collapse.js";
+import { sendFailover, createFailoverLog, isStrictOn, SEND_STRICT_KEY } from "./relay-failover.js";
 import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
@@ -90,6 +91,8 @@ import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTranspor
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
+import { setKnownContactIds, clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
+import { shouldAskRoaming, dismissRoamingHintForever } from "./roaming-hint.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
@@ -101,6 +104,9 @@ import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
+
+// #286: module-top so boot-time relay status refreshes never hit a TDZ.
+const relayFailoverLog = createFailoverLog();
 
 bootMark("velta-boot:imports");
 applyDocumentLang();
@@ -929,12 +935,12 @@ core.addEventListener?.("diagnostic", e => {
 // VPN-toggle fix: see net-watch.js — grace period before pausing, resume on
 // any network/foreground signal, periodic safety net.
 const netWatch = createNetWatch({ core: () => core, isOnline: () => navigator.onLine, opts: { pauseIo: !isAndroid() } });
-addEventListener("online", () => netWatch.onSignal("online"));
+addEventListener("online", () => { netWatch.onSignal("online"); askRoamingHint().catch(() => {}); });
 addEventListener("offline", () => netWatch.onOffline());
 addEventListener("focus", () => netWatch.onSignal("focus"));
 addEventListener("pageshow", () => netWatch.onSignal("pageshow"));
-document.addEventListener("visibilitychange", () => { if (!document.hidden) netWatch.onSignal("visible"); });
-try { navigator.connection?.addEventListener?.("change", () => netWatch.onSignal("connection")); } catch { /* unsupported */ }
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { netWatch.onSignal("visible"); askRoamingHint().catch(() => {}); } });
+try { navigator.connection?.addEventListener?.("change", () => { netWatch.onSignal("connection"); askRoamingHint().catch(() => {}); }); } catch { /* unsupported */ }
 try {
   window.__TAURI__?.event?.listen?.("velta-network", e => (e?.payload === false ? netWatch.onOffline() : netWatch.onSignal("native")));
   window.__TAURI__?.event?.listen?.("velta-foreground", () => netWatch.onSignal("foreground"));
@@ -1320,6 +1326,10 @@ function renderRelayLine() {
     }
     return { ...s, state: segState };
   });
+  // #286: log failover transitions once, and name it on the sending segment.
+  const failover = relayState === "local" ? null : sendFailover(state.account?.addr, relaySmtpVia);
+  const failoverLine = relayFailoverLog(failover);
+  if (failoverLine) diagnosticsSink.append(failover ? "warning" : "info", failoverLine);
   if (relaySending && relayState !== "local") {
     const segDomains = segs.map(s => s.domain || "—");
     const matched = segs.some(s => s.domain && s.domain.toLowerCase() === effectiveSendDomain);
@@ -1329,6 +1339,7 @@ function renderRelayLine() {
     const base = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
     if (s.state === "unreachable") return t("{relay}: not accepting new connections (web check failed)", { relay: base });
     if (s.state === "offline") return t("{relay}: offline (not accepting connections for a while)", { relay: base });
+    if (failover && isSendRelay(s)) return `${base} — ${t("Sending via {via} — {failed} failed", failover)}`;
     return base;
   };
   el.replaceChildren(...segs.map((s, i) => {
@@ -3296,7 +3307,7 @@ async function showChatInfo(chat) {
   }
   if (body.querySelector("[data-media]") && mediaChatId) {
     mountChatMedia(body, {
-      core, chatId: mediaChatId, fileUrl,
+      core, chatId: mediaChatId, fileUrl, chat,
       isCurrent: () => accountIsCurrent(epoch) && body.isConnected,
       appInfo: (id) => prefetchInfo(id),
       appIconUrl: (id, icon) => appIconUrl(id, icon),
@@ -3933,6 +3944,13 @@ function bindChatHeadMenu() {
     const tag = String(e.detail?.tag || "");
     if (tag.startsWith("#")) openChatSearch(tag);
   });
+  // Text-only mode (#300) changed in the drawer: the drawer handler already
+  // cleared the session's revealed items; re-render the open chat so covered
+  // bubbles swap to placeholders (and back) without a reload.
+  window.addEventListener("velta-text-only-changed", () => {
+    const id = chatView?.chat?.id;
+    if (id != null) { chatView.close(); openChat(id); }
+  });
   function openChatSearch(prefill = "") {
     const epoch = core.accountEpoch;
     const chat = activeChat();
@@ -4018,6 +4036,8 @@ const knownContactsOnly = () => localStorage.getItem(KNOWN_CONTACTS_KEY) !== "0"
 // Contact ids with an existing 1:1 chat — state.chats singles carry
 // dmChatContact, so this is free (no per-contact RPCs).
 const knownContactIds = () => new Set(state.chats.filter(c => c.kind === "single" && c.contactId).map(c => c.contactId));
+// Text-only mode (#300) classifies group senders with the same #169 definition.
+setKnownContactIds(knownContactIds);
 
 // The shared checkbox row for the filtered surfaces; onChange refilters.
 function knownContactsToggleRow(onChange) {
@@ -5016,6 +5036,48 @@ function batteryPromptModal(maker) {
   });
 }
 
+// #302: roaming hint — offer Text-only mode once per roaming episode. Checked
+// at boot, on network signals and on every foreground; the command exists
+// only in the Android shell, so everything else is a silent bail.
+async function askRoamingHint() {
+  if (!isAndroid()) return;
+  const invoke = tauriInvoke();
+  if (!invoke) return;
+  if (sessionStorage.getItem("velta-roaming-asked")) return; // once per app run (battery-prompt pattern)
+  let roaming = false;
+  try { roaming = await invoke("is_network_roaming"); } catch { return; }
+  if (!shouldAskRoaming({ roaming, mode: textOnlyMode(), storage: localStorage })) return;
+  sessionStorage.setItem("velta-roaming-asked", "1");
+  const answer = await roamingPromptModal();
+  if (answer === "never") dismissRoamingHintForever(localStorage);
+  else if (answer === "on") {
+    setTextOnlyMode("unknown"); // reached only from mode "off"
+    toast(t("Text-only mode: {state}", { state: t(TEXT_ONLY_LABELS.unknown) }));
+    window.dispatchEvent(new CustomEvent("velta-text-only-changed"));
+  }
+}
+
+function roamingPromptModal() {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = v => { if (!settled) { settled = true; resolve(v); } };
+    const body = document.createElement("div");
+    body.innerHTML = `<p class="bat-prompt-text">${escapeHtml(t("You are on data roaming. Text-only mode hides attachments and link previews until you tap them, so browsing chats loads less. Text and links stay visible."))}</p>`;
+    const foot = document.createElement("div");
+    const never = document.createElement("button");
+    never.type = "button"; never.className = "btn-text"; never.textContent = t("Don't ask again");
+    const later = document.createElement("button");
+    later.type = "button"; later.className = "btn-text"; later.textContent = t("Not now");
+    const on = document.createElement("button");
+    on.type = "button"; on.className = "btn-text"; on.textContent = t("Turn on");
+    foot.append(never, later, on);
+    const { close } = showModal({ title: t("Roaming — load less data?"), body, foot, compact: true, onClose: () => finish("no") });
+    never.addEventListener("click", () => { finish("never"); close(); });
+    later.addEventListener("click", () => { finish("no"); close(); });
+    on.addEventListener("click", () => { finish("on"); close(); });
+  });
+}
+
 // Configure a profile from a dcaccount: relay invite link (deeplink or manual).
 async function addAccountFromInvite(link) {
   if (state.accountChanging) return;
@@ -5628,6 +5690,7 @@ async function accountTapFlow(id) {
   try {
     toast(t("Switching account…"));
     const account = await core.switchAccount(id);
+    clearReveals(); // text-only reveals are session+account scoped (#300)
     const epoch = core.accountEpoch;
     await accountRefreshPromise;
     if (accountIsCurrent(epoch)) toast(t("Switched to {name}", { name: account.displayName || account.addr }));
@@ -6166,24 +6229,31 @@ function openPrivacySecurity() {
     });
     // Android: the biometric lock replaces the PIN (the Keystore KEK is the
     // user-auth root there); the result arrives as a velta-biometric event.
-    // #178 phase 5: the encryption decision's honest boundary — the
-    // message database is keyed, attachments are not; say what still rides
-    // on platform/disk encryption.
+    // #184: keyed native profiles encrypt blobs, thumbnails and upload
+    // staging with a key derived from the database key. The unencrypted
+    // note is only true in a keyless session (no OS keychain), where the
+    // database itself is plaintext; disk encryption stays defense in depth.
     const blobEl = applockBox.querySelector("[data-blob-status]");
     if (blobEl) {
       blobEl.hidden = false;
       if (isAndroid()) {
-        blobEl.textContent = t("Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).");
+        blobEl.textContent = t("Attachments and thumbnails are encrypted at rest with a key derived from your database key.");
       } else {
         const shell2 = tauriInvoke();
         if (shell2) {
-          shell2("volume_encryption_status").then((st) => {
-            const vol = st === "on"
-              ? " " + t("Disk encryption: on.")
-              : st === "off"
-                ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.")
-                : "";
-            blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.") + vol;
+          shell2("get_db_key_issue").then((issue) => {
+            if (issue) {
+              blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.");
+              return;
+            }
+            return shell2("volume_encryption_status").then((st) => {
+              const vol = st === "on"
+                ? " " + t("Disk encryption: on.")
+                : st === "off"
+                  ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) for defense in depth.")
+                  : "";
+              blobEl.textContent = t("Attachments and thumbnails are encrypted at rest with a key derived from your database key.") + vol;
+            });
           }).catch(() => {});
         }
       }
@@ -7016,6 +7086,7 @@ async function openRelaysModal() {
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">${escapeHtml(t("Loading…"))}</div></div>
     <div style="margin-top:10px"><button type="button" class="btn-text" data-add>${escapeHtml(t("Add relay…"))}</button></div>
+    <div class="relay-auto"><label><input type="checkbox" data-send-strict><span>${escapeHtml(t("Only send via the pinned relay"))}</span></label><p class="relay-auto-hint">${escapeHtml(t("No fallback: if the pinned relay fails, messages wait for it. Receiving still uses every relay. Applies to this device."))}</p></div>
     <div class="relay-auto"><label><input type="checkbox" data-auto-add><span>${escapeHtml(t("Add relays automatically"))}</span></label><p class="relay-auto-hint">${escapeHtml(t("Velta may onboard extra relays by itself so mail keeps flowing. Off — you pick the relays."))}</p></div>
     <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>${escapeHtml(t("calls (TURN)"))}</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>${escapeHtml(t("iroh transfers"))}</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>${escapeHtml(t("push notifications"))}</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>${escapeHtml(t("instant delivery"))}</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>${escapeHtml(t("web endpoints"))}</span></span><span class="relay-pair"><span class="relay-dot"></span><span>${escapeHtml(t("offered by the relay"))}</span></span></div>`;
   showModal({ title: "Relays", body });
@@ -7034,6 +7105,26 @@ async function openRelaysModal() {
     } catch (err) {
       toast(String(err?.message || err));
       autoEl.checked = !autoEl.checked;
+    }
+  });
+
+  // #286: strict pinned relay (core patch #30, ui.velta.send_strict).
+  const strictEl = body.querySelector("[data-send-strict]");
+  let strictOn = false;
+  core.getConfig(SEND_STRICT_KEY).then(v => {
+    if (!accountIsCurrent(epoch)) return;
+    strictEl.checked = strictOn = isStrictOn(v);
+  }).catch(() => {});
+  strictEl.addEventListener("change", async () => {
+    try {
+      await core.setConfig(SEND_STRICT_KEY, strictEl.checked ? "1" : null);
+      strictOn = strictEl.checked;
+      diagnosticsSink.append("info", `relay: only send via the pinned relay ${strictOn ? "on" : "off"}`);
+      refreshRelayStatus();
+      refresh();
+    } catch (err) {
+      toast(String(err?.message || err));
+      strictEl.checked = !strictEl.checked;
     }
   });
 
@@ -7090,6 +7181,20 @@ async function openRelaysModal() {
     try { metaByAddr = (await withTimeout(core.getServerMetadata?.(), RELAY_EXTRA_TIMEOUT_MS, "get_server_metadata")) || null; } catch { /* old core / stall: flags stay "not known yet" */ }
     if (!accountIsCurrent(epoch)) return;
     listEl.replaceChildren();
+    // #286: say plainly when sending fell back from the pinned relay, or
+    // (strict) that it is waiting for it.
+    const fo = sendFailover(state.account?.addr, smtpVia);
+    const pinSt = statusByDomain?.get((state.account?.addr || "").split("@").pop());
+    const strictWait = strictOn && pinSt && pinSt.state !== "ok";
+    if (fo || strictWait) {
+      const banner = document.createElement("div");
+      banner.className = "relay-failover";
+      banner.setAttribute("role", "status");
+      banner.textContent = fo
+        ? t("Sending via {via} — {failed} failed", fo)
+        : t("Only sending via {relay} — it is not reachable, messages wait for it", { relay: state.account.addr });
+      listEl.appendChild(banner);
+    }
     if (loadErr) listEl.appendChild(loadErrorBanner(document, { err: loadErr, t, stale: true, onRetry: () => refresh() }));
     if (!transports.length) {
       const empty = document.createElement("div");
@@ -7116,7 +7221,7 @@ async function openRelaysModal() {
       const isVia = !!viaDomain && domainOf(tr.addr) === viaDomain;
       const failedOver = !!viaDomain && viaDomain !== pinnedDomain;
       const sendMark = primary
-        ? ` <span class="relay-sending">${escapeHtml(t("· sending"))}${failedOver ? " — " + escapeHtml(t("send failed, switched to {relay} for now", { relay: smtpVia })) : ""}</span>`
+        ? ` <span class="relay-sending">${escapeHtml(t("· sending"))}${failedOver ? " — " + escapeHtml(t("Sending via {via} — {failed} failed", { via: smtpVia, failed: tr.addr })) : ""}</span>`
         : isVia && failedOver
           ? ` <span class="relay-sending">${escapeHtml(t("· sending (failover)"))}</span>`
           : "";
@@ -7601,6 +7706,8 @@ async function boot() {
     try { startScheduled(); } catch (err) {
       diagnostics.append("error", `boot: scheduled messages failed: ${err?.message || err}`);
     }
+
+    try { askRoamingHint(); } catch { /* no shell */ } // #302: fire-and-forget boot check
 
     if (chatView) {
       appLog("boot: refreshChatList");
