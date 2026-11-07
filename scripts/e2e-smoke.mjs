@@ -25,7 +25,9 @@ try {
   page.on('console', message => {
     const url = message.location().url
     // Boot deliberately probes the native blob scheme and optional version.txt.
-    const expectedProbe = url === 'blobfile://localhost/__velta-probe' || /\/version\.txt$/.test(url)
+    // The probe origin is the blobfile scheme as a protocol (packaged shell)
+    // or as a hostname (browser/dev), depending on context.
+    const expectedProbe = url === 'blobfile://localhost/__velta-probe' || url === 'http://blobfile.localhost/__velta-probe' || /\/version\.txt$/.test(url)
     if (message.type() === 'error' && !expectedProbe) errors.push(`${message.text()} (${url})`)
   })
   await page.addInitScript(() => localStorage.setItem('velta-mock', '1'))

@@ -105,6 +105,9 @@ import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
 
+// #286: module-top so boot-time relay status refreshes never hit a TDZ.
+const relayFailoverLog = createFailoverLog();
+
 bootMark("velta-boot:imports");
 applyDocumentLang();
 translateTree(document);
@@ -7071,8 +7074,6 @@ const relaysLastGood = createLastGood();
 const relayStatesLastGood = createLastGood();
 // Extras wait on scheduler / metadata locks (up to 30 s in a stall).
 const RELAY_EXTRA_TIMEOUT_MS = 4000;
-
-const relayFailoverLog = createFailoverLog();
 
 async function openRelaysModal() {
   if (state.accountChanging) return;
