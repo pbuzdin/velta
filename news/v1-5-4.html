@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.5.4: Windows Hello that works, Text-only mode, and Linux packages — Velta</title>
+  <meta name="description" content="Windows Hello works end to end and its prompt comes to the front on its own. Text-only mode covers unknown senders by default, relay failover is visible, and attachment encryption is out of preview.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=21">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.5.4: Windows Hello that works, Text-only mode, and Linux packages</h1>
+    <p><time>7 November 2026</time> · 3 min read</p>
+    <p>Windows Hello works end to end and its prompt comes to the front on its own. Text-only mode covers unknown senders by default, relay failover is visible, and attachment encryption is out of preview.</p>
+    <div class="body">
+<p>The headline is an apology with a fix attached. 1.5.2 shipped a Windows Hello button that could not work: on current Windows, the key-creation API we used is closed to everything but Windows' own components, so enabling failed with an error before a key ever existed. Nobody could have made that button work — it had never worked on any machine. 1.5.4 replaces the whole path.</p>
+<h2>Windows Hello, working end to end</h2>
+<p>Privacy &amp; security can now hand the database key to the same system surface Windows itself uses: the key lives in a KeyCredentialManager credential, and the wrap key for your database is derived from a Windows Hello signature. The signature <em>is</em> the gesture — turning it on asks Hello once, and every cold start asks again before your data opens. The signature itself is deterministic, so the same request always re-derives the same key.</p>
+<p>Two quality details: the Hello prompt now comes to the front by itself instead of opening behind the window, and the app-lock PIN can stay beside Hello — either one unlocks, and removing the last one puts the key back in Credential Manager.</p>
+<p>If you tried Hello on 1.5.2 and hit an error, it never took effect — nothing was stored. Enabling on 1.5.4 works, and if this Windows account has no Hello yet, the first attempt walks you through creating one.</p>
+<h2>Text-only mode</h2>
+<p>Messages from people you have not replied to can now arrive as text only: Drawer → <strong>Text-only mode</strong> sets it for unknown senders (the default choice), for everyone, or off. A covered photo, video, audio message, app, or link preview renders as a card with a per-item <strong>Reveal</strong> — until you trust the chat, the sender's images never load. Anything Velta cannot classify counts as unknown, so the mode fails closed.</p>
+<p>On Android, when the phone is on data roaming, Velta suggests turning it on once per roaming episode — a suggestion only; nothing switches by itself.</p>
+<h2>Relay failover you can see</h2>
+<p>When your pinned relay is down and a send takes another route, the Relays dialog now shows what the last send attempt did, and a message that had to detour names the relay it actually used. There is also an optional strict mode — <strong>Only send via the pinned relay</strong> — that refuses to fail over at all: if the pin is down, messages wait for it. Sending only; receiving still uses every relay.</p>
+<h2>Attachment encryption is out of preview</h2>
+<p>Native profiles now encrypt attachments, thumbnails, and upload staging with the database key — one random key per file, wrapped alongside it, with seekable encrypted chunks so videos still stream from the middle. Two deliberate boundaries: backup exports stay plaintext for compatibility, and notifications on an encrypted profile omit the sender avatar rather than decrypt for the toast.</p>
+<h2>Also in this release</h2>
+<ul>
+<li><strong>Show in folder</strong> (desktop) — the message context menu reveals an attachment's file in the file manager.</li>
+<li><strong>Linux packages</strong> — .deb, AppImage, and Arch, built for Debian 12 (glibc 2.36) and newer; the bundled core installs as <code>velta-rpc-server</code> so it cannot collide with distro Delta Chat packages.</li>
+<li><strong>Invited browser onboarding</strong> — an invite link walks through account creation with the relay already configured.</li>
+<li>The empty chat pane's subtitle meets WCAG AA contrast.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.4">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.5.3...v1.5.4">Compare 1.5.3 with 1.5.4</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client, built on the Delta Chat core</span><span>Site visits measured cookielessly; the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=8"></script>
+</body>
+</html>
