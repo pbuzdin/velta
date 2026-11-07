@@ -63,6 +63,55 @@ so the lightweight tag was moved to `7c73c606`, which compiles
 `hello_wrap_path` on Windows only and `hello_wrap_ct` on Windows and in
 tests. The tag push started rebuild `41631815133`.
 
+## Incident 3 (v1.5.4): three tag moves in one evening
+
+The 1.5.4 tag was pushed three times before a release actually published.
+Each failure was caught before or during the build, nothing was published
+from a broken tag, but the pattern is worth memorizing.
+
+**Move 1 — boot TDZ, caught pre-build.** The #286 failover restore
+(`43026862`) re-applied `d9a8f9bf`'s hunks verbatim, including the
+mid-module `relayFailoverLog` declaration that `3e697cb1` had already
+moved to module top. With the app's top-level-await boot starting earlier
+in the file, mock boot died with `Cannot access 'relayFailoverLog' before
+initialization` and the demo chat list never rendered — the e2e smoke
+timed out on `.chat-item` "Ada Byron". Running `scripts/e2e-smoke.mjs`
+locally (with `CHROMIUM_PATH` pointed at Edge; Playwright browsers are not
+installed locally) reproduces it in seconds. **Before tagging, run the
+e2e smoke, not just the node suite** — the fake-DOM suite does not
+execute the real boot order. The fix also taught the smoke the current
+blobfile probe origin (`http://blobfile.localhost/__velta-probe`,
+scheme-as-hostname, next to the packaged `blobfile://` shape).
+
+**Move 2 — `unused_unsafe` denial, caught by CI.** `build-windows` died
+in 7m43s: the new Hello prompt focuser had `unsafe { GetForegroundWindow() }`
+nested inside an outer `unsafe` block — an `unused_unsafe` WARNING locally
+but a denial under CI's `-D warnings`. Local plain `cargo check` never
+shows it as an error, so it slipped through. **Before tagging, run
+`RUSTFLAGS="-D warnings" cargo check`** — and with the vendored
+perl/nasm PATH from §4.3.1, because a wiped or flag-changed target
+rebuilds `openssl-sys` from source and fails without them.
+
+**Move 3 — tag raced a `gh pr merge`.** `gh pr merge` writes its merge
+commit to REMOTE master only; the local checkout keeps its own tip, so a
+tag pushed from the local tip silently missed the just-merged PR. Pushing
+master then fails non-fast-forward, and a retag from the unrebased head
+still misses the PR. Recipe that reconciles without touching the
+ever-dirty quilt `core/` tree:
+
+```bash
+git fetch origin
+git worktree add ../retag-wt origin/master
+cd ../retag-wt && git cherry-pick <local-tip-sha> && git push origin HEAD:master
+cd - && git pull --rebase --autostash origin master   # autostash round-trips the quilt dirt
+git tag -f v1.5.4 && git push -f origin v1.5.4        # then cancel stale Release runs
+```
+
+Cancel every Release run that is not on the final tag commit
+(`gh run list --workflow Release`), or two runs publish two releases.
+Final state: tag `v1.5.4` = `56b7fabb`, run `42387847522`, all platforms
+green, release published with full assets.
+
 
 
 ## Windows sidecar rebuild (local, verified on 2026-09-22 for core 2.61.0)

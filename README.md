@@ -835,7 +835,7 @@ Real media blobs live in the Delta Chat account directory and cannot be reached 
 2. **Loopback media HTTP server** — `127.0.0.1` on an ephemeral port (the CSP allows `http://127.0.0.1:*`, so two Velta builds on one device never collide), random per-launch token compared in constant time and kept out of logs, account-directory-scoped, capped concurrent connections, real ranges. This is the probe-negative path and the one-shot per-element fallback: `<img>`/`<video>`/`<audio>` that fail on a blobfile URL swap to it once before showing an error placeholder. On Android this server remains what `<video>`/`<audio>` can always rely on, since the asset protocol there answers the first range read but fails mid-file ones, which kills demuxing of moov-at-end MP4s (most phone recordings). Cleartext is permitted app-wide (network security config) so user-opened http links render in the in-app browser; the SPA itself never navigates top-level and its CSP blocks plain-http subresources, so the shell's own cleartext traffic stays the loopback media server.
 3. **Tauri asset protocol** — plain GETs (static assets) work everywhere.
 
-Documents open in the system default app from a decrypted temp copy (`open_document`; desktop via `plugin:opener|open_path`, Android via ACTION_VIEW + FileProvider, with Save as… when no app can open it); in the PWA, pdf/text open in a new tab and other files download (since 1.5.3; "Show in folder" is still open in #279). Video rows render a native `<video preload="metadata">` element — the browser decodes and paints the first frame directly (no extraction pipeline); the file size badge sits top-left, the duration bottom-right, and a centered play button is shown while paused.
+Documents open in the system default app from a decrypted temp copy (`open_document`; desktop via `plugin:opener|open_path`, Android via ACTION_VIEW + FileProvider, with Save as… when no app can open it); in the PWA, pdf/text open in a new tab and other files download (since 1.5.3). Since 1.5.4 the message context menu has "Show in folder" on desktop, revealing the attachment's file in the file manager (#279). Video rows render a native `<video preload="metadata">` element — the browser decodes and paints the first frame directly (no extraction pipeline); the file size badge sits top-left, the duration bottom-right, and a centered play button is shown while paused.
 
 ### Video placeholder: first frame and badges
 
@@ -1560,12 +1560,14 @@ lock settings for the whole app, not per profile:
 - **App-lock PIN** (desktop, Android, PWA) — 6+ characters; Velta asks for
   it at every start. The PIN replaces the keychain/Keystore as the key's
   root (Argon2id), with growing delays after wrong attempts.
-- **Windows Hello** (Windows desktop, 1.5.2) — PIN, face, or fingerprint
-  unwraps the database key. Turning it on removes the Credential Manager
-  copy. Cold start stays locked until Hello succeeds. It can sit beside
-  the app-lock PIN; either one unlocks. The button is hidden when Hello
-  is not set up on this Windows account (remote desktop, some virtual
-  machines). Android's biometric lock is unchanged.
+- **Windows Hello** (Windows desktop) — PIN, face, or fingerprint unwraps
+  the database key. The key is held by a system KeyCredentialManager
+  credential; the Hello prompt auto-focuses when it opens. Turning it on
+  removes the Credential Manager copy. Cold start stays locked until
+  Hello succeeds. It can sit beside the app-lock PIN; either one unlocks.
+  The button is shown when this Windows account supports Hello (remote
+  desktop and some virtual machines hide it); first use walks through
+  credential creation. Android's biometric lock is unchanged.
 - **Biometric lock** (Android 9+) — fingerprint/face, and on Android 11+
   also the phone's screen-lock PIN, pattern or password, so phones without
   enrolled biometrics can use it. It can be combined with the Velta PIN.

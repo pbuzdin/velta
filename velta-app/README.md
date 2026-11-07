@@ -18,7 +18,9 @@ frontend codebase.
   failover status** with an optional strict pinned-relay mode.
 - **Attachment encryption at rest is out of preview** — native profiles
   encrypt blobs, thumbnails and upload staging with the database key.
-- **Linux packages**: .deb, AppImage and Arch.
+- **Linux packages**: .deb, AppImage and Arch — packaged builds are
+  compatible with Debian 12 (glibc 2.36) and newer, gated by
+  `tools/check-glibc.py`.
 
 ## What's new in 1.5.3
 
