@@ -96,6 +96,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
 │   ├── webxdc-host/          # PWA webxdc host: sw-route.js (SW loader route, sandbox CSP) + frame.js (in-frame .xdc loader); KEEP rules in docs/agents/webxdc.md
 │   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88); shellProxy() = fail-closed proxy reader for shell-side fetches
+│   │   ├── text-only-mode.js # #300 Text-only mode: unknown/off/all (default unknown), per-sender gate, session reveals, fail closed
+│   │   ├── roaming-hint.js   # #302 data roaming → suggest Text-only mode once per episode (never auto-switches)
 │   │   ├── lufi.js           # #138 Lufi client logic: SJCL slice encryption (Lufi-web compatible), upload state machine, expiry rules, deletion-token store (node-tested)
 │   │   ├── large-file.js     # #138 attach menu "Large file" flow: pick → expiry dialog → progress/cancel → link message; message-info delete
 │   │   ├── trackers.js       # drop known tracking query params on paste and on open (#89)
@@ -800,8 +802,14 @@ both failures were hit and cost a 13-minute dead build; never repeat them:
 
 Then copy `core/target/release/deltachat-rpc-server.exe` to
 `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`
-*and* `velta-app/src-tauri/binaries/deltachat-rpc-server.exe`, and verify the
-swap by piping a `get_system_info` JSON-RPC request into the exe's stdin —
+*and* `velta-app/src-tauri/binaries/deltachat-rpc-server.exe` — **and, for dev
+runs, also to `velta-app/src-tauri/target/debug/`**: `find_sidecar` prefers
+the Resource dir, which in a dev (non-bundled) run resolves next to the exe
+in `target/debug`. The 2026-11-07 Hello-debugging session burned 30 minutes
+on a `target/debug` sidecar still at v2.63 (pre-`VELTA_DB_KEY`): the PIN
+unlock "succeeded" yet every profile stayed "locked". Kill the running
+sidecar before the copy (Windows locks a running exe). Verify the swap by
+piping a `get_system_info` JSON-RPC request into the exe's stdin —
 it must report the vendored core's version (v2.66.0 since the 2026-10-29
 re-vendor, shipped in 1.4.79; v2.64.0 in the 2026-10-20 interim; v2.63.0 since 1.4.63; the
 previous prebuilt was silently v2.59.0, which the drawer footer exposed).
@@ -1897,6 +1905,51 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the original file unencrypted.
   - The dead poster commands `poster_cache_path`/`write_poster` were
   removed; `read_media_bytes` stays (`attachmentBytes` in chat-view.js).
+- `app/js/text-only-mode.js` — #300 Text-only mode: device-global renderer
+  gate for attachments and link previews. localStorage `velta-text-only` =
+  `unknown` (default; the key is absent) / `off` / `all`; `TEXT_ONLY_LABELS`
+  feeds the drawer radios (`data-textonly-opts`, unconditional — the PWA
+  needs the gate too). Classification (`senderClassification`): self,
+  `fromDevice` messages and accepted 1:1 chats are known, `deaddrop`
+  contact requests are unknown, group senders go through the
+  `setKnownContactIds` provider (app.js installs `knownContactIds` at
+  boot — the #169 set); provider missing/unresolved = fail closed
+  (covered). `coversMessage(m, chat)` is the single policy. Reveals are a
+  module Set keyed `accountId:msgId`, session-only — `setTextOnlyMode`
+  and accountTapFlow clear them; virtual-scroll row reuse stays correct
+  because `_renderMsgItem` re-checks `isItemRevealed`. Gates: chat-view
+  computes `covered` once per render and swaps the whole media branch
+  (`COVERED_VIEWTYPES`) for `_hiddenCard` (shield icon,
+  `data-act="reveal"` → `revealItem` + rebuild the row in place via
+  `_buildItem`, `_downloadMedia` only when `downloadState` is not Done);
+  link-preview hydration is a local `hydrateLp()` the covered slot defers
+  behind a `data-lp-reveal` button (title = `LINK_PREVIEW_IP_WARNING`);
+  context-menu Download / Save sticker / Show in folder are gated on
+  `!covered`; composer sender previews on `senderPreviewBlocked()`
+  (true only in `all`). chat-media galleries gate per item (`coveredNow`,
+  `data-media-reveal` releases + re-renders just that tile/row). The
+  drawer change dispatches `velta-text-only-changed`; app.js answers with
+  `chatView.close(); openChat(id)`. Gating happens at render, so covered
+  content never gets a media URL assigned — that is the PWA guarantee
+  (no service-worker read, not CSS hiding). fake-DOM cannot parse
+  innerHTML, so the hydration gate is covered by source assertions in
+  `tests/text-only-mode.test.mjs`; the reveal Set is module-global —
+  tests must `clearReveals()` between cases.
+- `app/js/roaming-hint.js` — #302: offer Text-only mode when the phone is
+  on data roaming. `shouldAskRoaming({roaming, mode, storage})` returns
+  true only on the FIRST roaming observation of an episode (module flag;
+  leaving roaming opens the next one), only while the mode is off, and
+  never after localStorage `velta-roaming-hint` = `"1"` ("Don't ask
+  again"); a throwing storage reads as dismissed. app.js `askRoamingHint()`
+  adds a once-per-app-run guard (sessionStorage `velta-roaming-asked`,
+  battery-prompt pattern) and hooks boot + `online` +
+  connection-change + visibilitychange; the `is_network_roaming` command
+  exists only in the Android shell (lib.rs → `NetInfo.isRoaming`,
+  TelephonyManager.isNetworkRoaming — no permission, reuses the cached
+  `APP_NETINFO_CLASS`, no new class registration; desktop stub errs). The
+  modal mirrors `batteryPromptModal` (Don't ask again / Not now / Turn
+  on); Turn on = `setTextOnlyMode("unknown")` + toast +
+  `velta-text-only-changed`. Nothing auto-switches, nothing auto-reverts.
 - `app/js/ui.js` — drawer, modals, context menus, toasts, update banner,
   delete-confirmation dialog. Outside the native shells the footer
   "Service worker" line is the cache name from §4.2.1, and "WebSocket
@@ -2549,7 +2602,7 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 201 files, 1343 tests as of 2026-11-03 (5 skip without
+whole set — 212 files, 1411 tests as of 2026-11-07 (5 skip without
 python3+websockets in `tests/ws-proxy-auth.test.mjs`; 1 more when the sidecar
 binary is absent in `tests/release-version-pins.test.mjs`. A sidecar that is
 present but older than vendored core fails that pin instead of skipping.
@@ -2784,6 +2837,13 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
 
 - **Encryption is handled by the core.** The frontend must never touch private
   keys or plaintext mail credentials; it only speaks JSON-RPC to the core.
+- **Text-only mode (#300) is a renderer gate, not a transport guarantee.**
+  `app/js/text-only-mode.js` decides what the interface loads: covered
+  senders' attachments and link previews never get a media URL assigned
+  (PWA service-worker reads included), but the mail core still receives
+  message data per `download_limit`. Never describe it as stopping
+  network downloads. The default state is `unknown` (localStorage key
+  absent) and existing installs adopt it without any migration.
 - **CSP.** The Tauri `tauri.conf.json` and `tauri.android.conf.json` set a
   restrictive CSP rooted in `default-src 'self'` with no `unsafe-inline` or
   `unsafe-eval` for scripts (inline scripts are blocked — that is relied on,

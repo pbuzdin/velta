@@ -413,6 +413,44 @@ already sent does not turn back into a live card.
 </details>
 
 <details>
+<summary>Text-only mode</summary>
+
+Text-only mode keeps message text, captions and ordinary links visible but
+stops Velta from loading attachments and link previews on its own — each
+hidden item waits until you tap its **Show** / **Download and show**
+button, and then only that one item loads. Hidden items show a compact
+"Hidden — Text-only mode" card instead of the photo, video, audio, app or
+file.
+
+**Drawer → Text-only mode**, three choices:
+
+- **Unknown senders** — the default. People and bots you have a 1:1 chat
+  with behave normally; a contact request, and each unknown sender inside a
+  group chat, is covered individually. Your own messages always render
+  normally.
+- **Off** — no restrictions; the Link previews and auto-download settings
+  work as usual.
+- **All messages** — everything is covered, including your own outgoing
+  media in the chat view.
+
+Chat info galleries (Apps, Photos, Videos, Audio, Files) follow the same
+rule per item, so a mixed group's gallery stays usable. Revealing one item
+never reveals anything else from that sender, never accepts a contact
+request, and the revealed state lasts for the session only. Turning the
+mode on or off re-renders the open chat right away.
+
+**Honest scope:** this is an interface privacy feature. It decides what
+the Velta interface loads and shows; the mail core still receives message
+data as usual (the Auto-download limit setting governs that).
+
+On Android, when the phone reports **data roaming**, Velta asks once per
+roaming episode whether to turn Text-only mode on ("Roaming — load less
+data?"). Nothing switches by itself, leaving roaming changes nothing, and
+**Don't ask again** is remembered.
+
+</details>
+
+<details>
 <summary>Strip tracking from links</summary>
 
 Pasting a link into the composer, or opening one, drops known tracking
@@ -1435,6 +1473,21 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 </details>
 
 ## Privacy &amp; security
+
+<details>
+<summary>Text-only mode: unknown senders are covered by default</summary>
+
+Since Text-only mode shipped (#300), every installation starts with the
+**Unknown senders** default: attachments and link previews from people you
+do not have a 1:1 chat with — including per-sender inside groups, and
+unaccepted contact requests — do not load until you tap them. Existing
+installations with no saved preference get this default too. The classification
+uses who you actually chat with, not the raw address book, and unresolved
+sender data fails closed (stays hidden). It is a renderer-side gate: it
+stops the interface from loading media and previews, not the mail core from
+receiving data.
+
+</details>
 
 <details>
 <summary>Privacy: zero analytics &amp; telemetry</summary>
