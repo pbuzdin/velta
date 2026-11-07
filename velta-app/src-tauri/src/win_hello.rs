@@ -25,6 +25,11 @@ use sha2::{Digest, Sha256};
 use windows::core::HSTRING;
 use windows::Security::Credentials::*;
 use windows::Security::Cryptography::CryptographicBuffer;
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetClassNameW, GetForegroundWindow, IsWindowVisible, SetForegroundWindow,
+    SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+};
 
 const CREDENTIAL_NAME: &str = "chat.velta.dbkey";
 /// What the credential signs. Content is arbitrary but must never change:
@@ -33,6 +38,69 @@ const CHALLENGE: &[u8] = b"chat.velta app-lock hello-unlock v1";
 const KEK_DOMAIN: &[u8] = b"velta-hello-kek-v1";
 /// Binds the wrap header (magic + format version) into the AEAD tag.
 const WRAP_AAD: &[u8] = b"VLTHW\x01";
+
+/// The Windows Hello prompt: CredentialUIBroker's "Credential Dialog Xaml
+/// Host". Spawned by a desktop (unpackaged) app it frequently opens BEHIND
+/// the calling window without focus — the WinRT API takes no parent HWND.
+static DIALOG_CLASS: std::sync::LazyLock<Vec<u16>> =
+    std::sync::LazyLock::new(|| "Credential Dialog Xaml Host".encode_utf16().collect());
+
+unsafe extern "system" fn find_dialog(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let slot = unsafe { &mut *(lparam.0 as *mut Option<HWND>) };
+    if slot.is_some() || !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        return BOOL(1);
+    }
+    let mut buf = [0u16; 40];
+    let n = unsafe { GetClassNameW(hwnd, &mut buf) } as usize;
+    if n == DIALOG_CLASS.len() && buf[..n] == DIALOG_CLASS[..] {
+        *slot = Some(hwnd);
+    }
+    BOOL(1)
+}
+
+/// Best-effort: while a create/sign prompt may be up, keep the credential
+/// dialog above our window and focused. The app holds foreground rights
+/// from the button click, so this grant is allowed; every call is ignored
+/// on failure and the crypto path never depends on it. Exits after 15 s
+/// (a first-enable shows create + sign; later unlocks a single dialog) or
+/// as soon as nothing more needs nudging.
+fn spawn_prompt_focuser() {
+    let _ = std::thread::Builder::new()
+        .name("hello-prompt-focus".into())
+        .spawn(|| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            while std::time::Instant::now() < deadline {
+                unsafe {
+                    let mut found: Option<HWND> = None;
+                    let _ = EnumWindows(Some(find_dialog), LPARAM(&mut found as *mut _ as isize));
+                    if let Some(hwnd) = found {
+                        if unsafe { GetForegroundWindow() } != hwnd {
+                            let _ = SetForegroundWindow(hwnd);
+                            let _ = SetWindowPos(
+                                hwnd,
+                                Some(HWND_TOPMOST),
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                            );
+                            let _ = SetWindowPos(
+                                hwnd,
+                                Some(HWND_NOTOPMOST),
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE,
+                            );
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(120));
+            }
+        });
+}
 
 fn kek(sig: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
@@ -69,6 +137,7 @@ fn open_credential() -> Result<KeyCredential, String> {
     }
     // NotFound = first use (or Hello was reset and the credential is gone).
     if st.0 == KeyCredentialStatus::NotFound.0 {
+        spawn_prompt_focuser();
         let created = KeyCredentialManager::RequestCreateAsync(&name, KeyCredentialCreationOption::FailIfExists)
             .and_then(|op| op.get())
             .map_err(|e| format!("hello-failed: create {e}"))?;
@@ -87,6 +156,7 @@ fn open_credential() -> Result<KeyCredential, String> {
 
 /// Sign the fixed challenge — this is the Windows Hello prompt.
 fn sign_challenge(cred: &KeyCredential) -> Result<Vec<u8>, String> {
+    spawn_prompt_focuser();
     let buf = CryptographicBuffer::CreateFromByteArray(CHALLENGE)
         .map_err(|e| format!("hello-failed: buffer {e}"))?;
     let signed = cred

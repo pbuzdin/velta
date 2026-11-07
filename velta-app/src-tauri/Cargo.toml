@@ -116,6 +116,8 @@ windows = { version = "0.59", features = [
     "Security_Credentials",
     "Security_Cryptography",
     "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 sha2 = "0.10"
 
