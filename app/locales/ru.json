@@ -1641,5 +1641,9 @@
   "Finding your relay…": "Ищем ваш релей…",
   "Creating your profile on {host}…": "Создаём профиль на {host}…",
   "send failed, switched to {relay} for now": "не удалось отправить, пока переключились на {relay}",
-  "Automatic setup failed: ": "Не удалось настроить автоматически: "
+  "Automatic setup failed: ": "Не удалось настроить автоматически: ",
+  "Roaming — load less data?": "Роуминг — загружать меньше данных?",
+  "You are on data roaming. Text-only mode hides attachments and link previews until you tap them, so browsing chats loads less. Text and links stay visible.": "Вы в роуминге. Текстовый режим скрывает вложения и предпросмотры ссылок, пока вы их не откроете, поэтому просмотр чатов загружает меньше данных. Текст и ссылки остаются видны.",
+  "Turn on": "Включить",
+  "Don't ask again": "Больше не спрашивать"
 }

@@ -1641,5 +1641,9 @@
   "Finding your relay…": "Recherche de votre relais…",
   "Creating your profile on {host}…": "Création de votre profil sur {host}…",
   "send failed, switched to {relay} for now": "échec d'envoi, bascule vers {relay} pour l'instant",
-  "Automatic setup failed: ": "Échec de la configuration automatique : "
+  "Automatic setup failed: ": "Échec de la configuration automatique : ",
+  "Roaming — load less data?": "Itinérance — charger moins de données ?",
+  "You are on data roaming. Text-only mode hides attachments and link previews until you tap them, so browsing chats loads less. Text and links stay visible.": "Vous êtes en itinérance de données. Le mode texte seul masque les pièces jointes et les aperçus de liens tant que vous ne les ouvrez pas, la consultation des discussions charge donc moins. Le texte et les liens restent visibles.",
+  "Turn on": "Activer",
+  "Don't ask again": "Ne plus demander"
 }

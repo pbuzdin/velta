@@ -90,7 +90,8 @@ import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTranspor
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
-import { setKnownContactIds, clearReveals } from "./text-only-mode.js";
+import { setKnownContactIds, clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
+import { shouldAskRoaming, dismissRoamingHintForever } from "./roaming-hint.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
@@ -930,12 +931,12 @@ core.addEventListener?.("diagnostic", e => {
 // VPN-toggle fix: see net-watch.js — grace period before pausing, resume on
 // any network/foreground signal, periodic safety net.
 const netWatch = createNetWatch({ core: () => core, isOnline: () => navigator.onLine, opts: { pauseIo: !isAndroid() } });
-addEventListener("online", () => netWatch.onSignal("online"));
+addEventListener("online", () => { netWatch.onSignal("online"); askRoamingHint().catch(() => {}); });
 addEventListener("offline", () => netWatch.onOffline());
 addEventListener("focus", () => netWatch.onSignal("focus"));
 addEventListener("pageshow", () => netWatch.onSignal("pageshow"));
-document.addEventListener("visibilitychange", () => { if (!document.hidden) netWatch.onSignal("visible"); });
-try { navigator.connection?.addEventListener?.("change", () => netWatch.onSignal("connection")); } catch { /* unsupported */ }
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { netWatch.onSignal("visible"); askRoamingHint().catch(() => {}); } });
+try { navigator.connection?.addEventListener?.("change", () => { netWatch.onSignal("connection"); askRoamingHint().catch(() => {}); }); } catch { /* unsupported */ }
 try {
   window.__TAURI__?.event?.listen?.("velta-network", e => (e?.payload === false ? netWatch.onOffline() : netWatch.onSignal("native")));
   window.__TAURI__?.event?.listen?.("velta-foreground", () => netWatch.onSignal("foreground"));
@@ -5026,6 +5027,48 @@ function batteryPromptModal(maker) {
   });
 }
 
+// #302: roaming hint — offer Text-only mode once per roaming episode. Checked
+// at boot, on network signals and on every foreground; the command exists
+// only in the Android shell, so everything else is a silent bail.
+async function askRoamingHint() {
+  if (!isAndroid()) return;
+  const invoke = tauriInvoke();
+  if (!invoke) return;
+  if (sessionStorage.getItem("velta-roaming-asked")) return; // once per app run (battery-prompt pattern)
+  let roaming = false;
+  try { roaming = await invoke("is_network_roaming"); } catch { return; }
+  if (!shouldAskRoaming({ roaming, mode: textOnlyMode(), storage: localStorage })) return;
+  sessionStorage.setItem("velta-roaming-asked", "1");
+  const answer = await roamingPromptModal();
+  if (answer === "never") dismissRoamingHintForever(localStorage);
+  else if (answer === "on") {
+    setTextOnlyMode("unknown"); // reached only from mode "off"
+    toast(t("Text-only mode: {state}", { state: t(TEXT_ONLY_LABELS.unknown) }));
+    window.dispatchEvent(new CustomEvent("velta-text-only-changed"));
+  }
+}
+
+function roamingPromptModal() {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = v => { if (!settled) { settled = true; resolve(v); } };
+    const body = document.createElement("div");
+    body.innerHTML = `<p class="bat-prompt-text">${escapeHtml(t("You are on data roaming. Text-only mode hides attachments and link previews until you tap them, so browsing chats loads less. Text and links stay visible."))}</p>`;
+    const foot = document.createElement("div");
+    const never = document.createElement("button");
+    never.type = "button"; never.className = "btn-text"; never.textContent = t("Don't ask again");
+    const later = document.createElement("button");
+    later.type = "button"; later.className = "btn-text"; later.textContent = t("Not now");
+    const on = document.createElement("button");
+    on.type = "button"; on.className = "btn-text"; on.textContent = t("Turn on");
+    foot.append(never, later, on);
+    const { close } = showModal({ title: t("Roaming — load less data?"), body, foot, compact: true, onClose: () => finish("no") });
+    never.addEventListener("click", () => { finish("never"); close(); });
+    later.addEventListener("click", () => { finish("no"); close(); });
+    on.addEventListener("click", () => { finish("on"); close(); });
+  });
+}
+
 // Configure a profile from a dcaccount: relay invite link (deeplink or manual).
 async function addAccountFromInvite(link) {
   if (state.accountChanging) return;
@@ -7612,6 +7655,8 @@ async function boot() {
     try { startScheduled(); } catch (err) {
       diagnostics.append("error", `boot: scheduled messages failed: ${err?.message || err}`);
     }
+
+    try { askRoamingHint(); } catch { /* no shell */ } // #302: fire-and-forget boot check
 
     if (chatView) {
       appLog("boot: refreshChatList");

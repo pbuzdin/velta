@@ -56,4 +56,16 @@ object NetInfo {
         }
         return out.toString()
     }
+
+    // #302: data-roaming state for the Text-only mode hint (app-side prompt).
+    // Needs no permission.
+    @JvmStatic
+    fun isRoaming(context: Context): Boolean {
+        return try {
+            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            tm?.isNetworkRoaming ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
 }
