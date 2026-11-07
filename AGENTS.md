@@ -19,6 +19,9 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 - **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
+- **`velta-kmp/`** — frozen Kotlin Multiplatform experiment (#294). Do not
+  invest in it; Android stays on the Tauri web UI. `build-kmp.yml` is
+  `workflow_dispatch` only (no push trigger).
 - **Standalone browser** — the wasm PWA dist (`scripts/build-pwa.mjs`) is a
   static site with the Chatmail core in a worker. Mail uses a WebSocket
   proxy on a chatmail relay; the PWA origin and the proxy host can differ
@@ -126,6 +129,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
+├── velta-kmp/            # frozen KMP experiment (#294); build-kmp.yml is manual-only
 ├── velta-app/            # Tauri v2 wrapper
 │   ├── soar-tunnel/          # archived DNS tunnel Go source; client .so/.dll no longer built or bundled (docs/agents/dns-tunnel.md)
 │   └── src-tauri/

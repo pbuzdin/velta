@@ -1,12 +1,9 @@
 name: Build KMP
 
 on:
+  # Frozen 2026-11-06 (#294): KMP is not invested in; keep the workflow for
+  # manual runs only so push to master does not burn CI on velta-kmp changes.
   workflow_dispatch:
-  push:
-    branches: [master]
-    paths:
-      - "velta-kmp/**"
-      - ".github/workflows/build-kmp.yml"
 
 permissions:
   contents: read
