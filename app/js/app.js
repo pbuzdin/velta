@@ -1,5 +1,8 @@
 // app.js — Velta bootstrap: chat list, navigation, modals, PWA
 import { initListCollapse } from "./list-collapse.js";
+import { sendFailover, createFailoverLog, isStrictOn, SEND_STRICT_KEY } from "./relay-failover.js";
+// #286: module-top so boot-time relay status refreshes never hit a TDZ.
+const relayFailoverLog = createFailoverLog();
 import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
@@ -1320,6 +1323,10 @@ function renderRelayLine() {
     }
     return { ...s, state: segState };
   });
+  // #286: log failover transitions once, and name it on the sending segment.
+  const failover = relayState === "local" ? null : sendFailover(state.account?.addr, relaySmtpVia);
+  const failoverLine = relayFailoverLog(failover);
+  if (failoverLine) diagnosticsSink.append(failover ? "warning" : "info", failoverLine);
   if (relaySending && relayState !== "local") {
     const segDomains = segs.map(s => s.domain || "—");
     const matched = segs.some(s => s.domain && s.domain.toLowerCase() === effectiveSendDomain);
@@ -1329,6 +1336,7 @@ function renderRelayLine() {
     const base = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
     if (s.state === "unreachable") return t("{relay}: not accepting new connections (web check failed)", { relay: base });
     if (s.state === "offline") return t("{relay}: offline (not accepting connections for a while)", { relay: base });
+    if (failover && isSendRelay(s)) return `${base} — ${t("Sending via {via} — {failed} failed", failover)}`;
     return base;
   };
   el.replaceChildren(...segs.map((s, i) => {
@@ -7016,6 +7024,7 @@ async function openRelaysModal() {
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">${escapeHtml(t("Loading…"))}</div></div>
     <div style="margin-top:10px"><button type="button" class="btn-text" data-add>${escapeHtml(t("Add relay…"))}</button></div>
+    <div class="relay-auto"><label><input type="checkbox" data-send-strict><span>${escapeHtml(t("Only send via the pinned relay"))}</span></label><p class="relay-auto-hint">${escapeHtml(t("No fallback: if the pinned relay fails, messages wait for it. Receiving still uses every relay. Applies to this device."))}</p></div>
     <div class="relay-auto"><label><input type="checkbox" data-auto-add><span>${escapeHtml(t("Add relays automatically"))}</span></label><p class="relay-auto-hint">${escapeHtml(t("Velta may onboard extra relays by itself so mail keeps flowing. Off — you pick the relays."))}</p></div>
     <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>${escapeHtml(t("calls (TURN)"))}</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>${escapeHtml(t("iroh transfers"))}</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>${escapeHtml(t("push notifications"))}</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>${escapeHtml(t("instant delivery"))}</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>${escapeHtml(t("web endpoints"))}</span></span><span class="relay-pair"><span class="relay-dot"></span><span>${escapeHtml(t("offered by the relay"))}</span></span></div>`;
   showModal({ title: "Relays", body });
@@ -7034,6 +7043,26 @@ async function openRelaysModal() {
     } catch (err) {
       toast(String(err?.message || err));
       autoEl.checked = !autoEl.checked;
+    }
+  });
+
+  // #286: strict pinned relay (core patch #30, ui.velta.send_strict).
+  const strictEl = body.querySelector("[data-send-strict]");
+  let strictOn = false;
+  core.getConfig(SEND_STRICT_KEY).then(v => {
+    if (!accountIsCurrent(epoch)) return;
+    strictEl.checked = strictOn = isStrictOn(v);
+  }).catch(() => {});
+  strictEl.addEventListener("change", async () => {
+    try {
+      await core.setConfig(SEND_STRICT_KEY, strictEl.checked ? "1" : null);
+      strictOn = strictEl.checked;
+      diagnosticsSink.append("info", `relay: only send via the pinned relay ${strictOn ? "on" : "off"}`);
+      refreshRelayStatus();
+      refresh();
+    } catch (err) {
+      toast(String(err?.message || err));
+      strictEl.checked = !strictEl.checked;
     }
   });
 
@@ -7090,6 +7119,20 @@ async function openRelaysModal() {
     try { metaByAddr = (await withTimeout(core.getServerMetadata?.(), RELAY_EXTRA_TIMEOUT_MS, "get_server_metadata")) || null; } catch { /* old core / stall: flags stay "not known yet" */ }
     if (!accountIsCurrent(epoch)) return;
     listEl.replaceChildren();
+    // #286: say plainly when sending fell back from the pinned relay, or
+    // (strict) that it is waiting for it.
+    const fo = sendFailover(state.account?.addr, smtpVia);
+    const pinSt = statusByDomain?.get((state.account?.addr || "").split("@").pop());
+    const strictWait = strictOn && pinSt && pinSt.state !== "ok";
+    if (fo || strictWait) {
+      const banner = document.createElement("div");
+      banner.className = "relay-failover";
+      banner.setAttribute("role", "status");
+      banner.textContent = fo
+        ? t("Sending via {via} — {failed} failed", fo)
+        : t("Only sending via {relay} — it is not reachable, messages wait for it", { relay: state.account.addr });
+      listEl.appendChild(banner);
+    }
     if (loadErr) listEl.appendChild(loadErrorBanner(document, { err: loadErr, t, stale: true, onRetry: () => refresh() }));
     if (!transports.length) {
       const empty = document.createElement("div");
@@ -7116,7 +7159,7 @@ async function openRelaysModal() {
       const isVia = !!viaDomain && domainOf(tr.addr) === viaDomain;
       const failedOver = !!viaDomain && viaDomain !== pinnedDomain;
       const sendMark = primary
-        ? ` <span class="relay-sending">${escapeHtml(t("· sending"))}${failedOver ? " — " + escapeHtml(t("send failed, switched to {relay} for now", { relay: smtpVia })) : ""}</span>`
+        ? ` <span class="relay-sending">${escapeHtml(t("· sending"))}${failedOver ? " — " + escapeHtml(t("Sending via {via} — {failed} failed", { via: smtpVia, failed: tr.addr })) : ""}</span>`
         : isVia && failedOver
           ? ` <span class="relay-sending">${escapeHtml(t("· sending (failover)"))}</span>`
           : "";

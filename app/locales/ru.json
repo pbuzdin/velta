@@ -1627,5 +1627,9 @@
   "Only sending via {relay} — it is not reachable, messages wait for it": "Отправка только через {relay} — он недоступен, сообщения ждут его",
   "Show in folder": "Показать в папке",
   "Folder": "Папка",
-  "Couldn't show in folder: ": "Не удалось показать в папке: "
+  "Couldn't show in folder: ": "Не удалось показать в папке: ",
+  "PWA onboarding is unavailable": "Автоматическая настройка PWA недоступна",
+  "Finding your relay…": "Ищем ваш релей…",
+  "Creating your profile on {host}…": "Создаём профиль на {host}…",
+  "Automatic setup failed: ": "Автоматическая настройка не удалась: "
 }

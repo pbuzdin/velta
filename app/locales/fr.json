@@ -1627,5 +1627,9 @@
   "Only sending via {relay} — it is not reachable, messages wait for it": "Envoi uniquement via {relay} — injoignable, les messages l'attendent",
   "Show in folder": "Afficher dans le dossier",
   "Folder": "Dossier",
-  "Couldn't show in folder: ": "Impossible d'afficher dans le dossier : "
+  "Couldn't show in folder: ": "Impossible d'afficher dans le dossier : ",
+  "PWA onboarding is unavailable": "Configuration PWA indisponible",
+  "Finding your relay…": "Recherche de votre relais…",
+  "Creating your profile on {host}…": "Création de votre profil sur {host}…",
+  "Automatic setup failed: ": "Échec de la configuration automatique : "
 }
