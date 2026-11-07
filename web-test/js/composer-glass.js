@@ -19,5 +19,9 @@ if (window.VELTA_PWA?.wasmCore && host) {
     promote: "#history-scroll",
   });
   // Element scroll does not bubble to the library's window listener.
-  document.getElementById("history-scroll")?.addEventListener("scroll", glass.refresh, { passive: true });
+  const scroll = document.getElementById("history-scroll");
+  scroll?.addEventListener("scroll", glass.refresh, { passive: true });
+  if (new URLSearchParams(location.search).get("glass") === "webgl") {
+    import("./composer-webgl.js").then(({ createWebGLGlass }) => createWebGLGlass(host, scroll)).catch(() => {});
+  }
 }

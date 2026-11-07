@@ -1727,6 +1727,11 @@ button.reaction-chip { font: inherit; color: inherit; }
   transition: background-color .2s ease-out;
 }
 #main-composer.liquid-composer + .lg-cover { --lg-underlay: .02; --lg-spec: .18; }
+#main-composer .webgl-glass-canvas { width: 100%; height: 100%; border-radius: inherit; }
+#main-composer.webgl-ready .lg-pane {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
 @media (hover: hover) and (pointer: fine) {
   #main-composer.liquid-composer .icon-btn:hover {
     background: color-mix(in srgb, var(--text) 9%, transparent);
