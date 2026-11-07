@@ -421,15 +421,6 @@ async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-#[cfg(windows)]
-fn window_hwnd(app: &tauri::AppHandle) -> isize {
-    let Some(window) = app.get_webview_window("main") else { return 0 };
-    match window.hwnd() {
-        Ok(hwnd) => hwnd.0 as isize,
-        Err(_) => 0,
-    }
-}
-
 /// Windows only. False on every other platform, and when Hello is not enrolled.
 #[tauri::command]
 fn hello_supported() -> bool {
@@ -463,8 +454,7 @@ async fn set_db_hello(app: tauri::AppHandle, pin: Option<String>) -> Result<(), 
     #[cfg(windows)]
     {
         let dir = accounts_dir(&app);
-        let hwnd = window_hwnd(&app);
-        tauri::async_runtime::spawn_blocking(move || db_key::hello_set(&dir, pin.as_deref(), hwnd))
+        tauri::async_runtime::spawn_blocking(move || db_key::hello_set(&dir, pin.as_deref()))
             .await
             .map_err(|e| e.to_string())?
     }
@@ -480,8 +470,7 @@ async fn clear_db_hello(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         let dir = accounts_dir(&app);
-        let hwnd = window_hwnd(&app);
-        tauri::async_runtime::spawn_blocking(move || db_key::hello_clear(&dir, hwnd))
+        tauri::async_runtime::spawn_blocking(move || db_key::hello_clear(&dir))
             .await
             .map_err(|e| e.to_string())?
     }
@@ -498,9 +487,8 @@ async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         let dir = accounts_dir(&app);
-        let hwnd = window_hwnd(&app);
         let raw = tauri::async_runtime::spawn_blocking(move || {
-            db_key::hello_unlock(&dir, &dir.join("accounts"), hwnd)
+            db_key::hello_unlock(&dir, &dir.join("accounts"))
         })
         .await
         .map_err(|e| e.to_string())??;

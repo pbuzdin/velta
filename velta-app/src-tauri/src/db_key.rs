@@ -689,7 +689,7 @@ pub fn pin_set(data_dir: &Path, old_pin: Option<&str>, new_pin: &str) -> Result<
     } else if hello_locked(data_dir) {
         #[cfg(windows)]
         {
-            hello_dek(data_dir, 0)?
+            hello_dek(data_dir)?
         }
         #[cfg(not(windows))]
         {
@@ -772,18 +772,20 @@ pub fn pin_unlock(data_dir: &Path, accounts_root: &Path, pin: &str) -> Result<St
 // ---- Windows Hello (#178) -------------------------------------------------
 //
 // Same custody rule as the PIN: the wrap file replaces the keychain item.
-// File layout: `VLTHW | u8 ver=1 | PKCS#1 ciphertext` of the 32-byte DEK.
-// The private key lives in the Passport provider (`win_hello.rs`).
+// File layout: `VLTHW | u8 ver=1 | 12B nonce | 48B AES-GCM ct` of the DEK
+// (66 bytes). The wrapping key is derived from the Hello signature
+// (`win_hello.rs`); decrypting asks Windows Hello every time.
 
 #[cfg(windows)]
 pub fn hello_wrap_path(data_dir: &Path) -> PathBuf {
     data_dir.join("dbkey.wrap.hello")
 }
 
-/// Ciphertext inside a well-formed Hello wrap. Wrong magic is not a wrap.
+/// Wrap body inside a well-formed Hello wrap. Wrong magic or length is not
+/// a wrap.
 #[cfg(any(windows, test))]
 pub fn hello_wrap_ct(bytes: &[u8]) -> Option<&[u8]> {
-    if bytes.len() < 7 || bytes.len() > 6 + 512 || &bytes[0..5] != b"VLTHW" || bytes[5] != 1 {
+    if bytes.len() != 66 || &bytes[0..5] != b"VLTHW" || bytes[5] != 1 {
         return None;
     }
     Some(&bytes[6..])
@@ -813,8 +815,8 @@ fn hello_ct(data_dir: &Path) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
-fn hello_dek(data_dir: &Path, hwnd: isize) -> Result<String, String> {
-    let raw = crate::win_hello::open(&hello_ct(data_dir)?, hwnd)?;
+fn hello_dek(data_dir: &Path) -> Result<String, String> {
+    let raw = crate::win_hello::open(&hello_ct(data_dir)?)?;
     Ok(data_encoding::HEXLOWER.encode(&raw))
 }
 
@@ -830,7 +832,7 @@ fn drop_keychain() {
 
 /// Read the current DEK from the PIN wrap, the Hello wrap, or the keychain.
 #[cfg(windows)]
-fn current_dek(data_dir: &Path, pin: Option<&str>, hwnd: isize) -> Result<String, String> {
+fn current_dek(data_dir: &Path, pin: Option<&str>) -> Result<String, String> {
     let path = pin_wrap_path(data_dir);
     if path.is_file() {
         let Some(pin) = pin else { return Err("current-pin-required".to_string()) };
@@ -841,7 +843,7 @@ fn current_dek(data_dir: &Path, pin: Option<&str>, hwnd: isize) -> Result<String
         };
     }
     if hello_locked(data_dir) {
-        return hello_dek(data_dir, hwnd);
+        return hello_dek(data_dir);
     }
     match keychain_lookup(keychain_entry().as_ref()) {
         Lookup::Found(dek) => Ok(dek),
@@ -850,52 +852,38 @@ fn current_dek(data_dir: &Path, pin: Option<&str>, hwnd: isize) -> Result<String
     }
 }
 
-/// Wrap the DEK under a new Hello key and drop the keychain copy. The PIN
-/// wrap, if any, stays as the fallback. `hwnd` parents the verify prompt.
+/// Wrap the DEK under the Hello credential and drop the keychain copy. One
+/// Hello prompt total (the sign in `seal`; creation rides it on first use).
+/// The PIN wrap, if any, stays as the fallback.
 #[cfg(windows)]
-pub fn hello_set(data_dir: &Path, pin: Option<&str>, hwnd: isize) -> Result<(), String> {
+pub fn hello_set(data_dir: &Path, pin: Option<&str>) -> Result<(), String> {
     if hello_locked(data_dir) {
         return Ok(());
     }
-    let dek_hex = current_dek(data_dir, pin, hwnd)?;
+    let dek_hex = current_dek(data_dir, pin)?;
     let dek = data_encoding::HEXLOWER
         .decode(dek_hex.as_bytes())
         .map_err(|_| "bad dek".to_string())?;
     let ct = crate::win_hello::seal(&dek)?;
-    let opened = match crate::win_hello::open(&ct, hwnd) {
-        Ok(p) => p,
-        Err(e) => {
-            crate::win_hello::delete();
-            return Err(e);
-        }
-    };
-    if opened != dek {
-        crate::win_hello::delete();
-        return Err("wrap verify failed".to_string());
-    }
     let mut file = Vec::with_capacity(6 + ct.len());
     file.extend_from_slice(b"VLTHW");
     file.push(1);
     file.extend_from_slice(&ct);
     let path = hello_wrap_path(data_dir);
-    if let Err(e) = std::fs::write(&path, &file) {
-        crate::win_hello::delete();
-        return Err(format!("wrap write failed: {e}"));
-    }
+    std::fs::write(&path, &file).map_err(|e| format!("wrap write failed: {e}"))?;
     drop_keychain();
     log("Windows Hello is now a key root; keychain item removed");
     Ok(())
 }
 
-/// Unwrap with Hello. If a PIN wrap remains, only the Hello key is removed.
-/// Otherwise the DEK goes back to the keychain.
+/// Unwrap with Hello. If a PIN wrap remains, only the Hello wrap is
+/// removed. Otherwise the DEK goes back to the keychain.
 #[cfg(windows)]
-pub fn hello_clear(data_dir: &Path, hwnd: isize) -> Result<(), String> {
-    let dek = hello_dek(data_dir, hwnd)?;
+pub fn hello_clear(data_dir: &Path) -> Result<(), String> {
+    let dek = hello_dek(data_dir)?;
     let path = hello_wrap_path(data_dir);
     if pin_locked(data_dir) {
         let _ = std::fs::remove_file(&path);
-        crate::win_hello::delete();
         log("Windows Hello removed; app-lock PIN remains the key root");
         return Ok(());
     }
@@ -906,7 +894,6 @@ pub fn hello_clear(data_dir: &Path, hwnd: isize) -> Result<(), String> {
         .set_password(&dek)
         .map_err(|e| format!("keychain write failed: {e}"))?;
     let _ = std::fs::remove_file(&path);
-    crate::win_hello::delete();
     log("Windows Hello removed; DEK back in the keychain");
     Ok(())
 }
@@ -914,8 +901,8 @@ pub fn hello_clear(data_dir: &Path, hwnd: isize) -> Result<(), String> {
 /// Prompt Hello and migrate any plaintext databases. Returns the raw key
 /// for the respawned sidecar env.
 #[cfg(windows)]
-pub fn hello_unlock(data_dir: &Path, accounts_root: &Path, hwnd: isize) -> Result<String, String> {
-    let hex = hello_dek(data_dir, hwnd)?;
+pub fn hello_unlock(data_dir: &Path, accounts_root: &Path) -> Result<String, String> {
+    let hex = hello_dek(data_dir)?;
     let report = prepare(accounts_root, Some(&hex));
     if !report.use_key {
         return Err("prepare-failed".to_string());
@@ -1176,11 +1163,24 @@ mod tests {
         assert_eq!(backoff_secs(10), 30, "capped");
     }
 
+    /// A well-formed Hello wrap body: magic + version + 60 wrap bytes.
+    #[cfg(windows)]
+    fn hello_wrap_bytes(magic: &[u8; 5], ver: u8) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(magic);
+        b.push(ver);
+        b.resize(66, 0xAB);
+        b
+    }
+
+    #[cfg(windows)]
     #[test]
     fn hello_wrap_rejects_a_foreign_header() {
-        assert!(hello_wrap_ct(b"VLTHW\x01abc").is_some());
-        assert!(hello_wrap_ct(b"XXXXX\x01abc").is_none());
-        assert!(hello_wrap_ct(b"VLTHW\x02abc").is_none());
+        assert!(hello_wrap_ct(&hello_wrap_bytes(b"VLTHW", 1)).is_some());
+        assert!(hello_wrap_ct(&hello_wrap_bytes(b"XXXXX", 1)).is_none());
+        assert!(hello_wrap_ct(&hello_wrap_bytes(b"VLTHW", 2)).is_none());
+        // Wrong length is not a wrap, even with the right magic.
+        assert!(hello_wrap_ct(b"VLTHW\x01tiny").is_none());
         assert!(hello_wrap_ct(b"VLTHW").is_none());
     }
 
@@ -1194,7 +1194,7 @@ mod tests {
     #[test]
     fn hello_wrap_file_starts_locked_and_pin_clear_keeps_it() {
         let dir = tmpdir();
-        std::fs::write(hello_wrap_path(&dir), b"VLTHW\x01ciphertext").unwrap();
+        std::fs::write(hello_wrap_path(&dir), hello_wrap_bytes(b"VLTHW", 1)).unwrap();
         let (key, issue, locked) = startup(&dir);
         assert!(key.is_none() && issue.is_none() && locked);
         assert!(hello_locked(&dir));

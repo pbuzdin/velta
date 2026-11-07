@@ -108,6 +108,16 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # Windows toasts with the conversation layout (three text lines + circular
 # sender avatar); same crate the notification plugin uses on Windows.
 tauri-winrt-notification = "0.7"
+# Windows Hello custody (win_hello.rs): the DEK wrap key comes from a
+# KeyCredentialManager signature, so the SHA-256 helper is Windows-gated
+# with it (the PIN wrap derives its key with Argon2id instead).
+windows = { version = "0.59", features = [
+    "Foundation",
+    "Security_Credentials",
+    "Security_Cryptography",
+    "Storage_Streams",
+] }
+sha2 = "0.10"
 
 [profile.release]
 # panic = "unwind" so a panic during startup (e.g. in init_android_core or the

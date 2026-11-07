@@ -8898,6 +8898,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "socket2 0.5.10",
  "socks",
  "tauri",
@@ -8918,6 +8919,7 @@ dependencies = [
  "ureq",
  "velta-attachment",
  "webpki-roots 0.26.11",
+ "windows 0.59.0",
  "yerpc",
 ]
 

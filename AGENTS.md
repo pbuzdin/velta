@@ -142,7 +142,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   ├── sidecar.rs    # Windows/macOS rpc-server spawn + stdout JSON-RPC routing (#201/#205)
 │       │   ├── push.rs       # UnifiedPush JNI: endpoint, wakeup, registrationFailed in status() (#204/#205)
 │       │   ├── db_key.rs     # VELTA_DB_KEY install_env + Android/desktop DEK (#202)
-│       │   ├── win_hello.rs  # Windows Hello NGC wrap of the desktop DEK (1.5.2, Windows only)
+│       │   ├── win_hello.rs  # Windows Hello KeyCredentialManager DEK wrap (Windows only)
 │       │   ├── log.rs        # bounded drop-newest logger; LOG_ENABLED default OFF; boot: always writes (#196/#197)
 │       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
 │       │   ├── proxy.rs      # saved SOCKS5 proxies + shared proxy_url keeper; backup detachment; WS mutual exclusion; stale DNS-listener cleanup
@@ -2495,7 +2495,7 @@ Release notes: `.github/release-notes/v1.5.2.md`. News: `https://velta.cc/news/v
 - **Design system #182, slice 1** (49f467fa, `tests/design-tokens.test.mjs`): `--selection-bg` is its own token (selection no longer reads `--bg-active`); `--accent-tint` is defined per theme (light `#3390ec`, brutal `#8f7ff0`); `--focus-ring` replaces the scattered accent outlines (`currentColor` inside bubbles and `--text` on the core banner stay deliberate). Light focus ring `#3390ec`→`#1a68b8` (5.1:1).
 - **Design system #182, slice 2a** (91179cea): `tools/gen-design-tokens.mjs` emits `docs/design-tokens.html` (a card per color token, plus a WCAG pair table with computed ratios). `tests/design-tokens-doc.test.mjs` regenerates in memory and fails when the committed fragment is stale. The website `/design/` page does not embed that fragment yet (slice 2b).
 - **Design system #182, phase 2a** (ccb1b7ab): `tools/gen-design-components.mjs` emits `docs/design-components.html` (the real button, tab, menu, chip, field, and dialog rules from `main.css`, scoped under `.vc`, with class-forced hover, pressed, and focus). `tests/design-components-doc.test.mjs` fails when that fragment is stale. The website does not embed it yet. Remaining #182: those embeds, reference-page UX, 44 px touch targets, 8.5 px labels.
-- **Windows Hello** (desktop only): Privacy & security wraps the install DEK in an NGC RSA-2048 key (`win_hello.rs`, Passport provider, key name `chat.velta.dbkey`) and removes the Credential Manager copy. Ciphertext is `<data>/dbkey.wrap.hello` (`VLTHW`). Decrypt prompts; encrypt does not. The button is shown only when Hello is enrolled (`NgcGetDefaultDecryptionKeyName`). The PIN wrap can stay as the other root. Cold start stays locked until Hello or the PIN succeeds. Details in the data-at-rest bullet below.
+- **Windows Hello** (desktop only): Privacy & security AES-256-GCM-wraps the install DEK under a Windows Hello signature (`win_hello.rs`, KeyCredentialManager credential `chat.velta.dbkey`) and removes the Credential Manager copy. Wrap body is `<data>/dbkey.wrap.hello` (`VLTHW` + version + `nonce‖ct`, 66 bytes). Every enable and unlock signs a fixed challenge — that signature IS the Hello prompt — and `SHA-256(sig)` is the wrap key (RSA-PKCS1 sign is deterministic). Enable shows ONE prompt; a local GCM round-trip verifies the seal. The button is shown when the device supports Hello (`IsSupportedAsync`). The PIN wrap can stay as the other root. Cold start stays locked until Hello or the PIN succeeds. Details in the data-at-rest bullet below.
 - **macOS release** (7c73c606): the first `v1.5.2` tag build passed Windows and Android, then `macos / build-macos` died on unused `hello_wrap_path` and `hello_wrap_ct` (`RUSTFLAGS=-D warnings`). Those helpers are `#[cfg(windows)]` and `#[cfg(any(windows, test))]`. No GitHub release existed, so the lightweight tag was moved onto that commit. Same failure class as `docs/agents/release-ci.md` incident 2.
 
 
@@ -2884,23 +2884,30 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   read in `Accounts::load_accounts`/`add_account`). Custody per platform:
   desktop keychain (`keyring`, `chat.velta.dbkey`), the app-lock PIN, or
   Windows Hello. Either wrap REPLACES the keychain as the key root. The
-  PIN is Argon2id in `<data>/dbkey.wrap`. Windows Hello (1.5.2, `cfg(windows)`,
-  `win_hello.rs`) is an RSA-2048 key in "Microsoft Passport Key Storage
-  Provider" named `chat.velta.dbkey`: usage decrypt|signing, `NgcCacheType`
-  auth-mandatory, reject `NCRYPT_ALLOW_KEY_IMPORT`. PKCS#1 encrypt does not
-  prompt; decrypt does (`PinCacheIsGestureRequired`, parent HWND from the
-  `main` window). The wrap is `<data>/dbkey.wrap.hello` (`VLTHW` + version +
-  ciphertext). `hello_wrap_path` is `#[cfg(windows)]` and `hello_wrap_ct`
-  is `#[cfg(any(windows, test))]`: a macOS release build denies unused
-  functions (`-D warnings`), and an ungated helper fails the DMG the way
-  v1.4.44's `chat_link_with_token` did. `hello_set` decrypts once before the file is written and the
-  keychain item is deleted; a cancelled prompt deletes the NGC key and
-  leaves the keychain. Both wraps may be set. Removing one leaves the
-  other. Removing the last writes the keychain first, then deletes the
-  file. Do not put a consent popup in front of DPAPI — any process running
-  as the user can skip it. `hello_supported` is enrollment
-  (`NgcGetDefaultDecryptionKeyName`), not merely Windows; the button stays
-  hidden otherwise. A wrap session STARTS LOCKED: the sidecar spawns
+  PIN is Argon2id in `<data>/dbkey.wrap`. Windows Hello (rewritten 11-07,
+  `cfg(windows)`, `win_hello.rs`) AES-256-GCM-wraps the DEK under
+  `SHA-256("velta-hello-kek-v1" || signature)`, where the signature is a
+  KeyCredentialManager sign of a fixed challenge (credential
+  `chat.velta.dbkey`, created on first enable) — the signature IS the Hello
+  gesture, so enable prompts once and every unlock prompts. NCrypt is NOT
+  usable here: `NCryptCreatePersistedKey` on the Passport provider returns
+  NTE_INVALID_PARAMETER (0x80090027) for every third-party name (creation is
+  fenced to OS components; measured Win11 26300), and the default NGC
+  decryption key refuses third-party decrypt (NTE_BAD_KEYSET, no prompt).
+  KeyCredentialManager has no delete API — "clear" drops the wrap and leaves
+  the dormant credential. The wrap is `<data>/dbkey.wrap.hello` (`VLTHW` +
+  version + `nonce‖ct`, 66 bytes). `hello_wrap_path` is `#[cfg(windows)]`
+  and `hello_wrap_ct` is `#[cfg(any(windows, test))]`: a macOS release build
+  denies unused functions (`-D warnings`), and an ungated helper fails the
+  DMG the way v1.4.44's `chat_link_with_token` did. `hello_set` verifies the
+  seal with a local GCM round-trip before the file is written and the
+  keychain item is deleted; a cancelled prompt leaves the keychain. Both
+  wraps may be set. Removing one leaves the other. Removing the last writes
+  the keychain first, then deletes the file. Do not put a consent popup in
+  front of DPAPI — any process running as the user can skip it.
+  `hello_supported` is device support (`IsSupportedAsync`), not merely
+  Windows; the button stays hidden otherwise. A wrap session STARTS LOCKED:
+  the sidecar spawns
   keyless, `unlock_with_pin` / `unlock_with_hello` re-migrates and respawns
   it keyed (`spawn_sidecar` owns the child). The lock screen is Hello when
   that wrap exists, and the PIN form as well when `dbkey.wrap` exists.
