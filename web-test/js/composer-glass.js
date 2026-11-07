@@ -11,9 +11,10 @@ if (window.VELTA_PWA?.wasmCore && host) {
   new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   const glass = createLiquidGlass(host, {
-    radius: 24,
+    radius: 32,
     rim: 0.85,
-    blur: 12,
+    // Let Chromium's displacement remain visible; non-refracting engines need the frost fallback.
+    blur: "userAgentData" in navigator ? 1.5 : 12,
     reflectStrength: 1.6,
     promote: "#history-scroll",
   });
