@@ -10,18 +10,22 @@ if (window.VELTA_PWA?.wasmCore && host) {
   syncTheme();
   new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
+  const webglRequested = new URLSearchParams(location.search).get("glass") === "webgl";
   const glass = createLiquidGlass(host, {
     radius: 32,
     rim: 0.85,
     // Let Chromium's displacement remain visible; non-refracting engines need the frost fallback.
     blur: "userAgentData" in navigator ? 1.5 : 12,
+    reflect: !webglRequested,
     reflectStrength: 1.6,
     promote: "#history-scroll",
   });
   // Element scroll does not bubble to the library's window listener.
   const scroll = document.getElementById("history-scroll");
-  scroll?.addEventListener("scroll", glass.refresh, { passive: true });
-  if (new URLSearchParams(location.search).get("glass") === "webgl") {
+  scroll?.addEventListener("scroll", () => {
+    if (!host.classList.contains("webgl-ready")) glass.refresh();
+  }, { passive: true });
+  if (webglRequested) {
     import("./composer-webgl.js").then(({ createWebGLGlass }) => createWebGLGlass(host, scroll)).catch(() => {});
   }
 }

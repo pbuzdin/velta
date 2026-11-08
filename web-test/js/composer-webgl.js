@@ -8,8 +8,9 @@ import {
   setUniforms,
 } from "../vendor/twgl-glass.module.js";
 
+const LOW_POWER = matchMedia("(pointer: coarse)").matches;
 const MARGIN = 36;
-const TEXTURE_MARGIN = 256;
+const TEXTURE_MARGIN = LOW_POWER ? 128 : 256;
 const CAPTURE_MARGIN = TEXTURE_MARGIN + 128;
 const MAX_ROWS = 10;
 const CAPTURE_DELAY = 140;
@@ -59,11 +60,16 @@ export function createWebGLGlass(host, scroll) {
       vec2 bend = normal * edge * edge * min(22.0, uRadius * 0.7);
       vec2 uv = (uMargin + p + vec2(0.0, uScrollShift)) / uSampleSize;
       vec2 dispersion = bend / uSampleSize;
-      vec3 color = vec3(
-        texture2D(uTexture, uv + dispersion * 1.08).r,
-        texture2D(uTexture, uv + dispersion).g,
-        texture2D(uTexture, uv + dispersion * 0.92).b
-      );
+      vec3 color;
+      if (abs(uScrollShift) > 0.01) {
+        color = texture2D(uTexture, uv + dispersion).rgb;
+      } else {
+        color = vec3(
+          texture2D(uTexture, uv + dispersion * 1.08).r,
+          texture2D(uTexture, uv + dispersion).g,
+          texture2D(uTexture, uv + dispersion * 0.92).b
+        );
+      }
       gl_FragColor = vec4(color, 1.0);
     }
   `]);
@@ -78,11 +84,12 @@ export function createWebGLGlass(host, scroll) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   pane.before(canvas);
+  host.classList.toggle("webgl-low-power", LOW_POWER);
 
   const sample = document.createElement("canvas");
   const context = sample.getContext("2d", { alpha: false });
   const cache = new Map();
-  let dpr = Math.min(devicePixelRatio || 1, 1.5);
+  let dpr = Math.min(devicePixelRatio || 1, LOW_POWER ? 0.75 : 1.5);
   let background = null;
   let revision = 0;
   let timer = 0;
@@ -300,7 +307,7 @@ export function createWebGLGlass(host, scroll) {
     scheduleCapture();
   };
   const onResize = () => {
-    dpr = Math.min(devicePixelRatio || 1, 1.5);
+    dpr = Math.min(devicePixelRatio || 1, LOW_POWER ? 0.75 : 1.5);
     invalidate();
     resize();
   };
@@ -337,7 +344,7 @@ export function createWebGLGlass(host, scroll) {
     removeEventListener("resize", onResize);
     document.removeEventListener("visibilitychange", onVisibility);
     canvas.removeEventListener("webglcontextlost", onContextLoss);
-    host.classList.remove("webgl-ready");
+    host.classList.remove("webgl-ready", "webgl-low-power");
     textureReady = false;
     cache.clear();
     canvas.remove();

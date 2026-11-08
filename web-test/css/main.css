@@ -1732,6 +1732,11 @@ button.reaction-chip { font: inherit; color: inherit; }
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
+#main-composer.webgl-low-power:not(:has(#composer-input:focus)) {
+  --composer-veil: color-mix(in srgb, var(--bg-sidebar) 8%, transparent);
+}
+#main-composer.webgl-ready.webgl-low-power > .lg-edge,
+#main-composer.webgl-ready.webgl-low-power > .lg-caustic { display: none; }
 @media (hover: hover) and (pointer: fine) {
   #main-composer.liquid-composer .icon-btn:hover {
     background: color-mix(in srgb, var(--text) 9%, transparent);
