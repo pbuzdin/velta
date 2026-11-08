@@ -11,6 +11,7 @@ const source = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8"
 // Run the production declarations, renderers and listeners, not copies of their
 // logic. Keep original line offsets for failures; fail loudly if markers move.
 const scripts = [
+  ["let listCollapse = null;", "globalThis.__veltaAppEvaluating = true"],
   ["let diagnosticsOpen = false;", "function appLog("],
   ["function scheduleChatListRefresh(", "// Group message sender avatars"],
   ["async function openChat(", "// Android BACK / gesture"],
