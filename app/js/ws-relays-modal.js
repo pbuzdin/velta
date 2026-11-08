@@ -82,6 +82,11 @@ export async function showWsRelaysModal() {
     const host = addWsRelay(input.value);
     if (!host) { toast(t("Enter a domain, e.g. relay.example.org")); return; }
     input.value = "";
+    if (wsProxyUrl() !== before) {
+      toast(t("Relay changed, reloading"));
+      setTimeout(() => location.reload(), 400);
+      return;
+    }
     render();
     toast(t("{host} added", { host }));
   });

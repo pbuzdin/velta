@@ -94,11 +94,13 @@ node tools/binaryen/node_modules/binaryen/bin/wasm-opt -Os \
 ## 2. Build the dist
 
 ```sh
-node scripts/build-pwa.mjs
+node scripts/build-pwa.mjs --same-origin-proxy   # served by the relay itself
 node scripts/verify-pwa-dist.mjs
 ```
 
-Output is `build/dist-pwa/`. Do **not** pass `--ws-proxy` if the PWA origin
+Output is `build/dist-pwa/`. `--same-origin-proxy` makes an empty
+`wsProxyUrl` tunnel through `wss://<page host>`; pass it only when the relay
+serves the PWA (e.g. its `/app` folder), never for a static host. Do **not** pass `--ws-proxy` if the PWA origin
 and the relay domain are different, or if you do not want a relay hostname
 baked into the artifact. An empty `wsProxyUrl` lets each visitor pick a
 relay in **WebSocket relays**. `--ws-proxy wss://relay.example.org` is only

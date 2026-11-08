@@ -18,8 +18,38 @@ test("an untouched PWA keeps the baked websocket URL and shows that domain", () 
   assert.equal(wsProxyUrl(), "wss://relay.example.org");
 });
 
-test("an empty bake uses the page host, and localhost stays proxy-less", () => {
+test("an empty bake without --same-origin-proxy has no proxy", () => {
   store("");
+  globalThis.location = { hostname: "velta.example" };
+  assert.deepEqual(listWsRelays(), []);
+  assert.equal(wsProxyUrl(), null);
+});
+
+test("without --same-origin-proxy a stale page-host entry is dropped unless it has a token", () => {
+  store("");
+  globalThis.location = { hostname: "velta.example" };
+  localStorage.setItem("velta-ws-relays", JSON.stringify(["velta.example", "relay.example.org"]));
+  localStorage.setItem("velta-ws-relay", "velta.example");
+  localStorage.setItem("velta-ws-relay-urls", JSON.stringify({ "velta.example": "wss://velta.example/ws" }));
+  assert.deepEqual(listWsRelays(), ["relay.example.org"]);
+  assert.equal(localStorage.getItem("velta-ws-relay"), null);
+  assert.equal(localStorage.getItem("velta-ws-relay-urls"), "{}");
+  assert.equal(wsProxyUrl(), "wss://relay.example.org");
+
+  store("");
+  localStorage.setItem("velta-ws-relays", JSON.stringify(["velta.example"]));
+  localStorage.setItem("velta-ws-relay-tokens", JSON.stringify({ "velta.example": "tok123" }));
+  assert.deepEqual(listWsRelays(), ["velta.example"]);
+  assert.equal(wsProxyUrl(), "wss://velta.example");
+});
+
+test("--same-origin-proxy: an empty bake uses the page host, and localhost stays proxy-less", () => {
+  store("");
+  globalThis.window.VELTA_PWA.sameOriginProxy = true;
+  localStorage.setItem("velta-ws-relays", JSON.stringify(["relay.example.org"]));
+  globalThis.location = { hostname: "relay.example.org" };
+  assert.deepEqual(listWsRelays(), ["relay.example.org"]);
+  localStorage.removeItem("velta-ws-relays");
   globalThis.location = { hostname: "relay.example.org" };
   assert.deepEqual(listWsRelays(), ["relay.example.org"]);
   assert.equal(wsProxyUrl(), "wss://relay.example.org");

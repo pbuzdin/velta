@@ -307,11 +307,12 @@ PWA from this host, or reverse-proxy that path. Full recipe:
 
 Quick deploy: clone branch `pwa-dist` (orphan snapshot of the static
 tree, force-pushed, never merged) and upload it except `.git`. From
-source, build with `node scripts/build-pwa.mjs` and do not pass
-`--ws-proxy` when the page is served by the relay (or when the artifact
-must not carry a hostname). An empty `window.VELTA_PWA.wsProxyUrl` uses the page
-hostname at boot, or the domain the visitor picks under WebSocket
-relays. Move
+source, build with `node scripts/build-pwa.mjs --same-origin-proxy` and do
+not pass `--ws-proxy` when the page is served by the relay (or when the
+artifact must not carry a hostname). With `--same-origin-proxy`, an empty
+`window.VELTA_PWA.wsProxyUrl` uses the page hostname at boot, or the domain
+the visitor picks under WebSocket relays. Without it (static hosts such as
+velta.cc) there is no proxy until an invite or the visitor adds one. Move
 `app/.mimosa` and `app/js/.mimosa` out of the app tree before the build so hook state is not
 precached. The wasm core must export `sqlite_export` (build refuses
 otherwise) or profiles lose their database on reload. The service worker

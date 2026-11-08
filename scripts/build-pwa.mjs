@@ -7,6 +7,7 @@
 //   node scripts/build-pwa.mjs [--app-root app] [--wasm-dist build/wasm-dist]
 //        [--out build/dist-pwa] [--ws-proxy wss://host/path] [--wasm-opt [BIN]]
 //        [--onboarding-keys private-deploy/onboarding-keys.json]
+//        [--same-origin-proxy]
 //
 // --wasm-dist  wrapper build dir containing velta_wasm.js +
 //              velta_wasm_bg.wasm (CI artifact layout or a local
@@ -14,6 +15,9 @@
 // --ws-proxy   ws(s):// mail-proxy endpoint (relay websockify, C3); the dist
 //              boots and persists accounts without one — it just can't
 //              configure against a relay yet
+// --same-origin-proxy  with no --ws-proxy, tunnel through wss://<page host>;
+//              only for dists served by a relay itself (its /app folder).
+//              Static hosts (GitHub Pages, velta.cc) must not pass it
 // --wasm-opt   optimize the copied wasm in place with binaryen (pass a path,
 //              or bare to use the $PATH one); deploy dists want this (~30 MB
 //              no-opt → ~18.5 MB -Os)
@@ -40,6 +44,7 @@ const wasmDist = resolve(repoRoot, flag('wasm-dist') || 'build/wasm-dist')
 const outDir = resolve(repoRoot, flag('out') || 'build/dist-pwa')
 const wsProxy = flag('ws-proxy') || ''
 const wasmOpt = flag('wasm-opt')
+const sameOriginProxy = flag('same-origin-proxy') === true
 const onboardingKeysPath = flag('onboarding-keys')
 const onboardingKeys = onboardingKeysPath
   ? JSON.parse(readFileSync(resolve(repoRoot, onboardingKeysPath), 'utf8'))
@@ -130,6 +135,7 @@ writeFileSync(join(outDir, 'pwa-config.js'), `// Velta PWA dist configuration (C
 window.VELTA_PWA = {
   wasmCore: true, // no native shell here: the worker-wasm core IS the backend
   wsProxyUrl: ${JSON.stringify(wsProxy)}, // ws(s):// mail proxy (C3 websockify); "" until the relay ships it
+  sameOriginProxy: ${sameOriginProxy}, // true only for dists served by a relay: empty wsProxyUrl → wss://<page host>
   onboardingKeys: ${JSON.stringify(onboardingKeys)}, // public Ed25519 keys; private signing keys stay with Veltar
 };
 if ('serviceWorker' in navigator) {

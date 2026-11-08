@@ -29,6 +29,8 @@ Two files, deployed to the relay box:
   configures the profile automatically (see the velta repo,
   `createAccountFromRelayInvite`). The stock DC mobile flow keeps working
   via `dclogin:` links handed out by the operator.
+  Build that `/app` dist with `node scripts/build-pwa.mjs --same-origin-proxy`
+  so it tunnels through the relay it is served from.
 - **Reputation-safe by construction**: recipients are minted by the relay's
   own user generator, so there is no open-relay surface and no
   registration endpoint left to abuse.
