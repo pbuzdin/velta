@@ -34,6 +34,7 @@ function bakedHost() {
 }
 
 function storedList() {
+  dropStalePageHost();
   try {
     const list = JSON.parse(localStorage.getItem(LIST_KEY) || "null");
     if (!Array.isArray(list)) return null;
@@ -49,10 +50,38 @@ function storedList() {
 }
 
 // A PWA served by its relay has no baked proxy (the dist must not carry a
-// private hostname). The page host is that tunnel until the user picks one.
-function pageHost() {
+// private hostname). The page host is that tunnel until the user picks one,
+// but only in dists built with --same-origin-proxy (a static host such as
+// velta.cc can't tunnel WebSockets).
+function sameOriginProxy() {
+  return window.VELTA_PWA?.sameOriginProxy === true;
+}
+
+function rawPageHost() {
   try { return normalizeHost(globalThis.location?.hostname) || ""; }
   catch { return ""; }
+}
+
+function pageHost() {
+  if (!sameOriginProxy()) return "";
+  try { return normalizeHost(globalThis.location?.hostname) || ""; }
+  catch { return ""; }
+}
+
+// Older builds saved the page host as a relay. Without --same-origin-proxy
+// drop it, unless an invite token shows it was configured on purpose.
+function dropStalePageHost() {
+  if (sameOriginProxy()) return;
+  const host = rawPageHost();
+  if (!host) return;
+  let list;
+  try { list = JSON.parse(localStorage.getItem(LIST_KEY) || "null"); } catch { return; }
+  if (!Array.isArray(list) || !list.some((h) => normalizeHost(h) === host)) return;
+  if (wsRelayToken(host)) return;
+  localStorage.setItem(LIST_KEY, JSON.stringify(list.filter((h) => normalizeHost(h) !== host)));
+  if (localStorage.getItem(ACTIVE_KEY) === host) localStorage.removeItem(ACTIVE_KEY);
+  setWsRelayUrl(host, "");
+  setWsRelayToken(host, "");
 }
 
 export function listWsRelays() {
