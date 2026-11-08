@@ -3,6 +3,7 @@
 window.VELTA_PWA = {
   wasmCore: true, // no native shell here: the worker-wasm core IS the backend
   wsProxyUrl: "", // ws(s):// mail proxy (C3 websockify); "" until the relay ships it
+  onboardingKeys: {"veltar1":"yKp0kf0sBCSlSyn2I7ul69B2MGbZIRJSDvrRBGRVEmA"}, // public Ed25519 keys; private signing keys stay with Veltar
 };
 if ('serviceWorker' in navigator) {
   // An installed PWA is resumed, not navigated, so the browser rarely checks
