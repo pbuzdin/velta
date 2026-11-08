@@ -187,24 +187,41 @@ Compatibility rules for anything that mints or parses tokens: keep `v` at
   `worker-wasm.js`; the wasm core itself is unchanged). Full URLs such as
   `wss://ws.example.org/private/path` are preserved; older bare-host installs
   keep their existing storage and behavior.
-- **One-tap onboarding:** the owner-only Veltar command
-  `/pwa invite NAME [r ID] [30d|12h|YYYY-MM-DD] [uses N]` mints the same
-  signed proxy token as a `https://<pwa>/web?invite=<token>&r=<id>` link.
-  Same-origin onboarding configuration supplies the full proxy URL and the
-  signup-capable `{id: hostname}` registry. The PWA scrubs the token from the
-  visible URL, installs the proxy, reloads the worker, and creates the
-  Chatmail profile without another setup screen. With no `r`, only registry
-  relays are probed and the fastest responsive one is selected; the core's
-  arbitrary candidate pool is not used. Keep the PWA registry in sync with
-  approved entries in the proxy's `relays.json`.
+- **One-tap onboarding (v2):** the owner-only Veltar command
+  `/pwa invite NAME [r ID] [30d|12h|YYYY-MM-DD] [uses N]` mints the existing
+  HMAC proxy token and wraps it in a self-contained Ed25519-signed envelope:
+  `https://<pwa>/web?invite=<payload>.<signature>`. The signed payload contains
+  the full proxy URL, approved signup relays, key id, and exactly the same
+  expiry as the nested HMAC token. With `r ID`, Veltar includes that requested
+  relay; without it, Veltar includes the approved candidates and the PWA picks
+  the fastest responsive one. No `r` query parameter or `onboarding.json`
+  request is used by v2.
 
-  Real deployment hostnames belong in private configuration, not in the
-  open-source tree, documentation, tests, or a committed PWA artifact. A static
-  `onboarding.json` can be generated privately and added to the served tree
-  after service-worker precache generation. If the hostnames must not appear in
-  a publicly readable static file, serve the equivalent configuration from a
-  trusted same-origin runtime endpoint instead. In either model, a probe is a
-  liveness check, not proof of proxy identity.
+  `scripts/relay-invite/pwa_onboarding.py` is the reference implementation for
+  Veltar's deployment-specific bot. `keygen` creates an Ed25519 private key
+  with mode 0600 and prints the public `key-id=base64url` entry; `public`
+  reprints it, and `mint` signs an existing proxy token. The private key and
+  real hostnames stay in the bot's private configuration. The PWA needs only
+  the public key, supplied at build time:
+
+  ```sh
+  node scripts/build-pwa.mjs --onboarding-keys /private/path/onboarding-keys.json
+  ```
+
+  The JSON is `{"key-id":"base64url-Ed25519-public-key"}`. Public keys are not
+  secrets. The PWA verifies the signature before installing a proxy, checks
+  that both expiries match, scrubs the URL, reloads the worker, and creates the
+  Chatmail profile without another setup screen. Encoding is not encryption:
+  the invite holder can read its hostnames. Never put the Ed25519 private key
+  or the HMAC signing secret in the PWA.
+
+- **Legacy v1 onboarding:** already issued bare HMAC links with an optional
+  `&r=<id>` still use same-origin onboarding configuration. A static
+  `onboarding.json` can be generated privately and added after service-worker
+  precache generation, or a trusted same-origin runtime endpoint can serve it.
+  Do not use this registry path for new Veltar links when static hostnames are
+  unacceptable. In either format, a probe is a liveness check, not proof of
+  proxy identity.
 - **Per visitor, no invites:** drawer → **WebSocket relays** → add
   `ws.example.org` → select it (the page reloads). The app checks it with
   `/dns/ws.example.org`.

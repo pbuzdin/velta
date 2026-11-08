@@ -104,6 +104,15 @@ baked into the artifact. An empty `wsProxyUrl` lets each visitor pick a
 relay in **WebSocket relays**. `--ws-proxy wss://relay.example.org` is only
 for a dist that should open that one tunnel on first boot.
 
+To accept Veltar's self-contained v2 onboarding invitations, also pass
+`--onboarding-keys /private/path/onboarding-keys.json`. That JSON contains only
+public Ed25519 verification keys, for example
+`{"main":"base64url-public-key"}`. Generate the bot's private key and print its
+public entry with `scripts/relay-invite/pwa_onboarding.py keygen`; keep the
+private key and real proxy/relay hostnames in Veltar's private configuration.
+The signed invite carries those hostnames, so no public `onboarding.json` is
+needed. Legacy v1 registry invitations remain supported.
+
 Move `app/.mimosa` and `app/js/.mimosa` out of the tree before the build if
 those directories exist, or they end up in the precache.
 

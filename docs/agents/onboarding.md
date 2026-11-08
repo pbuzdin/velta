@@ -47,34 +47,45 @@ this into an unconditional boot splash.
 
 ## One-tap PWA invitations
 
-`app/js/pwa-onboarding.js` recognizes the signed proxy-token shape in
-`?invite=` before the existing SecureJoin handler, so ordinary Delta Chat
-contact/group invites keep their old meaning. The same-origin onboarding
-configuration supplies one full `wss://` proxy URL (paths are supported) and
-only signup-capable `{short-id: chatmail-host}` relays. The corresponding proxy
-administrator command is `tools/deploy-ws-proxy.sh relay add ID HOST`; it
-validates Chatmail without calling `/new`.
+`app/js/pwa-onboarding.js` recognizes `?invite=` before the existing
+SecureJoin handler, so ordinary Delta Chat contact/group invites keep their
+old meaning. Two formats are supported:
 
-Deployment-specific hostnames are configuration, not source constants. Keep
-real values out of the open-source tree, documentation, tests, and generated
-PWA artifacts. A private static `onboarding.json` can be injected into the
-served tree after precache generation; a same-origin runtime endpoint can serve
-the same configuration when a static public file is not acceptable. A static
-file remains visible to clients, and a successful proxy probe proves
-reachability rather than identity.
+- **V2 (preferred): self-contained signed configuration.** The envelope payload
+  is `{v:2,t,p,r,e,k}`: the existing HMAC proxy token, one full `wss://` proxy
+  URL, approved `{short-id: chatmail-host}` relays, the same expiry as the HMAC
+  token, and an Ed25519 key id. The URL-safe payload and detached signature are
+  joined as `payload.signature`. `scripts/relay-invite/pwa_onboarding.py` is the
+  reference signer for Veltar. `r=<id>` query parameters are forbidden in v2:
+  relay selection configuration must be signed, not appended unsigned.
+- **V1 (legacy): registry-based proxy token.** A bare HMAC token plus optional
+  `r=<id>` still loads the same-origin `onboarding.json` registry. Keep this
+  compatibility path for already issued links; new Veltar links should be v2.
+
+For v2, `verifyOnboardingEnvelope()` verifies Ed25519 with
+`window.VELTA_PWA.onboardingKeys[key-id]` before trusting any hostname or
+installing the nested HMAC token. Public verification keys are safe build
+configuration (`scripts/build-pwa.mjs --onboarding-keys file.json`); private
+signing keys never enter the PWA or repository. The payload is encoded, not
+encrypted: invite recipients can decode it, and the account address reveals
+the relay domain. Base64url must never be mistaken for a signature check.
 
 The capture runs before `createCore`: the bearer token is removed from the
 visible URL, stored in the existing proxy-token store, and the relay choice is
-parked in `sessionStorage velta-pwa-onboarding`. A reload is mandatory because
-the wasm worker captures its proxy once. Boot then probes only registry hosts,
-uses the requested `r` or the fastest responsive entry, and calls
-`configureWithQr(dcaccount:https://host/new)` (or `addAccountWithQr` for an
-existing configured profile). The worker turns stock `POST /new` into an
-authenticated `wss://<proxy>/cm-new/<host>` exchange, preserving any proxy path;
-this avoids the CORS failure of both direct Chatmail signup and an HTTP proxy.
-The proxy only forwards an empty signup POST to allowlisted Chatmail hosts.
-This automatic path deliberately skips the nickname modal and never calls core
+parked in `sessionStorage velta-pwa-onboarding`. V2 stores only the verified
+registry across the required reload and never fetches `onboarding.json`. The
+worker captures its proxy once, so the reload is mandatory. Boot then probes
+only approved hosts, uses the requested v1 `r` or the fastest responsive entry,
+and calls `configureWithQr(dcaccount:https://host/new)` (or `addAccountWithQr`
+for an existing configured profile). The worker turns stock `POST /new` into an
+authenticated `wss://<proxy>/cm-new/<host>` exchange, preserving any proxy path.
+The automatic path deliberately skips the nickname modal and never calls core
 `initTransports` autopick. The token itself is never written into diagnostics.
+
+Deployment-specific hostnames stay in Veltar's private configuration and the
+signed invite, never in source, tests, docs, or static PWA configuration. The
+proxy still enforces its own allowlist; a valid PWA signature does not turn it
+into an open relay. A proxy probe proves reachability, not identity.
 
 ## Second-device flow (`secondDeviceFlow`)
 

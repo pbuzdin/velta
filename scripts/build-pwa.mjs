@@ -6,6 +6,7 @@
 // Usage:
 //   node scripts/build-pwa.mjs [--app-root app] [--wasm-dist build/wasm-dist]
 //        [--out build/dist-pwa] [--ws-proxy wss://host/path] [--wasm-opt [BIN]]
+//        [--onboarding-keys private-deploy/onboarding-keys.json]
 //
 // --wasm-dist  wrapper build dir containing velta_wasm.js +
 //              velta_wasm_bg.wasm (CI artifact layout or a local
@@ -39,6 +40,17 @@ const wasmDist = resolve(repoRoot, flag('wasm-dist') || 'build/wasm-dist')
 const outDir = resolve(repoRoot, flag('out') || 'build/dist-pwa')
 const wsProxy = flag('ws-proxy') || ''
 const wasmOpt = flag('wasm-opt')
+const onboardingKeysPath = flag('onboarding-keys')
+const onboardingKeys = onboardingKeysPath
+  ? JSON.parse(readFileSync(resolve(repoRoot, onboardingKeysPath), 'utf8'))
+  : {}
+if (!onboardingKeys || Array.isArray(onboardingKeys) || typeof onboardingKeys !== 'object' ||
+    Object.entries(onboardingKeys).some(([id, key]) =>
+      !/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(id) ||
+      typeof key !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(key))) {
+  console.error('FAIL: --onboarding-keys must be a JSON object of key-id: base64url-Ed25519-public-key')
+  process.exit(2)
+}
 
 if (!existsSync(join(appRoot, 'index.html'))) {
   console.error(`FAIL: ${appRoot}/index.html missing`)
@@ -118,6 +130,7 @@ writeFileSync(join(outDir, 'pwa-config.js'), `// Velta PWA dist configuration (C
 window.VELTA_PWA = {
   wasmCore: true, // no native shell here: the worker-wasm core IS the backend
   wsProxyUrl: ${JSON.stringify(wsProxy)}, // ws(s):// mail proxy (C3 websockify); "" until the relay ships it
+  onboardingKeys: ${JSON.stringify(onboardingKeys)}, // public Ed25519 keys; private signing keys stay with Veltar
 };
 if ('serviceWorker' in navigator) {
   // An installed PWA is resumed, not navigated, so the browser rarely checks
