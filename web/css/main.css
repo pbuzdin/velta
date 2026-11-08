@@ -3543,6 +3543,12 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-row-audio .media-audio { margin-top: 2px; }
 .media-audio .vp { height: 30px; background: none; padding: 0; }
 .media-audio .vp-play { width: 26px; height: 26px; }
+/* Text-only mode (#300): covered gallery items show no media, only a reveal
+   button (same in-memory exception as the chat bubble). */
+.media-tile .media-textonly-cover { display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev); }
+.media-tile .media-reveal { position: absolute; inset: 0; margin: auto; height: 30px; max-width: calc(100% - 12px); border-radius: 15px; background: rgba(0,0,0,.55); color: #fff; font-size: 12.5px; }
+.msg-textonly .btn-text { flex: none; }
+.msg-link-preview .lp-hidden-note { display: block; font-size: 12.5px; color: var(--text-dim); margin-bottom: 2px; }
 
 /* ---------- Settings transfer (settings-transfer.js) ---------- */
 /* "Apply these settings" inside a Saved Messages bubble: the scoped
@@ -3828,3 +3834,7 @@ html[data-theme="brutal"] .core-banner-btn { border: 2px solid var(--nb-ink); bo
 .load-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 10px; padding: 6px 6px 6px 12px; border-left: 3px solid var(--danger); border-radius: 8px; background: var(--bg-sidebar); color: var(--text); font-size: 14px; }
 .load-error .btn-text { flex: none; }
 html[data-theme="brutal"] .load-error { border: 2px solid var(--nb-ink, var(--text)); border-left-width: 4px; }
+/* #286: send failover / strict-wait status in the Relays modal. Same
+   surface as .load-error (--text on --bg-sidebar: AA in every theme). */
+.relay-failover { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg-sidebar); color: var(--text); font-size: 13.5px; line-height: 1.35; }
+html[data-theme="brutal"] .relay-failover { border: 2px solid var(--nb-ink, var(--text)); border-left-width: 4px; }

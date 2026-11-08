@@ -14,7 +14,7 @@ import { escapeHtml } from "./format.js";
 import { tauriInvoke } from "./tauri.js";
 import { t } from "./i18n.js";
 import { ICON } from "./icons.js";
-import { addWsRelay, normalizeHost, setWsRelayToken, useWsRelay } from "./ws-relays.js";
+import { addWsRelay, normalizeHost, setWsRelayToken, setWsRelayUrl, useWsRelay } from "./ws-relays.js";
 
 export const WS_URL_MAX = 512;
 export const WS_LABEL_MAX = 64;
@@ -300,11 +300,30 @@ export async function acceptWsLink(link, { confirmModal, toast, errToast, onChan
   return !!(await addWsProxy({ ...parsed, activate: true }, { invoke, toast, errToast, onChange }));
 }
 
+function pwaProxyHost(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === "wss:" && !u.port ? normalizeHost(u.hostname) || "" : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Validated, confirmation-free installer shared by invites and PWA onboarding. */
+export function installWsLinkPwa(parsed, { activate = true } = {}) {
+  const host = pwaProxyHost(parsed.url);
+  if (!parsed.token || !host) return "";
+  const added = addWsRelay(host);
+  if (!added || !setWsRelayUrl(added, parsed.url)) return "";
+  setWsRelayToken(added, parsed.token);
+  if (activate) useWsRelay(added);
+  return added;
+}
+
 /** PWA: an invite link adds its proxy to "WebSocket relays" and uses it. */
 export async function acceptWsLinkPwa(parsed, { confirmModal, toast, errToast, reload = () => location.reload() }) {
-  const host = wsProxyHost(parsed.url);
-  // The PWA's relays are bare wss://<domain> (no port, no path).
-  if (!parsed.token || parsed.url !== `wss://${normalizeHost(host)}`) {
+  const host = pwaProxyHost(parsed.url);
+  if (!parsed.token || !host) {
     errToast(wsTransportPlatform({ tauri: false }).text, 6000);
     return false;
   }
@@ -315,10 +334,8 @@ export async function acceptWsLinkPwa(parsed, { confirmModal, toast, errToast, r
     t("Mail in this browser will go through this proxy. The page reloads to switch."),
   ].join("\n\n");
   if (!(await confirmModal(t("Use WebSocket proxy?"), text, t("Add and use"), false))) return false;
-  const added = addWsRelay(host);
+  const added = installWsLinkPwa(parsed);
   if (!added) { errToast(t("Bad host name"), 5000); return false; }
-  setWsRelayToken(added, parsed.token);
-  useWsRelay(added);
   toast(t("WebSocket proxy added and in use"));
   // Always reload: the worker reads the proxy and its invite once, at boot.
   setTimeout(reload, 400);
@@ -394,11 +411,8 @@ export async function saveWsLink(link, { toast, errToast, onChange, invoke = tau
   try { parsed = parseWsLink(link); }
   catch (e) { errToast(t("This WebSocket link can't be used: {why}", { why: errMsg(e) }), 6000); return false; }
   if (invoke) return !!(await addWsProxy({ ...parsed, activate: false }, { invoke, toast, errToast, onChange }));
-  const host = wsProxyHost(parsed.url);
-  if (!parsed.token || parsed.url !== `wss://${normalizeHost(host)}`) { errToast(wsTransportPlatform({ tauri: false }).text, 6000); return false; }
-  const added = addWsRelay(host);
-  if (!added) { errToast(t("Bad host name"), 5000); return false; }
-  setWsRelayToken(added, parsed.token);
+  const added = installWsLinkPwa(parsed, { activate: false });
+  if (!added) { errToast(wsTransportPlatform({ tauri: false }).text, 6000); return false; }
   toast(t("WebSocket proxy saved"));
   return true;
 }
