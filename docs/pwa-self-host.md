@@ -247,3 +247,10 @@ same-origin `/app/` URL. If the PWA lives on A, point the interstitial at
 Re-clone `pwa-dist` (or rebuild from source), then upload the whole tree.
 Confirm the served `sw.js` `VERSION` line changed. Clients pick it up on
 the next load or when the page comes to the foreground.
+
+For velta.cc/web, `pwa-web.yml` reads the public-key JSON from the
+`PWA_ONBOARDING_KEYS` GitHub Actions repository variable and passes a runner
+temp file to `--onboarding-keys`. To rotate or add a key, update that variable.
+Publishing fails if it is empty or the built config lacks `veltar1`; retiring
+that key id also requires updating the workflow check. Private signing keys
+never belong in this variable.

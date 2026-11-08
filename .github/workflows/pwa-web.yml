@@ -77,12 +77,21 @@ jobs:
           path: ${{ runner.temp }}/dist-pwa-ci
 
       - name: Build velta.cc/web variant
+        env:
+          PWA_ONBOARDING_KEYS: ${{ vars.PWA_ONBOARDING_KEYS }}
         run: |
+          if [ -z "$PWA_ONBOARDING_KEYS" ]; then
+            echo "::error::Set the PWA_ONBOARDING_KEYS repository variable before publishing signed-invite support"
+            exit 1
+          fi
+          printf '%s' "$PWA_ONBOARDING_KEYS" > "$RUNNER_TEMP/onboarding-keys.json"
           rm -rf app/.mimosa app/js/.mimosa
           node scripts/build-pwa.mjs \
             --wasm-dist "$RUNNER_TEMP/dist-pwa-ci/wasm" \
+            --onboarding-keys "$RUNNER_TEMP/onboarding-keys.json" \
             --out "$RUNNER_TEMP/web"
           grep -q 'wsProxyUrl: "",' "$RUNNER_TEMP/web/pwa-config.js" || { echo "::error::web/ must not bake a relay"; exit 1; }
+          node -e 'const fs = require("node:fs"); const vm = require("node:vm"); const ctx = { window: {}, navigator: {} }; vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), ctx); if (!ctx.window.VELTA_PWA?.onboardingKeys?.veltar1) { console.error("::error::web/ must include the veltar1 onboarding public key"); process.exit(1); }' "$RUNNER_TEMP/web/pwa-config.js"
           rm -f "$RUNNER_TEMP"/web/wasm/*.br "$RUNNER_TEMP"/web/wasm/*.gz
           grep -o "VERSION = '[^']*'" "$RUNNER_TEMP/web/sw.js" | tee -a "$GITHUB_STEP_SUMMARY"
           du -sh "$RUNNER_TEMP/web"
