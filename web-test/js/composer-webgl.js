@@ -9,6 +9,8 @@ import {
 } from "../vendor/twgl-glass.module.js";
 
 const MARGIN = 36;
+const TEXTURE_MARGIN = 256;
+const CAPTURE_MARGIN = TEXTURE_MARGIN + 128;
 const MAX_ROWS = 10;
 const CAPTURE_DELAY = 140;
 
@@ -42,6 +44,7 @@ export function createWebGLGlass(host, scroll) {
     uniform vec2 uSampleSize;
     uniform vec2 uOutputSize;
     uniform vec2 uMargin;
+    uniform float uScrollShift;
     uniform float uRadius;
 
     void main() {
@@ -54,7 +57,7 @@ export function createWebGLGlass(host, scroll) {
       float edge = 1.0 - smoothstep(0.0, uRadius, max(distanceToEdge, 0.0));
       vec2 normal = normalize(fromCenter - clamp(fromCenter, -core, core) + vec2(0.0001));
       vec2 bend = normal * edge * edge * min(22.0, uRadius * 0.7);
-      vec2 uv = (uMargin + p) / uSampleSize;
+      vec2 uv = (uMargin + p + vec2(0.0, uScrollShift)) / uSampleSize;
       vec2 dispersion = bend / uSampleSize;
       vec3 color = vec3(
         texture2D(uTexture, uv + dispersion * 1.08).r,
@@ -84,18 +87,21 @@ export function createWebGLGlass(host, scroll) {
   let revision = 0;
   let timer = 0;
   let frame = 0;
+  let frameReuse = false;
+  let textureReady = false;
+  let renderedScrollTop = scroll.scrollTop;
   let capturing = false;
   let captureAgain = false;
   let dead = false;
 
   const rowKey = (row, rect) => `${row.dataset.msgid || ""}:${Math.round(rect.width)}:${Math.round(rect.height)}`;
-  const rows = () => {
+  const rows = (margin = TEXTURE_MARGIN) => {
     const box = host.getBoundingClientRect();
     const view = scroll.getBoundingClientRect();
     const left = box.left - MARGIN;
     const right = box.right + MARGIN;
-    const top = box.top - MARGIN;
-    const bottom = box.bottom + MARGIN;
+    const top = box.top - margin;
+    const bottom = box.bottom + margin;
     return [...scroll.querySelectorAll(".msg-row")].filter(row => {
       const r = row.getBoundingClientRect();
       return r.width > 0 && r.height > 0 && r.right > left && r.left < right
@@ -112,16 +118,37 @@ export function createWebGLGlass(host, scroll) {
     }
   }
 
+  function render() {
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.useProgram(program.program);
+    setBuffersAndAttributes(gl, program, triangle);
+    setUniforms(program, {
+      uTexture: texture,
+      uSampleSize: [sample.width, sample.height],
+      uOutputSize: [canvas.width, canvas.height],
+      uMargin: [MARGIN * dpr, TEXTURE_MARGIN * dpr],
+      uScrollShift: -(scroll.scrollTop - renderedScrollTop) * dpr,
+      uRadius: Math.min(32 * dpr, canvas.width / 2, canvas.height / 2),
+    });
+    drawBufferInfo(gl, triangle);
+  }
+
   function draw() {
     frame = 0;
+    const reuse = frameReuse;
+    frameReuse = false;
     if (dead || host.hidden || !host.clientWidth || !host.clientHeight) return;
+    if (reuse && textureReady) {
+      render();
+      return;
+    }
     resize();
     const box = host.getBoundingClientRect();
     const view = scroll.getBoundingClientRect();
     const originX = box.left - MARGIN;
-    const originY = box.top - MARGIN;
+    const originY = box.top - TEXTURE_MARGIN;
     const width = box.width + MARGIN * 2;
-    const height = box.height + MARGIN * 2;
+    const height = box.height + TEXTURE_MARGIN * 2;
     const pixelWidth = Math.max(1, Math.round(width * dpr));
     const pixelHeight = Math.max(1, Math.round(height * dpr));
     if (sample.width !== pixelWidth || sample.height !== pixelHeight) {
@@ -151,26 +178,20 @@ export function createWebGLGlass(host, scroll) {
       );
       painted++;
     }
-    host.classList.toggle("webgl-ready", painted > 0);
-    if (!painted) return;
+    textureReady = painted > 0;
+    host.classList.toggle("webgl-ready", textureReady);
+    if (!textureReady) return;
 
+    renderedScrollTop = scroll.scrollTop;
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sample);
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.useProgram(program.program);
-    setBuffersAndAttributes(gl, program, triangle);
-    setUniforms(program, {
-      uTexture: texture,
-      uSampleSize: [sample.width, sample.height],
-      uOutputSize: [canvas.width, canvas.height],
-      uMargin: [MARGIN * dpr, MARGIN * dpr],
-      uRadius: Math.min(32 * dpr, canvas.width / 2, canvas.height / 2),
-    });
-    drawBufferInfo(gl, triangle);
+    render();
   }
 
-  function requestDraw() {
-    if (!frame && !dead && document.visibilityState !== "hidden") frame = requestAnimationFrame(draw);
+  function requestDraw(reuse = false) {
+    if (dead || document.visibilityState === "hidden") return;
+    frameReuse = frame ? frameReuse && reuse : reuse;
+    if (!frame) frame = requestAnimationFrame(draw);
   }
 
   async function capture() {
@@ -181,7 +202,7 @@ export function createWebGLGlass(host, scroll) {
     capturing = true;
     const ticket = revision;
     try {
-      if (host.hidden || !host.clientWidth || !rows().length) return;
+      if (host.hidden || !host.clientWidth || !rows(CAPTURE_MARGIN).length) return;
       if (!background) {
         const shot = await toCanvas(scroll, {
           pixelRatio: dpr,
@@ -193,7 +214,7 @@ export function createWebGLGlass(host, scroll) {
         });
         if (ticket === revision) background = shot;
       }
-      for (const row of rows()) {
+      for (const row of rows(CAPTURE_MARGIN)) {
         const rect = row.getBoundingClientRect();
         const key = rowKey(row, rect);
         if (cache.get(row)?.key === key) continue;
@@ -224,6 +245,7 @@ export function createWebGLGlass(host, scroll) {
 
   function scheduleCapture() {
     clearTimeout(timer);
+    // DOM rasterization waits for a pause; active scrolling only reuses the GPU texture.
     if (!dead && document.visibilityState !== "hidden") timer = setTimeout(capture, CAPTURE_DELAY);
   }
 
@@ -231,6 +253,7 @@ export function createWebGLGlass(host, scroll) {
     revision++;
     background = null;
     cache.clear();
+    textureReady = false;
     host.classList.remove("webgl-ready");
     scheduleCapture();
   }
@@ -241,9 +264,10 @@ export function createWebGLGlass(host, scroll) {
       const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
       const row = target?.closest?.(".msg-row");
       if (row) cache.delete(row);
-      else cache.clear();
+      // Virtual-scroller mount/unmount changes #history, not the cached rows.
+      else if (record.type === "attributes") cache.clear();
     }
-    host.classList.remove("webgl-ready");
+    requestDraw();
     scheduleCapture();
   });
   mutations.observe(scroll, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "src", "data-msgid"] });
@@ -264,7 +288,8 @@ export function createWebGLGlass(host, scroll) {
   theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-amoled"] });
 
   const onScroll = () => {
-    requestDraw();
+    const outsideTexture = Math.abs(scroll.scrollTop - renderedScrollTop) > TEXTURE_MARGIN - 48;
+    requestDraw(!outsideTexture);
     scheduleCapture();
   };
   const onLoad = event => {
@@ -313,6 +338,7 @@ export function createWebGLGlass(host, scroll) {
     document.removeEventListener("visibilitychange", onVisibility);
     canvas.removeEventListener("webglcontextlost", onContextLoss);
     host.classList.remove("webgl-ready");
+    textureReady = false;
     cache.clear();
     canvas.remove();
   }
