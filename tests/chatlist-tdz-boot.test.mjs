@@ -20,10 +20,17 @@ test("__veltaAppEvaluating flag is declared before the top-level core await", ()
 
 test("renderChatList bails out while the module is still evaluating", () => {
   const body = code.slice(code.indexOf("function renderChatList() {"));
-  assert.match(body.slice(0, 200), /if \(globalThis\.__veltaAppEvaluating\) \{ chatListRenderDeferred = true; return; \}/);
+  assert.match(body.slice(0, 200), /^function renderChatList\(\) \{\s*if \(globalThis\.__veltaAppEvaluating\) \{ chatListRenderDeferred = true; return; \}/);
 });
 
 test("module end flips the flag and flushes a deferred render before boot()", () => {
   const tail = code.trimEnd().slice(-300);
   assert.match(tail, /globalThis\.__veltaAppEvaluating = false;[\s\S]*chatListRenderDeferred[\s\S]*renderChatList\(\);[\s\S]*boot\(\);$/);
+});
+
+test("listCollapse initializes before boot yields and refreshes after the guard", () => {
+  const decl = code.indexOf("let listCollapse = null;");
+  assert.ok(decl > 0 && decl < code.indexOf("globalThis.__veltaAppEvaluating = true"));
+  const body = code.slice(code.indexOf("function renderChatList() {"));
+  assert.match(body, /chatListRenderDeferred = true; return; \}\s*listCollapse\?\.refreshBadge\(\);/);
 });

@@ -754,6 +754,7 @@ let splashSession = null;
 // hit module consts still in their TDZ (chatCatsEl, chatItemGhostIO, ...)
 // and throw. renderChatList defers until the module is ready. (A global, not
 // a module let, so test harnesses that lift renderChatList stay unaffected.)
+let listCollapse = null; // #282
 globalThis.__veltaAppEvaluating = true;
 let chatListRenderDeferred = false;
 // Mirror diagnostics into velta.log (js_log): the in-app store is only
@@ -2360,10 +2361,9 @@ function syncChatCategoryBar() {
   }
 }
 
-let listCollapse = null; // #282
 function renderChatList() {
-  listCollapse?.refreshBadge();
   if (globalThis.__veltaAppEvaluating) { chatListRenderDeferred = true; return; }
+  listCollapse?.refreshBadge();
   if (listView !== "chats") return; // another side view owns the container
   syncChatCategoryBar();
   const list = $("chat-list");
