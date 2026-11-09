@@ -2,7 +2,7 @@
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
-import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe } from "./components.js";
+import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe, hapticTick } from "./components.js";
 import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand, recentCommands } from "./recent-commands.js";
@@ -3073,7 +3073,7 @@ export class ChatView {
       const bubble = e.target.closest?.(".bubble");
       if (!bubble || gestureSkipTarget(e.target)) return;
       const t = e.touches[0];
-      swipe = { x: t.clientX, y: t.clientY, bubble, dx: 0, on: false };
+      swipe = { x: t.clientX, y: t.clientY, bubble, dx: 0, on: false, haptic: false };
     };
     ev.touchmove = e => {
       clearTimeout(pressTimer);
@@ -3098,6 +3098,13 @@ export class ChatView {
       }
       swipe.dx = Math.max(0, Math.min(dx, 64));
       swipe.bubble.style.transform = swipe.dx ? `translateX(${swipe.dx}px)` : "";
+      // Tick once when the drag crosses the reply-commit threshold (48px);
+      // re-armed if the finger retreats below it.
+      if (swipe.dx >= 48) {
+        if (!swipe.haptic) { swipe.haptic = true; hapticTick(); }
+      } else {
+        swipe.haptic = false;
+      }
       if (e.cancelable) e.preventDefault();
     };
     ev.touchend = () => endReplySwipe(true);
@@ -5478,7 +5485,7 @@ export class ChatView {
       if (!this._mobileGestures() || this._textSelect || this._replySwipe || e.touches.length !== 1) return;
       if (gestureSkipTarget(e.target)) return;
       const t = e.touches[0];
-      g = { x: t.clientX, y: t.clientY, dx: 0, on: false, settled: false };
+        g = { x: t.clientX, y: t.clientY, dx: 0, on: false, settled: false, haptic: false };
     }, { passive: true });
     scroller.addEventListener("touchmove", e => {
       if (!g || g.settled || this._replySwipe || e.touches.length !== 1) {
@@ -5502,6 +5509,13 @@ export class ChatView {
       const width = main.clientWidth || main.getBoundingClientRect?.().width || 320;
       g.dx = Math.min(0, Math.max(dx, -width));
       main.style.transform = `translateX(${g.dx}px)`;
+      // Tick once when the drag crosses the back-commit threshold; re-armed
+      // if the finger retreats.
+      if (g.dx <= -Math.min(72, width * 0.28)) {
+        if (!g.haptic) { g.haptic = true; hapticTick(); }
+      } else {
+        g.haptic = false;
+      }
       if (e.cancelable) e.preventDefault();
     }, { passive: false });
     const end = (commit) => {

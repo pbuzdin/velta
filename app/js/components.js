@@ -159,6 +159,12 @@ let gestureSwipeAt = 0;
 export function noteGestureSwipe() { gestureSwipeAt = Date.now(); }
 export function gestureSwipeRecent(now = Date.now()) { return now - gestureSwipeAt < 400; }
 
+// #294: light tick for gesture threshold crossings. Android WebView honors
+// navigator.vibrate with the VIBRATE permission; iOS has no API — no-op.
+export function hapticTick(ms = 10) {
+  try { navigator.vibrate?.(ms); } catch { /* vibration is best-effort */ }
+}
+
 /* ---------- <velta-video> — click-to-load video player ---------- */
 // Every mounted <video> starts a decoder pipeline and issues media range
 // requests for content the user may never play; in a multi-video chat that
