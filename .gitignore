@@ -95,6 +95,7 @@ sidecar-stderr.log
 # -----------------------------------------------------------------------------
 tools/msys64/
 tools/strawberry-perl/
+tools/binaryen/
 tools/*.tar.*
 tools/*.zip
 tools/*.exe
@@ -120,3 +121,6 @@ scripts/node_modules/
 
 # Windows sidecar build tree (matches **/target/ pattern not)
 **/target-win/
+
+# Session-local skill artifacts
+.taste-skill/
