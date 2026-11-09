@@ -12,6 +12,24 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 ---
 
+## Unreleased master state (since v1.5.4)
+
+The latest numbered app release is `v1.5.4` at `56b7fab`. The following work is
+merged on `master` but is not in that release; do not describe it as shipped in
+a numbered version or move the tag to include it.
+
+| Area | Issue / change | Landed solution and regression constraint |
+|---|---|---|
+| PWA onboarding | `4ee6611`, #308 | Onboarding invites are signed and self-contained for static web installs. Web publication must fail before updating the site when the public onboarding verification keys are absent from the source configuration or built output. |
+| PWA proxy selection | #307 | Same-origin WebSocket proxying is opt-in through `--same-origin-proxy`; an empty proxy URL on a static host must not turn the page host into a relay. Migration removes that assumed entry unless an invite supplied it. Adding the first relay reloads into it. |
+| Chat-list startup | #282, #306 | `listCollapse` is initialized before the boot awaits, and the badge refresh is deferred until module evaluation completes. Deferred rendering still calls `renderChatList`; do not reintroduce the temporal-dead-zone access. |
+| Text-only Auto | #310, #311 | Auto covers only unaccepted 1:1 contact requests (`deaddrop`), never group senders. Attachment-shaped rows with no file path, name, MIME type, or positive size render as plain text; real pending attachments remain downloadable after reveal. A link-preview slot requires `firstLinkOf(m.text)`, so link-free text gets no placeholder or load button. |
+| Channel invitations | #312, #313 | The chat profile offers **Invite via link/QR** only when `kind === "channel" && chatType === "OutBroadcast"`. `InBroadcast` and `Mailinglist` must not offer owner-invite generation. SecureJoin still supports groups and owned outgoing channels; the core and contact/group invite paths are unchanged. |
+| WASM CI | `dfea355` | `apply-on-copy-pack-smoke` runs on `ubuntu-24.04`, not a moving `ubuntu-latest` image. |
+| Release/platform docs | `f6b8e8c` | `docs/agents/release-ci.md` records the v1.5.4 incidents and reconciliation steps. README and the app guide reflect the current Windows Hello, Linux compatibility, and **Show in folder** behavior. |
+
+---
+
 ## 1. Project overview
 
 **Velta** is a cross-platform Delta Chat client built as a Progressive Web App

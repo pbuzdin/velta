@@ -8,6 +8,17 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
+## Unreleased on master
+
+These changes are merged after [v1.5.4](https://github.com/pbuzdin/velta/releases/tag/v1.5.4) and are not yet in a numbered release:
+
+- **PWA onboarding** — signed, self-contained onboarding invites carry the setup information needed by a static web install ([`4ee6611`](https://github.com/pbuzdin/velta/commit/4ee66114345a3058b6b0356a1d900ea0bd219523)). Web publication now stops when the public onboarding verification keys are missing instead of publishing invites that cannot be verified ([#308](https://github.com/pbuzdin/velta/pull/308)).
+- **PWA connection setup** — a page host is used as a WebSocket proxy only when the build explicitly opts in; static installs no longer assume that their own host relays mail. Stale assumed entries are removed unless an invite explicitly supplied them, and adding the first relay reloads into the working configuration ([#307](https://github.com/pbuzdin/velta/pull/307)).
+- **Chat-list startup** — collapse state is initialized before boot awaits and badge rendering is deferred until module evaluation finishes, preventing a startup crash caused by reading state in its temporal dead zone ([#282](https://github.com/pbuzdin/velta/issues/282), [#306](https://github.com/pbuzdin/velta/pull/306)).
+- **Text-only Auto** — it now covers only unaccepted 1:1 contact requests, never group senders. Plain text without real attachment metadata stays a normal text bubble, pending real attachments keep their reveal/download flow, and only text containing a link gets a preview slot ([#310](https://github.com/pbuzdin/velta/issues/310), [#311](https://github.com/pbuzdin/velta/pull/311)).
+- **Channel invitations** — **Invite via link/QR** is offered only for owned outgoing channels (`OutBroadcast`). Incoming subscriptions (`InBroadcast`) and mailing lists (`Mailinglist`) no longer offer an action that the core cannot fulfill; contact and group invitations are unchanged ([#312](https://github.com/pbuzdin/velta/issues/312), [#313](https://github.com/pbuzdin/velta/pull/313)).
+- **CI and release documentation** — the WASM patch smoke test is pinned to Ubuntu 24.04 ([`dfea355`](https://github.com/pbuzdin/velta/commit/dfea3555a2cf652b1795f097df716c82f8368269)); the v1.5.4 release incidents, Windows Hello behavior, Linux package compatibility, and **Show in folder** status were also documented ([`f6b8e8c`](https://github.com/pbuzdin/velta/commit/f6b8e8cfef345878ec7aa1d7edf5135d68f326d2)).
+
 ## What it is
 
 Velta shares one web frontend (`app/`) between:
