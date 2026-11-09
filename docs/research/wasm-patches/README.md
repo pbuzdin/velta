@@ -31,6 +31,16 @@ Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py
 The current core 2.66.0 quilt is **200 operations across 37 files**; historical
 baselines used 13 ops at 2.62, 21 at 2.63.0, 23 at 2.64.0, and 25 at 2.65.0.
 
+> **Refreshed for 2.68.0 (2026-11-09).** Only two patches needed re-anchoring:
+> 0005's accounts.rs `use anyhow::bail` gating hunk dropped (upstream removed
+> the import — the one remaining call site is fully-qualified
+> `anyhow::bail!`; the tokio oneshot/time cfg hunks stay) and 0007's three
+> context.rs `tools::Time::now()` hunks re-anchored on the current line
+> numbers (upstream removed the `debug_logging` field between them).
+> 0001–0004, 0006, 0008, 0010, 0011 unchanged. Locks re-pinned via
+> `refresh-lock` (wasm-bindgen stays 0.2.130); apply-on-copy + verify-copy
+> green; wasm32 check clean.
+
 > **Refreshed for 2.66.0 (2026-11-04, #260/#261).** 0007's blob.rs hunks
 > dropped; new 0011 ports the #22 attachment-encryption blob: sync_fs
 > facade over the plaintext std::fs sites, and `open_blob` cfg-routes

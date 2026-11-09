@@ -132,10 +132,11 @@ prebuilts are rebuilt.
 
 ## 0b. Opt-in: re-apply the wasm series (Architecture C track)
 
-> **Current series at core 2.66.0 (#260/#261, 2026-11-04):** ten patch files
+> **Current series at core 2.68.0 (2026-11-09):** ten patch files
 > — 0001–0008, 0010, and 0011. The 0009 gap is intentional: its test-only
 > changes were superseded by the production #22 attachment operations. Patch
 > 0011 carries the current blob sync_fs facade and memfs `open_blob` routing.
+> (2.66.0 refresh was #260/#261, 2026-11-04.)
 > `support/locks/PROVENANCE` pins `wasm_bindgen_version=0.2.130`; use the
 > matching CLI. Historical 2.63–2.65 rebase evidence remains in
 > `docs/research/wasm-patches/README.md`, but is not a substitute for current

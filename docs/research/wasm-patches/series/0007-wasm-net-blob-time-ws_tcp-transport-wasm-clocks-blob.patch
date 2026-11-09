@@ -121,7 +121,7 @@ diff --git a/src/context.rs b/src/context.rs
 index 7f7cdb5..40f3ef6 100644
 --- a/src/context.rs
 +++ b/src/context.rs
-@@ -498,7 +498,7 @@ pub(crate) fn with_blobdir(
+@@ -519,7 +519,7 @@ pub(crate) fn with_blobdir(
              restart_io_after_fetch: AtomicBool::new(false),
              server_id: RwLock::new(None),
              metadata: RwLock::new(BTreeMap::new()),
@@ -129,8 +129,8 @@ index 7f7cdb5..40f3ef6 100644
 +            creation_time: tools::time_now(),
              last_error: parking_lot::RwLock::new("".to_string()),
              migration_error: parking_lot::RwLock::new(None),
-             debug_logging: std::sync::RwLock::new(None),
-@@ -600,7 +600,7 @@ pub async fn background_fetch(&self) -> Result<()> {
+             push_subscriber,
+@@ -620,7 +620,7 @@ pub async fn background_fetch(&self) -> Result<()> {
              return Ok(());
          }
  
@@ -139,7 +139,7 @@ index 7f7cdb5..40f3ef6 100644
          info!(self, "background_fetch started.");
  
          if self.scheduler.is_running().await {
-@@ -800,7 +800,7 @@ pub async fn stop_ongoing(&self) {
+@@ -822,7 +822,7 @@ pub async fn stop_ongoing(&self) {
                  }
                  info!(self, "Signaling the ongoing process to stop ASAP.",);
                  *s = RunningState::ShallStop {
