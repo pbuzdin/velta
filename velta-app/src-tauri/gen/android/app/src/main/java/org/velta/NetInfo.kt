@@ -9,10 +9,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.Inet6Address
 
-// Optional DNS tunnel (tunnel.rs): the resolvers the operator handed this
-// network and the SIM's operator code. On allowlist-only mobile internet the
-// operator-assigned resolver is the one that always answers, so the tunnel
-// puts it first. Needs ACCESS_NETWORK_STATE only (already declared).
+// The resolvers the operator handed this network and the SIM's operator
+// code. On allowlist-only mobile internet the operator-assigned resolver is
+// the one that always answers, so it is put first. Needs
+// ACCESS_NETWORK_STATE only (already declared).
 object NetInfo {
     @JvmStatic
     fun snapshot(context: Context): String {

@@ -162,7 +162,6 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │
 ├── velta-kmp/            # frozen KMP experiment (#294); build-kmp.yml is manual-only
 ├── velta-app/            # Tauri v2 wrapper
-│   ├── soar-tunnel/          # archived DNS tunnel Go source; client .so/.dll no longer built or bundled (docs/agents/dns-tunnel.md)
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)
 │       ├── tauri.conf.json   # frontendDist: ../../app (version mirrors Cargo.toml — Android reads only it)
@@ -195,8 +194,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── design/                   # token snapshot of app/css/main.css (HTML + SVG); restamp header with APP_VERSION
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
-│                              onboarding, security-triage, large-file, calls, web-push;
-│                              dns-tunnel.md is archival — SOCKS5 replaced it) — referenced from §5/§11
+│                              onboarding, security-triage, large-file, calls, web-push) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
 ├── docs/design-tokens.html       # generated swatches + WCAG pairs (tools/gen-design-tokens.mjs, #182 slice 2a)
 ├── docs/design-components.html   # generated component preview (tools/gen-design-components.mjs, #182 phase 2a)
@@ -216,7 +214,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/pwa-self-host.md          # host your own wasm PWA; Quick start = clone branch pwa-dist; origin A + WS proxy on B
 ├── docs/relay-modules.md          # install / configure / uninstall: invite-only signup and the WebSocket proxy
 ├── docs/websocket-transport.md    # WebSocket transport for Android/Windows: velta://ws links, saved proxies, signed invites
-├── docs/deploy-pwa-websocket-proxy.md / docs/deploy-dns-tunnel.md # one-command server deploy guides (tools/deploy-*.sh)
+├── docs/deploy-pwa-websocket-proxy.md # one-command server deploy guide (tools/deploy-ws-proxy.sh)
 ├── docs/socks5-proxy-link.md      # SOCKS5 link v1/v2, QR-alphanumeric path form, confirmation + sharing
 ├── docs/scheduled-messages.md     # Send later: design, Android exact/inexact alarms, Doze limits
 ├── docs/invite-cards.md           # invite cards in chat + relay-invite signup
@@ -230,8 +228,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── scripts/verify-pwa-dist.mjs   # PWA dist rig: 10 checks (boot, OPFS persist incl. sqlite/, SW, identity-backup surface)
 └── tools/                    # build-builtin-xdc.mjs (app/builtin/*.xdc from app/webxdc/*), icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
-                              bump.mjs (the one version bump), deploy-dns-tunnel.sh / deploy-ws-proxy.sh (one-command server deploys:
-                              docs/deploy-dns-tunnel.md, docs/deploy-pwa-websocket-proxy.md; WS proxy has `invite NAME --uses N`, revoke)
+                              bump.mjs (the one version bump), deploy-ws-proxy.sh (one-command server deploy:
+                              docs/deploy-pwa-websocket-proxy.md; has `invite NAME --uses N`, revoke)
 ```
 
 Not tracked (local runtime/build artifacts): `accounts/` (local core account
@@ -3323,7 +3321,7 @@ talks to Google.
 ## 11. Notes for agents (operational rules)
 
 Per-subsystem narratives live in `docs/agents/*.md` (webxdc, relays,
-onboarding, p2p/local chat, android-shell, media, read-receipts, dns-tunnel) — read the
+onboarding, p2p/local chat, android-shell, media, read-receipts) — read the
 relevant one before touching that subsystem (calls: `docs/agents/calls.md`). The entries below are cross-cutting
 do-not-regress rules; dates mark when the lesson was learned.
 

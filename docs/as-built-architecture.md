@@ -253,8 +253,6 @@ Audio calls (beta) use the core for signaling: offer and answer SDP ride in encr
 
 webxdc mini-apps render in an opaque-origin sandbox iframe (`app/js/webxdc-manager.js`) without `allow-same-origin`. State sync is the core's encrypted status updates. Realtime channels are not wired.
 
-The optional Android DNS tunnel (`velta-app/src-tauri/src/tunnel.rs`, `velta-app/soar-tunnel`) loads `libsoartunnel.so` only after the user accepts a `velta://tunnel` link. It sets the core's existing `proxy_url` (HTTP CONNECT, SOCKS5, or Shadowsocks — `core/src/net/proxy.rs`). Velta ships no tunnel server. A proxy the user set themselves wins. This is not a Google or Apple API. The operator of the tunnel can see which relays are contacted and when; the README says so.
-
 ### Logo
 
 Source file: `IMG_20260808_215950.jpg` at the repo root. It is a square navy field with a faceted light-blue V and a soft ground shadow. `app/icons/icon-192.png` is that same picture, padded and scaled. The pipeline that produces the shipping rasters is `tools/generate-icons.py`. Its default argument is `IMG_20260808_215950.jpg`. It uses Pillow and vtracer, which are already dev-time tools of that script. Do not add another icon generator.
@@ -393,7 +391,6 @@ Threat model, as the code actually draws it:
 - **Loopback media server.** `lib.rs` binds `127.0.0.1` on an ephemeral port, puts a 128-bit token in the path, compares it in constant time, and strips it from logs. Other local apps can connect; they cannot read files without the token. Scope is the accounts directory. Sandboxed frames send `Origin: null` and are refused.
 - **Link previews.** "Load on this device" fetches HTTPS from this device (256 KB page, 512 KB image, in-memory for the session) and reveals the user's IP to the site. The drawer says so. "Send a picture" renders a card locally and does not make the recipient fetch the URL. Invite links are not previewed.
 - **Tracker stripping.** `app/js/trackers.js` drops known tracking query params on paste and on open. Local only.
-- **DNS tunnel.** Opt-in. The tunnel operator sees destination relays and timing. Off by default. Not shipped with a baked server.
 - **UnifiedPush.** The distributor and the chatmail notifier see that a device is registered and when a wake is sent. They do not see message bodies (the wake only triggers `background_fetch`). No distributor means no registration.
 - **Updater.** Desktop `tauri-plugin-updater` fetches `latest.json` from the GitHub releases URL in `tauri.conf.json` when the user asks, verifies minisign, and runs the installer. Android downloads the APK and hands it to the system package installer. This is a user-triggered update, not a metric.
 - **WebView2 bootstrapper.** On Windows, if the runtime is missing, Tauri's download bootstrapper contacts Microsoft. `AGENTS.md` is the record. Velta does not add its own call home next to it.
@@ -437,7 +434,7 @@ A rollout that closed the gap would live outside `gen/android`: a cargo `[patch]
 
 Icon files are already the JPEG pipeline. They are not part of a rollout.
 
-Local chat, wasm, and the DNS tunnel stay behind the switches they already have. This document does not turn any of them on by default.
+Local chat and wasm stay behind the switches they already have. This document does not turn them on by default.
 
 ---
 

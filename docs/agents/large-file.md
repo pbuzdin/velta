@@ -43,7 +43,7 @@ arbitrary Lufi hosts) and in local (p2p) chats.
 `lufi.rs` is a minimal RFC 6455 client (masked text frames out, pings
 answered, fragments joined, 4 MB reply cap) over rustls + webpki-roots, TCP
 via `link_preview_proxy(proxy)`: none → direct, `socks5`/`socks5h` → SOCKS5
-with remote DNS (the DNS tunnel needs that), `http` → CONNECT. Anything else
+with remote DNS, `http` → CONNECT. Anything else
 (Shadowsocks, https proxy, garbage) is an Err. No direct fallback, ever. No
 new crates: rustls/webpki-roots/socks are ureq's own.
 
@@ -67,7 +67,7 @@ new crates: rustls/webpki-roots/socks are ureq's own.
 ## Open / on-device
 
 - Android: content:// picks are copied to app storage first (big files
-  double disk use briefly); progress modal on a phone; DNS tunnel path.
+  double disk use briefly); progress modal on a phone.
 - The renderer encrypts on the main thread between awaits (UI stays
   responsive per slice; a worker would be smoother for multi-GB files).
 - Receiving side has no special card yet: the link opens in the in-app

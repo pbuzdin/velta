@@ -1668,7 +1668,6 @@ by value with their integration notes — lives in
 .
 ├── app/                        # Velta web frontend (vanilla JS, no build)
 ├── velta-app/              # Tauri 2 wrapper for Windows + Android
-│   ├── soar-tunnel/            # archived DNS-tunnel library (not shipped)
 │   └── src-tauri/
 │       ├── Cargo.toml          # Rust crate + deltachat-jsonrpc dependency
 │       ├── tauri.conf.json     # shared Tauri config
@@ -1709,8 +1708,6 @@ is hand-rolled for Velta.
 | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom`) | Windowed rendering of the message history with variable-height rows, seamless prepends and scroll restoration | [catamphetamine/virtual-scroller](https://github.com/catamphetamine/virtual-scroller) |
 | [Tauri 2](https://github.com/tauri-apps/tauri) | Desktop/Android shell, deep links, sidecar process | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | [Delta Chat core 2.68.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
-| [soar](https://github.com/getlantern/soar) v0.2.0 (Go) | Archived DNS-tunnel library; not built into the APK or Windows installer | [getlantern/soar](https://github.com/getlantern/soar) |
-
 Both JS libraries are vendored under `app/vendor/` (no bundler, no `node_modules`
 at runtime). UI icons are individual SVGs from [SVG Repo](https://www.svgrepo.com/).
 
