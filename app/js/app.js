@@ -3265,7 +3265,7 @@ async function showChatInfo(chat) {
     <div class="profile-description" data-desc hidden></div>
     ${(isSelf || (isGroup && !chat.isP2pGroup && caps.canEditGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${escapeHtml(isSelf ? t("Edit profile") : chat.kind === "channel" ? t("Edit channel") : t("Edit group"))}</button></div>` : ""}
     ${chat.kind === "group" && !chat.isP2pGroup && caps.canAddMembers ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">${escapeHtml(t("Add members"))}</button><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
-    ${chat.kind === "channel" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
+    ${chat.kind === "channel" && chat.chatType === "OutBroadcast" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
     ${chat.isP2pGroup ? p2pGroupActionsHtml(chat) : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button type="button" class="btn-text" data-pa="send">${escapeHtml(t("Send message"))}</button>
