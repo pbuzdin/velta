@@ -28,8 +28,12 @@ jobs:
     uses: ./.github/workflows/build-macos.yml
     secrets: inherit
 
+  linux:
+    uses: ./.github/workflows/build-linux.yml
+    secrets: inherit
+
   release:
-    needs: [android, windows, macos]
+    needs: [android, windows, macos, linux]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -152,6 +156,24 @@ jobs:
           name: velta-macos
           path: release-assets
 
+      - name: Download Linux .deb
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: velta-linux-deb
+          path: release-assets
+
+      - name: Download Linux AppImage
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: velta-linux-appimage
+          path: release-assets
+
+      - name: Download Arch package
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: velta-arch-pkg
+          path: release-assets
+
       - name: List release assets
         run: ls -lh release-assets
 
@@ -171,6 +193,23 @@ jobs:
              `xattr -dr com.apple.quarantine /Applications/Velta.app`
              — or try to open Velta, then go to **System Settings → Privacy & Security** and click **Open Anyway** (macOS 15 no longer offers right-click → Open for this).
           3. macOS asks for microphone/camera access on first use (calls, QR scanning). With the ad-hoc signature it may ask again after an update.
+          NOTES
+
+      # Linux artifacts are built in a debian:12 container: every packaged
+      # ELF requires at most glibc 2.36 (checked in build-linux.yml), so the
+      # .deb targets Debian 12+ and the AppImage/pacman package cover other
+      # distros — anything with glibc >= 2.36 (Ubuntu 22.04+ excluded: 2.35).
+      - name: Append Linux install notes to the changelog
+        run: |
+          cat >> changelog.md <<'NOTES'
+
+          ## Linux (x86_64, glibc 2.36+)
+
+          Built on a Debian 12 base: every binary requires at most glibc 2.36, so the packages run on Debian 12, Arch (rolling) and any newer distro. Linux self-update is not wired yet — install once, then update by downloading the new release.
+
+          - **Debian 12+ / Ubuntu 23.04+**: `sudo apt install ./Velta_<version>_amd64.deb`
+          - **Arch**: `sudo pacman -U velta-bin-<version>-1-x86_64.pkg.tar.zst` (repackaged from the same .deb; not published to the AUR)
+          - **Anything else (glibc 2.36+)**: `Velta_<version>_amd64.AppImage` — chmod +x and run; requires webkit2gtk-4.1 from the host (`sudo pacman -S webkit2gtk-4.1` on Arch, `libwebkit2gtk-4.1-dev` on Debian).
           NOTES
 
       # Manifest for tauri-plugin-updater (Windows + macOS self-update). Must be the

@@ -1,8 +1,11 @@
 name: Build Linux (.deb, AppImage, Arch)
 
-# #291: manual Linux desktop build (x86_64 .deb + AppImage, plus an Arch
-# pacman package repackaged from the .deb via packaging/arch/PKGBUILD). Not wired into release.yml yet.
+# #291: Linux desktop build (x86_64 .deb + AppImage, plus an Arch
+# pacman package repackaged from the .deb via packaging/arch/PKGBUILD).
+# Built in a debian:12 container — every ELF requires at most glibc 2.36,
+# so the artifacts run on Debian 12 and anything newer (Arch included).
 on:
+  workflow_call:
   workflow_dispatch:
 
 env:
