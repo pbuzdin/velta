@@ -424,20 +424,20 @@ file.
 
 **Drawer → Text-only mode**, three choices:
 
-- **Unknown senders** — the default. People and bots you have a 1:1 chat
-  with behave normally; a contact request, and each unknown sender inside a
-  group chat, is covered individually. Your own messages always render
-  normally.
+- **Unknown senders** — the default. Only unaccepted 1:1 contact requests
+  are covered; accepted chats and all group chats render normally. Your own
+  messages always render normally.
 - **Off** — no restrictions; the Link previews and auto-download settings
   work as usual.
 - **All messages** — everything is covered, including your own outgoing
   media in the chat view.
 
 Chat info galleries (Apps, Photos, Videos, Audio, Files) follow the same
-rule per item, so a mixed group's gallery stays usable. Revealing one item
-never reveals anything else from that sender, never accepts a contact
-request, and the revealed state lasts for the session only. Turning the
-mode on or off re-renders the open chat right away.
+rule per item. Plain-text messages never get an attachment placeholder;
+undownloaded real attachments still offer **Download and show**. Revealing
+one item never reveals anything else from that sender, never accepts a
+contact request, and the revealed state lasts for the session only. Turning
+the mode on or off re-renders the open chat right away.
 
 **Honest scope:** this is an interface privacy feature. It decides what
 the Velta interface loads and shows; the mail core still receives message
@@ -1478,14 +1478,12 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 <summary>Text-only mode: unknown senders are covered by default</summary>
 
 Since Text-only mode shipped (#300), every installation starts with the
-**Unknown senders** default: attachments and link previews from people you
-do not have a 1:1 chat with — including per-sender inside groups, and
-unaccepted contact requests — do not load until you tap them. Existing
-installations with no saved preference get this default too. The classification
-uses who you actually chat with, not the raw address book, and unresolved
-sender data fails closed (stays hidden). It is a renderer-side gate: it
-stops the interface from loading media and previews, not the mail core from
-receiving data.
+**Unknown senders** default: real attachments and link previews in unaccepted
+1:1 contact requests do not load until you tap them. Group chats are excluded
+from this automatic mode (#310), and plain-text messages never get attachment
+placeholders. Existing installations with no saved preference get this default
+too. It is a renderer-side gate: it stops the interface from loading media and
+previews, not the mail core from receiving data.
 
 </details>
 

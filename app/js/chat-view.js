@@ -638,6 +638,7 @@ export function gestureSkipTarget(target) {
 // Text-only mode (#300): the viewtypes whose whole bubble content is media
 // (plain text, captions and links stay visible on covered messages).
 const COVERED_VIEWTYPES = new Set(["image", "gif", "sticker", "video", "audio", "voice", "webxdc", "file", "vcard"]);
+const hasAttachmentMetadata = (m) => !!(m.filePath || m.fileName || m.fileMime || m.fileSize > 0);
 
 export class ChatView {
   constructor(core, { onChatsChanged, onForward, onOpenChat, onBack }) {
@@ -2388,7 +2389,11 @@ export class ChatView {
   }
 
   _renderMsgItem(item, { inThread = false } = {}) {
-    const m = item.msg;
+    const raw = item.msg;
+    // #310: attachment-shaped rows without any file metadata are plain text;
+    // never invent a hidden/downloadable attachment for them.
+    const m = COVERED_VIEWTYPES.has(raw.viewtype) && !hasAttachmentMetadata(raw)
+      ? { ...raw, viewtype: "text" } : raw;
     let threadBtn = "";
     const chatId = this.chat.id;
     // Handlers below live on cached rows that survive close()/open() — the
@@ -2638,9 +2643,9 @@ export class ChatView {
         && looksLikeSettings(m.text)) {
         bubble += `<div class="msg-settings-act"><button type="button" class="btn-text" data-apply-settings>${escapeHtml(t("Apply these settings"))}</button></div>`;
       }
-      // Plain text only. A baked sender preview is an image, and fetching
-      // its caption would put the recipient's IP on that site (#88).
-      if (receiveFetchesPreview(m.viewtype)) bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
+      // Plain text with a link only. A baked sender preview is an image, and
+      // fetching its caption would put the recipient's IP on that site (#88).
+      if (receiveFetchesPreview(m.viewtype) && firstLinkOf(m.text)) bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
     } else if (m.viewtype === "call") {
       // Issue #8: call messages render as a Velta call card — direction,
       // state and duration come from core call_info (hydrated below); the

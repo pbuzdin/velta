@@ -1,8 +1,8 @@
-// text-only-mode.js — issue #300: a device-global renderer gate for
-// attachments and link previews, keyed per sender. Renderer-only policy: it
-// decides what the interface loads and shows; it does not stop the mail core
-// from receiving message data (see the issue's scope boundary — do not
-// describe it as transport-level protection).
+// text-only-mode.js — issues #300/#310: a device-global renderer gate for
+// attachments and link previews. Renderer-only policy: it decides what the
+// interface loads and shows; it does not stop the mail core from receiving
+// message data (see #300's scope boundary — do not describe it as
+// transport-level protection).
 const KEY = "velta-text-only";
 
 export const TEXT_ONLY_LABELS = { unknown: "Unknown senders", off: "Off", all: "All messages" };
@@ -35,31 +35,13 @@ export function isItemRevealed(key) { return reveals.has(key); }
 export function revealItem(key) { reveals.add(key); }
 export function clearReveals() { reveals.clear(); }
 
-// Contacts you have a 1:1 chat with — the "known contacts" definition from
-// #169. app.js (which owns state.chats) installs the provider at boot; with
-// none installed, or before the chat list loads, classification stays
-// unresolved and fails closed (covered).
-let knownIds = null;
-export function setKnownContactIds(fn) { knownIds = fn; }
-
-// "self" | "known" | "unknown". 1:1 chats classify by chat kind alone (an
-// accepted single chat is a known partner, a contact request is not); group
-// senders classify per message — a group being accepted does not make its
-// members known. Device messages are the device's own.
-export function senderClassification(m, chat) {
-  if (m.from === 1 || m.fromDevice === true) return "self";
-  if (chat?.kind === "single") return "known";
-  if (chat?.kind === "deaddrop") return "unknown";
-  const ids = knownIds?.();
-  if (!ids || typeof ids.has !== "function") return "unknown"; // unresolved → fail closed
-  return ids.has(m.fromContact?.id) ? "known" : "unknown";
-}
-
 export function coversMessage(m, chat) {
   if (!m || m.kind === "service") return false;
-  if (textOnlyMode() === "off") return false;
-  if (textOnlyMode() === "all") return true;
-  return senderClassification(m, chat) === "unknown";
+  const mode = textOnlyMode();
+  if (mode === "off") return false;
+  if (mode === "all") return true;
+  // #310: Auto is only for unaccepted 1:1 requests, never group senders.
+  return chat?.kind === "deaddrop" && m.from !== 1 && m.fromDevice !== true;
 }
 
 // Sender-side "Send a picture" previews: outgoing content is only suppressed

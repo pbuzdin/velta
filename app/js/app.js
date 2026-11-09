@@ -91,7 +91,7 @@ import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTranspor
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
-import { setKnownContactIds, clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
+import { clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
 import { shouldAskRoaming, dismissRoamingHintForever } from "./roaming-hint.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
@@ -4036,8 +4036,6 @@ const knownContactsOnly = () => localStorage.getItem(KNOWN_CONTACTS_KEY) !== "0"
 // Contact ids with an existing 1:1 chat — state.chats singles carry
 // dmChatContact, so this is free (no per-contact RPCs).
 const knownContactIds = () => new Set(state.chats.filter(c => c.kind === "single" && c.contactId).map(c => c.contactId));
-// Text-only mode (#300) classifies group senders with the same #169 definition.
-setKnownContactIds(knownContactIds);
 
 // The shared checkbox row for the filtered surfaces; onChange refilters.
 function knownContactsToggleRow(onChange) {
