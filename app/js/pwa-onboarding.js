@@ -130,8 +130,18 @@ export async function preparePwaOnboarding({ rawUrl = location.href, storage = s
   if (!pending) return { pending: false };
   try {
     if (pending.envelope) {
-      const verified = await verifyOnboardingEnvelope(pending.envelope, onboardingKeys);
-      if (!installWsLinkPwa({ url: verified.registry.proxy, token: verified.token })) throw new Error("The PWA proxy invite could not be installed");
+      // A bad signature, key, or expiry will not become valid on a later load.
+      let verified;
+      try {
+        verified = await verifyOnboardingEnvelope(pending.envelope, onboardingKeys);
+      } catch (err) {
+        storage.removeItem(PWA_ONBOARDING_KEY);
+        return { error: String(err?.message || err || "PWA onboarding failed") };
+      }
+      if (!installWsLinkPwa({ url: verified.registry.proxy, token: verified.token })) {
+        storage.removeItem(PWA_ONBOARDING_KEY);
+        return { error: "The PWA proxy invite could not be installed" };
+      }
       pending = { token: "", relay: verified.relay, registry: verified.registry };
       storage.setItem(PWA_ONBOARDING_KEY, JSON.stringify(pending));
       reload();

@@ -122,7 +122,9 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
   WebSocket proxy (the same kind the PWA uses) through a local SOCKS5
   listener. Proxies are saved and switchable; a `velta://ws` link or QR
   adds one after a confirmation. Proxy operators can hand out signed invite
-  links with an expiry, a device limit, and revocation. Invite links of all
+  links with an expiry, a device limit, and revocation. A Veltar invite
+  with no date lasts 48 hours, and the relay invite CLI does the same
+  unless you pass `0` days. Invite links of all
   kinds show as **invite cards** in chat, and a relay invite can sign you up
   straight from **Add account**. Shared invite links point to
   [velta.cc/join](https://velta.cc/join) by default (since 1.4.87) — a

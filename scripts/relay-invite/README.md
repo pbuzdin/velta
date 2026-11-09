@@ -49,6 +49,7 @@ python3 /root/relay/invite-tool.py revoke <token-or-full-url>
 ```
 
 `add` prints the full invite URL. Tokens are `secrets.token_urlsafe(18)`.
+Omitted `days` is 2 (48 hours). Pass `0` for no expiry.
 
 ## E2E test recipe
 

@@ -81,7 +81,7 @@ python3 /root/relay/invite-tool.py list
 python3 /root/relay/invite-tool.py revoke <token-or-url>
 ```
 
-`days` of `0` does not expire. The mail domain is read from
+Omitted `days` is 2 (48 hours). `days` of `0` does not expire. The mail domain is read from
 `/usr/local/lib/chatmaild/chatmail.ini` (`mail_domain`). The interstitial
 sends the browser to `/app/index.html#/join?t=<token>` on this same host.
 Native apps get a `dclogin:` link from the operator. They do not claim

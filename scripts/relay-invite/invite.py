@@ -65,8 +65,20 @@ def read_store():
         return {"invites": {}}
 
 
+def _write_store(f, data):
+    f.seek(0)
+    f.truncate()
+    json.dump(data, f, indent=1)
+    f.flush()
+    os.fsync(f.fileno())
+
+
 def claim(token):
-    """Consume one use atomically; mint credentials on success."""
+    """Consume one use atomically; mint credentials on success.
+
+    The use is reserved before the mailbox exists. A crash in between burns
+    the invite instead of leaving a second claim. A failed mint gives the use back.
+    """
     h = token_hash(token)
     os.makedirs(os.path.dirname(STORE), exist_ok=True)
     with open(STORE, "a+") as f:
@@ -82,12 +94,16 @@ def claim(token):
             return 410, {"error": "This invite has expired."}
         if inv.get("uses", 1) <= 0:
             return 409, {"error": "This invite has already been used up."}
-        creds = create_newemail_dict(read_config(CONFIG_PATH))
         inv["uses"] = inv.get("uses", 1) - 1
+        _write_store(f, data)
+        try:
+            creds = create_newemail_dict(read_config(CONFIG_PATH))
+        except Exception:
+            inv["uses"] = inv.get("uses", 0) + 1
+            _write_store(f, data)
+            raise
         inv.setdefault("claimed", []).append(creds["email"])
-        f.seek(0)
-        f.truncate()
-        json.dump(data, f, indent=1)
+        _write_store(f, data)
     return 200, {"email": creds["email"], "password": creds["password"]}
 
 

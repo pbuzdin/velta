@@ -162,6 +162,7 @@ test("v2 rejects tampering, unknown keys and inconsistent expiry before installa
     scrub: () => {},
   });
   assert.match(result.error, /signature/);
+  assert.equal(m.readPendingOnboarding(), null, "a bad signature is not retried on the next load");
   assert.notEqual(relays.wsProxyUrl(), "wss://attacker.example.org/ws", "an unverified proxy is never installed");
   assert.equal(relays.wsRelayToken("attacker.example.org"), "");
 });
@@ -208,6 +209,7 @@ test("boot creates the selected Chatmail profile without core autopick or a nick
   assert.match(body, /selectOnboardingRelay\(pwaOnboardingBoot\.registry, pending\.relay\)/);
   assert.match(body, /core\.configureWithQr\(link\)/);
   assert.match(body, /core\.addAccountWithQr\(link\)/);
+  assert.ok(body.indexOf("configureWithQr(link)") < body.indexOf("removeItem(PWA_ONBOARDING_KEY)"), "a failed signup keeps the invite for the next load");
   assert.doesNotMatch(body, /initTransports|askNickname|ensureMailTunnelForLink/);
   assert.ok(app.indexOf("await preparePwaOnboarding()") < app.indexOf("coreStartupPromise = createCore"), "proxy is installed before the worker starts");
 });

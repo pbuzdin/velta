@@ -190,7 +190,8 @@ Compatibility rules for anything that mints or parses tokens: keep `v` at
 - **One-tap onboarding (v2):** the owner-only Veltar command
   `/pwa invite NAME [r ID] [30d|12h|YYYY-MM-DD] [uses N]` mints the existing
   HMAC proxy token and wraps it in a self-contained Ed25519-signed envelope:
-  `https://<pwa>/web?invite=<payload>.<signature>`. The signed payload contains
+  `https://<pwa>/web?invite=<payload>.<signature>`. Omitted expiry is 48 hours.
+  A missing signing key refuses the command. The signed payload contains
   the full proxy URL, approved signup relays, key id, and exactly the same
   expiry as the nested HMAC token. With `r ID`, Veltar includes that requested
   relay; without it, Veltar includes the approved candidates and the PWA picks

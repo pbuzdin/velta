@@ -28,7 +28,9 @@ failed to answer after its retries (log surface). The three setup paths:
    credentials park in `sessionStorage velta-invite-creds` (30 min) so a
    failed configure can retry without burning the invite; a tunnel
    switch reloads and resumes from `velta-pending-invite`. Minting is a
-   root CLI on the relay, not a UI (`invite-tool.py add`).
+   root CLI on the relay, not a UI (`invite-tool.py add`). Omitted
+   `days` is 2 (48 hours); `0` does not expire. The claim reserves the
+   use before it creates the mailbox and returns the use if minting throws.
 2. Add as a second device — `dcbackup:` receive (see below).
 3. Restore from a backup file — Tauri file dialog → `resolve_content_uri`
    on Android → `importBackup`, fire-and-forget with `imex-progress`;
@@ -80,7 +82,13 @@ and calls `configureWithQr(dcaccount:https://host/new)` (or `addAccountWithQr`
 for an existing configured profile). The worker turns stock `POST /new` into an
 authenticated `wss://<proxy>/cm-new/<host>` exchange, preserving any proxy path.
 The automatic path deliberately skips the nickname modal and never calls core
-`initTransports` autopick. The token itself is never written into diagnostics.
+`initTransports` autopick. The pending invite stays until `configureWithQr`
+succeeds, so a failed probe or signup runs again on the next load. A bad
+signature, unknown key, or expiry drops that pending invite instead of
+retrying it. Veltar's omitted expiry is 48 hours, and a missing signing key
+refuses `/invite` and `/pwa invite` instead of emitting an unsigned link.
+Already issued v1 links still load. The token itself is never written into
+diagnostics.
 
 Deployment-specific hostnames stay in Veltar's private configuration and the
 signed invite, never in source, tests, docs, or static PWA configuration. The

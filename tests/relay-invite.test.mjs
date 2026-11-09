@@ -49,6 +49,8 @@ test("relay side: claim CGI is single-use atomic and reuses the /new generator",
   const cgi = readFileSync(new URL("../scripts/relay-invite/invite.py", import.meta.url), "utf8");
   assert.ok(cgi.includes("fcntl.flock(f, fcntl.LOCK_EX)"), "claim takes an exclusive lock");
   assert.ok(cgi.includes('inv["uses"] = inv.get("uses", 1) - 1'), "decrement inside the lock");
+  assert.ok(cgi.indexOf('inv["uses"] = inv.get("uses", 1) - 1') < cgi.indexOf("create_newemail_dict(read_config(CONFIG_PATH))"), "the use is reserved before the mailbox exists");
+  assert.ok(cgi.includes('inv["uses"] = inv.get("uses", 0) + 1'), "a failed mint gives the use back");
   assert.ok(cgi.includes("create_newemail_dict(read_config(CONFIG_PATH))"), "reuses the /new generator");
   assert.ok(cgi.includes('"This invite has already been used up."'), "exhausted invites rejected");
   assert.ok(!/Credentials never touch URLs/.test("") === false || true, "contract doc kept");

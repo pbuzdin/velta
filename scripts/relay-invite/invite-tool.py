@@ -2,6 +2,7 @@
 """Admin CLI for invite-gated account creation (PLAN-PWA-WEBSOCKET R1).
 
   invite-tool.py add [uses] [days] [note]   mint; prints the invite URL
+                                     days defaults to 2 (48h); pass 0 for no expiry
   invite-tool.py list                       show invites + claim counts
   invite-tool.py revoke <token-or-url>      revoke (hash matched server-side)
 
@@ -65,7 +66,7 @@ def main():
     data = load()
     if cmd == "add":
         uses = int(sys.argv[2]) if len(sys.argv) > 2 else 1
-        days = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+        days = int(sys.argv[3]) if len(sys.argv) > 3 else 2
         note = sys.argv[4] if len(sys.argv) > 4 else ""
         token = secrets.token_urlsafe(18)
         data["invites"][token_hash(token)] = {

@@ -601,12 +601,16 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   `/app/index.html#/join?t=<token>` → `createAccountFromRelayInvite` →
   GET `/i/claim?t=` (fcgiwrap 502s request BODIES on this box — do not
   "fix" it back to POST) → flock'd atomic single-use consume →
-  `configureWithCredentials`. Claimed credentials park in
+  `configureWithCredentials`. The claim writes the decremented use before
+  it creates the mailbox, and gives that use back if minting throws. A
+  crash in between burns the invite instead of allowing a second claim.
+  Claimed credentials park in
   `sessionStorage velta-invite-creds` (30 min) so a configure failure
   retries without burning a second invite; tunnel-switch reload resumes
   via `velta-pending-invite`. Minting (on the box, root):
   `python3 /root/relay/invite-tool.py add [uses] [days] [note]` prints
-  the link; `list` / `revoke <token|url>`. Known simplifications vs the
+  the link; omitted `days` is 2 (48 hours) and `0` does not expire.
+  `list` / `revoke <token|url>`. Known simplifications vs the
   plan: raw token rides URLs (it IS the invite secret), no AEAD tickets,
   CLI minting instead of admin endpoints, no client-URL redirect dance
   (PWA is same-origin). PWA-only claim path; native clients get set up
