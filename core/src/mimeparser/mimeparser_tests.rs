@@ -1299,12 +1299,12 @@ async fn test_mime_modified_large_plain() -> Result<()> {
 
     {
         let mimemsg = MimeMessage::from_bytes(&t, long_txt.as_ref()).await?;
-        assert!(mimemsg.is_mime_modified);
-        assert!(
-            mimemsg.parts[0].msg.matches("just repeated").count()
-                <= DC_DESIRED_TEXT_LEN / REPEAT_TXT.len()
+        assert!(!mimemsg.is_mime_modified);
+        assert!(mimemsg.parts[0].msg.matches("just repeated").count() == REPEAT_CNT);
+        assert_eq!(
+            mimemsg.parts[0].msg.len() + 1,
+            REPEAT_TXT.len() * REPEAT_CNT
         );
-        assert!(mimemsg.parts[0].msg.len() <= DC_DESIRED_TEXT_LEN + DC_ELLIPSIS.len());
     }
 
     for draft in [false, true] {
@@ -1320,9 +1320,16 @@ async fn test_mime_modified_large_plain() -> Result<()> {
         assert_eq!(html.matches("<!DOCTYPE html>").count(), 1);
         assert_eq!(html.matches("just repeated.<br/>").count(), REPEAT_CNT);
         assert!(
-            msg.text.matches("just repeated.").count() <= DC_DESIRED_TEXT_LEN / REPEAT_TXT.len()
+            msg.truncated_text
+                .as_ref()
+                .unwrap()
+                .matches("just repeated.")
+                .count()
+                <= DC_DESIRED_TEXT_LEN / REPEAT_TXT.len()
         );
-        assert!(msg.text.len() <= DC_DESIRED_TEXT_LEN + DC_ELLIPSIS.len());
+        assert!(
+            msg.truncated_text.as_ref().unwrap().len() <= DC_DESIRED_TEXT_LEN + DC_ELLIPSIS.len()
+        );
 
         let msg = t1.recv_msg(&sent_msg).await;
         assert!(msg.has_html());
@@ -1831,31 +1838,6 @@ async fn test_time_in_future() -> Result<()> {
     assert!(mime_message.timestamp_sent >= beginning_time + 60);
     assert!(mime_message.timestamp_rcvd <= time());
 
-    Ok(())
-}
-
-/// Tests receiving a message with RFC 9788 header protection and legacy display element.
-///
-/// Legacy display elements should not be rendered:
-/// <https://www.rfc-editor.org/rfc/rfc9788.html#name-do-not-render-legacy-displa>
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_hp_legacy_display() -> Result<()> {
-    let mut tcm = TestContextManager::new();
-    let bob = &tcm.bob().await;
-
-    let msg_id = receive_imf(
-        bob,
-        include_bytes!("../../test-data/message/hp_legacy_display.eml"),
-        false,
-    )
-    .await?
-    .unwrap()
-    .msg_ids[0];
-    let msg_bob = Message::load_from_db(bob, msg_id).await?;
-    assert_eq!(msg_bob.subject, "Dinner plans");
-
-    // Legacy display element is removed from the text/plain body.
-    assert_eq!(msg_bob.text, "Let's eat");
     Ok(())
 }
 

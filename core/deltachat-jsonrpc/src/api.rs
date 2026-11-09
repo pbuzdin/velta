@@ -624,10 +624,7 @@ impl CommandApi {
 
     /// Velta #24 (#189): the paused state per transport address, in
     /// list_transports order.
-    async fn list_transport_states(
-        &self,
-        account_id: u32,
-    ) -> Result<Vec<VeltaTransportState>> {
+    async fn list_transport_states(&self, account_id: u32) -> Result<Vec<VeltaTransportState>> {
         let ctx = self.get_context(account_id).await?;
         Ok(deltachat::transport::velta_transport_states(&ctx)
             .await?

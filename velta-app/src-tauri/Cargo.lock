@@ -1538,7 +1538,7 @@ dependencies = [
 
 [[package]]
 name = "deltachat"
-version = "2.66.0"
+version = "2.68.0"
 dependencies = [
  "anyhow",
  "astral-tokio-tar",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "deltachat-jsonrpc"
-version = "2.66.0"
+version = "2.68.0"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
@@ -2119,6 +2119,16 @@ name = "embedded-io"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
+
+[[package]]
+name = "encodify"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e95d6e27686e1d6991a3077f4dbec9d33d18903466d234165ad86cd08c3ebc79"
+dependencies = [
+ "memchr",
+ "simdutf8",
+]
 
 [[package]]
 name = "encoding_rs"
@@ -4243,15 +4253,19 @@ dependencies = [
 
 [[package]]
 name = "mail-builder"
-version = "1.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccbc27cb02a58a311a404769a22f5abf63fe3173b290d80be7c534f9c7023151"
+checksum = "aca3ad941e4c466402151719d6b4cea4bdfcb212b11e5970afa75e7d28c6502a"
+dependencies = [
+ "encodify",
+ "web-time",
+]
 
 [[package]]
 name = "mailparse"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8469955699e572455f8e1a40689e07ab309911d659632f65062598192254c091"
+checksum = "068d4f5d1083883b9e626051dc5bdaa321f5be01093e61ade3ee3ab44dafeadd"
 dependencies = [
  "charset",
  "data-encoding",

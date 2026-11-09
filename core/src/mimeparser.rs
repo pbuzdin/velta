@@ -31,9 +31,7 @@ use crate::message::{self, Message, MsgId, Viewtype, get_vcard_summary, set_msg_
 use crate::param::{Param, Params};
 use crate::simplify::{SimplifiedText, simplify};
 use crate::sync::SyncItems;
-use crate::tools::{
-    get_filemeta, parse_receive_headers, time, truncate_msg_text, validate_group_id,
-};
+use crate::tools::{get_filemeta, parse_receive_headers, time, validate_group_id};
 use crate::{chatlist_events, location, tools};
 
 /// A parsed MIME message.
@@ -1423,17 +1421,6 @@ impl MimeMessage {
                         let (simplified_txt, simplified_quote) = if mime_type.type_() == mime::TEXT
                             && mime_type.subtype() == mime::PLAIN
                         {
-                            // Don't check that we're inside an encrypted or signed part for
-                            // simplicity.
-                            let simplified_txt = match mail
-                                .ctype
-                                .params
-                                .get("hp-legacy-display")
-                                .is_some_and(|v| v == "1")
-                            {
-                                false => simplified_txt,
-                                true => rm_legacy_display_elements(&simplified_txt),
-                            };
                             if is_format_flowed {
                                 let delsp = if let Some(delsp) = mail.ctype.params.get("delsp") {
                                     delsp.as_str().eq_ignore_ascii_case("yes")
@@ -1449,12 +1436,6 @@ impl MimeMessage {
                         } else {
                             (simplified_txt, top_quote)
                         };
-
-                        let (simplified_txt, was_truncated) =
-                            truncate_msg_text(context, simplified_txt).await?;
-                        if was_truncated {
-                            self.is_mime_modified = was_truncated;
-                        }
 
                         if !simplified_txt.is_empty() || simplified_quote.is_some() {
                             let mut part = Part {
@@ -1507,11 +1488,9 @@ impl MimeMessage {
             return Ok(());
         }
         let mut part = Part::default();
-        let msg_type = if context
-            .is_webxdc_file(filename, decoded_data)
-            .await
-            .unwrap_or(false)
-        {
+        let is_webxdc =
+            filename.ends_with(".xdc") && mime_type.essence_str() == "application/webxdc+zip";
+        let msg_type = if is_webxdc {
             Viewtype::Webxdc
         } else if filename.ends_with(".kml") {
             // XXX what if somebody sends eg an "location-highlights.kml"
@@ -2070,20 +2049,6 @@ impl MimeMessage {
             Vec::new()
         }
     }
-}
-
-fn rm_legacy_display_elements(text: &str) -> String {
-    let mut res = None;
-    for l in text.lines() {
-        res = res.map(|r: String| match r.is_empty() {
-            true => l.to_string(),
-            false => r + "\r\n" + l,
-        });
-        if l.is_empty() {
-            res = Some(String::new());
-        }
-    }
-    res.unwrap_or_default()
 }
 
 fn remove_header(
