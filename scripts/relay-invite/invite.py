@@ -23,6 +23,7 @@ import hashlib
 import html
 import json
 import os
+import socket
 import sys
 import time
 from urllib.parse import parse_qs
@@ -34,6 +35,7 @@ from newemail import create_newemail_dict
 CONFIG_PATH = "/usr/local/lib/chatmaild/chatmail.ini"
 STORE = "/var/lib/velta-invites/invites.json"
 PWA_JOIN = "/app/index.html#/join?t="
+MKACCOUNT_SOCK = "/run/velta-mkaccount.sock"
 
 
 def respond(status, ctype, body, extra_headers=""):
@@ -63,6 +65,18 @@ def read_store():
         return json.loads(raw) if raw.strip() else {"invites": {}}
     except FileNotFoundError:
         return {"invites": {}}
+
+
+def create_account(email, password):
+    """Create the mailbox via the local helper. Doveauth does not auto-create."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(15)
+            s.connect(MKACCOUNT_SOCK)
+            s.sendall(f"{email}\t{password}\n".encode())
+            return s.makefile("rb").readline(100).strip() == b"OK"
+    except OSError:
+        return False
 
 
 def _write_store(f, data):
@@ -102,6 +116,10 @@ def claim(token):
             inv["uses"] = inv.get("uses", 0) + 1
             _write_store(f, data)
             raise
+        if not create_account(creds["email"], creds["password"]):
+            inv["uses"] = inv.get("uses", 0) + 1
+            _write_store(f, data)
+            return 503, {"error": "Could not create the account right now. Try again later."}
         inv.setdefault("claimed", []).append(creds["email"])
         _write_store(f, data)
     return 200, {"email": creds["email"], "password": creds["password"]}

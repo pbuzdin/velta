@@ -604,6 +604,9 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   `configureWithCredentials`. The claim writes the decremented use before
   it creates the mailbox, and gives that use back if minting throws. A
   crash in between burns the invite instead of allowing a second claim.
+  The mailbox is created through `/run/velta-mkaccount.sock` because
+  doveauth does not auto-create. If that helper fails, the claim returns
+  503 and gives the use back.
   Claimed credentials park in
   `sessionStorage velta-invite-creds` (30 min) so a configure failure
   retries without burning a second invite; tunnel-switch reload resumes

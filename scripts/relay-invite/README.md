@@ -16,8 +16,10 @@ Two files, deployed to the relay box:
 
 - **Single-use, atomic**: the claim takes an exclusive `flock` on the
   store, decrements `uses`, and records the minted address under
-  `claimed` — two concurrent claims, one winner. Exhausted → `409`,
-  revoked → `403`, expired → `410`.
+  `claimed` — two concurrent claims, one winner. The decrement is written
+  before the mailbox exists. A failed mint, or a failure from
+  `/run/velta-mkaccount.sock`, gives the use back (`503` from the socket).
+  Exhausted → `409`, revoked → `403`, expired → `410`.
 - **Multi-use + expiry invites**: `add <uses> <days> [note]`; `expires`
   is checked at claim/visit time; `note` renders on the interstitial.
 - **No credentials in URLs or logs**: the token is the only secret that

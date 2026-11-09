@@ -51,6 +51,8 @@ test("relay side: claim CGI is single-use atomic and reuses the /new generator",
   assert.ok(cgi.includes('inv["uses"] = inv.get("uses", 1) - 1'), "decrement inside the lock");
   assert.ok(cgi.indexOf('inv["uses"] = inv.get("uses", 1) - 1') < cgi.indexOf("create_newemail_dict(read_config(CONFIG_PATH))"), "the use is reserved before the mailbox exists");
   assert.ok(cgi.includes('inv["uses"] = inv.get("uses", 0) + 1'), "a failed mint gives the use back");
+  assert.ok(cgi.includes('MKACCOUNT_SOCK = "/run/velta-mkaccount.sock"'), "the mailbox is created through the local helper");
+  assert.ok(cgi.indexOf("create_newemail_dict(read_config(CONFIG_PATH))") < cgi.indexOf("create_account(creds"), "mailbox helper runs after credentials exist");
   assert.ok(cgi.includes("create_newemail_dict(read_config(CONFIG_PATH))"), "reuses the /new generator");
   assert.ok(cgi.includes('"This invite has already been used up."'), "exhausted invites rejected");
   assert.ok(!/Credentials never touch URLs/.test("") === false || true, "contract doc kept");
