@@ -220,6 +220,10 @@ svg { width: 24px; height: 24px; display: block; }
 @media (hover: hover) and (pointer: fine) {
   .chat-cats button:hover:not(.active) { color: var(--text); }
 }
+/* #294: the picker variant is narrower than the main list — keep the labels
+   whole and scroll instead of ellipsizing ("Peo…", "Grou…"). */
+.modal-cats { overflow-x: auto; padding: 0 0 6px; }
+.modal-cats button { flex: 0 0 auto; padding: 5px 10px; }
 /* Relay status line — thin strip just below the sidebar header. The color
    lives on `color` so the sending-dash gradient can reuse it as currentColor. */
 /* Relay status strip: one equal-width segment per configured relay

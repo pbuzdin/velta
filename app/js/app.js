@@ -6,7 +6,7 @@ import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
 import { createTransferTracker } from "./transfer-progress.js";
-import { escapeHtml, escapeAttr } from "./components.js";
+import { escapeHtml, escapeAttr, buildCategoryChips } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
 import { createLastGood, loadErrorBanner, withTimeout } from "./load-retry.js";
 import { probeLock, unlockInteractive, prfSupported } from "./db-lock.js";
@@ -5526,6 +5526,7 @@ function pickShareChat(chats) {
       chats,
       accounts: state.accounts || [],
       currentAccountId: core.accountId,
+      isBot: chatIsBot,
       makeItem: chat => {
         const item = document.createElement("velta-chat-item");
         item.setData(chat);
@@ -5533,6 +5534,8 @@ function pickShareChat(chats) {
       },
       onPick: value => { done(value); close(); },
     });
+    // Bot flags for the People/Bots chips, same as the forward modal.
+    ensureContactBots().then(() => picker.render());
     const { close } = showModal({ title: "Share to…", body: picker.el, onClose: () => done(null) });
     // Phones: no keyboard over the list until the user taps the field.
     if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) picker.search.focus?.();
@@ -5613,13 +5616,21 @@ async function forwardFlow(msgIds) {
   search.autocomplete = "off";
   search.setAttribute("aria-label", t("Search chats"));
   search.style.marginBottom = "8px";
+  // #294: category chips — same buckets as the main list's #57 bar, picker
+  // subset (no Unread/System). Bot flags arrive async: refetch + re-filter.
+  let cat = "all";
+  const cats = buildCategoryChips({ onChange: picked => {
+    cat = picked;
+    if (cat === "people" || cat === "bots") ensureContactBots().then(applyFilter);
+    applyFilter();
+  } });
   const list = document.createElement("div");
   list.className = "modal-list";
   const empty = document.createElement("div");
   empty.className = "p2p-hint"; empty.style.opacity = ".6";
   empty.textContent = t("No chats match.");
   empty.hidden = true;
-  wrap.append(knownContactsToggleRow(applyFilter), search, list, empty);
+  wrap.append(knownContactsToggleRow(applyFilter), search, cats.el, list, empty);
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.isP2pGroup);
   const items = [];
   for (const chat of targets) {
@@ -5637,12 +5648,15 @@ async function forwardFlow(msgIds) {
     list.appendChild(item);
     items.push([chat, item]);
   }
-  // #158 search × #169 known-contacts: one filter, both conditions.
+  // #158 search × #169 known-contacts × #294 categories: one filter.
   function applyFilter() {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
     for (const [chat, item] of items) {
-      const hit = (!knownContactsOnly() || chat.kind === "single")
+      const inCat = cat === "all"
+        || (cat === "saved" ? chat.kind === "saved" : chatCategoryOf(chat, chatIsBot) === cat);
+      const hit = inCat
+        && (!knownContactsOnly() || chat.kind === "single")
         && (!q || (chat.name || "").toLowerCase().includes(q));
       item.hidden = !hit;
       shown += hit;
@@ -5651,6 +5665,9 @@ async function forwardFlow(msgIds) {
   }
   applyFilter();
   search.addEventListener("input", applyFilter);
+  // Bot flags may not be loaded yet — refresh the People/Bots split when the
+  // one-shot fetch lands (main-bar semantics, no retry banner in the modal).
+  ensureContactBots().then(applyFilter);
   const { close } = showModal({ title: "Forward to…", body: wrap });
   // Phones: no keyboard over the list until the user taps the field.
   if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) search.focus();

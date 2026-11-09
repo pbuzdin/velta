@@ -165,6 +165,39 @@ export function hapticTick(ms = 10) {
   try { navigator.vibrate?.(ms); } catch { /* vibration is best-effort */ }
 }
 
+// #294: category chips for the forward and share pickers — same buckets as
+// the main list's #57 bar (chatCategoryOf), minus Unread (transient) and
+// System (deaddrop/device never appear in pickers). "saved" is a literal
+// kind filter, not a chatCategoryOf bucket. No persistence: pickers always
+// open on "all". Returns { el, get, set }.
+export function buildCategoryChips({ active = "all", onChange } = {}) {
+  const cats = ["all", "people", "groups", "channels", "bots", "saved"];
+  const el = document.createElement("div");
+  el.className = "chat-cats modal-cats";
+  el.setAttribute("role", "toolbar");
+  el.setAttribute("aria-label", t("Chat categories"));
+  const buttons = new Map();
+  for (const cat of cats) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.cat = cat;
+    b.textContent = t(cat === "all" ? "All" : cat[0].toUpperCase() + cat.slice(1));
+    b.classList.toggle("active", cat === active);
+    el.appendChild(b);
+    buttons.set(cat, b);
+  }
+  let current = active;
+  el.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-cat]");
+    if (!btn || btn.dataset.cat === current) return;
+    current = btn.dataset.cat;
+    for (const [cat, b] of buttons) b.classList.toggle("active", cat === current);
+    btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+    onChange?.(current);
+  });
+  return { el, get: () => current, set(cat) { const b = buttons.get(cat); b?.click(); } };
+}
+
 /* ---------- <velta-video> — click-to-load video player ---------- */
 // Every mounted <video> starts a decoder pipeline and issues media range
 // requests for content the user may never play; in a multi-video chat that

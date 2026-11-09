@@ -3,6 +3,8 @@
 // URL, and files into content:// or file://. Windows Send to passes a path.
 // Invite and chat links are not shares — the deeplink router owns those.
 import { t } from "./i18n.js";
+import { chatCategoryOf } from "./rpc-core.js";
+import { buildCategoryChips } from "./components.js";
 
 export function parseSharePayload(raw) {
   const s = String(raw || "").trim();
@@ -57,11 +59,13 @@ export function shareViewtype(name) {
 
 // Chats a share can go to: not the device/diagnostics chat, not a contact
 // request, not a read-only chat. query narrows by name (picker search).
-export function shareTargets(chats, query = "") {
+export function shareTargets(chats, query = "", cat = "all", isBot = () => false) {
   const q = String(query || "").trim().toLowerCase();
   return (chats || []).filter(c => c
     && !["deaddrop", "device"].includes(c.kind)
     && !c.readOnly
+    && (cat === "all"
+      || (cat === "saved" ? c.kind === "saved" : chatCategoryOf(c, isBot) === cat))
     && (!q || String(c.name || "").toLowerCase().includes(q)));
 }
 
@@ -120,7 +124,7 @@ export function createShareInbox(run, onError = () => {}) {
 // The "Share to…" body: a search field, a profile row when there are
 // several profiles, and the chat list. makeItem(chat) builds one row
 // (velta-chat-item in the app). onPick({ chat }) or onPick({ accountId }).
-export function buildSharePicker(doc, { chats, accounts = [], currentAccountId = null, makeItem, onPick }) {
+export function buildSharePicker(doc, { chats, accounts = [], currentAccountId = null, makeItem, onPick, isBot = () => false }) {
   const root = doc.createElement("div");
   root.className = "share-picker";
   const search = doc.createElement("input");
@@ -144,11 +148,14 @@ export function buildSharePicker(doc, { chats, accounts = [], currentAccountId =
     }
     root.appendChild(row);
   }
+  // #294: category chips — same buckets as the main list's #57 bar.
+  const cats = buildCategoryChips({ onChange: () => render() });
+  root.appendChild(cats.el);
   const list = doc.createElement("div");
   list.className = "modal-list share-list";
   root.appendChild(list);
   const render = () => {
-    const rows = shareTargets(chats, search.value).map(chat => {
+    const rows = shareTargets(chats, search.value, cats.get(), isBot).map(chat => {
       const item = makeItem(chat);
       item.addEventListener("click", () => onPick({ chat }));
       return item;
