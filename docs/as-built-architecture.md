@@ -17,7 +17,7 @@ This document records the product that is in the tree at `cd59531` (app 1.4.67).
 
 > **Current architecture addendum (2026-11-07):** the metadata and most of the
 > body below remain a historical `cd59531` / core 2.63.0 snapshot. Current
-> production `core/` is 2.66.0 with a 200-operation, 37-file quilt (#10–#30).
+> production `core/` is 2.68.0 with a 200-operation, 37-file quilt (#10–#30).
 > The standalone browser PWA is now a real wasm-core shell, not a remote
 > sidecar: `scripts/build-pwa.mjs` packages `packages/velta-wasm` with `app/`,
 > `worker-wasm.js` owns OPFS snapshot persistence, and WebSocket mail tunnels

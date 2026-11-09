@@ -80,3 +80,10 @@ Platform support (Russian needs a `ru` dictionary):
 - PWA in Chromium: yes; verified in headless Chromium 156 (Linux) for both
   `en` and `ru` (bubble heights drop with `hyphens: auto`).
 Where a dictionary is missing the text simply wraps as before.
+
+## Other switches in this drawer
+
+**Liquid glass composer** is not a chat-appearance token. It lives in the
+same drawer section (`app/js/glass-composer.js`) and is off unless
+`velta-glass-composer` is `"1"`. Settings export key: `glass-composer`.
+Chromium only; reduced transparency keeps the solid field. See AGENTS.md.

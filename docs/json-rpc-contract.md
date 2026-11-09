@@ -1,6 +1,6 @@
 # JSON-RPC is the core contract
 
-Four shells talk to the same vendored Delta Chat core (`core/`, 2.66). The
+Four shells talk to the same vendored Delta Chat core (`core/`, 2.68.0). The
 only supported core API is **JSON-RPC 2.0** from `core/deltachat-jsonrpc`
 (yerpc `CommandApi` / `RpcSession`). Method names and positional params
 are those in `core/deltachat-jsonrpc/src/api.rs` (`#[rpc(all_positional)]`);

@@ -7,6 +7,17 @@ frontend codebase.
 **Current stable version:** `1.5.4` (copied from `src-tauri/tauri.conf.json`)  
 **Bundled core:** `deltachat-core-rust 2.68.0` (copied from `../core/Cargo.toml`)
 
+## Unreleased
+
+Not in the 1.5.4 downloads. The glass switch is in this checkout's `app/`
+and shows up in a dev build; it is not committed. Linux release wiring is
+on master (`178d745b`) and takes effect on the next tag.
+
+- **Liquid glass composer** (off by default) — Chat appearance, Windows and
+  Android WebView only. macOS keeps the solid field.
+- **Linux packages on the GitHub release** — `.deb`, AppImage, and Arch
+  package, glibc 2.36+. No Linux self-update.
+
 ## What's new in 1.5.4
 
 - **Windows Hello works end to end** (Windows): the database key is held

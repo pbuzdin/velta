@@ -4,7 +4,9 @@ What Velta's vendored-core patches (quilt `tools/apply-core-patches.py`,
 VENDORISSUES.MD) wait for upstream, and the texts we filed. Velta never
 posts in chatmail/deltachat repos from automation; filing is Pavel's call.
 
-## Status (rechecked 2026-11-07, current vendored core 2.66.0)
+## Status (issue sweep 2026-11-07; vendored core is 2.68.0 as of 2026-11-09)
+
+The 2.68.0 re-vendor did not close the upstream items below.
 
 - **#7 animated WebP — DONE upstream, patch retired.** chatmail/core
   **#8777** ("fix: do not reencode animated WebPs into JPEG") merged

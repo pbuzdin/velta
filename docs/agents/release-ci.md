@@ -112,7 +112,20 @@ Cancel every Release run that is not on the final tag commit
 Final state: tag `v1.5.4` = `56b7fabb`, run `42387847522`, all platforms
 green, release published with full assets.
 
+## Linux assets on the release job (master `178d745b`, not in v1.5.4)
 
+`release.yml` calls `build-linux.yml` and uploads three artifacts next to
+the Windows, Android, and macOS files:
+
+- `Velta_<version>_amd64.deb` — Debian 12+ and Ubuntu 23.04+
+- `Velta_<version>_amd64.AppImage` — other distros with glibc 2.36+ and webkit2gtk-4.1
+- `velta-bin-<version>-1-x86_64.pkg.tar.zst` — Arch, `pacman -U`, not the AUR
+
+The build runs in a Debian 12 container and checks that every packaged ELF
+needs at most glibc 2.36. Ubuntu 22.04 (glibc 2.35) is out of range. Linux
+has no self-update manifest. v1.5.4's release job did not download these
+artifacts; a `workflow_dispatch` of `build-linux.yml` can still produce them
+on its own.
 
 ## Windows sidecar rebuild (local, verified on 2026-09-22 for core 2.61.0)
 

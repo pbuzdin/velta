@@ -1584,6 +1584,47 @@ button.reaction-chip { font: inherit; color: inherit; }
   padding: 6px 14px calc(10px + env(safe-area-inset-bottom));
   width: 100%;
 }
+/* Lens plate. The list scrolls underneath; at rest the last row sits
+   above it (padding), and a drag carries bubbles through the curve.
+   Skipped while a strip sits between the list and the field, and while
+   the thread sheet is open — those already fill the backdrop. */
+#chat-view:not(:has(#reply-preview:not([hidden]))):not(:has(#media-preview:not([hidden]))):not(:has(#link-preview-draft:not([hidden]))):not(:has(#voice-rec:not([hidden]))):not(:has(#thread-panel:not([hidden]))) #main-composer.glass-on:not([hidden]) {
+  margin-top: calc(var(--composer-glass, 0px) * -1);
+}
+#chat-view:not(:has(#reply-preview:not([hidden]))):not(:has(#media-preview:not([hidden]))):not(:has(#link-preview-draft:not([hidden]))):not(:has(#voice-rec:not([hidden]))):not(:has(#thread-panel:not([hidden]))):has(#main-composer.glass-on:not([hidden])) #history-scroll {
+  padding-bottom: var(--composer-glass, 0px);
+}
+#chat-view:not(:has(#reply-preview:not([hidden]))):not(:has(#media-preview:not([hidden]))):not(:has(#link-preview-draft:not([hidden]))):not(:has(#voice-rec:not([hidden]))):not(:has(#thread-panel:not([hidden]))):has(#main-composer.glass-on:not([hidden])) #btn-go-down {
+  bottom: calc(var(--composer-glass, 0px) + 12px);
+}
+#main-composer.glass-on {
+  z-index: 4;
+  background: none;
+  /* The thumb lives in the right margin, so the plate sits one thumb further in on that side. */
+  --glass-gap: 14px;
+  --glass-thumb: 8px;
+  padding-left: calc(var(--glass-gap) + 6px);
+  padding-right: calc(var(--glass-gap) + var(--glass-thumb) + 6px);
+}
+#main-composer.glass-on::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 4px calc(var(--glass-gap) + var(--glass-thumb)) calc(4px + env(safe-area-inset-bottom)) var(--glass-gap);
+  border-radius: 22px;
+  pointer-events: none;
+  backdrop-filter: url("#velta-glass");
+  -webkit-backdrop-filter: url("#velta-glass");
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .55),
+    inset 0 -8px 12px rgba(255, 255, 255, .05),
+    inset 0 0 0 1px rgba(255, 255, 255, .22);
+}
+#main-composer.glass-on > * { position: relative; z-index: 1; }
+#main-composer.glass-on .composer-input-wrap {
+  background: transparent;
+  border-color: transparent;
+}
 /* Pending attachment strip (official-client pattern): sits above the
    composer row, caption = the composer input itself. */
 .media-preview {

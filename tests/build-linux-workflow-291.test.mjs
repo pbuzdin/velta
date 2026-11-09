@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-test("#291: manual Linux .deb workflow in Debian 12, not in release.yml", () => {
+test("#291: Linux .deb workflow in Debian 12, attached by release.yml", () => {
   const wf = readFileSync(new URL("../.github/workflows/build-linux.yml", import.meta.url), "utf8");
+  assert.match(wf, /workflow_call:/);
   assert.match(wf, /workflow_dispatch:/);
   assert.match(wf, /container: debian:12/);
   assert.match(wf, /shared-key: debian12-glibc236/);
@@ -15,7 +16,14 @@ test("#291: manual Linux .deb workflow in Debian 12, not in release.yml", () => 
   assert.match(wf, /tauri build --bundles deb,appimage/);
   assert.match(wf, /name: velta-linux-deb/);
   const rel = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
-  assert.doesNotMatch(rel, /build-linux\.yml/);
+  assert.match(rel, /uses: \.\/\.github\/workflows\/build-linux\.yml/);
+  assert.match(rel, /needs: \[android, windows, macos, linux\]/);
+  for (const name of ["velta-linux-deb", "velta-linux-appimage", "velta-arch-pkg"]) {
+    assert.match(rel, new RegExp(`name: ${name}`));
+  }
+  assert.match(rel, /glibc 2\.36\+/);
+  assert.match(rel, /Ubuntu 23\.04\+/);
+  assert.match(rel, /Linux self-update is not wired/);
 });
 
 test("#291: Linux bundles the sidecar as externalBin (installed next to the exe)", () => {

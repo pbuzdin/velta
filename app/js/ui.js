@@ -14,6 +14,7 @@ import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
+import { glassComposerAvailable } from "./glass-composer.js";
 import { markLangCardDone } from "./lang-cards.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { mountInviteDomains } from "./invite-domains.js";
@@ -1275,6 +1276,7 @@ export function chatAppearanceHtml() {
           <div class="bar-opts-hint" data-ca-accent-hint>${escapeHtml(t("Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors."))}</div>
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-stickers-in-attach${localStorage.getItem("velta-stickers-in-attach") === "1" ? " checked" : ""}><span>${escapeHtml(t("Stickers in attachments menu"))}</span></label>
+          ${glassComposerAvailable() ? `<label class="scale-opt"><input type="checkbox" role="switch" data-glass-composer${localStorage.getItem("velta-glass-composer") === "1" ? " checked" : ""}><span>${escapeHtml(t("Liquid glass composer"))}</span></label>` : ""}
           <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
@@ -1339,6 +1341,10 @@ export function wireChatAppearance(root, { onChange } = {}) {
   sec.querySelector("[data-stickers-in-attach]")?.addEventListener("change", e => {
     try { localStorage.setItem("velta-stickers-in-attach", e.target.checked ? "1" : "0"); } catch {}
     window.dispatchEvent(new Event("velta-stickers-pref"));
+  });
+  sec.querySelector("[data-glass-composer]")?.addEventListener("change", e => {
+    try { localStorage.setItem("velta-glass-composer", e.target.checked ? "1" : "0"); } catch {}
+    window.dispatchEvent(new Event("velta-glass-pref"));
   });
   sec.querySelector("[data-ca-reset]").addEventListener("click", () => {
     const st = A.apply(A.reset());

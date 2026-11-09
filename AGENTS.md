@@ -6,7 +6,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 > **Scope note:** This repository is a Velta-specific workspace layered around a
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
-> (version `2.66.0`). The `core/` directory is effectively a vendored copy of
+> (version `2.68.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
 > `velta-app/`, and `deltachat-backend/`.
 
@@ -27,6 +27,16 @@ a numbered version or move the tag to include it.
 | Channel invitations | #312, #313 | The chat profile offers **Invite via link/QR** only when `kind === "channel" && chatType === "OutBroadcast"`. `InBroadcast` and `Mailinglist` must not offer owner-invite generation. SecureJoin still supports groups and owned outgoing channels; the core and contact/group invite paths are unchanged. |
 | WASM CI | `dfea355` | `apply-on-copy-pack-smoke` runs on `ubuntu-24.04`, not a moving `ubuntu-latest` image. |
 | Release/platform docs | `f6b8e8c` | `docs/agents/release-ci.md` records the v1.5.4 incidents and reconciliation steps. README and the app guide reflect the current Windows Hello, Linux compatibility, and **Show in folder** behavior. |
+| Relay invites | `f74d5c0`, `4dc9d828` | Omitted expiry is 48 hours (`days` 2); `0` does not expire. A missing signing key refuses the PWA invite command. The claim reserves its use before it creates the mailbox and returns that use if the helper fails. The mailbox is created through the local mkaccount socket. |
+| Vendored core | `4902dc4` | chatmail core `2.66.0` → `2.68.0`. No DB migration and no config-surface change. The quilt stays 200 ops / 37 files. The sidecar must report `2.68.0`. |
+| Wasm series | `a0ac244` | The opt-in wasm series is re-ported onto the 2.68 copy. `0005` drops the `accounts.rs` anyhow-import gate; `0007` re-anchors the `time_now` hunks. Do not apply this series to production `core/`. |
+| Linux release assets | `178d745b`, #291 | `release.yml` calls `build-linux.yml` and attaches the `.deb`, AppImage, and Arch package (glibc 2.36+, Debian 12 / Ubuntu 23.04 and newer). v1.5.4 did not publish these from the release job. Linux self-update stays unwired. |
+
+In this checkout (committed), not in v1.5.4:
+
+| Area | Where | Constraint |
+|---|---|---|
+| Liquid glass composer | `app/js/glass-composer.js` | Off unless `velta-glass-composer` is `"1"` (export key `glass-composer`). The Chat appearance switch is hidden unless a Chromium engine accepts `backdrop-filter: url()` and the user has not set reduced transparency. One SVG displacement filter on the composer plate. Not a Rust shader, and not the open WebGL prototype in #304. The input wrap stays clear. The right inset adds the 8px scrollbar so the visible gap matches the left. |
 
 ---
 
@@ -70,6 +80,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── boot-net.js       # pre-app.js error/unhandledrejection net: Diagnostics sink once app.js lives, #boot-error banner before
 │   │   ├── chat-view.js      # message history, composer, selection actions, webxdc cards, bot command chips
+│   │   ├── glass-composer.js # opt-in liquid-glass composer: Chromium SVG displacement on #main-composer. Off unless velta-glass-composer=1. Not the #304 WebGL prototype
 │   │   ├── calls.js          # audio + video calls: WebRTC media + core signaling state machine, Delta Chat-style call screen (screen wake lock held from mic acquisition to releaseMedia; mic + video transceivers before offer/answer; DC data channels iceTrickling/mutedState; Android earpiece/speaker route via call_audio_* → CallAudio.kt — docs/agents/calls.md)
 │   │   ├── member-list.js    # chat info member list: <velta-avatar> + name + address, live search (diacritics-insensitive), fixed-height virtual window
 │   │   ├── chat-media.js     # chat info Apps/Photos/Videos/Audio/Files <details>: get_chat_media counts, lazy batched loads, virtual list/grid, search; scoped by chatId — contact profiles resolve the 1:1 chat via getChatIdByContactId and a null chatId is refused (the core reads null as ALL chats, #159)
@@ -2630,11 +2641,13 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 212 files, 1411 tests as of 2026-11-07 (5 skip without
-python3+websockets in `tests/ws-proxy-auth.test.mjs`; 1 more when the sidecar
+whole set — 215 files, 1421 tests as of 2026-11-09 (6 skip without
+python3+websockets: 5 in `tests/ws-proxy-auth.test.mjs`, 1 in `tests/ws-proxy-relays.test.mjs`; 1 more when the sidecar
 binary is absent in `tests/release-version-pins.test.mjs`. A sidecar that is
 present but older than vendored core fails that pin instead of skipping.
-CI installs python3+websockets so those run on Linux; Windows path uses `fileURLToPath`).
+CI installs python3+websockets so those run on Linux; Windows path uses `fileURLToPath`.
+A Store `python3` alias fails `tests/pwa-onboarding.test.mjs`, and the WindowsApps `bash`
+stub fails `tests/pwa-web-onboarding-workflow.test.mjs`; this Windows checkout lacks both).
 Includes SOCKS5 proxy, relay pause/autorelay, native attachment encryption,
 Android lock-screen contracts, and logging opt-in from the 2026-11-02
 PR stack. 1.4.86: diagnostics bar
@@ -3341,7 +3354,9 @@ do-not-regress rules; dates mark when the lesson was learned.
   palette. Each `.msg-text` carries `lang` (`text-lang.js`) for
   `hyphens: auto`; machine text (links, e-mail spans, hashtags, code) stays
   `hyphens: manual`. Detail + platform hyphenation matrix:
-  `docs/chat-appearance.md`.
+  `docs/chat-appearance.md`. The same drawer holds **Liquid glass composer**
+  (`glass-composer.js`, off by default): see the unreleased table. Do not
+  paint a second fill on `.composer-input-wrap` while `.glass-on` is set.
 
 - **Settings export / apply (2026-10-18)** — `js/settings-transfer.js` is the
   single whitelist (`SETTINGS`: export key → localStorage key, parse,
@@ -3352,8 +3367,8 @@ do-not-regress rules; dates mark when the lesson was learned.
   only in the saved chat, `from === 1`, not forwarded / not a saved copy, and
   only if `parseSettings` accepts it. Apply = diff modal (settle before close)
   → `applySettings` → `refreshAfterSettingsApply` (live: theme, scale,
-  appearance, bar, categories, core `media_quality` / `download_limit` /
-  `mdns_enabled`). Parser: no eval, header first, every line `key: value`,
+  appearance, bar, categories, `glass-composer`, core `media_quality` /
+  `download_limit` / `mdns_enabled`). Parser: no eval, header first, every line `key: value`,
   `(note)` or blank, else the whole block is rejected; limits 4096 chars /
   80 lines / 200 per line; unknown keys ignored, invalid values skipped,
   numbers clamped. Accent is written without `#` (it would become a hashtag

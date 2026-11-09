@@ -18,6 +18,13 @@ These changes are merged after [v1.5.4](https://github.com/pbuzdin/velta/release
 - **Text-only Auto** — it now covers only unaccepted 1:1 contact requests, never group senders. Plain text without real attachment metadata stays a normal text bubble, pending real attachments keep their reveal/download flow, and only text containing a link gets a preview slot ([#310](https://github.com/pbuzdin/velta/issues/310), [#311](https://github.com/pbuzdin/velta/pull/311)).
 - **Channel invitations** — **Invite via link/QR** is offered only for owned outgoing channels (`OutBroadcast`). Incoming subscriptions (`InBroadcast`) and mailing lists (`Mailinglist`) no longer offer an action that the core cannot fulfill; contact and group invitations are unchanged ([#312](https://github.com/pbuzdin/velta/issues/312), [#313](https://github.com/pbuzdin/velta/pull/313)).
 - **CI and release documentation** — the WASM patch smoke test is pinned to Ubuntu 24.04 ([`dfea355`](https://github.com/pbuzdin/velta/commit/dfea3555a2cf652b1795f097df716c82f8368269)); the v1.5.4 release incidents, Windows Hello behavior, Linux package compatibility, and **Show in folder** status were also documented ([`f6b8e8c`](https://github.com/pbuzdin/velta/commit/f6b8e8cfef345878ec7aa1d7edf5135d68f326d2)).
+- **Relay invites** — an invite with no expiry date lasts 48 hours. The claim holds its use before the mailbox is created and gives that use back if creation fails ([`f74d5c0`](https://github.com/pbuzdin/velta/commit/f74d5c0b2764eb1feeeb79ed49d9a328db11d9bf), [`4dc9d82`](https://github.com/pbuzdin/velta/commit/4dc9d8281c8eb26b6f091c82197c9f87f1cbee23)).
+- **Messaging core** — the vendored Delta Chat core is **2.68.0** ([`4902dc4`](https://github.com/pbuzdin/velta/commit/4902dc4d21efb5bb065cc36e7c75ea81d3c62e92)). No database migration. The browser build's patch series is re-ported onto that same core ([`a0ac244`](https://github.com/pbuzdin/velta/commit/a0ac244d301db24c1c3a24f9593001a1aa507ac4)).
+- **Linux packages on the release** — the release job attaches the Debian package, the AppImage, and the Arch package (glibc 2.36 or newer: Debian 12, Ubuntu 23.04, Arch) ([`178d745`](https://github.com/pbuzdin/velta/commit/178d745b5b6f10bf92d2c9158d9931fa822b8b33)). v1.5.4 did not publish those files from the release job. Linux does not self-update yet.
+
+In this checkout, not yet committed and not in the v1.5.4 downloads:
+
+- **Liquid glass composer** — off until you turn it on under Chat appearance. On Windows and Android the message field can bend the chat behind it like a frosted glass plate. macOS and the browser PWA keep the solid field. This is separate from the WebGL experiment in [#304](https://github.com/pbuzdin/velta/issues/304).
 
 ## What it is
 
@@ -269,8 +276,10 @@ before first paint, like the interface scale. Message text is tagged `ru` or
 e-mail addresses and hashtags are never hyphenated.
 On wide windows the chat list can be collapsed with the chevron above the Menu button or **Ctrl+B** (⌘B); while collapsed, the button shows the unread count.
 Opt-in extras: **Pure black (AMOLED)** for the dark theme (pure-black
-backgrounds, slightly grey elevated surfaces) and **Stickers in attachments
-menu**, which moves the sticker button into the attachments menu.
+backgrounds, slightly grey elevated surfaces), **Stickers in attachments
+menu**, which moves the sticker button into the attachments menu, and
+**Liquid glass composer** (off by default; Windows and Android only), which
+lets the message field bend the chat scrolling behind it.
 
 **Export settings** (drawer → Export settings to Saved Messages, last item
 before About) sends one plain-text message to your own Saved Messages: a

@@ -67,6 +67,7 @@ local-chat-typing: on
 | --- | --- | --- |
 | `theme` | `auto`, `dark`, `light`, `brutal` | `dw-theme` |
 | `language` | `english`, `french`, `russian` | `velta-lang` |
+| `amoled` | on/off (absent = off) | `velta-amoled` |
 | `interface-scale` | `small`, `normal`, `large` | `velta-ui-scale` |
 | `message-text-size` | 10–22 (step 0.5, `px` optional; clamped) | `velta-msg-font-size` |
 | `message-corners` | `default` or 0–14 (clamped) | `velta-bubble-radius` |
@@ -87,6 +88,8 @@ local-chat-typing: on
 | `link-previews` | `off`, `picture`, `fetch` | `velta-link-preview` |
 | `strip-tracking` | on/off | `velta-strip-trackers` |
 | `send-on-enter` | on/off | `velta-send-enter` |
+| `stickers-in-attach` | on/off (absent = off) | `velta-stickers-in-attach` |
+| `glass-composer` | on/off (absent = off) | `velta-glass-composer` |
 | `read-receipts` | on/off | `velta-mdns` (+ core `mdns_enabled`) |
 | `remember-scroll` | on/off | `velta-remember-scroll` |
 | `local-chat-typing` | on/off | `velta-p2p-typing` |

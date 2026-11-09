@@ -28,6 +28,7 @@ import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomains
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, notifyThrottled, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
+import { installGlassComposer } from "./glass-composer.js";
 import { createNotifyQueue } from "./notify-queue.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
@@ -1565,6 +1566,7 @@ function refreshAfterSettingsApply(keys) {
   if (has("language")) { location.reload(); return; }
   if (has("theme") || has("amoled")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
   if (has("stickers-in-attach")) window.dispatchEvent(new Event("velta-stickers-pref"));
+  if (has("glass-composer")) window.dispatchEvent(new Event("velta-glass-pref"));
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
     globalThis.VeltaChatAppearance?.apply();
@@ -8019,5 +8021,6 @@ async function openAllScheduled() {
 
 globalThis.__veltaAppEvaluating = false;
 if (chatListRenderDeferred) { chatListRenderDeferred = false; renderChatList(); }
+installGlassComposer();
 boot();
 

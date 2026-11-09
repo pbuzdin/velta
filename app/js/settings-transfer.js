@@ -154,6 +154,7 @@ export const SETTINGS = [
   onByDefault("strip-tracking", "Strip tracking from links", "velta-strip-trackers"),
   onByDefault("send-on-enter", "Send on Enter", "velta-send-enter"),
   offByDefault("stickers-in-attach", "Stickers in attachments menu", "velta-stickers-in-attach"),
+  offByDefault("glass-composer", "Liquid glass composer", "velta-glass-composer"),
   onByDefault("read-receipts", "Read receipts", "velta-mdns"),
   onByDefault("remember-scroll", "Remember scroll position", "velta-remember-scroll"),
   onByDefault("local-chat-typing", "Local chat typing hints", "velta-p2p-typing"),
