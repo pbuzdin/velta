@@ -158,7 +158,7 @@ export function openScheduledList({ runner, accountId, chatId = null, chatName =
       const v = await editText(it);
       if (v != null && !(await runner.op({ op: "update", id, text: v }))) toast(t("Can't change it while it is being sent"));
     } else if (act === "del") {
-      if (await confirmModal("Delete scheduled message?", t("It will not be sent."), t("Delete"))) {
+      if (await confirmModal(t("Delete scheduled message?"), t("It will not be sent."), t("Delete"))) {
         if (!(await runner.op({ op: "remove", id }))) toast(t("Can't change it while it is being sent"));
       }
     }

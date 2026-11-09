@@ -4,8 +4,8 @@
 import { showModal, toast, inviteCanShare, shareInviteLink } from "./ui.js";
 import { escapeHtml, escapeAttr, gestureSwipeRecent } from "./components.js";
 import { tauriInvoke } from "./tauri.js";
-import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
+import { ICON } from "./icons.js";
 
 // Mirror the AndroidManifest.xml intent filters: OS-level interception of a
 // domain is compiled into the app, this list controls what Velta recognizes
@@ -404,6 +404,6 @@ export function showInviteDomainsModal() {
     if (!host) { toast(t("Enter a plain hostname, e.g. mirror.example.org")); return; }
     input.value = "";
     renderList();
-    toast(`${host} added`);
+    toast(t("{host} added", { host }));
   });
 }

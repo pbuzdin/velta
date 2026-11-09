@@ -1620,7 +1620,7 @@ export class ChatView {
   async _deleteFailed(m) {
     const session = this._session;
     if (!this._isCurrent(session)) return;
-    if (!(await confirmModal("Remove message", t("Delete this message for everyone?")))) return;
+    if (!(await confirmModal(t("Remove message"), t("Delete this message for everyone?")))) return;
     if (!this._isCurrent(session)) return;
     this._holdDelete(session, [m.id], true);
   }
@@ -2929,7 +2929,7 @@ export class ChatView {
         // Ask first: the modal layer sits below the lightbox, so a modal
         // opened after it would render underneath.
         if (m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
-          confirmModal("Add sticker", t("Add this sticker to your sticker collection?"), t("Add"), false)
+          confirmModal(t("Add sticker"), t("Add this sticker to your sticker collection?"), t("Add"), false)
             .then(ok => {
               if (ok) {
                 this.core.saveSticker(m.id).then(() => toast(t("Sticker saved to your collection")))
@@ -4083,7 +4083,7 @@ export class ChatView {
       else if (act === "copy") {
         const texts = ids.map(id => this.msgIndex.get(id)?.msg.text).filter(Boolean);
         navigator.clipboard?.writeText(texts.join("\n"));
-        toast("Copied " + texts.length + " messages");
+        toast(t("Copied {n} messages", { n: texts.length }));
         this.exitSelection();
       } else if (act === "star") {
         try {

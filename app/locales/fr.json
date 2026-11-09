@@ -1645,5 +1645,8 @@
   "Roaming — load less data?": "Itinérance — charger moins de données ?",
   "You are on data roaming. Text-only mode hides attachments and link previews until you tap them, so browsing chats loads less. Text and links stay visible.": "Vous êtes en itinérance de données. Le mode texte seul masque les pièces jointes et les aperçus de liens tant que vous ne les ouvrez pas, la consultation des discussions charge donc moins. Le texte et les liens restent visibles.",
   "Turn on": "Activer",
-  "Don't ask again": "Ne plus demander"
+  "Don't ask again": "Ne plus demander",
+  "Failed: {err}": "Échec : {err}",
+  "Copied {n} messages": "Copié : {n}",
+  "Sent {filename}": "Envoyé : {filename}"
 }

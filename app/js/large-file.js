@@ -249,7 +249,7 @@ export async function sendLargeFile({ accountId, send, isCurrent = () => true })
         dismiss?.(); dismiss = null;
         const other = provider === "cryptex" ? "lufi" : "cryptex";
         const name = other === "cryptex" ? "Cryptex" : "Lufi";
-        if (!await confirmModal("Server not reachable", t("{error}\n\nUpload with {name} instead?", { error: errText(e), name }), t("Use {name}", { name }))) return null;
+        if (!await confirmModal(t("Server not reachable"), t("{error}\n\nUpload with {name} instead?", { error: errText(e), name }), t("Use {name}", { name }))) return null;
         provider = other;
         setLargeFileProvider(provider);
       }
@@ -306,7 +306,7 @@ export function wireLargeFileInfo(modal, accountId, msgId) {
     const rec = lufiUploadFor(accountId, msgId);
     const invoke = tauriInvoke();
     if (!rec || !invoke) return;
-    if (!await confirmModal("Delete from server", t("Delete \"{name}\" from {server}? The link in the chat stops working.", { name: rec.name, server: rec.server }), t("Delete"))) return;
+    if (!await confirmModal(t("Delete from server"), t("Delete \"{name}\" from {server}? The link in the chat stops working.", { name: rec.name, server: rec.server }), t("Delete"))) return;
     try {
       const proxy = await shellProxy();
       const r = await invoke("lufi_delete", { server: rec.server, short: rec.short, token: rec.token, proxy });
@@ -353,7 +353,7 @@ export function wireCryptexInfo(modal, accountId, msgId) {
     const rec = cryptexUploadFor(accountId, msgId);
     const invoke = tauriInvoke();
     if (!rec || !invoke) return;
-    if (!await confirmModal("Delete from server", t("Delete \"{name}\" from {server}? The link in the chat stops working.", { name: rec.name, server: rec.server }), t("Delete"))) return;
+    if (!await confirmModal(t("Delete from server"), t("Delete \"{name}\" from {server}? The link in the chat stops working.", { name: rec.name, server: rec.server }), t("Delete"))) return;
     try {
       const proxy = await shellProxy();
       const key = rec.server === cryptexServer() ? (cryptexApiKey() || null) : null;

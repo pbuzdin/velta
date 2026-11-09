@@ -1645,5 +1645,8 @@
   "Roaming — load less data?": "Роуминг — загружать меньше данных?",
   "You are on data roaming. Text-only mode hides attachments and link previews until you tap them, so browsing chats loads less. Text and links stay visible.": "Вы в роуминге. Текстовый режим скрывает вложения и предпросмотры ссылок, пока вы их не откроете, поэтому просмотр чатов загружает меньше данных. Текст и ссылки остаются видны.",
   "Turn on": "Включить",
-  "Don't ask again": "Больше не спрашивать"
+  "Don't ask again": "Больше не спрашивать",
+  "Failed: {err}": "Ошибка: {err}",
+  "Copied {n} messages": "Скопировано: {n}",
+  "Sent {filename}": "Отправлено: {filename}"
 }

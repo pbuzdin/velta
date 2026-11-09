@@ -2874,7 +2874,7 @@ async function openChat(chatId) {
   step("get_chat", stepStarted);
   if (!current() || !chat) return;
   if (chat.kind === "deaddrop") {
-    const ok = await confirmModal("Contact request", t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.", { name: chat.name }), t("Accept"), false);
+    const ok = await confirmModal(t("Contact request"), t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.", { name: chat.name }), t("Accept"), false);
     if (ok && current()) {
       await core.acceptChat(chatId);
       if (!current()) return;
@@ -3615,7 +3615,7 @@ async function showChatInfo(chat) {
         toast(blockedNow ? t("Contact unblocked") : t("Contact blocked"));
         blockBtn.textContent = blockedNow ? t("Block") : t("Unblock");
         blockBtn.dataset.blocked = blockedNow ? "0" : "1";
-      } catch (err) { errToast("Failed: " + (err.message || err)); }
+      } catch (err) { errToast(t("Failed: {err}", { err: err.message || err })); }
     });
   }
 
@@ -3734,7 +3734,7 @@ async function showChatInfo(chat) {
       e.preventDefault();
       const id = btn.dataset.pgRemove;
       const name = btn.getAttribute("aria-label")?.replace(/^Remove /, "") || "this member";
-      const ok = await confirmModal("Remove member",
+      const ok = await confirmModal(t("Remove member"),
         t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
       if (ok && accountIsCurrent(epoch)) {
         try { await groupRemoveMember(gid, id); toast(t("Member removed")); refreshChatList(); }
@@ -3752,7 +3752,7 @@ async function showChatInfo(chat) {
       e.preventDefault();
       e.stopPropagation();
       const name = btn.dataset.name || "?";
-      const ok = await confirmModal("Remove member",
+      const ok = await confirmModal(t("Remove member"),
         t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
       if (!ok || !accountIsCurrent(epoch)) return;
       try {
@@ -3922,7 +3922,7 @@ function bindChatHeadMenu() {
       ...(chat.isP2pGroup ? [] : [
       "-",
       { label: "Clear history", danger: true, onClick: async () => {
-        if (await confirmModal("Clear history", t("Delete all messages in this chat?"))) {
+        if (await confirmModal(t("Clear history"), t("Delete all messages in this chat?"))) {
           if (!accountIsCurrent(epoch)) return;
           // Ids only (#47): loading every full message just to map ids
           // made clearing a large chat pay for all of them.
@@ -5407,7 +5407,7 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     // A deep link can come from any web page or app: never import a profile
     // (and switch to it) without the user confirming first.
     const epoch = core.accountEpoch;
-    const ok = await confirmModal("Receive a profile",
+    const ok = await confirmModal(t("Receive a profile"),
       t("A second-device code was opened. Receive that profile on this device and switch to it? Only continue if you started the transfer on your other device."),
       t("Receive"), false);
     if (ok && accountIsCurrent(epoch)) receiveSecondDeviceProfile(epoch, null, backupLink);
@@ -5974,7 +5974,7 @@ async function setMultiDevice(on, { quick = false } = {}) {
   if (!core?.setConfig) return false;
   const accountId = core.accountId;
   if (!on && !quick) {
-    const sure = await confirmModal("Turn off multi-device?", mdOffConfirmText(multiDeviceReenabled), "Turn off", true);
+    const sure = await confirmModal(t("Turn off multi-device?"), mdOffConfirmText(multiDeviceReenabled), t("Turn off"), true);
     if (!sure || core.accountId !== accountId) {
       paintMultiDevice();
       return false;
@@ -6589,16 +6589,16 @@ async function joinFromInvite(link) {
   await modalHistorySettled();
   let ok;
   if (label?.kind === "group") {
-    ok = await confirmModal("Join group",
+    ok = await confirmModal(t("Join group"),
       t("{actor} invited you to join the group \"{group}\".", { actor: label.actor, group: label.group }), t("Join group"), false);
   } else if (label?.kind === "channel") {
-    ok = await confirmModal("Subscribe to channel",
+    ok = await confirmModal(t("Subscribe to channel"),
       t("Subscribe to the channel \"{group}\"?", { group: label.group }), t("Subscribe"), false);
   } else if (label?.kind === "person") {
-    ok = await confirmModal("Start chat",
+    ok = await confirmModal(t("Start chat"),
       t("Start a chat with {name}?", { name: label.addr ? `${label.actor} (${label.addr})` : label.actor }), t("Start chat"), false);
   } else {
-    ok = await confirmModal("Join chat", t("Open this invite and start the SecureJoin handshake?"), t("Join"), false);
+    ok = await confirmModal(t("Join chat"), t("Open this invite and start the SecureJoin handshake?"), t("Join"), false);
   }
   if (!ok || !accountIsCurrent(epoch)) return;
   const { update, close } = showProgressModal(t("Joining chat"), t("Starting SecureJoin handshake…"));
@@ -7543,7 +7543,7 @@ async function startCallIfMicOk(chat, { video = false } = {}) {
     if (navigator.permissions?.query) {
       const st = await navigator.permissions.query({ name: "microphone" });
       if (st?.state === "denied") {
-        await confirmModal("Microphone blocked", t("Velta can't place calls because microphone access is denied. Enable it in system settings (Windows: Settings → Privacy → Microphone; macOS: System Settings → Privacy → Microphone; Android: App settings → Permissions), then call again."));
+        await confirmModal(t("Microphone blocked"), t("Velta can't place calls because microphone access is denied. Enable it in system settings (Windows: Settings → Privacy → Microphone; macOS: System Settings → Privacy → Microphone; Android: App settings → Permissions), then call again."));
         return;
       }
     }
