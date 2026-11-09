@@ -91,7 +91,7 @@ import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTranspor
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
-import { setKnownContactIds, clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
+import { clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
 import { shouldAskRoaming, dismissRoamingHintForever } from "./roaming-hint.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
@@ -3265,7 +3265,7 @@ async function showChatInfo(chat) {
     <div class="profile-description" data-desc hidden></div>
     ${(isSelf || (isGroup && !chat.isP2pGroup && caps.canEditGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${escapeHtml(isSelf ? t("Edit profile") : chat.kind === "channel" ? t("Edit channel") : t("Edit group"))}</button></div>` : ""}
     ${chat.kind === "group" && !chat.isP2pGroup && caps.canAddMembers ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">${escapeHtml(t("Add members"))}</button><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
-    ${chat.kind === "channel" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
+    ${chat.kind === "channel" && chat.chatType === "OutBroadcast" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
     ${chat.isP2pGroup ? p2pGroupActionsHtml(chat) : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button type="button" class="btn-text" data-pa="send">${escapeHtml(t("Send message"))}</button>
@@ -4036,8 +4036,6 @@ const knownContactsOnly = () => localStorage.getItem(KNOWN_CONTACTS_KEY) !== "0"
 // Contact ids with an existing 1:1 chat — state.chats singles carry
 // dmChatContact, so this is free (no per-contact RPCs).
 const knownContactIds = () => new Set(state.chats.filter(c => c.kind === "single" && c.contactId).map(c => c.contactId));
-// Text-only mode (#300) classifies group senders with the same #169 definition.
-setKnownContactIds(knownContactIds);
 
 // The shared checkbox row for the filtered surfaces; onChange refilters.
 function knownContactsToggleRow(onChange) {
@@ -5227,17 +5225,19 @@ async function createAccountFromRelayInvite(host, token) {
 
 // Resume a one-tap PWA invite after the worker reload. No nickname, relay,
 // proxy or confirmation screen: opening the private link was the user's tap.
+// Keep the pending invite until the account exists so a failed probe or
+// signup runs again on the next load.
 async function finishPwaOnboarding() {
   const pending = readPendingOnboarding();
   if (!pending) return false;
   if (!pwaOnboardingBoot.registry) throw new Error(pwaOnboardingBoot.error || t("PWA onboarding is unavailable"));
-  sessionStorage.removeItem(PWA_ONBOARDING_KEY);
   toast(t("Finding your relay…"));
   const host = await selectOnboardingRelay(pwaOnboardingBoot.registry, pending.relay);
   const link = `dcaccount:https://${host}/new`;
   toast(t("Creating your profile on {host}…", { host }));
   if (state.account?.configured && core.addAccountWithQr) await core.addAccountWithQr(link);
   else await core.configureWithQr(link);
+  sessionStorage.removeItem(PWA_ONBOARDING_KEY);
   state.account = await core.getAccount();
   await accountRefreshPromise;
   splashSession?.hide();
@@ -7620,6 +7620,9 @@ async function boot() {
         errToast(t("Automatic setup failed: ") + (err?.message || err), 7000);
         splashSession?.showActions();
       }
+    } else if (pwaOnboardingBoot.error) {
+      errToast(t("Automatic setup failed: ") + pwaOnboardingBoot.error, 7000);
+      splashSession?.showActions();
     }
 
     // Notifications: asked once, right after the user finishes creating or
