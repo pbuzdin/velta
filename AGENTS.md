@@ -96,7 +96,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
 │   ├── webxdc-host/          # PWA webxdc host: sw-route.js (SW loader route, sandbox CSP) + frame.js (in-frame .xdc loader); KEEP rules in docs/agents/webxdc.md
 │   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88); shellProxy() = fail-closed proxy reader for shell-side fetches
-│   │   ├── text-only-mode.js # #300 Text-only mode: unknown/off/all (default unknown), per-sender gate, session reveals, fail closed
+│   │   ├── text-only-mode.js # #300/#310 Text-only mode: unknown/off/all (default unknown), Auto = 1:1 contact requests only, session reveals
 │   │   ├── roaming-hint.js   # #302 data roaming → suggest Text-only mode once per episode (never auto-switches)
 │   │   ├── lufi.js           # #138 Lufi client logic: SJCL slice encryption (Lufi-web compatible), upload state machine, expiry rules, deletion-token store (node-tested)
 │   │   ├── large-file.js     # #138 attach menu "Large file" flow: pick → expiry dialog → progress/cancel → link message; message-info delete
@@ -1910,19 +1910,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   gate for attachments and link previews. localStorage `velta-text-only` =
   `unknown` (default; the key is absent) / `off` / `all`; `TEXT_ONLY_LABELS`
   feeds the drawer radios (`data-textonly-opts`, unconditional — the PWA
-  needs the gate too). Classification (`senderClassification`): self,
-  `fromDevice` messages and accepted 1:1 chats are known, `deaddrop`
-  contact requests are unknown, group senders go through the
-  `setKnownContactIds` provider (app.js installs `knownContactIds` at
-  boot — the #169 set); provider missing/unresolved = fail closed
-  (covered). `coversMessage(m, chat)` is the single policy. Reveals are a
-  module Set keyed `accountId:msgId`, session-only — `setTextOnlyMode`
-  and accountTapFlow clear them; virtual-scroll row reuse stays correct
-  because `_renderMsgItem` re-checks `isItemRevealed`. Gates: chat-view
-  computes `covered` once per render and swaps the whole media branch
-  (`COVERED_VIEWTYPES`) for `_hiddenCard` (shield icon,
+  needs the gate too). #310: Auto covers only incoming `deaddrop` 1:1
+  contact requests; groups and accepted chats are never Auto-covered, while
+  `all` still covers every sender. `coversMessage(m, chat)` is the single
+  policy. Reveals are a module Set keyed `accountId:msgId`, session-only —
+  `setTextOnlyMode` and accountTapFlow clear them; virtual-scroll row reuse
+  stays correct because `_renderMsgItem` re-checks `isItemRevealed`. Gates:
+  chat-view computes `covered` once per render and swaps the whole media
+  branch (`COVERED_VIEWTYPES`) for `_hiddenCard` (shield icon,
   `data-act="reveal"` → `revealItem` + rebuild the row in place via
-  `_buildItem`, `_downloadMedia` only when `downloadState` is not Done);
+  `_buildItem`, `_downloadMedia` only when `downloadState` is not Done).
+  Attachment-shaped rows with no file path/name/MIME/size are normalized to
+  text before rendering (#310), so they cannot produce phantom file cards;
+  pending real attachments keep their file metadata and stay covered.
   link-preview hydration is a local `hydrateLp()` the covered slot defers
   behind a `data-lp-reveal` button (title = `LINK_PREVIEW_IP_WARNING`);
   context-menu Download / Save sticker / Show in folder are gated on
