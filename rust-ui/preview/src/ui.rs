@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use deltachat::chat::ChatId;
 use masonry::app::RenderRoot;
-use masonry::core::{ErasedAction, NewWidget, PropertySet, StyleProperty, Widget, WidgetId, WidgetTag};
+use masonry::core::{ErasedAction, NewWidget, PropertySet, StyleProperty, WidgetId, WidgetTag};
 use masonry::dpi::LogicalSize;
 use masonry::kurbo::Point;
 use masonry::layout::Length;
@@ -14,7 +14,7 @@ use masonry::properties::{Background, ContentColor, CornerRadius, LineBreaking, 
 use masonry::theme::default_property_set;
 use masonry::peniko::{ImageAlphaType, ImageData, ImageFormat};
 use masonry::widgets::{Button, ButtonPress, Flex, Image, Label, Portal, SizedBox, TextAction, TextArea, TextInput};
-use masonry_winit::app::{AppDriver, DriverCtx, EventLoop, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
+use masonry_winit::app::{AppDriver, DriverCtx, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
 use masonry_winit::winit::window::Window;
 
 use crate::core::{Change, Core, Item};

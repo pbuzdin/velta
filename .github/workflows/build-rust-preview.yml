@@ -60,7 +60,7 @@ jobs:
           # vendored OpenSSL (core) looks for the target-prefixed ranlib otherwise.
           env "RANLIB_aarch64-linux-android=$NDKB/llvm-ranlib" \
             CARGO_APK_RELEASE_KEYSTORE="$K" CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
-            cargo apk build --release
+            cargo apk build --release --lib
           cp target/release/apk/velta-preview.apk "velta-preview-${GITHUB_SHA::8}-arm64.apk"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
