@@ -34,6 +34,10 @@ pub fn log_text() -> String {
 /// Relay used to create a first account when the accounts dir is empty.
 pub const DEFAULT_RELAY: &str = "dcaccount:nine.testrun.org";
 
+/// The NativeActivity jobject (ndk_context only hands out the Application).
+#[cfg(target_os = "android")]
+static ACTIVITY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
 #[cfg(target_os = "android")]
 // Safety: android_activity looks this symbol up by name; nothing else in the build defines it.
 #[allow(unsafe_code)]
@@ -56,8 +60,35 @@ fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidA
     };
     say("core open");
     let mut event_loop = masonry_winit::app::EventLoop::with_user_event();
+    let _ = ACTIVITY.set(app.activity_as_ptr() as usize);
     event_loop.with_android_app(app);
     if let Err(e) = ui::run(core, started, event_loop) {
         log::error!("ui exited: {e:#}");
+    }
+}
+
+/// Sends the app to the background, like Back on a home screen does.
+pub fn to_background() {
+    #[cfg(target_os = "android")]
+    {
+        let res = (|| -> jni::errors::Result<()> {
+            let ctx = ndk_context::android_context();
+            let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }?;
+            let mut env = vm.attach_current_thread()?;
+            let Some(&ptr) = ACTIVITY.get() else { return Ok(()) };
+            let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
+            let r = env.call_method(&activity, "moveTaskToBack", "(Z)Z", &[true.into()]);
+            if env.exception_check()? {
+                let ex = env.exception_occurred()?;
+                env.exception_clear()?;
+                let msg = env.call_method(&ex, "toString", "()Ljava/lang/String;", &[])?.l()?;
+                let msg: String = env.get_string(&msg.into())?.into();
+                say(format!("moveTaskToBack: {msg}"));
+            }
+            r.map(|_| ())
+        })();
+        if let Err(e) = res {
+            say(format!("moveTaskToBack failed: {e}"));
+        }
     }
 }

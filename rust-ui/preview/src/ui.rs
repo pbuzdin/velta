@@ -15,6 +15,11 @@ use masonry::theme::default_property_set;
 use masonry::peniko::{ImageAlphaType, ImageData, ImageFormat};
 use masonry::widgets::{Button, ButtonPress, Flex, Image, Label, Portal, SizedBox, TextAction, TextArea, TextInput};
 use masonry_winit::app::{AppDriver, DriverCtx, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
+use masonry_winit::app::MasonryState;
+use masonry_winit::winit::application::ApplicationHandler;
+use masonry_winit::winit::event::{DeviceEvent, DeviceId, ElementState, StartCause, WindowEvent};
+use masonry_winit::winit::event_loop::ActiveEventLoop;
+use masonry_winit::winit::keyboard::{Key, NamedKey};
 use masonry_winit::winit::window::Window;
 
 use crate::core::{Change, Core, Item};
@@ -43,6 +48,8 @@ const LIMIT: usize = 200;
 #[derive(Debug)]
 enum Async {
     Log,
+    /// The phone's Back button (Escape on desktop).
+    Back,
     Core(Change),
     ScrollBottom,
 }
@@ -264,6 +271,14 @@ impl AppDriver for Driver {
             self.built = true;
             if matches!(self.screen, Screen::Invite) { self.show_invite(root) } else { self.show_list(root) }
         }
+        if matches!(*a, Async::Back) {
+            if matches!(self.screen, Screen::List { .. }) {
+                crate::to_background();
+            } else {
+                self.show_list(root);
+            }
+            return;
+        }
         if matches!(*a, Async::Log) {
             let t = crate::log_text();
             root.edit_widget_with_tag(LOG, |mut l| Label::set_text(&mut l, t));
@@ -333,13 +348,54 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     }
 
     let attrs = Window::default_attributes().with_title("Velta preview").with_inner_size(LogicalSize::new(420.0, 820.0));
-    masonry_winit::app::run_with(
-        event_loop,
-        vec![NewWindow::new_with_id(window, attrs, NewWidget::new(root).erased()).with_base_color(BG)],
-        driver,
-        default_property_set(),
-    )?;
+    let windows = vec![NewWindow::new_with_id(window, attrs, NewWidget::new(root).erased()).with_base_color(BG)];
+    let _ = masonry::app::try_init_tracing();
+    let mut app = App { state: MasonryState::new(event_loop.create_proxy(), windows, default_property_set()), driver };
+    event_loop.run_app(&mut app)?;
     Ok(())
+}
+
+/// Masonry's own event loop handler, plus the Back key: winit marks every key as handled
+/// on Android, so without this Back does nothing.
+struct App {
+    state: MasonryState,
+    driver: Driver,
+}
+
+impl ApplicationHandler<MasonryUserEvent> for App {
+    fn resumed(&mut self, el: &ActiveEventLoop) {
+        self.state.handle_resumed(el, &mut self.driver);
+    }
+    fn suspended(&mut self, el: &ActiveEventLoop) {
+        self.state.handle_suspended(el);
+    }
+    fn window_event(&mut self, el: &ActiveEventLoop, id: masonry_winit::winit::window::WindowId, event: WindowEvent) {
+        if let WindowEvent::KeyboardInput { event: k, .. } = &event {
+            if k.state == ElementState::Pressed && matches!(k.logical_key, Key::Named(NamedKey::BrowserBack | NamedKey::Escape)) {
+                self.driver.post(Async::Back);
+                return;
+            }
+        }
+        self.state.handle_window_event(el, id, event, &mut self.driver);
+    }
+    fn device_event(&mut self, el: &ActiveEventLoop, id: DeviceId, event: DeviceEvent) {
+        self.state.handle_device_event(el, id, event, &mut self.driver);
+    }
+    fn user_event(&mut self, el: &ActiveEventLoop, event: MasonryUserEvent) {
+        self.state.handle_user_event(el, event, &mut self.driver);
+    }
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        self.state.handle_about_to_wait(el);
+    }
+    fn new_events(&mut self, el: &ActiveEventLoop, cause: StartCause) {
+        self.state.handle_new_events(el, cause);
+    }
+    fn exiting(&mut self, el: &ActiveEventLoop) {
+        self.state.handle_exiting(el);
+    }
+    fn memory_warning(&mut self, el: &ActiveEventLoop) {
+        self.state.handle_memory_warning(el);
+    }
 }
 
 /// Invite link as a black-on-white QR bitmap, 8 px per module with a 4-module border.

@@ -37,6 +37,14 @@ a numbered version or move the tag to include it.
 
 ---
 
+## Rust preview UI (experimental, branch `rust-ui-preview`)
+
+`rust-ui/preview/` is a separate Masonry/winit preview app (#314, roadmap #315).
+It is not the Android path (#294 stands). Read `rust-ui/preview/AGENTS.md`
+before touching it; it lists the Masonry and Android pitfalls and build steps.
+
+---
+
 ## 1. Project overview
 
 **Velta** is a cross-platform Delta Chat client built as a Progressive Web App
