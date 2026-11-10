@@ -148,8 +148,10 @@ export function buildSharePicker(doc, { chats, accounts = [], currentAccountId =
     }
     root.appendChild(row);
   }
-  // #294: category chips — same buckets as the main list's #57 bar.
-  const cats = buildCategoryChips({ onChange: () => render() });
+  // #294: category chips — same buckets as the main list's #57 bar. Pass
+  // this picker's doc: buildCategoryChips defaults to the global document,
+  // which a sandboxed caller (share-flow tests) must not reach for.
+  const cats = buildCategoryChips({ onChange: () => render(), doc });
   root.appendChild(cats.el);
   const list = doc.createElement("div");
   list.className = "modal-list share-list";

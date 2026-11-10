@@ -51,7 +51,8 @@ test("(a) state lives above the boot awaits (no TDZ from early events)", () => {
 test("(b) hint under the switch; switching off confirms, stronger after a core flip", () => {
   assert.equal(MD_HINT, "Off: messages are deleted from the relay after this device downloads them. Turn on if you use this profile on other devices.");
   assert.match(ui, /data-md-hint>\$\{escapeHtml\(t\(MD_HINT\)\)\}/);
-  assert.match(app, /confirmModal\("Turn off multi-device\?", mdOffConfirmText\(multiDeviceReenabled\), "Turn off", true\)/);
+  // i18n pass: the title and button label route through t().
+  assert.match(app, /confirmModal\(t\("Turn off multi-device\?"\), mdOffConfirmText\(multiDeviceReenabled\), t\("Turn off"\), true\)/);
   assert.match(offConfirmText(false), /Keep it on if you use this profile anywhere else/);
   assert.match(offConfirmText(true), /another device may still be using this profile/);
   // a cancelled confirm reverts the switch (ui.js reverts on false)

@@ -170,15 +170,15 @@ export function hapticTick(ms = 10) {
 // System (deaddrop/device never appear in pickers). "saved" is a literal
 // kind filter, not a chatCategoryOf bucket. No persistence: pickers always
 // open on "all". Returns { el, get, set }.
-export function buildCategoryChips({ active = "all", onChange } = {}) {
+export function buildCategoryChips({ active = "all", onChange, doc = document } = {}) {
   const cats = ["all", "people", "groups", "channels", "bots", "saved"];
-  const el = document.createElement("div");
+  const el = doc.createElement("div");
   el.className = "chat-cats modal-cats";
   el.setAttribute("role", "toolbar");
   el.setAttribute("aria-label", t("Chat categories"));
   const buttons = new Map();
   for (const cat of cats) {
-    const b = document.createElement("button");
+    const b = doc.createElement("button");
     b.type = "button";
     b.dataset.cat = cat;
     b.textContent = t(cat === "all" ? "All" : cat[0].toUpperCase() + cat.slice(1));

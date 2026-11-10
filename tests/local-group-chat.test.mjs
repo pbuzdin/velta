@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+// #294: local-chat.js → share-in.js → components.js needs HTMLElement.
+import { installChatViewGlobals } from "./helpers/fake-dom.mjs";
+installChatViewGlobals();
 
 // Local group chat, Phase 3: the adapter side. Group chats surface as
 // `p2pg:<gid>` chats (kind "group") next to `p2p:` 1:1 chats; everything with a

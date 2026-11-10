@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import "./helpers/dom-globals.mjs";
 import {
   parseSharePayload, shareTextIfUnconsumed, shareViewtype, shareTargets, sharePlan, shareStageKind,
   createShareInbox, buildSharePicker,
@@ -78,7 +79,7 @@ test("boot opens the share inbox only after the chat list and the first drain", 
 // Minimal DOM for buildSharePicker (the real velta-chat-item is a custom
 // element; the picker only needs click listeners on whatever makeItem gives).
 class El {
-  constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.listeners = {}; this.attrs = {}; this.value = ""; this.textContent = ""; this.className = ""; }
+  constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.dataset = {}; this.classList = { toggle() {}, add() {}, remove() {}, contains: () => false }; this.listeners = {}; this.attrs = {}; this.value = ""; this.textContent = ""; this.className = ""; }
   appendChild(c) { this.children.push(c); c.parent = this; return c; }
   replaceChildren(...cs) { this.children = []; for (const c of cs) this.appendChild(c); }
   setAttribute(k, v) { this.attrs[k] = String(v); }

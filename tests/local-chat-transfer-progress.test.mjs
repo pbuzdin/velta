@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+// #294: local-chat.js → share-in.js → components.js needs HTMLElement.
+import { installChatViewGlobals } from "./helpers/fake-dom.mjs";
+installChatViewGlobals();
 
 // Covers the local-chat media transfer UI contract (phase 2):
 //  - file-progress events drive the bubble bar and backfill the file size,

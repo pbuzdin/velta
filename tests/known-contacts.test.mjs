@@ -31,7 +31,8 @@ test("contact pickers (New chat + Add members): toggle filters, filtered-empty h
 
 test("forward modal: the toggle joins the search in one combined filter", () => {
   const fwd = app.slice(app.indexOf("async function forwardFlow("), app.indexOf("/* ---------------- drawer"));
-  assert.match(fwd, /wrap\.append\(knownContactsToggleRow\(applyFilter\), search, list, empty\)/);
+  // #294 added the category chips between the search and the list.
+  assert.match(fwd, /wrap\.append\(knownContactsToggleRow\(applyFilter\), search, cats\.el, list, empty\)/);
   assert.match(fwd, /\(!knownContactsOnly\(\) \|\| chat\.kind === "single"\)/);
   assert.match(fwd, /applyFilter\(\);\n  search\.addEventListener\("input", applyFilter\);/);
 });

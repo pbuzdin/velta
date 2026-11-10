@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+// #294: local-chat.js → share-in.js → components.js needs HTMLElement.
+import { installChatViewGlobals } from "./helpers/fake-dom.mjs";
+installChatViewGlobals();
 
 // Local group chat, Phase 5: media. Pins the adapter side of group files:
 // the send goes to p2p_group_send_file (never p2p_group_send), voice stays

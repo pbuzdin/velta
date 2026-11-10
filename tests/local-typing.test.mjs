@@ -1,5 +1,8 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
+// #294: local-chat.js → share-in.js → components.js needs HTMLElement.
+import { installChatViewGlobals } from "./helpers/fake-dom.mjs";
+installChatViewGlobals();
 
 // Typing indicator (local chat, Phase 5b): composer-side sender state machine
 // (first keystroke, 3 s repeat, 5 s idle stop, stop on send/empty), receiver

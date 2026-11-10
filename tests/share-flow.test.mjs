@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Script, createContext } from "node:vm";
+import "./helpers/dom-globals.mjs";
 import * as shareIn from "../app/js/share-in.js";
 
 // #97: run the production share block of app.js (routeOpenedBatch ->
@@ -16,7 +17,7 @@ const block = new Script(source.slice(from, to) + "\n;globalThis.__share = { rou
 });
 
 class El {
-  constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.listeners = {}; this.attrs = {}; this.value = ""; this.textContent = ""; this.className = ""; }
+  constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.dataset = {}; this.classList = { toggle() {}, add() {}, remove() {}, contains: () => false }; this.listeners = {}; this.attrs = {}; this.value = ""; this.textContent = ""; this.className = ""; }
   appendChild(c) { this.children.push(c); c.parent = this; return c; }
   replaceChildren(...cs) { this.children = []; for (const c of cs) this.appendChild(c); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
@@ -52,6 +53,9 @@ function setup({ chats = [diagRow, { id: 10, name: "Alice", kind: "single" }, { 
     accountIsCurrent: epoch => !state.accountChanging && epoch === core.accountEpoch,
     refreshChatList: async () => { log.refreshes++; if (ctx.__nextChats) { state.chats = ctx.__nextChats; ctx.__nextChats = null; } },
     modalHistorySettled: async () => {},
+    // #294: the share block refreshes bot flags for the People/Bots chips.
+    ensureContactBots: async () => ({}),
+    chatIsBot: () => false,
     handleDeeplinkFromUrl: async url => { log.deeplinks.push(url); return url.includes("i.delta.chat"); },
     showModal: ({ title, body, onClose }) => {
       const modal = { title, body, open: true };
