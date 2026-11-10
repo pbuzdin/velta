@@ -1,0 +1,69 @@
+name: Build Rust preview APK
+
+# Experimental Masonry preview UI (#314). Test-signed APK with its own
+# package id (cc.velta.preview), so it installs next to Velta.
+on:
+  workflow_dispatch:
+  push:
+    branches: [rust-ui-preview]
+    paths: ["rust-ui/preview/**", ".github/workflows/build-rust-preview.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK / NDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          cmdline-tools-version: 11076708
+          # cargo-apk only accepts platform levels the NDK knows (<= 35 for r27).
+          packages: "ndk;27.2.12479018 platforms;android-35 build-tools;35.0.0"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: ./rust-ui/preview
+          cache-bin: false
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --locked --version 0.10.0
+
+      # Same test key across runs so a new build installs over the old one.
+      # Throwaway key for test builds only, never for releases.
+      - name: Restore test keystore
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/velta-preview-test.jks
+          key: velta-preview-test-keystore-v1
+
+      - name: Build APK
+        working-directory: rust-ui/preview
+        run: |
+          K=~/velta-preview-test.jks
+          [ -f "$K" ] || keytool -genkeypair -keystore "$K" -alias androiddebugkey -keyalg RSA -keysize 2048 \
+            -validity 10000 -storepass android -keypass android -dname "CN=Velta Preview Test"
+          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/27.2.12479018"
+          NDKB="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          # vendored OpenSSL (core) looks for the target-prefixed ranlib otherwise.
+          env "RANLIB_aarch64-linux-android=$NDKB/llvm-ranlib" \
+            CARGO_APK_RELEASE_KEYSTORE="$K" CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
+            cargo apk build --release
+          cp target/release/apk/velta-preview.apk "velta-preview-${GITHUB_SHA::8}-arm64.apk"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: velta-preview-arm64
+          path: rust-ui/preview/velta-preview-*-arm64.apk

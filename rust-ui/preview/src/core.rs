@@ -52,17 +52,42 @@ fn day(ts: i64) -> String {
 }
 
 impl Core {
-    /// Opens an existing accounts dir (the same layout the other Velta clients use)
-    /// and starts IO for every account.
-    pub fn open(dir: PathBuf) -> Result<Self> {
+    /// Opens an accounts dir (the same layout the other Velta clients use), creating it
+    /// and a first account if needed. An unconfigured account is set up in the background
+    /// on `relay` (a `dcaccount:` relay), so the window can paint at once.
+    pub fn open(dir: PathBuf, relay: &str) -> Result<Self> {
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(2).build()?;
         let (accounts, ctx) = rt.block_on(async {
             let mut accounts = Accounts::new(dir, true).await?;
+            if accounts.get_all().is_empty() {
+                accounts.add_account().await?;
+            }
             let ctx = accounts.get_selected_account().context("no account in this accounts dir")?;
-            accounts.start_io().await;
+            if ctx.is_configured().await? {
+                accounts.start_io().await;
+            } else {
+                let ctx = ctx.clone();
+                let relay = relay.to_string();
+                tokio::spawn(async move {
+                    let _ = ctx.set_config(deltachat::config::Config::Displayname, Some("Velta preview")).await;
+                    match ctx.add_transport_from_qr(&relay).await {
+                        Ok(()) => ctx.start_io().await,
+                        Err(e) => eprintln!("velta-preview: account setup failed: {e:#}"),
+                    }
+                });
+            }
             anyhow::Ok((accounts, ctx))
         })?;
         Ok(Core { rt, accounts: Arc::new(RwLock::new(accounts)), ctx })
+    }
+
+    pub fn is_configured(&self) -> bool {
+        self.rt.block_on(self.ctx.is_configured()).unwrap_or(false)
+    }
+
+    /// This account's invite link (empty until the account is set up).
+    pub fn invite(&self) -> String {
+        self.rt.block_on(deltachat::securejoin::get_securejoin_qr(&self.ctx, None)).unwrap_or_default()
     }
 
     pub fn self_addr(&self) -> String {
@@ -88,6 +113,7 @@ impl Core {
                         notify(Change::Chat(chat_id));
                         notify(Change::Chatlist);
                     }
+                    EventType::ConfigureProgress { progress: 1000, .. } => notify(Change::Chatlist),
                     EventType::ChatModified(_) | EventType::ChatlistChanged | EventType::ContactsChanged(_) => {
                         notify(Change::Chatlist)
                     }

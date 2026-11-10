@@ -12,7 +12,8 @@ use masonry::peniko::color::AlphaColor;
 use masonry::properties::types::{CrossAxisAlignment, MainAxisAlignment};
 use masonry::properties::{Background, ContentColor, CornerRadius, LineBreaking, Padding};
 use masonry::theme::default_property_set;
-use masonry::widgets::{Button, ButtonPress, Flex, Label, Portal, SizedBox, TextAction, TextArea, TextInput};
+use masonry::peniko::{ImageAlphaType, ImageData, ImageFormat};
+use masonry::widgets::{Button, ButtonPress, Flex, Image, Label, Portal, SizedBox, TextAction, TextArea, TextInput};
 use masonry_winit::app::{AppDriver, DriverCtx, EventLoop, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
 use masonry_winit::winit::window::Window;
 
@@ -27,6 +28,7 @@ const MUTED: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0x
 const BODY: WidgetTag<SizedBox> = WidgetTag::named("body");
 const TITLE: WidgetTag<Label> = WidgetTag::named("title");
 const BACK: WidgetTag<Button> = WidgetTag::named("back");
+const INVITE: WidgetTag<Button> = WidgetTag::named("invite");
 const SEND: WidgetTag<Button> = WidgetTag::named("send");
 const INPUT: WidgetTag<TextInput> = WidgetTag::named("input");
 const MSGS: WidgetTag<Portal<Flex>> = WidgetTag::named("msgs");
@@ -42,6 +44,7 @@ enum Async {
 enum Screen {
     List { rows: Vec<(WidgetTag<Button>, ChatId)> },
     Chat { id: ChatId, draft: String },
+    Invite,
 }
 
 struct Driver {
@@ -74,7 +77,7 @@ impl Driver {
     fn set_title(root: &mut RenderRoot, title: &str, back: bool) {
         root.edit_widget_with_tag(TITLE, |mut l| Label::set_text(&mut l, title.to_string()));
         root.edit_widget_with_tag(BACK, |mut b| {
-            Button::set_child(&mut b, NewWidget::new(Label::new(if back { "‹" } else { " " }).with_style(StyleProperty::FontSize(22.0))));
+            Button::set_child(&mut b, NewWidget::new(Label::new(if back { "Back" } else { "Velta" }).with_style(StyleProperty::FontSize(22.0))));
         });
     }
 
@@ -112,6 +115,25 @@ impl Driver {
         Self::set_title(root, "Chats", false);
         self.screen = Screen::List { rows: map };
         eprintln!("velta-preview: chat list ({} chats) built in {} ms", rows.len(), t.elapsed().as_millis());
+    }
+
+    fn show_invite(&mut self, root: &mut RenderRoot) {
+        let link = self.core.invite();
+        let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Center).with_fixed_spacer(px(16.0));
+        if link.is_empty() {
+            col = col.with_fixed(label("Setting up your account on nine.testrun.org. Try again in a few seconds.", 16.0, TEXT));
+        } else {
+            col = col
+                .with_fixed(label("Scan this in Velta (Add contact, then scan QR) to start a chat with this preview.", 16.0, TEXT))
+                .with_fixed_spacer(px(16.0))
+                .with_fixed(NewWidget::new(SizedBox::new(NewWidget::new(Image::new(qr_image(&link)))).size(px(300.0), px(300.0))))
+                .with_fixed_spacer(px(16.0))
+                .with_fixed(label(self.core.self_addr(), 13.0, MUTED));
+        }
+        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding::all(px(16.0))));
+        root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(Portal::new(col).constrain_horizontal(true))));
+        Self::set_title(root, "Invite", true);
+        self.screen = Screen::Invite;
     }
 
     fn messages(&self, id: ChatId) -> Flex {
@@ -194,9 +216,11 @@ impl AppDriver for Driver {
         if action.is::<ButtonPress>() {
             let is = |root: &RenderRoot, tag: WidgetTag<Button>| root.get_widget_with_tag(tag).map(|w| w.id()) == Some(widget_id);
             if is(root, BACK) {
-                if matches!(self.screen, Screen::Chat { .. }) {
+                if !matches!(self.screen, Screen::List { .. }) {
                     self.show_list(root);
                 }
+            } else if is(root, INVITE) {
+                self.show_invite(root);
             } else if is(root, SEND) {
                 self.send(root);
             } else if let Screen::List { rows } = &self.screen {
@@ -231,6 +255,9 @@ impl AppDriver for Driver {
                 });
             }
             (Async::Core(Change::Chatlist), Screen::List { .. }) => self.show_list(root),
+            (Async::Core(Change::Chatlist), Screen::Invite) => {
+                if self.core.chats().map(|r| r.len()).unwrap_or(0) > 2 { self.show_list(root) } else { self.show_invite(root) }
+            }
             (Async::Core(Change::Chat(c)), Screen::Chat { id, .. }) if c == *id => {
                 let id = *id;
                 self.refresh_chat(root, id)
@@ -240,8 +267,9 @@ impl AppDriver for Driver {
     }
 }
 
-pub fn run(core: Core, started: Instant) -> anyhow::Result<()> {
-    let event_loop = EventLoop::with_user_event().build()?;
+/// `event_loop` is a builder so the Android entry can attach its `AndroidApp` first.
+pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::EventLoopBuilder) -> anyhow::Result<()> {
+    let event_loop = event_loop.build()?;
     let proxy = event_loop.create_proxy();
     let window = WindowId::next();
 
@@ -252,10 +280,12 @@ pub fn run(core: Core, started: Instant) -> anyhow::Result<()> {
 
     let back = NewWidget::new(Button::with_text(" ")).with_tag(BACK)
         .with_props(PropertySet::new().with(Background::Color(SURFACE)));
+    let invite = NewWidget::new(Button::with_text("Invite")).with_tag(INVITE)
+        .with_props(PropertySet::new().with(Background::Color(SURFACE)));
     let title = NewWidget::new(Label::new("Chats").with_style(StyleProperty::FontSize(19.0))).with_tag(TITLE)
         .with_props(PropertySet::new().with(ContentColor::new(TEXT)).with(LineBreaking::Clip));
     let header = NewWidget::new(
-        Flex::row().cross_axis_alignment(CrossAxisAlignment::Center).with_fixed(back).with_fixed_spacer(px(8.0)).with(title, 1.0),
+        Flex::row().cross_axis_alignment(CrossAxisAlignment::Center).with_fixed(back).with_fixed_spacer(px(8.0)).with(title, 1.0).with_fixed(invite),
     )
     .with_props(PropertySet::new().with(Padding::all(px(8.0))).with(Background::Color(SURFACE)));
     let body = NewWidget::new(SizedBox::empty()).with_tag(BODY);
@@ -264,6 +294,9 @@ pub fn run(core: Core, started: Instant) -> anyhow::Result<()> {
     let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![] }, started: Some(started) };
     // First content arrives as an async refresh so the window paints immediately.
     driver.post(Async::Core(Change::Chatlist));
+    if !driver.core.is_configured() {
+        driver.screen = Screen::Invite;
+    }
 
     let attrs = Window::default_attributes().with_title("Velta preview").with_inner_size(LogicalSize::new(420.0, 820.0));
     masonry_winit::app::run_with(
@@ -273,4 +306,21 @@ pub fn run(core: Core, started: Instant) -> anyhow::Result<()> {
         default_property_set(),
     )?;
     Ok(())
+}
+
+/// Invite link as a black-on-white QR bitmap, 8 px per module with a 4-module border.
+fn qr_image(text: &str) -> ImageData {
+    use qrcodegen::{QrCode, QrCodeEcc};
+    let qr = QrCode::encode_text(text, QrCodeEcc::Medium).expect("invite fits in a QR code");
+    let (scale, border) = (8, 4);
+    let n = (qr.size() + 2 * border) * scale;
+    let mut data = Vec::with_capacity((n * n * 4) as usize);
+    for y in 0..n {
+        for x in 0..n {
+            let dark = qr.get_module(x / scale - border, y / scale - border);
+            let v = if dark { 0 } else { 255 };
+            data.extend_from_slice(&[v, v, v, 255]);
+        }
+    }
+    ImageData { data: data.into(), format: ImageFormat::Rgba8, alpha_type: ImageAlphaType::Alpha, width: n as u32, height: n as u32 }
 }
