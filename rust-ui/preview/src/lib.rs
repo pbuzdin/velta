@@ -3,6 +3,34 @@
 pub mod core;
 pub mod ui;
 
+use std::sync::Mutex;
+use std::time::Instant;
+
+static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Startup log: goes to stderr (logcat on Android) and to the strip at the top of the window.
+pub fn say(msg: impl AsRef<str>) {
+    let ms = START.get_or_init(Instant::now).elapsed().as_millis();
+    let line = format!("+{ms} ms  {}", msg.as_ref());
+    #[cfg(target_os = "android")]
+    log::info!("{line}");
+    #[cfg(not(target_os = "android"))]
+    eprintln!("velta-preview: {line}");
+    if let Ok(mut l) = LINES.lock() {
+        l.push(line);
+        let n = l.len();
+        if n > 8 {
+            l.drain(..n - 8);
+        }
+    }
+}
+
+/// The last few log lines, newest last.
+pub fn log_text() -> String {
+    LINES.lock().map(|l| l.join("\n")).unwrap_or_default()
+}
+
 /// Relay used to create a first account when the accounts dir is empty.
 pub const DEFAULT_RELAY: &str = "dcaccount:nine.testrun.org";
 
@@ -12,11 +40,24 @@ pub const DEFAULT_RELAY: &str = "dcaccount:nine.testrun.org";
 #[unsafe(no_mangle)]
 fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidApp) {
     use masonry_winit::winit::platform::android::EventLoopBuilderExtAndroid;
-    let started = std::time::Instant::now();
+    // stderr goes nowhere on Android; send our log lines and panics to logcat (tag velta-preview).
+    android_logger::init_once(android_logger::Config::default().with_tag("velta-preview").with_max_level(log::LevelFilter::Info));
+    std::panic::set_hook(Box::new(|p| log::error!("panic: {p}")));
+    let started = *START.get_or_init(Instant::now);
+    say("android_main");
     let dir = app.internal_data_path().expect("app data dir").join("accounts");
-    let core = core::Core::open(dir, DEFAULT_RELAY).expect("open core");
-    eprintln!("velta-preview: core open in {} ms", started.elapsed().as_millis());
+    say(format!("opening accounts at {}", dir.display()));
+    let core = match core::Core::open(dir, DEFAULT_RELAY) {
+        Ok(c) => c,
+        Err(e) => {
+            say(format!("core open failed: {e:#}"));
+            panic!("core open failed: {e:#}");
+        }
+    };
+    say("core open");
     let mut event_loop = masonry_winit::app::EventLoop::with_user_event();
     event_loop.with_android_app(app);
-    ui::run(core, started, event_loop).expect("run ui");
+    if let Err(e) = ui::run(core, started, event_loop) {
+        log::error!("ui exited: {e:#}");
+    }
 }

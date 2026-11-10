@@ -65,14 +65,19 @@ impl Core {
             let ctx = accounts.get_selected_account().context("no account in this accounts dir")?;
             if ctx.is_configured().await? {
                 accounts.start_io().await;
+                crate::say("io started");
             } else {
                 let ctx = ctx.clone();
                 let relay = relay.to_string();
+                crate::say("no account yet, setting one up");
                 tokio::spawn(async move {
                     let _ = ctx.set_config(deltachat::config::Config::Displayname, Some("Velta preview")).await;
                     match ctx.add_transport_from_qr(&relay).await {
-                        Ok(()) => ctx.start_io().await,
-                        Err(e) => eprintln!("velta-preview: account setup failed: {e:#}"),
+                        Ok(()) => {
+                            crate::say("account ready");
+                            ctx.start_io().await
+                        }
+                        Err(e) => crate::say(format!("account setup failed: {e:#}")),
                     }
                 });
             }

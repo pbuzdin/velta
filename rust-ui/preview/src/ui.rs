@@ -28,6 +28,7 @@ const MUTED: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0x
 const BODY: WidgetTag<SizedBox> = WidgetTag::named("body");
 const TITLE: WidgetTag<Label> = WidgetTag::named("title");
 const BACK: WidgetTag<Button> = WidgetTag::named("back");
+const LOG: WidgetTag<Label> = WidgetTag::named("log");
 const INVITE: WidgetTag<Button> = WidgetTag::named("invite");
 const SEND: WidgetTag<Button> = WidgetTag::named("send");
 const INPUT: WidgetTag<TextInput> = WidgetTag::named("input");
@@ -37,6 +38,7 @@ const LIMIT: usize = 200;
 
 #[derive(Debug)]
 enum Async {
+    Log,
     Core(Change),
     ScrollBottom,
 }
@@ -114,7 +116,7 @@ impl Driver {
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(portal)));
         Self::set_title(root, "Chats", false);
         self.screen = Screen::List { rows: map };
-        eprintln!("velta-preview: chat list ({} chats) built in {} ms", rows.len(), t.elapsed().as_millis());
+        crate::say(format!("chat list ({} chats) built in {} ms", rows.len(), t.elapsed().as_millis()));
     }
 
     fn show_invite(&mut self, root: &mut RenderRoot) {
@@ -186,7 +188,7 @@ impl Driver {
         Self::set_title(root, &self.core.chat_name(id), true);
         self.screen = Screen::Chat { id, draft: String::new() };
         self.post(Async::ScrollBottom);
-        eprintln!("velta-preview: chat {id} built in {} ms", t.elapsed().as_millis());
+        crate::say(format!("chat {id} built in {} ms", t.elapsed().as_millis()));
     }
 
     fn refresh_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
@@ -203,7 +205,7 @@ impl Driver {
         }
         let id = *id;
         if let Err(e) = self.core.send_text(id, text) {
-            eprintln!("velta-preview: send failed: {e:#}");
+            crate::say(format!("send failed: {e:#}"));
         }
         root.edit_widget_with_tag(INPUT, |mut i| TextArea::reset_text(&mut TextInput::text_mut(&mut i), ""));
         self.refresh_chat(root, id);
@@ -245,9 +247,14 @@ impl AppDriver for Driver {
     fn on_async_action(&mut self, window_id: WindowId, ctx: &mut DriverCtx<'_>, action: ErasedAction) {
         let root = ctx.render_root(window_id);
         if let Some(started) = self.started.take() {
-            eprintln!("velta-preview: first frame cycle after {} ms", started.elapsed().as_millis());
+            crate::say(format!("first frame cycle after {} ms", started.elapsed().as_millis()));
         }
         let Ok(a) = action.downcast::<Async>() else { return };
+        if matches!(*a, Async::Log) {
+            let t = crate::log_text();
+            root.edit_widget_with_tag(LOG, |mut l| Label::set_text(&mut l, t));
+            return;
+        }
         match (*a, &self.screen) {
             (Async::ScrollBottom, Screen::Chat { .. }) => {
                 root.edit_widget_with_tag(MSGS, |mut p| {
@@ -273,6 +280,17 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     let proxy = event_loop.create_proxy();
     let window = WindowId::next();
 
+    crate::say(format!("renderer: {}", if cfg!(feature = "hybrid") { "vello_hybrid" } else { "vello (gpu)" }));
+    // Refresh the log strip twice a second for the first minute.
+    let log_proxy = proxy.clone();
+    std::thread::spawn(move || {
+        for _ in 0..120 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if log_proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Log))).is_err() {
+                break;
+            }
+        }
+    });
     let notify_proxy = proxy.clone();
     core.listen(move |c| {
         let _ = notify_proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Core(c))));
@@ -289,7 +307,9 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     )
     .with_props(PropertySet::new().with(Padding::all(px(8.0))).with(Background::Color(SURFACE)));
     let body = NewWidget::new(SizedBox::empty()).with_tag(BODY);
-    let root = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(header).with(body, 1.0);
+    let log = NewWidget::new(Label::new(crate::log_text()).with_style(StyleProperty::FontSize(11.0))).with_tag(LOG)
+        .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding::from_vh(px(4.0), px(8.0))));
+    let root = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(log).with_fixed(header).with(body, 1.0);
 
     let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![] }, started: Some(started) };
     // First content arrives as an async refresh so the window paints immediately.

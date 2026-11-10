@@ -14,6 +14,10 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        renderer: [gpu, hybrid]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -37,6 +41,7 @@ jobs:
         with:
           workspaces: ./rust-ui/preview
           cache-bin: false
+          key: ${{ matrix.renderer }}
 
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked --version 0.10.0
@@ -60,10 +65,10 @@ jobs:
           # vendored OpenSSL (core) looks for the target-prefixed ranlib otherwise.
           env "RANLIB_aarch64-linux-android=$NDKB/llvm-ranlib" \
             CARGO_APK_RELEASE_KEYSTORE="$K" CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
-            cargo apk build --release --lib
-          cp target/release/apk/velta-preview.apk "velta-preview-${GITHUB_SHA::8}-arm64.apk"
+            cargo apk build --release --lib --no-default-features --features ${{ matrix.renderer }}
+          cp target/release/apk/velta-preview.apk "velta-preview-${{ matrix.renderer }}-${GITHUB_SHA::8}-arm64.apk"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: velta-preview-arm64
-          path: rust-ui/preview/velta-preview-*-arm64.apk
+          name: velta-preview-${{ matrix.renderer }}-arm64
+          path: rust-ui/preview/velta-preview-${{ matrix.renderer }}-*-arm64.apk
