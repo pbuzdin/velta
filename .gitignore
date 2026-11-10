@@ -122,5 +122,10 @@ scripts/node_modules/
 # Windows sidecar build tree (matches **/target/ pattern not)
 **/target-win/
 
+# Android arm64 rpc-server prebuilt build tree (CARGO_TARGET_DIR, same
+# non-target/ name problem as target-win; 4k artifacts briefly landed in
+# git with the 2.69.0 re-vendor before this rule)
+**/target-android-arm64/
+
 # Session-local skill artifacts
 .taste-skill/
