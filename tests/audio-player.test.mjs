@@ -8,15 +8,16 @@ installChatViewGlobals();
 installFakeDocument();
 const src = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
-function fakePlayer(duration = Infinity) {
+function fakePlayer(duration = Infinity, { withSpeed = true } = {}) {
   const box = new FakeElement("div");
   const play = new FakeElement("button"), seek = new FakeElement("input"), time = new FakeElement("span");
-  box.querySelector = sel => ({ ".vp-play": play, ".vp-seek": seek, ".vp-time": time })[sel] || null;
+  const speed = new FakeElement("button");
+  box.querySelector = sel => ({ ".vp-play": play, ".vp-seek": seek, ".vp-time": time, ...(withSpeed ? { ".vp-speed": speed } : {}) })[sel] || null;
   const audio = new FakeElement("audio");
   Object.assign(audio, { duration, currentTime: 0, paused: true, plays: 0 });
   audio.play = () => { audio.paused = false; audio.plays++; return Promise.resolve(); };
   audio.pause = () => { audio.paused = true; };
-  return { box, play, seek, time, audio };
+  return { box, play, seek, time, speed, audio };
 }
 
 test("player markup: full bar with play, seek and total from the first render", () => {
@@ -24,12 +25,50 @@ test("player markup: full bar with play, seek and total from the first render", 
   assert.match(html, /^<div class="vp" role="group" aria-label="Voice message">/);
   assert.match(html, /<button type="button" class="vp-play" aria-label="Play">/);
   assert.match(html, /<input type="range" class="vp-seek" min="0" max="4" step="0\.1" value="0" aria-label="Seek">/);
+  assert.match(html, /<button type="button" class="vp-speed" aria-label="Playback speed">1×<\/button>/);
   assert.match(html, /vp-time[^>]*>00:00 \/ 00:04</);
   // unknown total (header-less recording): still the full bar, total pending
   assert.match(audioPlayerHtml({ duration: Infinity }), /max="0"[^>]*disabled.*00:00 \/ --:--/s);
   assert.equal(timeLabel(3, 0), "00:03 / --:--");
   assert.equal(finiteDuration(Infinity), 0);
   assert.equal(finiteDuration(NaN), 0);
+});
+
+test("playback speed: stored rate applied at mount, click cycles and persists", () => {
+  localStorage.removeItem("velta-voice-speed");
+  const a = fakePlayer(10);
+  mountAudioPlayer(a.box, a.audio);
+  assert.equal(a.audio.playbackRate, 1);
+  assert.equal(a.speed.textContent, "1×");
+  a.speed.fire("click", { stopPropagation() {} });
+  assert.equal(a.audio.playbackRate, 1.5);
+  assert.equal(a.speed.textContent, "1.5×");
+  assert.equal(localStorage.getItem("velta-voice-speed"), "1.5");
+  a.speed.fire("click", { stopPropagation() {} });
+  assert.equal(a.audio.playbackRate, 2);
+  a.speed.fire("click", { stopPropagation() {} });
+  assert.equal(a.audio.playbackRate, 1);
+  assert.equal(localStorage.getItem("velta-voice-speed"), "1");
+  // stored rate applies to the next mounted player (any message, any surface)
+  localStorage.setItem("velta-voice-speed", "2");
+  const b = fakePlayer(10);
+  mountAudioPlayer(b.box, b.audio);
+  assert.equal(b.audio.playbackRate, 2);
+  assert.equal(b.speed.textContent, "2×");
+  localStorage.removeItem("velta-voice-speed");
+});
+
+test("playback speed: invalid stored value falls back to 1x; old markup tolerated", () => {
+  localStorage.setItem("velta-voice-speed", "3");
+  const p = fakePlayer(10);
+  mountAudioPlayer(p.box, p.audio);
+  assert.equal(p.audio.playbackRate, 1);
+  assert.equal(p.speed.textContent, "1×");
+  localStorage.removeItem("velta-voice-speed");
+  // boxes built before the speed button existed still mount fine
+  const old = fakePlayer(10, { withSpeed: false });
+  const st = mountAudioPlayer(old.box, old.audio);
+  assert.ok(st, "player state returned without a speed button");
 });
 
 test("header-less voice note: total learned by decoding, before any play", async () => {

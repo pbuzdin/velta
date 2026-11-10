@@ -153,6 +153,7 @@ export const SETTINGS = [
   oneOf("link-previews", "Link previews", "velta-link-preview", [["off", "off"], ["picture", "picture"], ["fetch", "fetch"]], "off", { removeAt: "off" }),
   onByDefault("strip-tracking", "Strip tracking from links", "velta-strip-trackers"),
   onByDefault("send-on-enter", "Send on Enter", "velta-send-enter"),
+  oneOf("voice-speed", "Playback speed", "velta-voice-speed", [["1", "1"], ["1.5", "1.5"], ["2", "2"]], "1"),
   offByDefault("stickers-in-attach", "Stickers in attachments menu", "velta-stickers-in-attach"),
   offByDefault("glass-composer", "Liquid glass composer", "velta-glass-composer"),
   onByDefault("read-receipts", "Read receipts", "velta-mdns"),

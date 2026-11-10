@@ -1484,6 +1484,11 @@ velta-video { display: block; height: 100%; }
 .vp { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 4px; box-sizing: border-box; border-radius: 20px; background: rgba(0,0,0,.18); }
 .vp-play { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
 .vp-play svg { width: 20px; height: 20px; }
+.vp-speed {
+  flex: none; height: 24px; min-width: 36px; padding: 0 8px; border: 0; cursor: pointer; border-radius: 12px;
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--accent); background: rgba(127, 127, 127, .22);
+}
 .vp-seek { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent); }
 .vp-time { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
 .msg-file {
@@ -3588,6 +3593,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-row-audio .media-audio { margin-top: 2px; }
 .media-audio .vp { height: 30px; background: none; padding: 0; }
 .media-audio .vp-play { width: 26px; height: 26px; }
+.media-audio .vp-speed { height: 20px; min-width: 32px; font-size: 11px; }
 /* Text-only mode (#300): covered gallery items show no media, only a reveal
    button (same in-memory exception as the chat bubble). */
 .media-tile .media-textonly-cover { display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev); }

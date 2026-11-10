@@ -18,6 +18,26 @@ export const DECODE_MAX_BYTES = 4 * 1024 * 1024;
 const PLAY = svg(P.playFilled, "", 'width="20" height="20"');
 const PAUSE = svg(P.pauseFilled, "", 'width="20" height="20"');
 
+// Playback speed (upstream-parity): a small text button cycling 1x → 1.5x → 2x.
+// The choice persists across players (and devices via settings transfer).
+export const SPEEDS = [1, 1.5, 2];
+const SPEED_KEY = "velta-voice-speed";
+
+export function storedSpeed() {
+  try {
+    const v = Number(localStorage.getItem(SPEED_KEY));
+    return SPEEDS.includes(v) ? v : 1;
+  } catch { return 1; }
+}
+
+export function speedLabel(v) {
+  return `${v}×`;
+}
+
+function nextSpeed(v) {
+  return SPEEDS[(SPEEDS.indexOf(v) + 1) % SPEEDS.length];
+}
+
 export function finiteDuration(d) {
   return Number.isFinite(d) && d > 0 ? d : 0;
 }
@@ -31,6 +51,7 @@ export function audioPlayerHtml({ label = "Audio", duration = 0 } = {}) {
   return `<div class="vp" role="group" aria-label="${escapeHtml(t(label === "Voice message" ? "Voice message" : "Audio"))}">`
     + `<button type="button" class="vp-play" aria-label="${escapeHtml(t("Play"))}">${PLAY}</button>`
     + `<input type="range" class="vp-seek" min="0" max="${total || 0}" step="0.1" value="0" aria-label="${escapeHtml(t("Seek"))}"${total ? "" : " disabled"}>`
+    + `<button type="button" class="vp-speed" aria-label="${escapeHtml(t("Playback speed"))}">${speedLabel(storedSpeed())}</button>`
     + `<span class="vp-time" aria-live="off">${timeLabel(0, total)}</span>`
     + `</div>`;
 }
@@ -41,8 +62,21 @@ export function mountAudioPlayer(box, audio, { duration = 0, decodeDuration = nu
   const play = box.querySelector(".vp-play");
   const seek = box.querySelector(".vp-seek");
   const time = box.querySelector(".vp-time");
+  const speed = box.querySelector(".vp-speed");
   if (!play || !seek || !time || !audio) return null;
   const st = { total: finiteDuration(duration), decoding: false, seeking: false };
+  let rate = storedSpeed();
+  audio.playbackRate = rate;
+  if (speed) {
+    speed.textContent = speedLabel(rate);
+    speed.addEventListener("click", (e) => {
+      e.stopPropagation?.();
+      rate = nextSpeed(rate);
+      audio.playbackRate = rate;
+      speed.textContent = speedLabel(rate);
+      try { localStorage.setItem(SPEED_KEY, String(rate)); } catch {}
+    });
+  }
   const setTotal = (t) => {
     t = finiteDuration(t);
     if (!t || Math.abs(t - st.total) < 0.05) return;
