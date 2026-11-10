@@ -1,0 +1,28 @@
+[package]
+name = "velta-preview"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Velta Rust preview UI (Masonry). Experimental, see #314."
+publish = false
+
+# Standalone: not part of core's workspace.
+[workspace]
+
+[features]
+default = ["gpu"]
+# Vello on the GPU (wgpu). The CPU path (vello_cpu) needs our own host; see README.
+gpu = ["masonry_winit/imaging_vello"]
+hybrid = ["masonry_winit/imaging_vello_hybrid"]
+
+[dependencies]
+deltachat = { path = "../../core" }
+masonry = { git = "https://github.com/linebender/xilem", rev = "dc49687", default-features = false }
+masonry_winit = { git = "https://github.com/linebender/xilem", rev = "dc49687", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
