@@ -105,16 +105,26 @@ impl Driver {
         for r in &rows {
             let tag = WidgetTag::unique();
             let top = Flex::row()
-                .with(one_line(r.name.clone(), 17.0, TEXT), 1.0)
-                .with_fixed(one_line(
-                    if r.unread > 0 { format!("{}  ·  {}", r.unread, r.time) } else { r.time.clone() },
-                    13.0,
-                    MUTED,
-                ));
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .with(label(short(&r.name, 26), 17.0, TEXT), 1.0)
+                .with_fixed_spacer(px(8.0))
+                .with_fixed(one_line(r.time.clone(), 13.0, MUTED));
+            // Flexible children keep long names and summaries inside the row width.
+            let mut bottom = Flex::row().cross_axis_alignment(CrossAxisAlignment::Center).with(label(short(&r.summary.replace('\n', " "), 34), 14.0, MUTED), 1.0);
+            if r.unread > 0 {
+                let pill = one_line(r.unread.to_string(), 12.0, TEXT).with_props(
+                    PropertySet::new()
+                        .with(ContentColor::new(TEXT))
+                        .with(Background::Color(OUT))
+                        .with(CornerRadius::all(px(10.0)))
+                        .with(Padding::from_vh(px(2.0), px(7.0))),
+                );
+                bottom = bottom.with_fixed_spacer(px(8.0)).with_fixed(pill);
+            }
             let body = Flex::column()
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .with_fixed(NewWidget::new(top))
-                .with_fixed(one_line(r.summary.replace('\n', " "), 14.0, MUTED));
+                .with_fixed(NewWidget::new(bottom));
             let btn = NewWidget::new(Button::new(NewWidget::new(body)))
                 .with_tag(tag)
                 .with_props(
@@ -197,7 +207,12 @@ impl Driver {
         let input = NewWidget::new(TextInput::new("").with_placeholder("Message")).with_tag(tags.input);
         let send = NewWidget::new(Button::with_text("Send")).with_tag(tags.send);
         let composer = NewWidget::new(Flex::row().with(input, 1.0).with_fixed_spacer(px(8.0)).with_fixed(send))
-            .with_props(PropertySet::new().with(Padding::all(px(8.0))).with(Background::Color(SURFACE)));
+            .with_props(
+                PropertySet::new()
+                    // Android draws edge to edge; keep the composer above the gesture bar.
+                    .with(Padding { top: px(8.0), left: px(8.0), right: px(8.0), bottom: px(if cfg!(target_os = "android") { 28.0 } else { 8.0 }) })
+                    .with(Background::Color(SURFACE)),
+            );
         let screen = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with(msgs, 1.0).with_fixed(composer);
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(screen)));
         Self::set_title(root, &self.core.chat_name(id), true);
@@ -396,6 +411,16 @@ impl ApplicationHandler<MasonryUserEvent> for App {
     fn memory_warning(&mut self, el: &ActiveEventLoop) {
         self.state.handle_memory_warning(el);
     }
+}
+
+/// Masonry measures clipped labels at their full text width, which pushes chat rows past
+/// the screen edge. Wrapping labels fit, so long names and previews are shortened here.
+fn short(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(max).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// Invite link as a black-on-white QR bitmap, 8 px per module with a 4-module border.

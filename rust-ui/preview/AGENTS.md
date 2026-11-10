@@ -39,6 +39,12 @@ no force-push, no private hostnames). This file covers only `rust-ui/preview`.
 - Masonry tracing goes to systrace, not logcat; `android_logger` is set up in
   `android_main`.
 - `CrossAxisAlignment` has `Stretch`, not `Fill`.
+- **Clipped labels are measured at full text width**, even inside a flexible
+  child of a constrained Portal, so a long one-line label pushes its row past
+  the screen. Chat rows use wrapping labels with text shortened by `short()`.
+- Android draws edge to edge: the log strip has extra top padding and the
+  composer extra bottom padding (status bar and gesture bar). Real insets are
+  still a TODO.
 
 ## Build locally
 
