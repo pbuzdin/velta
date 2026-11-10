@@ -198,6 +198,43 @@ class CoreService : Service() {
             }
         }
 
+        const val SENDING_CHANNEL_ID = "velta-sending"
+        const val SENDING_NOTIFICATION_ID = 4
+
+        // "Sending…" while the outgoing queue drains with the app
+        // backgrounded (upstream-parity with Delta Chat's
+        // SendingForegroundService, scoped to when this service already
+        // keeps the process alive — without it Android would freeze the
+        // process mid-upload anyway). lib.rs sending_notify. on=false
+        // removes the card regardless of the background-connection pref.
+        @JvmStatic
+        fun sendingProgress(context: Context, on: Boolean) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            if (!on) {
+                manager.cancel(SENDING_NOTIFICATION_ID)
+                return
+            }
+            if (!BgPrefs.backgroundConnectionEnabled(context)) return
+            manager.createNotificationChannel(
+                NotificationChannel(SENDING_CHANNEL_ID, context.getString(R.string.bg_channel_name), NotificationManager.IMPORTANCE_LOW)
+            )
+            val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            val pending = launch?.let {
+                PendingIntent.getActivity(context, 3, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            }
+            val b = NotificationCompat.Builder(context, SENDING_CHANNEL_ID)
+                .setSmallIcon(context.applicationInfo.icon)
+                .setContentTitle(context.getString(R.string.bg_sending))
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+            if (pending != null) b.setContentIntent(pending)
+            try {
+                manager.notify(SENDING_NOTIFICATION_ID, b.build())
+            } catch (_: SecurityException) {
+            }
+        }
+
         @JvmStatic
         fun stop(context: Context) {
             context.stopService(Intent(context, CoreService::class.java))

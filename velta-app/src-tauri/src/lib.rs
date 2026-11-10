@@ -1922,6 +1922,13 @@ static UI_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 #[cfg(target_os = "android")]
 static ACTIVITY_FOREGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
+// The "Sending…" card (CoreService.sendingProgress) is up. Set when posted,
+// cleared on resume, queue drain or removal — guards duplicate posts from
+// repeated backgrounding events and lets the poller only re-check the queue
+// while a card is actually shown.
+#[cfg(target_os = "android")]
+static SENDING_NOTIFIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(target_os = "android")]
 fn android_ui_visible() -> bool {
     bg_events::background_poller_paused(
@@ -2140,6 +2147,52 @@ fn android_core_service(run: bool) {
     match r {
         Ok(()) => log(&format!("background connection {}: CoreService {method}", if run { "on" } else { "off" })),
         Err(e) => log(&format!("CoreService {method} failed: {e}")),
+    }
+}
+
+// "Sending…" card while the outgoing queue drains in the background
+// (upstream parity with Delta Chat's SendingForegroundService, scoped to
+// when the background-connection CoreService already keeps the process
+// alive — the Kotlin side checks that pref before posting). Strings live in
+// bg_strings.xml so the card is localized without a Rust-side copy.
+#[cfg(target_os = "android")]
+fn sending_notify(on: bool) {
+    let r = with_android_class(&APP_CORE_SERVICE_CLASS, "CoreService", |env, context, class_ref| {
+        env.call_static_method(
+            class_ref,
+            "sendingProgress",
+            "(Landroid/content/Context;Z)V",
+            &[(&context).into(), on.into()],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    });
+    if let Err(e) = r {
+        log(&format!("sending notify({on}) failed: {e}"));
+    }
+}
+
+// One queue check: post when the outgoing queue is non-empty, remove the
+// card once `is_sending_finished` goes true. `post_when_busy` posts, else
+// removes.
+#[cfg(target_os = "android")]
+async fn sending_queue_check(tx: &tokio::sync::mpsc::UnboundedSender<String>, post_when_busy: bool) {
+    let Some(state) = android_core() else { return };
+    let finished = match bg_rpc(tx, state, "is_sending_finished", serde_json::json!([])).await {
+        Ok(v) => v.as_bool().unwrap_or(true),
+        Err(_) => return, // core not ready: retry on the next trigger
+    };
+    if post_when_busy && !finished {
+        if SENDING_NOTIFIED
+            .compare_exchange(false, true, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst)
+            .is_ok()
+        {
+            sending_notify(true);
+        }
+    } else if !post_when_busy && finished {
+        if SENDING_NOTIFIED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            sending_notify(false);
+        }
     }
 }
 
@@ -2861,6 +2914,12 @@ pub extern "system" fn Java_org_velta_MainActivity_setActivityForeground(
     ACTIVITY_FOREGROUND.store(foreground, std::sync::atomic::Ordering::SeqCst);
     log(&format!("activity foreground: {foreground}"));
     if foreground {
+        // The user is watching; upstream also drops the Sending card on
+        // resume. Unconditional cancel: a stale card must never outlive the
+        // activity (no queue RPC needed).
+        if SENDING_NOTIFIED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            sending_notify(false);
+        }
         // A push/job fetch started while hidden may still be waiting on a
         // stale socket or restarting IO. Cancel it before the resume nudge and
         // refresh so foreground chat RPCs do not queue behind background work.
@@ -2879,6 +2938,19 @@ pub extern "system" fn Java_org_velta_MainActivity_setActivityForeground(
         tauri::async_runtime::spawn(proxy::log_resume_state());
     } else {
         kick_maybe_network(false);
+        // Backgrounded: if an outgoing message is queued, post the "Sending…"
+        // card after a linger — the send RPC may still be in flight and the
+        // queue row not written yet (upstream waits 5 s for the same reason).
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            if ACTIVITY_FOREGROUND.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let tx = ANDROID_RPC_TX.lock().unwrap().clone();
+            if let Some(tx) = tx {
+                sending_queue_check(&tx, true).await;
+            }
+        });
     }
 }
 
@@ -5161,6 +5233,24 @@ fn start_bg_event_poller(tx: tokio::sync::mpsc::UnboundedSender<String>) {
                     }
                     if !hits.is_empty() {
                         bg_notify_incoming(&tx, state, hits).await;
+                    }
+                    // "Sending…" lifecycle while hidden: a batch naming a
+                    // queue/roster event re-checks the outgoing queue —
+                    // removes the card once the drain finishes, posts for a
+                    // send that started while hidden (scheduled messages).
+                    // is_sending_finished is a cheap COUNT on smtp2.
+                    let send_relevant = events.iter().any(|ev| {
+                        matches!(
+                            ev.pointer("/event/kind").and_then(|k| k.as_str()),
+                            Some("MsgsChanged") | Some("MsgDelivered") | Some("MsgFailed")
+                        )
+                    });
+                    if send_relevant {
+                        if SENDING_NOTIFIED.load(std::sync::atomic::Ordering::SeqCst) {
+                            sending_queue_check(&tx, false).await;
+                        } else {
+                            sending_queue_check(&tx, true).await;
+                        }
                     }
                 }
                 Err(_) => {
