@@ -2094,17 +2094,18 @@ fn must_have_only_one_recipient<'a>(msg: &'a Message, chat: &Chat) -> Option<Res
     }
 }
 
+#[allow(clippy::unused_async)] // Velta #22: read_bytes() is sync; the async shape matches upstream
 async fn build_body_file(context: &Context, msg: &Message) -> Result<MimePart<'static>> {
     let file_name = msg.get_filename().context("msg has no file")?;
     let blob = msg
         .param
         .get_file_blob(context)?
         .context("msg has no file")?;
-    let mimetype = msg
-        .param
-        .get(Param::MimeType)
-        .unwrap_or("application/octet-stream")
-        .to_string();
+    let mime = match msg.viewtype {
+        Viewtype::Webxdc => Some("application/webxdc+zip"),
+        _ => msg.param.get(Param::MimeType),
+    };
+    let mimetype = mime.unwrap_or("application/octet-stream").to_string();
     let body = blob.read_bytes(context)?;
 
     // create mime part, for Content-Disposition, see RFC 2183.
@@ -2117,6 +2118,7 @@ async fn build_body_file(context: &Context, msg: &Message) -> Result<MimePart<'s
     Ok(mail)
 }
 
+#[allow(clippy::unused_async)] // Velta #22: read_bytes() is sync; the async shape matches upstream
 async fn build_avatar_file(context: &Context, path: &str) -> Result<String> {
     let blob = match path.starts_with("$BLOBDIR/") {
         true => BlobObject::from_name(context, path)?,

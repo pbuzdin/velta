@@ -1,0 +1,1 @@
+{"rustc":1625334936438085654,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[6955678925937229351,"build_script_build",false,2213972675247065433]],"local":[{"Precalculated":"0.4.9"}],"rustflags":["-C","link-arg=--target=aarch64-linux-android24"],"config":0,"compile_kind":0}

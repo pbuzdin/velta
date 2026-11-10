@@ -6,7 +6,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 > **Scope note:** This repository is a Velta-specific workspace layered around a
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
-> (version `2.68.0`). The `core/` directory is effectively a vendored copy of
+> (version `2.69.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
 > `velta-app/`, and `deltachat-backend/`.
 
@@ -29,6 +29,7 @@ a numbered version or move the tag to include it.
 | Release/platform docs | `f6b8e8c` | `docs/agents/release-ci.md` records the v1.5.4 incidents and reconciliation steps. README and the app guide reflect the current Windows Hello, Linux compatibility, and **Show in folder** behavior. |
 | Relay invites | `f74d5c0`, `4dc9d828` | Omitted expiry is 48 hours (`days` 2); `0` does not expire. A missing signing key refuses the PWA invite command. The claim reserves its use before it creates the mailbox and returns that use if the helper fails. The mailbox is created through the local mkaccount socket. |
 | Vendored core | `4902dc4` | chatmail core `2.66.0` → `2.68.0`. No DB migration and no config-surface change. The quilt stays 200 ops / 37 files. The sidecar must report `2.68.0`. |
+| Vendored core | `2.69.0-bump` | chatmail core `2.68.0` → `2.69.0` (2026-11-10). No DB migration and no config-surface change. The quilt stays 200 ops / 37 files; one re-anchor: #22 mimefactory hunk 29 (upstream folded the MIME-type match into `mimefactory.rs`). The sidecar must report `2.69.0`. |
 | Wasm series | `a0ac244` | The opt-in wasm series is re-ported onto the 2.68 copy. `0005` drops the `accounts.rs` anyhow-import gate; `0007` re-anchors the `time_now` hunks. Do not apply this series to production `core/`. |
 | Linux release assets | `178d745b`, #291 | `release.yml` calls `build-linux.yml` and attaches the `.deb`, AppImage, and Arch package (glibc 2.36+, Debian 12 / Ubuntu 23.04 and newer). v1.5.4 did not publish these from the release job. Linux self-update stays unwired. |
 
@@ -156,7 +157,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── fuzz/                 # Fuzz targets
 │   ├── scripts/              # CI helper scripts (clippy, deny, tests, wheels)
 │   ├── test-data/            # fixtures for Rust tests
-│   ├── Cargo.toml            # workspace manifest, version 2.68.0
+│   ├── Cargo.toml            # workspace manifest, version 2.69.0
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
@@ -312,7 +313,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.68.0 (200 ops, 37 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.69.0 (200 ops, 37 files;
 intent in VENDORISSUES.MD):
 
 **Refer to core patches by their GitHub tracker issue (e.g. #250), not the quilt op number.** Quilt numbers (#20, #23…) are not clickable and collide with old issue numbers. Use them only where the applicator or series files need them (op ids, `VENDORISSUES.MD` section numbers), and put the issue next to them: "#250 (quilt #29)". Closed #178 still tracks the live quilt #20 and #22-attachment ops, and closed #189 tracks quilt #24. They stay closed because the feature shipped. Wasm series work is tracked in #112 (closed) and #261.
@@ -845,7 +846,7 @@ on a `target/debug` sidecar still at v2.63 (pre-`VELTA_DB_KEY`): the PIN
 unlock "succeeded" yet every profile stayed "locked". Kill the running
 sidecar before the copy (Windows locks a running exe). Verify the swap by
 piping a `get_system_info` JSON-RPC request into the exe's stdin —
-it must report the vendored core's version (v2.68.0 since the 2026-11-09
+it must report the vendored core's version (v2.69.0 since the 2026-11-10
 re-vendor; v2.66.0 since the 2026-10-29 re-vendor, shipped in 1.4.79; v2.64.0 in the 2026-10-20 interim; v2.63.0 since 1.4.63; the
 previous prebuilt was silently v2.59.0, which the drawer footer exposed).
 `.github/workflows/build-windows.yml` does the same via

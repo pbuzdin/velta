@@ -589,7 +589,7 @@ impl SendImageCheckMediaquality<'_> {
             .context("failed to write file")?;
         check_image_size(&file, original_width, original_height);
 
-        let (_, exif) = image_metadata(&mut open_blob(&alice, &file)?)?;
+        let (_, exif) = image_metadata(&mut open_blob(&alice, &file)?);
         if has_exif {
             let exif = exif.unwrap();
             assert_eq!(exif_orientation(&exif, &alice), orientation);
@@ -635,7 +635,7 @@ impl SendImageCheckMediaquality<'_> {
             assert_eq!(&bytes1, bytes);
         }
 
-        let (_, exif) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;
+        let (_, exif) = image_metadata(&mut open_blob(&bob, &file_saved)?);
         assert!(res_viewtype != Viewtype::Image || exif.is_none());
 
         let img = check_image_size(file_saved, compressed_width, compressed_height);
@@ -717,7 +717,7 @@ async fn test_send_big_gif_as_image() -> Result<()> {
         .get_blobdir()
         .join("saved-".to_string() + &bob_msg.get_filename().unwrap());
     bob_msg.save_file(&bob, &file_saved).await?;
-    let (file_size, _) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;
+    let (file_size, _) = image_metadata(&mut open_blob(&bob, &file_saved)?);
     assert_eq!(file_size, bytes.len() as u64);
     check_image_size(file_saved, width, height);
     Ok(())

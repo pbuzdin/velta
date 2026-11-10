@@ -346,7 +346,7 @@ impl Sql {
             .unwrap_or_default()
             .as_millis();
         note_slow_sql(query_only, wait_ms, held_ms);
-        Ok(res?)
+        res
     }
 
     /// Allocates a connection and calls given function, assuming it does write queries, with the

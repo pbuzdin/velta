@@ -509,7 +509,7 @@ pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {
                 path.display(),
                 err
             );
-            Err(err.into())
+            Err(err) // no .into(): read_all() already yields anyhow::Error (clippy::useless_conversion)
         }
     }
 }

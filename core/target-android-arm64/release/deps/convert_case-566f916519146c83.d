@@ -1,0 +1,11 @@
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/release/deps/convert_case-566f916519146c83.d: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/case.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/converter.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/pattern.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/segmentation.rs
+
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/release/deps/libconvert_case-566f916519146c83.rlib: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/case.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/converter.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/pattern.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/segmentation.rs
+
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/release/deps/libconvert_case-566f916519146c83.rmeta: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/case.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/converter.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/pattern.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/segmentation.rs
+
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/lib.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/case.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/converter.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/pattern.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/convert_case-0.5.0/src/segmentation.rs:

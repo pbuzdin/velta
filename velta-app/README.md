@@ -5,7 +5,7 @@ It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
 **Current stable version:** `1.5.4` (copied from `src-tauri/tauri.conf.json`)  
-**Bundled core:** `deltachat-core-rust 2.68.0` (copied from `../core/Cargo.toml`)
+**Bundled core:** `deltachat-core-rust 2.69.0` (copied from `../core/Cargo.toml`)
 
 ## Unreleased
 

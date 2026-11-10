@@ -50,6 +50,6 @@ index ef3bece..b19022e 100644
 +        #[cfg(not(target_arch = "wasm32"))]
 +        let readdir_stream = ReadDirStream::new(readdir);
 +        let inner = readdir_stream
-             .filter_map(|entry| async move {
-                 match entry {
-                     Ok(entry) => Some(entry),
+             .filter_map(async |entry| match entry {
+                 Ok(entry) => Some(entry),
+                 Err(err) => {

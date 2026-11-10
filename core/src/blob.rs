@@ -364,7 +364,7 @@ impl<'a> BlobObject<'a> {
         let vt = &mut *viewtype;
         let res: Result<String> = tokio::task::block_in_place(move || {
             let mut file = self.open(context)?;
-            let (nr_bytes, exif) = image_metadata(&mut file)?;
+            let (nr_bytes, exif) = image_metadata(&mut file);
             *no_exif_ref = exif.is_none();
             // It's strange that BufReader modifies a file position while it takes a non-mut
             // reference. Ok, just rewind it.
@@ -631,7 +631,9 @@ fn file_hash(context: &Context, src: &Path) -> Result<blake3::Hash> {
 }
 
 /// Returns image file size and Exif.
-fn image_metadata(file: &mut AttachmentReader) -> Result<(u64, Option<exif::Exif>)> {
+/// Infallible since Velta #22: `AttachmentReader::len()` and the Exif read
+/// cannot fail (clippy::unnecessary_wraps on the old Result wrapper).
+fn image_metadata(file: &mut AttachmentReader) -> (u64, Option<exif::Exif>) {
     let len = file.len();
     let mut bufreader = std::io::BufReader::new(file);
     let exif = exif::Reader::new()
@@ -639,7 +641,7 @@ fn image_metadata(file: &mut AttachmentReader) -> Result<(u64, Option<exif::Exif
         .read_from_container(&mut bufreader)
         .or_else(|e| e.distill_partial_result(|_errors| {}))
         .ok();
-    Ok((len, exif))
+    (len, exif)
 }
 
 fn exif_orientation(exif: &exif::Exif, context: &Context) -> Orientation {
@@ -670,17 +672,15 @@ impl<'a> BlobDirContents<'a> {
     pub(crate) async fn new(context: &'a Context) -> Result<BlobDirContents<'a>> {
         let readdir = fs::read_dir(context.get_blobdir()).await?;
         let inner = ReadDirStream::new(readdir)
-            .filter_map(|entry| async move {
-                match entry {
-                    Ok(entry) => Some(entry),
-                    Err(err) => {
-                        error!(context, "Failed to read blob file: {err}.");
-                        None
-                    }
+            .filter_map(async |entry| match entry {
+                Ok(entry) => Some(entry),
+                Err(err) => {
+                    error!(context, "Failed to read blob file: {err}.");
+                    None
                 }
             })
-            .filter_map(|entry| async move {
-                match entry.file_type().await.ok()?.is_file() {
+            .filter_map(
+                async |entry| match entry.file_type().await.ok()?.is_file() {
                     true => Some(entry.path()),
                     false => {
                         warn!(
@@ -690,8 +690,8 @@ impl<'a> BlobDirContents<'a> {
                         );
                         None
                     }
-                }
-            })
+                },
+            )
             .collect()
             .await;
         Ok(Self { inner, context })

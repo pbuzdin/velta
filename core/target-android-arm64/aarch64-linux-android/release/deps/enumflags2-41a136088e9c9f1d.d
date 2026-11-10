@@ -1,0 +1,11 @@
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/aarch64-linux-android/release/deps/enumflags2-41a136088e9c9f1d.d: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/formatting.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/fallible.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/iter.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/const_api.rs
+
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/aarch64-linux-android/release/deps/libenumflags2-41a136088e9c9f1d.rlib: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/formatting.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/fallible.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/iter.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/const_api.rs
+
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/aarch64-linux-android/release/deps/libenumflags2-41a136088e9c9f1d.rmeta: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/formatting.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/fallible.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/iter.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/const_api.rs
+
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/lib.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/formatting.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/fallible.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/iter.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/enumflags2-0.7.11/src/const_api.rs:

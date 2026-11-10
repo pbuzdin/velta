@@ -1,0 +1,11 @@
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/aarch64-linux-android/release/deps/stop_token-bd4b35ce4603f80e.d: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/future.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stream.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/deadline.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stop_source.rs
+
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/aarch64-linux-android/release/deps/libstop_token-bd4b35ce4603f80e.rlib: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/future.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stream.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/deadline.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stop_source.rs
+
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/aarch64-linux-android/release/deps/libstop_token-bd4b35ce4603f80e.rmeta: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/future.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stream.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/deadline.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stop_source.rs
+
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/lib.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/future.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stream.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/deadline.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/stop-token-0.7.0/src/stop_source.rs:

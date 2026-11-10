@@ -1189,7 +1189,7 @@ pub struct JsonrpcTransportServerMetadata {
         applied="Velta #18 (interrupt_inbox): never wait behind an IO start/stop",
         anchor='    pub(crate) async fn interrupt_inbox(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_inbox();\n        }\n    }\n',
         where="replace",
-        text='    pub(crate) async fn interrupt_inbox(&self) {\n        // Velta #18 (interrupt_inbox): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_inbox();\n        }\n    }\n',
+        text='    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this\n    pub(crate) async fn interrupt_inbox(&self) {\n        // Velta #18 (interrupt_inbox): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_inbox();\n        }\n    }\n',
     ),
     dict(
         id="#18 interrupt_smtp does not wait behind an IO restart (scheduler.rs)",
@@ -1197,7 +1197,7 @@ pub struct JsonrpcTransportServerMetadata {
         applied="Velta #18 (interrupt_smtp): never wait behind an IO start/stop",
         anchor='    pub(crate) async fn interrupt_smtp(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_smtp();\n        }\n    }\n',
         where="replace",
-        text='    pub(crate) async fn interrupt_smtp(&self) {\n        // Velta #18 (interrupt_smtp): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_smtp();\n        }\n    }\n',
+        text='    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this\n    pub(crate) async fn interrupt_smtp(&self) {\n        // Velta #18 (interrupt_smtp): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_smtp();\n        }\n    }\n',
     ),
     dict(
         id="#18 interrupt_ephemeral_task does not wait behind an IO restart (scheduler.rs)",
@@ -1205,7 +1205,7 @@ pub struct JsonrpcTransportServerMetadata {
         applied="Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop",
         anchor='    pub(crate) async fn interrupt_ephemeral_task(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_ephemeral_task();\n        }\n    }\n',
         where="replace",
-        text='    pub(crate) async fn interrupt_ephemeral_task(&self) {\n        // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_ephemeral_task();\n        }\n    }\n',
+        text='    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this\n    pub(crate) async fn interrupt_ephemeral_task(&self) {\n        // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_ephemeral_task();\n        }\n    }\n',
     ),
     dict(
         id="#18 interrupt_location does not wait behind an IO restart (scheduler.rs)",
@@ -1213,7 +1213,7 @@ pub struct JsonrpcTransportServerMetadata {
         applied="Velta #18 (interrupt_location): never wait behind an IO start/stop",
         anchor='    pub(crate) async fn interrupt_location(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_location();\n        }\n    }\n',
         where="replace",
-        text='    pub(crate) async fn interrupt_location(&self) {\n        // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_location();\n        }\n    }\n',
+        text='    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this\n    pub(crate) async fn interrupt_location(&self) {\n        // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_location();\n        }\n    }\n',
     ),
     dict(
         id="#18 interrupt_recently_seen does not wait behind an IO restart (scheduler.rs)",
@@ -1221,7 +1221,7 @@ pub struct JsonrpcTransportServerMetadata {
         applied="Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop",
         anchor='    pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_recently_seen(contact_id, timestamp);\n        }\n    }\n',
         where="replace",
-        text='    pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {\n        // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_recently_seen(contact_id, timestamp);\n        }\n    }\n',
+        text='    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this\n    pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {\n        // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_recently_seen(contact_id, timestamp);\n        }\n    }\n',
     ),
     # ---- VENDORISSUES #19 (#177): admin groups (port of ArcaneChat/core c9b9666,
     # a2683e9, 9aa16dc). Group ID `ADMINFINGERPRINT:randomid`; every receiver
@@ -1770,7 +1770,7 @@ pub struct JsonrpcTransportServerMetadata {
         applied="Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop",
         anchor="    pub(crate) async fn interrupt_inbox_idle(&self) {\n        let inner = self.inner.read().await;\n",
         where="replace",
-        text="    pub(crate) async fn interrupt_inbox_idle(&self) {\n        // Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n",
+        text="    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this\n    pub(crate) async fn interrupt_inbox_idle(&self) {\n        // Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n",
     ),
     dict(
         id="#18 maybe_network_lost does not wait behind an IO restart (scheduler.rs)",
@@ -1778,7 +1778,7 @@ pub struct JsonrpcTransportServerMetadata {
         applied="Velta #18 (maybe_network_lost): never wait behind an IO start/stop",
         anchor="    pub(crate) async fn maybe_network_lost(&self, context: &Context) {\n        let inner = self.inner.read().await;\n",
         where="replace",
-        text="    pub(crate) async fn maybe_network_lost(&self, context: &Context) {\n        // Velta #18 (maybe_network_lost): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n",
+        text="    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this\n    pub(crate) async fn maybe_network_lost(&self, context: &Context) {\n        // Velta #18 (maybe_network_lost): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n",
     ),
 
     # ---- Velta #22 (#178): seekable attachment encryption at rest ----
@@ -1849,10 +1849,10 @@ pub struct JsonrpcTransportServerMetadata {
     dict(
         id="#22 attachment encryption (core/src/blob.rs, hunk 9)",
         file='core/src/blob.rs',
-        applied="        let original_name = name.clone();\n        let vt = &mut *viewtype;\n        let res: Result<String> = tokio::task::block_in_place(move || {\n            let mut file = self.open(context)?;\n            let (nr_bytes, exif) = image_metadata(&mut file)?;\n            *no_exif_ref = exif.is_none();\n            // It's strange that BufReader modifies a file position while it takes a non-mut\n",
+        applied="        let original_name = name.clone();\n        let vt = &mut *viewtype;\n        let res: Result<String> = tokio::task::block_in_place(move || {\n            let mut file = self.open(context)?;\n            let (nr_bytes, exif) = image_metadata(&mut file);\n            *no_exif_ref = exif.is_none();\n            // It's strange that BufReader modifies a file position while it takes a non-mut\n",
         anchor="        let original_name = name.clone();\n        let vt = &mut *viewtype;\n        let res: Result<String> = tokio::task::block_in_place(move || {\n            let mut file = std::fs::File::open(self.to_abs_path())?;\n            let (nr_bytes, exif) = image_metadata(&file)?;\n            *no_exif_ref = exif.is_none();\n            // It's strange that BufReader modifies a file position while it takes a non-mut\n",
         where="replace",
-        text="        let original_name = name.clone();\n        let vt = &mut *viewtype;\n        let res: Result<String> = tokio::task::block_in_place(move || {\n            let mut file = self.open(context)?;\n            let (nr_bytes, exif) = image_metadata(&mut file)?;\n            *no_exif_ref = exif.is_none();\n            // It's strange that BufReader modifies a file position while it takes a non-mut\n",
+        text="        let original_name = name.clone();\n        let vt = &mut *viewtype;\n        let res: Result<String> = tokio::task::block_in_place(move || {\n            let mut file = self.open(context)?;\n            let (nr_bytes, exif) = image_metadata(&mut file);\n            *no_exif_ref = exif.is_none();\n            // It's strange that BufReader modifies a file position while it takes a non-mut\n",
     ),
     dict(
         id="#22 attachment encryption (core/src/blob.rs, hunk 10)",
@@ -1865,10 +1865,10 @@ pub struct JsonrpcTransportServerMetadata {
     dict(
         id="#22 attachment encryption (core/src/blob.rs, hunk 11)",
         file='core/src/blob.rs',
-        applied='}\n\n/// Returns image file size and Exif.\nfn image_metadata(file: &mut AttachmentReader) -> Result<(u64, Option<exif::Exif>)> {\n    let len = file.len();\n    let mut bufreader = std::io::BufReader::new(file);\n    let exif = exif::Reader::new()\n        .continue_on_error(true)\n',
-        anchor='}\n\n/// Returns image file size and Exif.\nfn image_metadata(file: &std::fs::File) -> Result<(u64, Option<exif::Exif>)> {\n    let len = file.metadata()?.len();\n    let mut bufreader = std::io::BufReader::new(file);\n    let exif = exif::Reader::new()\n        .continue_on_error(true)\n',
+        applied='}\n\n/// Returns image file size and Exif.\n/// Infallible since Velta #22: `AttachmentReader::len()` and the Exif read\n/// cannot fail (clippy::unnecessary_wraps on the old Result wrapper).\nfn image_metadata(file: &mut AttachmentReader) -> (u64, Option<exif::Exif>) {\n    let len = file.len();\n    let mut bufreader = std::io::BufReader::new(file);\n    let exif = exif::Reader::new()\n        .continue_on_error(true)\n        .read_from_container(&mut bufreader)\n        .or_else(|e| e.distill_partial_result(|_errors| {}))\n        .ok();\n    (len, exif)\n}\n',
+        anchor='}\n\n/// Returns image file size and Exif.\nfn image_metadata(file: &std::fs::File) -> Result<(u64, Option<exif::Exif>)> {\n    let len = file.metadata()?.len();\n    let mut bufreader = std::io::BufReader::new(file);\n    let exif = exif::Reader::new()\n        .continue_on_error(true)\n        .read_from_container(&mut bufreader)\n        .or_else(|e| e.distill_partial_result(|_errors| {}))\n        .ok();\n    Ok((len, exif))\n}\n',
         where="replace",
-        text='}\n\n/// Returns image file size and Exif.\nfn image_metadata(file: &mut AttachmentReader) -> Result<(u64, Option<exif::Exif>)> {\n    let len = file.len();\n    let mut bufreader = std::io::BufReader::new(file);\n    let exif = exif::Reader::new()\n        .continue_on_error(true)\n',
+        text='}\n\n/// Returns image file size and Exif.\n/// Infallible since Velta #22: `AttachmentReader::len()` and the Exif read\n/// cannot fail (clippy::unnecessary_wraps on the old Result wrapper).\nfn image_metadata(file: &mut AttachmentReader) -> (u64, Option<exif::Exif>) {\n    let len = file.len();\n    let mut bufreader = std::io::BufReader::new(file);\n    let exif = exif::Reader::new()\n        .continue_on_error(true)\n        .read_from_container(&mut bufreader)\n        .or_else(|e| e.distill_partial_result(|_errors| {}))\n        .ok();\n    (len, exif)\n}\n',
     ),
     dict(
         id='#22 attachment encryption (core/src/blob.rs, hunk 5a)',
@@ -1889,26 +1889,26 @@ pub struct JsonrpcTransportServerMetadata {
     dict(
         id='#22 attachment encryption (core/src/blob/blob_tests.rs, hunk 12a)',
         file='core/src/blob/blob_tests.rs',
-        applied='        let (_, exif) = image_metadata(&mut open_blob(&alice, &file)?)?;\n',
+        applied='        let (_, exif) = image_metadata(&mut open_blob(&alice, &file)?);\n',
         anchor='        let (_, exif) = image_metadata(&std::fs::File::open(&file)?)?;\n',
         where="replace",
-        text='        let (_, exif) = image_metadata(&mut open_blob(&alice, &file)?)?;\n',
+        text='        let (_, exif) = image_metadata(&mut open_blob(&alice, &file)?);\n',
     ),
     dict(
         id='#22 attachment encryption (core/src/blob/blob_tests.rs, hunk 12b)',
         file='core/src/blob/blob_tests.rs',
-        applied='        let (_, exif) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;\n        assert!(res_viewtype != Viewtype::Image || exif.is_none());\n',
+        applied='        let (_, exif) = image_metadata(&mut open_blob(&bob, &file_saved)?);\n        assert!(res_viewtype != Viewtype::Image || exif.is_none());\n',
         anchor='        let (_, exif) = image_metadata(&std::fs::File::open(&file_saved)?)?;\n        assert!(res_viewtype != Viewtype::Image || exif.is_none());\n',
         where="replace",
-        text='        let (_, exif) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;\n        assert!(res_viewtype != Viewtype::Image || exif.is_none());\n',
+        text='        let (_, exif) = image_metadata(&mut open_blob(&bob, &file_saved)?);\n        assert!(res_viewtype != Viewtype::Image || exif.is_none());\n',
     ),
     dict(
         id='#22 attachment encryption (core/src/blob/blob_tests.rs, hunk 12c)',
         file='core/src/blob/blob_tests.rs',
-        applied='    let (file_size, _) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;\n',
+        applied='    let (file_size, _) = image_metadata(&mut open_blob(&bob, &file_saved)?);\n',
         anchor='    let (file_size, _) = image_metadata(&std::fs::File::open(&file_saved)?)?;\n',
         where="replace",
-        text='    let (file_size, _) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;\n',
+        text='    let (file_size, _) = image_metadata(&mut open_blob(&bob, &file_saved)?);\n',
     ),
     dict(
         id='#22 attachment encryption (core/src/config.rs, hunk 13a)',
@@ -2090,18 +2090,18 @@ pub struct JsonrpcTransportServerMetadata {
     dict(
         id="#22 attachment encryption (core/src/mimefactory.rs, hunk 29)",
         file='core/src/mimefactory.rs',
-        applied='        .get(Param::MimeType)\n        .unwrap_or("application/octet-stream")\n        .to_string();\n    let body = blob.read_bytes(context)?;\n\n    // create mime part, for Content-Disposition, see RFC 2183.\n    // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`\n',
-        anchor='        .get(Param::MimeType)\n        .unwrap_or("application/octet-stream")\n        .to_string();\n    let body = fs::read(blob.to_abs_path()).await?;\n\n    // create mime part, for Content-Disposition, see RFC 2183.\n    // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`\n',
+        applied='#[allow(clippy::unused_async)] // Velta #22: read_bytes() is sync; the async shape matches upstream\nasync fn build_body_file(context: &Context, msg: &Message) -> Result<MimePart<\'static>> {\n    let file_name = msg.get_filename().context("msg has no file")?;\n    let blob = msg\n        .param\n        .get_file_blob(context)?\n        .context("msg has no file")?;\n    let mime = match msg.viewtype {\n        Viewtype::Webxdc => Some("application/webxdc+zip"),\n        _ => msg.param.get(Param::MimeType),\n    };\n    let mimetype = mime.unwrap_or("application/octet-stream").to_string();\n    let body = blob.read_bytes(context)?;\n\n    // create mime part, for Content-Disposition, see RFC 2183.\n    // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`\n',
+        anchor='async fn build_body_file(context: &Context, msg: &Message) -> Result<MimePart<\'static>> {\n    let file_name = msg.get_filename().context("msg has no file")?;\n    let blob = msg\n        .param\n        .get_file_blob(context)?\n        .context("msg has no file")?;\n    let mime = match msg.viewtype {\n        Viewtype::Webxdc => Some("application/webxdc+zip"),\n        _ => msg.param.get(Param::MimeType),\n    };\n    let mimetype = mime.unwrap_or("application/octet-stream").to_string();\n    let body = fs::read(blob.to_abs_path()).await?;\n\n    // create mime part, for Content-Disposition, see RFC 2183.\n    // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`\n',
         where="replace",
-        text='        .get(Param::MimeType)\n        .unwrap_or("application/octet-stream")\n        .to_string();\n    let body = blob.read_bytes(context)?;\n\n    // create mime part, for Content-Disposition, see RFC 2183.\n    // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`\n',
+        text='#[allow(clippy::unused_async)] // Velta #22: read_bytes() is sync; the async shape matches upstream\nasync fn build_body_file(context: &Context, msg: &Message) -> Result<MimePart<\'static>> {\n    let file_name = msg.get_filename().context("msg has no file")?;\n    let blob = msg\n        .param\n        .get_file_blob(context)?\n        .context("msg has no file")?;\n    let mime = match msg.viewtype {\n        Viewtype::Webxdc => Some("application/webxdc+zip"),\n        _ => msg.param.get(Param::MimeType),\n    };\n    let mimetype = mime.unwrap_or("application/octet-stream").to_string();\n    let body = blob.read_bytes(context)?;\n\n    // create mime part, for Content-Disposition, see RFC 2183.\n    // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`\n',
     ),
     dict(
         id="#22 attachment encryption (core/src/mimefactory.rs, hunk 30)",
         file='core/src/mimefactory.rs',
-        applied='        true => BlobObject::from_name(context, path)?,\n        false => BlobObject::from_path(context, path.as_ref())?,\n    };\n    let body = blob.read_bytes(context)?;\n    let encoded_body = base64::engine::general_purpose::STANDARD\n        .encode(&body)\n        .chars()\n',
-        anchor='        true => BlobObject::from_name(context, path)?,\n        false => BlobObject::from_path(context, path.as_ref())?,\n    };\n    let body = fs::read(blob.to_abs_path()).await?;\n    let encoded_body = base64::engine::general_purpose::STANDARD\n        .encode(&body)\n        .chars()\n',
+        applied='#[allow(clippy::unused_async)] // Velta #22: read_bytes() is sync; the async shape matches upstream\nasync fn build_avatar_file(context: &Context, path: &str) -> Result<String> {\n    let blob = match path.starts_with("$BLOBDIR/") {\n        true => BlobObject::from_name(context, path)?,\n        false => BlobObject::from_path(context, path.as_ref())?,\n    };\n    let body = blob.read_bytes(context)?;\n    let encoded_body = base64::engine::general_purpose::STANDARD\n        .encode(&body)\n        .chars()\n',
+        anchor='async fn build_avatar_file(context: &Context, path: &str) -> Result<String> {\n    let blob = match path.starts_with("$BLOBDIR/") {\n        true => BlobObject::from_name(context, path)?,\n        false => BlobObject::from_path(context, path.as_ref())?,\n    };\n    let body = fs::read(blob.to_abs_path()).await?;\n    let encoded_body = base64::engine::general_purpose::STANDARD\n        .encode(&body)\n        .chars()\n',
         where="replace",
-        text='        true => BlobObject::from_name(context, path)?,\n        false => BlobObject::from_path(context, path.as_ref())?,\n    };\n    let body = blob.read_bytes(context)?;\n    let encoded_body = base64::engine::general_purpose::STANDARD\n        .encode(&body)\n        .chars()\n',
+        text='#[allow(clippy::unused_async)] // Velta #22: read_bytes() is sync; the async shape matches upstream\nasync fn build_avatar_file(context: &Context, path: &str) -> Result<String> {\n    let blob = match path.starts_with("$BLOBDIR/") {\n        true => BlobObject::from_name(context, path)?,\n        false => BlobObject::from_path(context, path.as_ref())?,\n    };\n    let body = blob.read_bytes(context)?;\n    let encoded_body = base64::engine::general_purpose::STANDARD\n        .encode(&body)\n        .chars()\n',
     ),
     dict(
         id="#22 attachment encryption (core/src/net/http.rs, hunk 31)",
@@ -2138,10 +2138,10 @@ pub struct JsonrpcTransportServerMetadata {
     dict(
         id="#22 attachment encryption (core/src/tools.rs, hunk 35)",
         file='core/src/tools.rs',
-        applied='pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {\n    let path_abs = get_abs_path(context, path);\n\n    match crate::blob::open_blob(context, &path_abs).and_then(|reader| reader.read_all()) {\n        Ok(bytes) => Ok(bytes),\n        Err(err) => {\n            warn!(\n',
-        anchor='pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {\n    let path_abs = get_abs_path(context, path);\n\n    match fs::read(&path_abs).await {\n        Ok(bytes) => Ok(bytes),\n        Err(err) => {\n            warn!(\n',
+        applied='pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {\n    let path_abs = get_abs_path(context, path);\n\n    match crate::blob::open_blob(context, &path_abs).and_then(|reader| reader.read_all()) {\n        Ok(bytes) => Ok(bytes),\n        Err(err) => {\n            warn!(\n                context,\n                "Cannot read \\"{}\\" or file is empty: {}",\n                path.display(),\n                err\n            );\n            Err(err) // no .into(): read_all() already yields anyhow::Error (clippy::useless_conversion)\n        }\n    }\n}\n',
+        anchor='pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {\n    let path_abs = get_abs_path(context, path);\n\n    match fs::read(&path_abs).await {\n        Ok(bytes) => Ok(bytes),\n        Err(err) => {\n            warn!(\n                context,\n                "Cannot read \\"{}\\" or file is empty: {}",\n                path.display(),\n                err\n            );\n            Err(err.into())\n        }\n    }\n}\n',
         where="replace",
-        text='pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {\n    let path_abs = get_abs_path(context, path);\n\n    match crate::blob::open_blob(context, &path_abs).and_then(|reader| reader.read_all()) {\n        Ok(bytes) => Ok(bytes),\n        Err(err) => {\n            warn!(\n',
+        text='pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {\n    let path_abs = get_abs_path(context, path);\n\n    match crate::blob::open_blob(context, &path_abs).and_then(|reader| reader.read_all()) {\n        Ok(bytes) => Ok(bytes),\n        Err(err) => {\n            warn!(\n                context,\n                "Cannot read \\"{}\\" or file is empty: {}",\n                path.display(),\n                err\n            );\n            Err(err) // no .into(): read_all() already yields anyhow::Error (clippy::useless_conversion)\n        }\n    }\n}\n',
     ),
     dict(
         id="#22 attachment encryption (core/src/webxdc.rs, hunk 36)",
@@ -2423,7 +2423,7 @@ pub struct JsonrpcTransportServerMetadata {
             .unwrap_or_default()
             .as_millis();
         note_slow_sql(query_only, wait_ms, held_ms);
-        Ok(res?)
+        res
     }
 """,
     ),

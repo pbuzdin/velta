@@ -1,0 +1,12 @@
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/release/deps/yerpc_derive-7ba3e2cb7a577161.d: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/bindings.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/openrpc.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/parse.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/rpc.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/util.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/client.ts /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/client.hpp
+
+/mnt/c/Users/pave/Velta/velta/core/target-android-arm64/release/deps/libyerpc_derive-7ba3e2cb7a577161.so: /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/lib.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/bindings.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/openrpc.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/parse.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/rpc.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/util.rs /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/client.ts /home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/client.hpp
+
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/lib.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/bindings.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/openrpc.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/parse.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/rpc.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/util.rs:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/client.ts:
+/home/pave/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yerpc_derive-0.7.1/src/client.hpp:

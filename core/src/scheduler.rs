@@ -234,6 +234,7 @@ impl SchedulerState {
 
     /// Interrupts IDLE on all transports so that they fetch,
     /// and marks them as having work to do.
+    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this
     pub(crate) async fn interrupt_inbox_idle(&self) {
         // Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
@@ -257,6 +258,7 @@ impl SchedulerState {
     }
 
     /// Indicate that the network likely is lost.
+    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this
     pub(crate) async fn maybe_network_lost(&self, context: &Context) {
         // Velta #18 (maybe_network_lost): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
@@ -278,6 +280,7 @@ impl SchedulerState {
         connectivity::maybe_network_lost(context, stores);
     }
 
+    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this
     pub(crate) async fn interrupt_inbox(&self) {
         // Velta #18 (interrupt_inbox): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
@@ -290,6 +293,7 @@ impl SchedulerState {
         }
     }
 
+    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this
     pub(crate) async fn interrupt_smtp(&self) {
         // Velta #18 (interrupt_smtp): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
@@ -302,6 +306,7 @@ impl SchedulerState {
         }
     }
 
+    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this
     pub(crate) async fn interrupt_ephemeral_task(&self) {
         // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
@@ -314,6 +319,7 @@ impl SchedulerState {
         }
     }
 
+    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this
     pub(crate) async fn interrupt_location(&self) {
         // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
@@ -326,6 +332,7 @@ impl SchedulerState {
         }
     }
 
+    #[allow(clippy::unused_async)] // Velta #18: try_read() removed the only await; upstream callers .await this
     pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {
         // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {

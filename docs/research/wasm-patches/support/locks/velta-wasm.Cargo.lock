@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "deltachat"
-version = "2.68.0"
+version = "2.69.0"
 dependencies = [
  "anyhow",
  "astral-tokio-tar",
@@ -1137,7 +1137,7 @@ dependencies = [
 
 [[package]]
 name = "deltachat-jsonrpc"
-version = "2.68.0"
+version = "2.69.0"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",

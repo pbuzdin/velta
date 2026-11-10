@@ -28,8 +28,10 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | [`../wasm-core-landing-checklist.md`](../wasm-core-landing-checklist.md) | What must be green before **any** merge into production `core/` |
 
 Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py`).
-The current core 2.66.0 quilt is **200 operations across 37 files**; historical
+The current core 2.69.0 quilt is **200 operations across 37 files**; historical
 baselines used 13 ops at 2.62, 21 at 2.63.0, 23 at 2.64.0, and 25 at 2.65.0.
+
+> **Refreshed for 2.69.0 (2026-11-10).** One patch needed re-anchoring: 0006's blob.rs `BlobDirContents::new` hunk (upstream folded the first `filter_map` into an async closure and added a non-file-entry `filter_map` stage). 0001-0005, 0007, 0008, 0010, 0011 unchanged. Locks re-pinned via `refresh-lock` (wasm-bindgen stays 0.2.130); apply-on-copy + verify-copy green; wasm32 check clean.
 
 > **Refreshed for 2.68.0 (2026-11-09).** Only two patches needed re-anchoring:
 > 0005's accounts.rs `use anyhow::bail` gating hunk dropped (upstream removed

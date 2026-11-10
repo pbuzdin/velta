@@ -7,9 +7,17 @@ undocumented JSON-RPC/event surface, and because core behavior changes
 (e.g. event emission rates, IMAP idle loops) surface as *frontend* symptoms:
 re-render storms, log spam, and battery drain rather than clean errors.
 
-Last updated for core `2.68.0` (see `core/Cargo.toml` `version` and the
+Last updated for core `2.69.0` (see `core/Cargo.toml` `version` and the
 statement in `README.md`; feature-by-feature notes per release live in
-`CORE-CAPABILITIES.MD`). 2.68.0 notes (2026-11-09; folds in 2.67.0 +
+`CORE-CAPABILITIES.MD`). 2.69.0 notes (2026-11-10; upstream released
+2026-11-09, hours after the 2.68.0 re-vendor): no DB migration, no config
+surface change, mostly chores — the pick-up matters for one fix: upstream
+simplified the webxdc determination (mimefactory now resolves
+`Viewtype::Webxdc` to `application/webxdc+zip` directly), fixing webxdc
+apps sometimes being received as plain files. CI switched its lint workflow
+to zizmor. Quilt re-anchor: #22 mimefactory hunk 29 (the anchor's
+`.get(Param::MimeType)` lines were folded into the new `let mimetype = …`
+one-liner). Prior notes: 2.68.0 (2026-11-09; folds in 2.67.0 +
 2.68.0, upstream 11-02/11-05): no DB migration, no config surface change.
 Mostly dependency bumps — mail-builder 1.0→2.0, mailparse 0.18, tokio 1.54,
 uuid 1.29, webpki-roots 1.0.11. Functional: webxdc detected by the
@@ -63,7 +71,7 @@ upstream replaces the whole tree and wipes them. **The quilt
 `tools/apply-core-patches.py` is the single source of truth: every Velta
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
-vanished in 2.63.0. Current quilt at core 2.68.0 — **200 ops in 37 files**
+vanished in 2.63.0. Current quilt at core 2.69.0 — **200 ops in 37 files**
 (intent per patch in VENDORISSUES.MD; upstream status — none implemented,
 multi-relay heading "fully automatic" upstream, escalation posture — in
 VENDORISSUES.MD "Upstream status (assessed 2026-10-29)"):
@@ -132,7 +140,7 @@ prebuilts are rebuilt.
 
 ## 0b. Opt-in: re-apply the wasm series (Architecture C track)
 
-> **Current series at core 2.68.0 (2026-11-09):** ten patch files
+> **Current series at core 2.69.0 (2026-11-10):** ten patch files
 > — 0001–0008, 0010, and 0011. The 0009 gap is intentional: its test-only
 > changes were superseded by the production #22 attachment operations. Patch
 > 0011 carries the current blob sync_fs facade and memfs `open_blob` routing.
