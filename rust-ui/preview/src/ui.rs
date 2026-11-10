@@ -30,9 +30,13 @@ const TITLE: WidgetTag<Label> = WidgetTag::named("title");
 const BACK: WidgetTag<Button> = WidgetTag::named("back");
 const LOG: WidgetTag<Label> = WidgetTag::named("log");
 const INVITE: WidgetTag<Button> = WidgetTag::named("invite");
-const SEND: WidgetTag<Button> = WidgetTag::named("send");
-const INPUT: WidgetTag<TextInput> = WidgetTag::named("input");
-const MSGS: WidgetTag<Portal<Flex>> = WidgetTag::named("msgs");
+// Masonry never drops a tag when its widget is removed, so widgets that get rebuilt
+// (the chat screen) take a fresh unique tag each time instead of a named one.
+struct ChatTags {
+    send: WidgetTag<Button>,
+    input: WidgetTag<TextInput>,
+    msgs: WidgetTag<Portal<Flex>>,
+}
 
 const LIMIT: usize = 200;
 
@@ -45,7 +49,7 @@ enum Async {
 
 enum Screen {
     List { rows: Vec<(WidgetTag<Button>, ChatId)> },
-    Chat { id: ChatId, draft: String },
+    Chat { id: ChatId, draft: String, tags: ChatTags },
     Invite,
 }
 
@@ -181,36 +185,39 @@ impl Driver {
     fn show_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
         let t = Instant::now();
         self.core.mark_seen(id);
-        let msgs = NewWidget::new(Portal::new(NewWidget::new(self.messages(id))).constrain_horizontal(true)).with_tag(MSGS);
-        let input = NewWidget::new(TextInput::new("").with_placeholder("Message")).with_tag(INPUT);
-        let send = NewWidget::new(Button::with_text("Send")).with_tag(SEND);
+        let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique() };
+        let msgs = NewWidget::new(Portal::new(NewWidget::new(self.messages(id))).constrain_horizontal(true)).with_tag(tags.msgs);
+        let input = NewWidget::new(TextInput::new("").with_placeholder("Message")).with_tag(tags.input);
+        let send = NewWidget::new(Button::with_text("Send")).with_tag(tags.send);
         let composer = NewWidget::new(Flex::row().with(input, 1.0).with_fixed_spacer(px(8.0)).with_fixed(send))
             .with_props(PropertySet::new().with(Padding::all(px(8.0))).with(Background::Color(SURFACE)));
         let screen = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with(msgs, 1.0).with_fixed(composer);
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(screen)));
         Self::set_title(root, &self.core.chat_name(id), true);
-        self.screen = Screen::Chat { id, draft: String::new() };
+        self.screen = Screen::Chat { id, draft: String::new(), tags };
         self.post(Async::ScrollBottom);
         crate::say(format!("chat {id} built in {} ms", t.elapsed().as_millis()));
     }
 
     fn refresh_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
+        let Screen::Chat { tags, .. } = &self.screen else { return };
+        let msgs = tags.msgs;
         let col = self.messages(id);
-        root.edit_widget_with_tag(MSGS, |mut p| Portal::set_child(&mut p, NewWidget::new(col)));
+        root.edit_widget_with_tag(msgs, |mut p| Portal::set_child(&mut p, NewWidget::new(col)));
         self.post(Async::ScrollBottom);
     }
 
     fn send(&mut self, root: &mut RenderRoot) {
-        let Screen::Chat { id, draft } = &mut self.screen else { return };
+        let Screen::Chat { id, draft, tags } = &mut self.screen else { return };
         let text = std::mem::take(draft);
         if text.trim().is_empty() {
             return;
         }
-        let id = *id;
+        let (id, input) = (*id, tags.input);
         if let Err(e) = self.core.send_text(id, text) {
             crate::say(format!("send failed: {e:#}"));
         }
-        root.edit_widget_with_tag(INPUT, |mut i| TextArea::reset_text(&mut TextInput::text_mut(&mut i), ""));
+        root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut TextInput::text_mut(&mut i), ""));
         self.refresh_chat(root, id);
     }
 }
@@ -226,7 +233,7 @@ impl AppDriver for Driver {
                 }
             } else if is(root, INVITE) {
                 self.show_invite(root);
-            } else if is(root, SEND) {
+            } else if matches!(&self.screen, Screen::Chat { tags, .. } if is(root, tags.send)) {
                 self.send(root);
             } else if let Screen::List { rows } = &self.screen {
                 let hit = rows.iter().find(|(tag, _)| is(root, *tag)).map(|(_, id)| *id);
@@ -263,8 +270,8 @@ impl AppDriver for Driver {
             return;
         }
         match (*a, &self.screen) {
-            (Async::ScrollBottom, Screen::Chat { .. }) => {
-                root.edit_widget_with_tag(MSGS, |mut p| {
+            (Async::ScrollBottom, Screen::Chat { tags, .. }) => {
+                root.edit_widget_with_tag(tags.msgs, |mut p| {
                     Portal::set_viewport_pos(&mut p, Point::new(0.0, f64::MAX / 4.0));
                 });
             }
