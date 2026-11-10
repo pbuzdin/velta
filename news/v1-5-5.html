@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.5.5: a glass composer, background sends, and Linux packages that are really there — Velta</title>
+  <meta name="description" content="The message field can turn to glass on Windows and Android, a backgrounded send shows a silent notification until it lands, and the Linux packages are finally on the release page. Plus voice playback speed, category chips in the pickers, and messaging core 2.69.0.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=22">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.5.5: a glass composer, background sends, and Linux packages that are really there</h1>
+    <p><time>10 November 2026</time> · 3 min read</p>
+    <p>The message field can turn to glass on Windows and Android, a backgrounded send shows a silent notification until it lands, and the Linux packages are finally on the release page. Plus voice playback speed, category chips in the pickers, and messaging core 2.69.0.</p>
+    <div class="body">
+<p>1.5.5 is a texture release: a new look for the composer, quieter machinery around sending, and a handful of small things you touch every day — the speed of a voice message, the list you pick a recipient from, the way the pinned bar reacts. Under it all, the messaging core moves up two versions.</p>
+<h2>The glass composer</h2>
+<p>Under <strong>Chat appearance → Liquid glass composer</strong>, the message field on Windows and Android stops being a solid plate: the chat behind it bends through it like frosted glass, and the plate picks up a soft light edge. The effect is opt-in and off by default — macOS and the browser version keep the solid field, because their engines do not bend light the same way. If your system asks for reduced transparency, the switch hides itself; the field you had before stays.</p>
+<h2>Sending, quietly, in the background</h2>
+<p>Large attachments could always finish uploading after you put the phone away — but nothing told you so. Now, when you background the app while a message is still on its way, a silent "Sending…" notification appears and stays until the message has landed. No sound, no vibration: a small honest card for the one thing that used to happen invisibly. It appears when the background-connection setting already keeps Velta alive — which is the default — and disappears the moment you come back or the send completes.</p>
+<h2>Messaging core 2.69.0</h2>
+<p>1.5.4 shipped core 2.66.0; this release carries 2.69.0. The change that matters most: webxdc apps are no longer <em>sometimes received as plain files</em> — an upstream fix for exactly the failure you may have seen with an app shared into a chat. Secure-Join links prefer the newer <code>vc-</code> form where both sides accept it, marking messages as seen and queueing the read receipt became one transaction, and very long incoming messages truncate at load time instead of slowing every save. Velta's patch series rides along unchanged: the same 200 operations, re-anchored onto the new tree.</p>
+<h2>Also in this release</h2>
+<ul>
+<li><strong>Playback speed</strong> — voice and audio players get a 1×/1.5×/2× button. The choice sticks across messages and travels with settings transfer.</li>
+<li><strong>Category chips in the forward and share pickers</strong> — the same All / People / Groups / Channels / Bots / Saved buckets as the main list, now in every "send this somewhere" sheet (#294).</li>
+<li><strong>Haptic ticks</strong> (Android) — a short vibration confirms when a swipe crosses the reply or back threshold.</li>
+<li><strong>Pinned tray</strong> — unpins and deletions refresh the tray instantly instead of waiting for the next unrelated event.</li>
+<li><strong>Message info for apps</strong> — a webxdc's info dialog shows when the app last received an update.</li>
+<li><strong>Translations complete</strong> — the last untranslated confirmations and toasts are in; French and Russian now cover the whole interface.</li>
+<li><strong>Linux packages, actually attached</strong> — 1.5.4 built the .deb, AppImage, and Arch package but never published them. They are on the release page now (Debian 12 / glibc 2.36 and newer), and the release job fails loudly if that ever happens again.</li>
+<li>The archived DNS-tunnel library is gone from the source tree — the SOCKS5 proxy replaced it in 1.5; nothing changes for saved proxies or settings.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.5">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.5.4...v1.5.5">Compare 1.5.4 with 1.5.5</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client, built on the Delta Chat core</span><span>Site visits measured cookielessly; the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=8"></script>
+</body>
+</html>
