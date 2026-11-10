@@ -116,3 +116,16 @@ test("message info and clocks do not use a 12-hour locale string", () => {
     for (const c of calls) { assert.match(c, /hourCycle:\s*"h23"|\bH24\b/); assert.doesNotMatch(c, /hour12/); }
   }
 });
+
+test("webxdc instances show a last-app-update row fed by timestamp_rcvd", () => {
+  const chat = read("app/js/chat-view.js");
+  // The core (upstream webxdc.rs insert_status_update) rewrites the instance
+  // message's timestamp_rcvd on every arriving status update, and rpc-core
+  // maps it to receivedTs — so the info dialog needs no extra RPC.
+  const row = chat.match(/m\.viewtype === "webxdc" \? `<div class="info-row"><span class="k">\$\{escapeHtml\(t\("Last app update"\)\)\}<\/span>/);
+  assert.ok(row, "webxdc-only Last app update row missing from _showInfo");
+  const branch = chat.slice(chat.indexOf("m.viewtype === \"webxdc\" ? `<div class=\"info-row\"><span class=\"k\">"), chat.indexOf("m.viewtype === \"webxdc\" ? `<div class=\"info-row\"><span class=\"k\">") + 400);
+  assert.match(branch, /formatDateTime\(m\.receivedTs\)/);
+  // Non-webxdc messages must not gain the row.
+  assert.doesNotMatch(chat, /viewtype !== "webxdc"[^\n]*Last app update/);
+});

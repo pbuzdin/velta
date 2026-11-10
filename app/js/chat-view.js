@@ -3753,6 +3753,7 @@ export class ChatView {
       <div class="info-row"><span class="k">${escapeHtml(t("From"))}</span><span class="v">${escapeHtml(m.fromContact?.name || "")}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("Sent"))}</span><span class="v">${escapeHtml(formatDateTime(m.sentTs || m.ts))}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("Received"))}</span><span class="v">${escapeHtml(m.receivedTs ? formatDateTime(m.receivedTs) : "—")}</span></div>
+      ${m.viewtype === "webxdc" ? `<div class="info-row"><span class="k">${escapeHtml(t("Last app update"))}</span><span class="v">${escapeHtml(m.receivedTs ? formatDateTime(m.receivedTs) : "—")}</span></div>` : ""}
       <div class="info-row"><span class="k">${escapeHtml(t("State"))}</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
