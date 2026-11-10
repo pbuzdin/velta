@@ -310,3 +310,23 @@ test("forwarded core-event batch notifications are dispatched in order, with acc
   assert.equal(core.pending.size, 1);
   await park();
 });
+
+test("PinnedMessagesChanged maps to pinned-changed (pin, unpin and pin deletion)", async t => {
+  const { core, transport, respond, park } = setup(t);
+  const pins = [];
+  core.addEventListener("pinned-changed", e => pins.push(e.detail));
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+
+  // The core's real kind (events.rs: "pinned message is unpinned or
+  // deleted") — the old MessagePinned/MessageUnpinned case names never
+  // existed on the wire, so the tray's fast path was dead.
+  transport.receive(JSON.stringify({
+    jsonrpc: "2.0", id: transport.sent[0].id,
+    result: { contextId: A, event: { kind: "PinnedMessagesChanged", chatId: CHAT } },
+  }));
+  await eventually(() => pins.length >= 1);
+  assert.deepEqual(pins[0], { chatId: CHAT });
+
+  await park();
+});

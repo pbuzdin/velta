@@ -727,8 +727,9 @@ export class JsonRpcCore extends EventTarget {
         // device that made the change too, not only on synced devices.
         this._emitAccount("transports-modified", {}, accountEpoch);
         break;
-      case "MessagePinned":
-      case "MessageUnpinned":
+      case "PinnedMessagesChanged":
+        // Fires on pin, unpin AND pin deletion (events.rs: "pinned message
+        // is unpinned or deleted"); carries { chatId }.
         this._emitAccount("pinned-changed", { chatId }, accountEpoch);
         break;
       case "IncomingCall":

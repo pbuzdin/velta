@@ -6021,12 +6021,11 @@ export class ChatView {
     this.core.addEventListener("pinned-changed", e => {
       if (e.detail.chatId === this._session?.chatId) this._refreshPinnedBar();
     });
-    // #69: a deleted pin never fires pinned-changed — the core's tombstone
-    // REPLACE silently wipes the pinned column (no MessageUnpinned event),
-    // so the tray kept showing the deleted message. Any change to the open
-    // chat (msgs-changed), a deletion (msgs-deleted, local or remote/ephemeral
-    // via rpc-core's MsgDeleted mapping) or a global sweep re-checks the
-    // pins; debounced to one refresh per 400 ms burst.
+    // #69 backstop: the core's PinnedMessagesChanged event (now wired in
+    // rpc-core, and it fires for pin, unpin AND pin deletion) keeps the
+    // tray fresh; these debounced re-checks on any change to the open chat
+    // (msgs-changed), a deletion (msgs-deleted) or a global sweep stay as
+    // defense in depth against a dropped event. One refresh per 400 ms burst.
     this._pinRefreshTimer = null;
     const queuePinRefresh = () => {
       clearTimeout(this._pinRefreshTimer);
