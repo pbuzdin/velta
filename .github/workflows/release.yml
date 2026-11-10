@@ -177,6 +177,16 @@ jobs:
       - name: List release assets
         run: ls -lh release-assets
 
+      # v1.5.5 incident: the Linux files were downloaded but the `files:`
+      # list below had no matching glob, so a green release published
+      # without them while its changelog told Linux users to install them.
+      # Fail the job instead of publishing an incomplete release.
+      - name: Require the Linux packages
+        run: |
+          test -n "$(find release-assets -name '*.deb')" || { echo "::error::no .deb in release-assets"; exit 1; }
+          test -n "$(find release-assets -name '*.AppImage')" || { echo "::error::no .AppImage in release-assets"; exit 1; }
+          test -n "$(find release-assets -name '*.pkg.tar.zst')" || { echo "::error::no Arch package in release-assets"; exit 1; }
+
       # The macOS build is ad-hoc signed (no Apple Developer ID yet), so
       # Gatekeeper blocks the first launch — the release page says how to
       # clear it (same text as README "macOS").
@@ -282,6 +292,9 @@ jobs:
             release-assets/stable/Velta-macos-universal.dmg
             release-assets/stable/Velta-windows-x64-setup.exe
             release-assets/**/latest.json
+            release-assets/*.deb
+            release-assets/*.AppImage
+            release-assets/*.pkg.tar.zst
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -54,3 +54,16 @@ test("#295: Linux core is velta-rpc-server; PKGBUILD has no provides/conflicts; 
   assert.equal((wf.match(/! grep -q 'deltachat-rpc-server'/g) || []).length, 3);
   assert.match(wf, /pacman -S --noconfirm deltachat-rpc-server/);
 });
+
+test("v1.5.5: release.yml publishes the Linux files it downloads and advertises", () => {
+  const wf = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+  const files = wf.slice(wf.indexOf("files: |"), wf.indexOf("env:", wf.indexOf("files: |")));
+  // The v1.5.5 incident: downloaded but never matched by a files: glob,
+  // so a green release shipped without the .deb/AppImage/Arch package.
+  assert.match(files, /release-assets\/\*\.deb/);
+  assert.match(files, /release-assets\/\*\.AppImage/);
+  assert.match(files, /release-assets\/\*\.pkg\.tar\.zst/);
+  // The hard guard fails the job instead of publishing an incomplete release.
+  assert.match(wf, /Require the Linux packages/);
+  assert.match(wf, /no \.deb in release-assets/);
+});
