@@ -189,3 +189,23 @@ CI installs them automatically, and the local toolchain is vendored under
 `tools/` (gitignored). The cost is ~15 minutes of build time; every
 alternative either breaks security or adds more moving parts than it
 removes.
+
+## Incident 4 (v1.5.5): aapt2 rejects `&apos;` in values-fr
+
+The Android "Sending…" notification's French string shipped as
+`Envoi d&apos;un message…` in `values-fr/bg_strings.xml`. The Windows-side
+build and all Kotlin compilation passed, but CI's
+`mergeUniversalReleaseResources` died with "Failed to flatten XML for
+resource 'bg_sending' — Invalid unicode escape sequence in string"
+(run 42740251545). The repo's own convention in `values-fr/strings.xml`
+is a backslash-escaped literal apostrophe (`l\'envoyer`) — aapt2's
+flattener handles that form everywhere it is already used. Fix: write
+`Envoi d\'un message` (commit `535f6197`); run 42743151158 went green.
+
+Rules:
+- In `gen/android/app/src/main/res/values*/`, escape apostrophes as `\'`
+  (match `strings.xml`), never as `&apos;`.
+- Kotlin errors and resource errors surface in different stages — a green
+  `cargo check` says nothing about `values-*` XML; only the Gradle
+  resource merge does. Dispatch `build-android.yml` before tagging when a
+  release touches `res/`.

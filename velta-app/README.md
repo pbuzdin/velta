@@ -4,17 +4,15 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.5.4` (copied from `src-tauri/tauri.conf.json`)  
+**Current stable version:** `1.5.5` (copied from `src-tauri/tauri.conf.json`)  
 **Bundled core:** `deltachat-core-rust 2.69.0` (copied from `../core/Cargo.toml`)
 
-## Unreleased
-
-Not in the 1.5.4 downloads. The glass switch is in this checkout's `app/`
-and shows up in a dev build; it is not committed. Linux release wiring is
-on master (`178d745b`) and takes effect on the next tag.
+## In 1.5.5
 
 - **Liquid glass composer** (off by default) — Chat appearance, Windows and
   Android WebView only. macOS keeps the solid field.
+- **Sending notification** (Android) — a silent card while an outgoing
+  message still uploads with the app backgrounded.
 - **Linux packages on the GitHub release** — `.deb`, AppImage, and Arch
   package, glibc 2.36+. No Linux self-update.
 
