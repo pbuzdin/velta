@@ -55,6 +55,9 @@ struct Driver {
     proxy: EventLoopProxy,
     screen: Screen,
     started: Option<Instant>,
+    /// False until the first screen is built. On Android the window only exists after
+    /// the activity resumes, so async actions posted before that are dropped.
+    built: bool,
 }
 
 fn px(v: f64) -> Length {
@@ -250,6 +253,10 @@ impl AppDriver for Driver {
             crate::say(format!("first frame cycle after {} ms", started.elapsed().as_millis()));
         }
         let Ok(a) = action.downcast::<Async>() else { return };
+        if !self.built {
+            self.built = true;
+            if matches!(self.screen, Screen::Invite) { self.show_invite(root) } else { self.show_list(root) }
+        }
         if matches!(*a, Async::Log) {
             let t = crate::log_text();
             root.edit_widget_with_tag(LOG, |mut l| Label::set_text(&mut l, t));
@@ -308,10 +315,10 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     .with_props(PropertySet::new().with(Padding::all(px(8.0))).with(Background::Color(SURFACE)));
     let body = NewWidget::new(SizedBox::empty()).with_tag(BODY);
     let log = NewWidget::new(Label::new(crate::log_text()).with_style(StyleProperty::FontSize(11.0))).with_tag(LOG)
-        .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding::from_vh(px(4.0), px(8.0))));
+        .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding { top: px(if cfg!(target_os = "android") { 36.0 } else { 4.0 }), bottom: px(4.0), left: px(8.0), right: px(8.0) }));
     let root = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(log).with_fixed(header).with(body, 1.0);
 
-    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![] }, started: Some(started) };
+    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![] }, started: Some(started), built: false };
     // First content arrives as an async refresh so the window paints immediately.
     driver.post(Async::Core(Change::Chatlist));
     if !driver.core.is_configured() {
