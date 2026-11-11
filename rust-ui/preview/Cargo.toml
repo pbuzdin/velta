@@ -8,6 +8,7 @@ publish = false
 
 # Standalone: not part of core's workspace.
 [workspace]
+members = ["vendor/masonry_winit"]
 
 [lib]
 name = "velta_preview"
@@ -15,14 +16,17 @@ name = "velta_preview"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["gpu"]
+default = ["gpu", "glass"]
 # Vello on the GPU (wgpu). The CPU path (vello_cpu) needs our own host; see README.
 gpu = ["masonry_winit/imaging_vello"]
 hybrid = ["masonry_winit/imaging_vello_hybrid"]
 # Skia renderer — the CPU/GPU rasterizer with a full image-filter suite
-# (displacement maps, blur): the only path to true backdrop refraction
-# (liquid glass) in this stack. Experimental; see #315.
+# (displacement maps, blur); renders colour emoji on Android where vello
+# hybrid cannot. Experimental; see #315.
 skia = ["masonry_winit/imaging_skia", "dep:skia-safe"]
+# GPU-host refraction (liquid glass) in the vendored masonry_winit host;
+# omit for the plain translucent bar. docs/agents/rust-ui-glass.md.
+glass = ["masonry_winit/glass"]
 # Android activity backend, picked per build: NativeActivity ships via cargo-apk,
 # GameActivity (androidx.games — the IME/insets backend the composer needs) via the
 # Gradle shell in android/. Exactly one must be enabled for an Android build.
@@ -74,3 +78,6 @@ name = "android.permission.INTERNET"
 [profile.release]
 lto = "thin"
 codegen-units = 4
+
+[patch."https://github.com/linebender/xilem"]
+masonry_winit = { path = "vendor/masonry_winit" }

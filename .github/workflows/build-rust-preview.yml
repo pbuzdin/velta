@@ -5,7 +5,7 @@ name: Build Rust preview APK
 on:
   workflow_dispatch:
   push:
-    branches: [rust-ui-preview]
+    branches: [rust-ui-preview, rust-ui-glass]
     paths: ["rust-ui/preview/**", ".github/workflows/build-rust-preview.yml"]
 
 permissions:
@@ -66,7 +66,7 @@ jobs:
           env "RANLIB_aarch64-linux-android=$NDKB/llvm-ranlib" \
             CARGO_APK_RELEASE_KEYSTORE="$K" CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
             cargo apk build --release --lib --no-default-features \
-            --features ${{ matrix.renderer }},native-activity
+            --features ${{ matrix.renderer }},glass,native-activity
           cp target/release/apk/velta-preview.apk "velta-preview-${{ matrix.renderer }}-${GITHUB_SHA::8}-arm64.apk"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -136,7 +136,7 @@ jobs:
             "AR_aarch64_linux_android=$NDKB/llvm-ar" \
             "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDKB/aarch64-linux-android28-clang" \
             cargo build --release --lib --target aarch64-linux-android \
-            --no-default-features --features ${{ matrix.renderer }},game-activity
+            --no-default-features --features ${{ matrix.renderer }},glass,game-activity
           mkdir -p android/app/src/main/jniLibs/arm64-v8a
           cp target/aarch64-linux-android/release/libvelta_preview.so android/app/src/main/jniLibs/arm64-v8a/
           cd android
