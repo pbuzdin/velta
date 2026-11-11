@@ -8,6 +8,7 @@ publish = false
 
 # Standalone: not part of core's workspace.
 [workspace]
+members = ["vendor/masonry_winit"]
 
 [lib]
 name = "velta_preview"
@@ -15,10 +16,12 @@ name = "velta_preview"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["gpu"]
+default = ["gpu", "glass"]
 # Vello on the GPU (wgpu). The CPU path (vello_cpu) needs our own host; see README.
 gpu = ["masonry_winit/imaging_vello"]
 hybrid = ["masonry_winit/imaging_vello_hybrid"]
+# GPU-host refraction prototype; omit for the plain translucent bar.
+glass = ["masonry_winit/glass"]
 # Android activity backend, picked per build: NativeActivity ships via cargo-apk,
 # GameActivity (androidx.games — the IME/insets backend the composer needs) via the
 # Gradle shell in android/. Exactly one must be enabled for an Android build.
@@ -61,3 +64,6 @@ name = "android.permission.INTERNET"
 [profile.release]
 lto = "thin"
 codegen-units = 4
+
+[patch."https://github.com/linebender/xilem"]
+masonry_winit = { path = "vendor/masonry_winit" }

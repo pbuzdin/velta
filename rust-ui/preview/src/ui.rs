@@ -8,7 +8,7 @@ use deltachat::message::MsgId;
 use masonry::app::RenderRoot;
 use masonry::core::{ErasedAction, NewWidget, PropertySet, StyleProperty, WidgetId, WidgetTag};
 use masonry::dpi::LogicalSize;
-use masonry::kurbo::{Affine, Point, Vec2};
+use masonry::kurbo::{Affine, Point, Rect, Vec2};
 use masonry::layout::Length;
 use masonry::peniko::color::AlphaColor;
 use masonry::properties::types::{CrossAxisAlignment, MainAxisAlignment};
@@ -95,6 +95,12 @@ struct AddTags {
     status: WidgetTag<Label>,
 }
 
+// Floating capsule stays clear of Android's system gesture strip.
+const BAR_HEIGHT: f64 = 64.0;
+fn bar_bottom() -> f64 { if cfg!(target_os = "android") { 28.0 } else { 12.0 } }
+fn bar_space() -> f64 { BAR_HEIGHT + bar_bottom() + 12.0 }
+struct BarLayer { tag: WidgetTag<SizedBox>, id: WidgetId, rect: Rect }
+
 const LIMIT: usize = 200;
 
 #[derive(Debug)]
@@ -137,6 +143,7 @@ struct Driver {
     /// Soft keyboard height (logical px); pads the composer via `ChatTags::spacer`.
     ime: f64,
     gesture: Option<Gesture>,
+    bar_layer: Option<BarLayer>,
 }
 
 fn px(v: f64) -> Length {
@@ -172,7 +179,8 @@ impl Driver {
                 .with_tag(tag)
                 .with_props(
                     PropertySet::new()
-                        .with(Background::Color(if tab == active { OUT } else { SURFACE }))
+                        .with(ContentColor::new(TEXT))
+                        .with(Background::Color(if tab == active { OUT } else { AlphaColor::TRANSPARENT }))
                         .with(CornerRadius::all(px(18.0)))
                         .with(Padding::from_vh(px(10.0), px(8.0))),
                 )
@@ -186,17 +194,53 @@ impl Driver {
             .with(item("My QR", Tab::Qr, tags.qr), 1.0);
         let bar = NewWidget::new(row).with_props(
             PropertySet::new()
-                // Android draws edge to edge; keep the bar above the gesture bar.
-                .with(Padding { top: px(8.0), left: px(8.0), right: px(8.0), bottom: px(if cfg!(target_os = "android") { 28.0 } else { 8.0 }) })
-                .with(Background::Color(SURFACE)),
+                .with(Padding::all(px(10.0)))
+                .with(CornerRadius::all(px(28.0)))
+                .with(Background::Color(if cfg!(feature = "glass") { AlphaColor::TRANSPARENT } else { SURFACE.with_alpha(0.94) })),
         );
         (bar, tags)
     }
 
-    /// Puts `content` in the body with the action bar under it.
-    fn set_body_with_bar<W: masonry::core::Widget>(root: &mut RenderRoot, content: NewWidget<W>, bar: NewWidget<Flex>) {
-        let screen = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with(content, 1.0).with_fixed(bar);
-        root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(screen)));
+    fn clear_bar(&mut self, root: &mut RenderRoot) {
+        if let Some(layer) = self.bar_layer.take() { root.remove_layer(layer.id); }
+        #[cfg(feature = "glass")]
+        masonry_winit::glass::set_rects(vec![]);
+    }
+
+    fn bar_rect(root: &RenderRoot) -> Rect {
+        let size = root.size().to_logical::<f64>(root.scale_factor());
+        let width = (size.width - 24.0).max(1.0);
+        let y = (size.height - bar_bottom() - BAR_HEIGHT).max(0.0);
+        Rect::new(12.0, y, 12.0 + width, y + BAR_HEIGHT)
+    }
+
+    /// Overlay participates in Masonry hit-testing, but is painted after refraction.
+    fn set_body_with_bar<W: masonry::core::Widget>(&mut self, root: &mut RenderRoot, content: NewWidget<W>, bar: NewWidget<Flex>) {
+        self.clear_bar(root);
+        root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, content));
+        let rect = Self::bar_rect(root);
+        let tag = WidgetTag::unique();
+        let layer = NewWidget::new(SizedBox::new(bar).size(px(rect.width()), px(rect.height()))).with_tag(tag);
+        let id = layer.id();
+        root.add_layer(layer, rect.origin());
+        self.bar_layer = Some(BarLayer { tag, id, rect });
+        self.layout_bar(root);
+    }
+
+    /// Called before each redraw, including after resize / DPI changes; no timer.
+    fn layout_bar(&mut self, root: &mut RenderRoot) {
+        let rect = Self::bar_rect(root);
+        let Some(layer) = &mut self.bar_layer else { return };
+        if layer.rect != rect {
+            root.edit_widget_with_tag(layer.tag, |mut b| {
+                SizedBox::set_width(&mut b, px(rect.width()));
+                SizedBox::set_height(&mut b, px(rect.height()));
+            });
+            root.reposition_layer(layer.id, rect.origin());
+            layer.rect = rect;
+        }
+        #[cfg(feature = "glass")]
+        masonry_winit::glass::set_rects(vec![masonry_winit::glass::GlassRect { rect, radius: 28.0, strength: 10.0 }]);
     }
 
     fn bar_hit(&self, root: &RenderRoot, is: &dyn Fn(&RenderRoot, WidgetTag<Button>) -> bool) -> Option<Tab> {
@@ -248,6 +292,7 @@ impl Driver {
             col = col.with_fixed(btn);
             map.push((tag, r.id));
         }
+        col = col.with_fixed_spacer(px(bar_space()));
         let portal_tag = WidgetTag::unique();
         let portal = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true)).with_tag(portal_tag);
         let (bar, bar_tags) = Self::bar(Tab::Chats);
@@ -255,9 +300,9 @@ impl Driver {
             let hint = label("No chats yet. Tap Add by link to paste an invite, or show My QR to a friend.", 15.0, MUTED)
                 .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding::all(px(16.0))));
             let col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(hint).with(portal, 1.0);
-            Self::set_body_with_bar(root, NewWidget::new(col), bar);
+            self.set_body_with_bar(root, NewWidget::new(col), bar);
         } else {
-            Self::set_body_with_bar(root, portal, bar);
+            self.set_body_with_bar(root, portal, bar);
         }
         Self::set_title(root, "Chats", false);
         self.screen = Screen::List { rows: map, portal: portal_tag, bar: bar_tags };
@@ -300,9 +345,9 @@ impl Driver {
             let create = NewWidget::new(Button::with_text(format!("Create account on {host}"))).with_tag(tags.create);
             col = col.with_fixed_spacer(px(20.0)).with_fixed(create);
         }
-        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding::all(px(16.0))));
+        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding { top: px(16.0), left: px(16.0), right: px(16.0), bottom: px(bar_space()) }));
         let (bar, bar_tags) = Self::bar(Tab::Add);
-        Self::set_body_with_bar(root, NewWidget::new(Portal::new(col).constrain_horizontal(true)), bar);
+        self.set_body_with_bar(root, NewWidget::new(Portal::new(col).constrain_horizontal(true)), bar);
         Self::set_title(root, if configured { "Add by link" } else { "Welcome" }, false);
         self.screen = Screen::Add { draft: String::new(), tags, bar: bar_tags, busy: false };
     }
@@ -324,9 +369,9 @@ impl Driver {
                 .with_fixed_spacer(px(16.0))
                 .with_fixed(label(self.core.self_addr(), 13.0, MUTED))
         };
-        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding::all(px(16.0))));
+        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding { top: px(16.0), left: px(16.0), right: px(16.0), bottom: px(bar_space()) }));
         let (bar, bar_tags) = Self::bar(Tab::Qr);
-        Self::set_body_with_bar(root, NewWidget::new(Portal::new(col).constrain_horizontal(true)), bar);
+        self.set_body_with_bar(root, NewWidget::new(Portal::new(col).constrain_horizontal(true)), bar);
         Self::set_title(root, "My QR", false);
         self.screen = Screen::Qr { ready, bar: bar_tags };
     }
@@ -430,6 +475,7 @@ impl Driver {
     }
 
     fn show_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
+        self.clear_bar(root);
         let t = Instant::now();
         self.core.mark_seen(id);
         let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique(), spacer: WidgetTag::unique(), reply: WidgetTag::unique() };
@@ -530,6 +576,11 @@ impl Driver {
         let (x, y) = (x / scale, y / scale);
         match phase {
             TouchPhase::Started => {
+                // A drag on the floating controls must not scroll content underneath.
+                if self.bar_layer.as_ref().is_some_and(|b| b.rect.contains(Point::new(x, y))) {
+                    self.gesture = None;
+                    return;
+                }
                 let (mode, bubble) = match &self.screen {
                     Screen::Chat { bubbles, .. } => {
                         let p = Point::new(x, y);
@@ -780,7 +831,7 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
         .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding { top: px(if cfg!(target_os = "android") { 36.0 } else { 4.0 }), bottom: px(4.0), left: px(8.0), right: px(8.0) }));
     let root = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(log).with_fixed(header).with(body, 1.0);
 
-    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![], portal: WidgetTag::unique(), bar: BarTags { chats: WidgetTag::unique(), add: WidgetTag::unique(), qr: WidgetTag::unique() } }, started: Some(started), built: false, ime: 0.0, gesture: None };
+    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![], portal: WidgetTag::unique(), bar: BarTags { chats: WidgetTag::unique(), add: WidgetTag::unique(), qr: WidgetTag::unique() } }, started: Some(started), built: false, ime: 0.0, gesture: None, bar_layer: None };
     // First content arrives as an async refresh so the window paints immediately.
     driver.post(Async::Core(Change::Chatlist));
     if !driver.core.is_configured() {
@@ -834,6 +885,9 @@ impl ApplicationHandler<MasonryUserEvent> for App {
         }
         if let WindowEvent::Touch(t) = &event {
             self.driver.post(Async::Touch(t.phase, t.location.x, t.location.y));
+        }
+        if matches!(event, WindowEvent::RedrawRequested) {
+            for root in self.state.roots() { self.driver.layout_bar(root); }
         }
         self.state.handle_window_event(el, id, event, &mut self.driver);
     }

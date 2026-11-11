@@ -115,3 +115,42 @@ adb logcat -s velta-preview
 ```
 
 Build locally: see `AGENTS.md`.
+
+## Glass prototype (`rust-ui-glass` only)
+
+The Rust UI remains a **work-in-progress experiment**. Build with
+`--no-default-features --features hybrid,glass` (or `gpu,glass` on desktop).
+Default desktop builds enable `gpu,glass`; Android CI explicitly enables glass
+for both activity backends. Omit `glass` for the plain dark translucent bar.
+
+Only `vendor/masonry_winit` is patched (xilem `dc49687`; see `vendor/README.md`).
+The host renders root content into A and transparent overlays into B, then a
+WGSL pass refracts A inside the floating bottom capsule and alpha-composites B.
+Rounded-rect SDF normals bend the rim, the centre stays flat; a nine-tap blur,
+subtle colour split, dark tint and specular rim finish the lens. Buttons/text
+stay sharp and retain Masonry hit-testing. The bar disappears in chats, as
+before; list/add/QR contents have scrollable bottom clearance. Geometry updates
+before redraw after resize/DPI changes, with no animation timer.
+
+GPU-host only (hybrid or gpu); no CPU/Skia implementation. This is approximately
+one copy-like full-window composite plus a small fragment effect in glass rects,
+**in addition to two scene replays and the existing presentation blit**. Two
+extra RGBA8 window textures (8 bytes per physical pixel total) are reused until
+resize, with no per-frame GPU resource recreation. Cost and battery impact on
+the vivo are not measured yet; do not call the effect free. Global rectangle
+state supports one window, at most 16 non-overlapping lenses; the prototype
+refracts only root content, not earlier overlays. GPU/Vello is still not for
+Android on the vivo; use hybrid. No rendering-engine patch is needed.
+
+For synthetic screenshots without a real account or sending any messages:
+`cargo run --example glass_fixture -- /tmp/velta-glass-fixture`, then run the
+preview with that directory and tap **Chats**. The fixture refuses existing
+directories and only creates local groups/drafts with an invalid example address.
+
+Desktop verification: hybrid+glass and gpu+glass build; hybrid without glass
+builds too. The host tests pass on software GLES, including real imaging
+foreground alpha, backdrop preservation and clearing stale overlay pixels.
+Run them with `WGPU_BACKEND=gl cargo test -p masonry_winit
+--no-default-features --features imaging_vello_hybrid,glass --lib -- --include-ignored`
+(or `imaging_vello,glass` for the compute backend). Phone performance and gesture
+feel still need an on-device pass; the broken Android emulator was not used.
