@@ -60,6 +60,9 @@ const BODY: WidgetTag<SizedBox> = WidgetTag::named("body");
 const TITLE: WidgetTag<Label> = WidgetTag::named("title");
 const BACK: WidgetTag<Button> = WidgetTag::named("back");
 const LOG: WidgetTag<Label> = WidgetTag::named("log");
+/// Header slot for the profile (ⓘ) button, filled on 1:1 chats only.
+const INFO: WidgetTag<Button> = WidgetTag::named("info");
+const INFO_SLOT: WidgetTag<SizedBox> = WidgetTag::named("info-slot");
 // Masonry never drops a tag when its widget is removed, so widgets that get rebuilt
 // (the chat screen) take a fresh unique tag each time instead of a named one.
 struct ChatTags {
@@ -73,6 +76,15 @@ struct ChatTags {
     reply: WidgetTag<SizedBox>,
     /// Slot above the reply banner: the long-press text menu (Copy/Paste/…).
     menu: WidgetTag<SizedBox>,
+    /// Header ⓘ button (profile entry), 1:1 chats only.
+    info: WidgetTag<Button>,
+}
+
+/// Buttons of the profile screen.
+#[derive(Clone, Copy, Debug)]
+struct ProfileTags {
+    send: WidgetTag<Button>,
+    block: WidgetTag<Button>,
 }
 
 /// Buttons of the text menu while it is open.
@@ -208,6 +220,13 @@ enum Screen {
         portal: WidgetTag<Portal<Flex>>,
         bar: BarTags,
     },
+    /// Contact sheet for a 1:1 chat (web profile screen).
+    Profile {
+        chat_id: ChatId,
+        blocked: bool,
+        portal: WidgetTag<Portal<Flex>>,
+        tags: ProfileTags,
+    },
     Chat {
         id: ChatId,
         draft: String,
@@ -283,6 +302,20 @@ impl Driver {
         let _ = self
             .proxy
             .send_event(MasonryUserEvent::AsyncAction(self.window, Box::new(a)));
+    }
+
+    /// Fills or clears the header ⓘ slot (profile entry, 1:1 chats only).
+    fn set_info(&mut self, root: &mut RenderRoot, on: Option<WidgetTag<Button>>) {
+        root.edit_widget_with_tag(INFO_SLOT, |mut b| {
+            let child = match on {
+                Some(tag) => NewWidget::new(Button::with_text("ⓘ"))
+                    .with_tag(tag)
+                    .with_props(PropertySet::new().with(Background::Color(SURFACE)))
+                    .erased(),
+                None => NewWidget::new(SizedBox::empty()).erased(),
+            };
+            SizedBox::set_child(&mut b, child);
+        });
     }
 
     fn set_title(root: &mut RenderRoot, title: &str, back: bool) {
@@ -404,7 +437,7 @@ impl Driver {
     ) -> Option<Tab> {
         let bar = match &self.screen {
             Screen::List { bar, .. } | Screen::Add { bar, .. } | Screen::Qr { bar, .. } => bar,
-            Screen::Chat { .. } => return None,
+            Screen::Chat { .. } | Screen::Profile { .. } => return None,
         };
         [
             (bar.chats, Tab::Chats),
@@ -418,6 +451,7 @@ impl Driver {
 
     fn show_list(&mut self, root: &mut RenderRoot) {
         crate::set_ime_polling(false);
+        self.set_info(root, None);
         self.ime = 0.0;
         let t = Instant::now();
         let rows = self.core.chats().unwrap_or_default();
@@ -453,27 +487,8 @@ impl Driver {
                 .with_fixed(NewWidget::new(bottom));
             // Avatar tile: 1:1 peers with a key get the fingerprint identity
             // matrix (web avatar.js); everything else the Prism initials tile.
-            // Corner cells stay square — CornerRadius is uniform-only at this
-            // rev, no per-corner clipping.
             let avatar = match r.identity.as_deref().and_then(identity::cells) {
-                Some(cells) => {
-                    let mut grid = Flex::column();
-                    for range in [0..3usize, 3..5, 5..7, 7..10] {
-                        let mut row = Flex::row();
-                        for i in range {
-                            let (_, rgb) = cells[i];
-                            row = row.with(
-                                NewWidget::new(SizedBox::empty()).with_props(
-                                    PropertySet::new()
-                                        .with(Background::Color(prism::to_color(rgb))),
-                                ),
-                                1.0,
-                            );
-                        }
-                        grid = grid.with(NewWidget::new(row), 1.0);
-                    }
-                    NewWidget::new(SizedBox::new(NewWidget::new(grid)).size(px(38.0), px(38.0)))
-                }
+                Some(cells) => matrix_tile(&cells, 38.0),
                 None => NewWidget::new(
                     SizedBox::new(NewWidget::new(Align::centered(one_line(
                         prism::initials(&r.name),
@@ -544,6 +559,7 @@ impl Driver {
 
     fn show_add(&mut self, root: &mut RenderRoot) {
         crate::set_ime_polling(false);
+        self.set_info(root, None);
         self.ime = 0.0;
         crate::clear_ime_text();
         let configured = self.core.is_configured();
@@ -626,6 +642,7 @@ impl Driver {
 
     fn show_qr(&mut self, root: &mut RenderRoot) {
         crate::set_ime_polling(false);
+        self.set_info(root, None);
         self.ime = 0.0;
         let link = self.core.invite();
         let ready = !link.is_empty();
@@ -872,7 +889,13 @@ impl Driver {
             spacer: WidgetTag::unique(),
             reply: WidgetTag::unique(),
             menu: WidgetTag::unique(),
+            info: WidgetTag::unique(),
         };
+        // Profile entry (ⓘ) in the header: 1:1 chats only.
+        self.set_info(
+            root,
+            Some(tags.info).filter(|_| self.core.is_single_chat(id)),
+        );
         let (col, bubbles, img_slots, img_reqs) = self.messages(id);
         self.request_images(img_reqs);
         let msgs = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true))
@@ -940,6 +963,124 @@ impl Driver {
         crate::set_ime_polling(true);
         self.post(Async::ScrollBottom);
         crate::say(format!("chat {id} built in {} ms", t.elapsed().as_millis()));
+    }
+
+    /// The contact sheet (web profile screen): identity tiles, contact data,
+    /// actions. 1:1 chats only — other chats fall back to the chat view.
+    fn show_profile(&mut self, root: &mut RenderRoot, chat_id: ChatId) {
+        crate::set_ime_polling(false);
+        self.set_info(root, None);
+        self.ime = 0.0;
+        let Ok(p) = self.core.profile(chat_id) else {
+            return self.show_chat(root, chat_id);
+        };
+        let tags = ProfileTags {
+            send: WidgetTag::unique(),
+            block: WidgetTag::unique(),
+        };
+
+        // Avatar: the identity matrix with its caption legend; the Prism
+        // tile for key-less contacts.
+        let mut tiles = Flex::row()
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .cross_axis_alignment(CrossAxisAlignment::Center);
+        match p.fingerprint.as_deref().and_then(identity::cells) {
+            Some(cells) => {
+                tiles = tiles
+                    .with_fixed(matrix_tile(&cells, 120.0))
+                    .with_fixed_spacer(px(16.0))
+                    .with_fixed(legend_tile(&cells, 150.0));
+            }
+            None => {
+                tiles = tiles.with_fixed(prism_tile(&p.name, 120.0));
+            }
+        }
+
+        let kv = |k: &str, v: &str| -> NewWidget<Flex> {
+            NewWidget::new(
+                Flex::row()
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with(label(k.to_string(), 14.0, MUTED), 0.4)
+                    .with(label(v.to_string(), 14.0, TEXT), 0.6),
+            )
+            .with_props(PropertySet::new().with(Padding::from_vh(px(8.0), px(0.0))))
+        };
+        let mut rows = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for (k, v) in [
+            ("Apps", p.apps.to_string()),
+            ("Photos", p.photos.to_string()),
+            ("Videos", p.videos.to_string()),
+            ("Audio", p.audio.to_string()),
+            ("Files", p.files.to_string()),
+            ("Address", p.addr.clone()),
+            (
+                "Profile key",
+                p.fingerprint
+                    .as_deref()
+                    .map(grouped_fpr)
+                    .unwrap_or_default(),
+            ),
+            ("Last seen", p.last_seen.clone()),
+            (
+                "Notifications",
+                if p.muted { "Off" } else { "On" }.to_string(),
+            ),
+            ("Disappearing messages", p.ephemeral.clone()),
+            ("Storage", human_bytes(p.storage)),
+            ("Chats in common", p.chats_in_common.to_string()),
+        ] {
+            if k == "Profile key" && v.is_empty() {
+                continue;
+            }
+            rows = rows.with_fixed(kv(&k, &v));
+        }
+
+        let send = NewWidget::new(Button::with_text("Send message")).with_tag(tags.send);
+        let block = NewWidget::new(Button::with_text(if p.blocked {
+            "Unblock"
+        } else {
+            "Block"
+        }))
+        .with_tag(tags.block)
+        .with_props(PropertySet::new().with(ContentColor::new(prism::to_color([220, 90, 90]))));
+        let actions = Flex::row()
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .with_fixed(send)
+            .with_fixed_spacer(px(16.0))
+            .with_fixed(block);
+
+        let col = Flex::column()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_fixed(NewWidget::new(tiles))
+            .with_fixed_spacer(px(10.0))
+            .with_fixed(NewWidget::new(Align::centered(label(
+                p.name.clone(),
+                18.0,
+                TEXT,
+            ))))
+            .with_fixed(NewWidget::new(Align::centered(label(
+                p.addr.clone(),
+                13.0,
+                MUTED,
+            ))))
+            .with_fixed_spacer(px(6.0))
+            .with_fixed(NewWidget::new(actions))
+            .with_fixed_spacer(px(6.0))
+            .with_fixed(NewWidget::new(rows))
+            .with_fixed_spacer(px(bar_space()));
+        let portal_tag = WidgetTag::unique();
+        let portal = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true))
+            .with_tag(portal_tag);
+        self.clear_bar(root);
+        root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, portal));
+        Self::set_title(root, "Profile", true);
+        self.screen = Screen::Profile {
+            chat_id,
+            blocked: p.blocked,
+            portal: portal_tag,
+            tags,
+        };
+        crate::say(format!("profile {chat_id} built"));
     }
 
     fn refresh_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
@@ -1235,7 +1376,9 @@ impl Driver {
                         g.last_y = y;
                         let tag = match &self.screen {
                             Screen::Chat { tags, .. } => Some(tags.msgs),
-                            Screen::List { portal, .. } => Some(*portal),
+                            Screen::List { portal, .. } | Screen::Profile { portal, .. } => {
+                                Some(*portal)
+                            }
                             Screen::Add { .. } | Screen::Qr { .. } => None,
                         };
                         if let Some(tag) = tag {
@@ -1305,9 +1448,32 @@ impl AppDriver for Driver {
                 root.get_widget_with_tag(tag).map(|w| w.id()) == Some(widget_id)
             };
             if is(root, BACK) {
-                if !matches!(self.screen, Screen::List { .. }) {
-                    self.show_list(root);
+                match &self.screen {
+                    Screen::Profile { chat_id, .. } => self.show_chat(root, *chat_id),
+                    Screen::List { .. } => {}
+                    _ => self.show_list(root),
                 }
+            } else if let Screen::Profile {
+                chat_id,
+                blocked,
+                tags,
+                ..
+            } = &self.screen
+            {
+                let (chat_id, blocked, tags) = (*chat_id, *blocked, *tags);
+                if is(root, tags.send) {
+                    self.show_chat(root, chat_id);
+                } else if is(root, tags.block) {
+                    if let Err(e) = self.core.set_peer_blocked(chat_id, !blocked) {
+                        crate::say(format!("block failed: {e:#}"));
+                    }
+                    self.show_profile(root, chat_id);
+                }
+            } else if let Screen::Chat { id, tags, .. } = &self.screen
+                && is(root, tags.info)
+            {
+                let id = *id;
+                self.show_profile(root, id);
             } else if let Some(tab) = self.bar_hit(root, &is) {
                 match tab {
                     Tab::Chats => self.show_list(root),
@@ -1353,7 +1519,7 @@ impl AppDriver for Driver {
             match *action.downcast::<TextAction>().unwrap() {
                 TextAction::Changed(t) => match &mut self.screen {
                     Screen::Chat { draft, .. } | Screen::Add { draft, .. } => *draft = t,
-                    Screen::List { .. } | Screen::Qr { .. } => {}
+                    Screen::List { .. } | Screen::Qr { .. } | Screen::Profile { .. } => {}
                 },
                 TextAction::Entered(_) => {
                     if matches!(self.screen, Screen::Add { .. }) {
@@ -1399,6 +1565,9 @@ impl AppDriver for Driver {
             }
             if matches!(self.screen, Screen::List { .. }) {
                 crate::to_background();
+            } else if let Screen::Profile { chat_id, .. } = &self.screen {
+                let chat_id = *chat_id;
+                self.show_chat(root, chat_id);
             } else {
                 self.show_list(root);
             }
@@ -1467,7 +1636,7 @@ impl AppDriver for Driver {
             let (draft, input) = match &mut self.screen {
                 Screen::Chat { draft, tags, .. } => (draft, tags.input),
                 Screen::Add { draft, tags, .. } => (draft, tags.input),
-                Screen::List { .. } | Screen::Qr { .. } => return,
+                Screen::List { .. } | Screen::Qr { .. } | Screen::Profile { .. } => return,
             };
             if *draft != *t {
                 *draft = t.clone();
@@ -1591,7 +1760,9 @@ pub fn run(
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .with_fixed(back)
             .with_fixed_spacer(px(8.0))
-            .with(title, 1.0),
+            .with(title, 1.0)
+            .with_fixed_spacer(px(8.0))
+            .with_fixed(NewWidget::new(SizedBox::empty()).with_tag(INFO_SLOT)),
     )
     .with_props(
         PropertySet::new()
@@ -1777,6 +1948,85 @@ fn short(text: &str, max: usize) -> String {
     }
     let cut: String = text.chars().take(max).collect();
     format!("{}…", cut.trim_end())
+}
+
+/// The fingerprint identity matrix (3/2/2/3 grid, flush square cells —
+/// CornerRadius is uniform-only at this rev, no per-corner clipping).
+fn matrix_tile(cells: &[(&'static str, [u8; 3]); 10], size: f64) -> NewWidget<SizedBox> {
+    let mut grid = Flex::column();
+    for range in [0..3usize, 3..5, 5..7, 7..10] {
+        let mut row = Flex::row();
+        for i in range {
+            let (_, rgb) = cells[i];
+            row = row.with(
+                NewWidget::new(SizedBox::empty())
+                    .with_props(PropertySet::new().with(Background::Color(prism::to_color(rgb)))),
+                1.0,
+            );
+        }
+        grid = grid.with(NewWidget::new(row), 1.0);
+    }
+    NewWidget::new(SizedBox::new(NewWidget::new(grid)).size(px(size), px(size)))
+}
+
+/// The same matrix with the color-name captions inside each cell (profile).
+fn legend_tile(cells: &[(&'static str, [u8; 3]); 10], size: f64) -> NewWidget<SizedBox> {
+    let mut grid = Flex::column();
+    for range in [0..3usize, 3..5, 5..7, 7..10] {
+        let mut row = Flex::row();
+        for i in range {
+            let (name, rgb) = cells[i];
+            let cell = NewWidget::new(SizedBox::new(NewWidget::new(Align::centered(one_line(
+                name,
+                11.0,
+                prism::to_color(identity::contrast_text(rgb)),
+            )))))
+            .with_props(PropertySet::new().with(Background::Color(prism::to_color(rgb))));
+            row = row.with(cell, 1.0);
+        }
+        grid = grid.with(NewWidget::new(row), 1.0);
+    }
+    NewWidget::new(SizedBox::new(NewWidget::new(grid)).size(px(size), px(size)))
+}
+
+/// The Prism initials tile (photo-less chats without a key).
+fn prism_tile(name: &str, size: f64) -> NewWidget<SizedBox> {
+    NewWidget::new(
+        SizedBox::new(NewWidget::new(Align::centered(one_line(
+            prism::initials(name),
+            (size * 0.38) as f32,
+            prism::to_color(prism::INK),
+        ))))
+        .size(px(size), px(size)),
+    )
+    .with_props(
+        PropertySet::new()
+            .with(Background::Color(prism::to_color(prism::fill(name))))
+            .with(CornerRadius::all(px(size * 0.5))),
+    )
+}
+
+/// "0E69 2C68 … 1009" / "3DD1 … BED9" — 5 groups of 4 per line (web Profile key).
+fn grouped_fpr(fpr: &str) -> String {
+    let hex: String = fpr.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    (0..10)
+        .map(|i| hex.get(i * 4..i * 4 + 4).unwrap_or("    "))
+        .collect::<Vec<_>>()
+        .chunks(5)
+        .map(|c| c.join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// "90.9 KB" / "12 B" / "3.4 MB".
+fn human_bytes(b: u64) -> String {
+    if b < 1024 {
+        format!("{b} B")
+    } else if b < 1024 * 1024 {
+        format!("{:.1} KB", b as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", b as f64 / (1024.0 * 1024.0))
+    }
 }
 
 /// Invite link as a black-on-white QR bitmap, 8 px per module with a 4-module border.

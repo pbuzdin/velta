@@ -12,6 +12,7 @@ use deltachat::chatlist::Chatlist;
 use deltachat::constants::Chattype;
 use deltachat::contact::{Contact, ContactId};
 use deltachat::context::Context;
+use deltachat::ephemeral::Timer;
 use deltachat::message::{Message, MsgId, Viewtype};
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
@@ -50,6 +51,62 @@ pub struct Core {
     pub default_relay: String,
 }
 
+/// Everything the profile screen shows for a 1:1 chat (web contact sheet).
+pub struct Profile {
+    pub chat_id: ChatId,
+    pub name: String,
+    pub addr: String,
+    pub fingerprint: Option<String>,
+    pub last_seen: String,
+    pub blocked: bool,
+    pub muted: bool,
+    pub ephemeral: String,
+    pub apps: usize,
+    pub photos: usize,
+    pub videos: usize,
+    pub audio: usize,
+    pub files: usize,
+    pub storage: u64,
+    pub chats_in_common: usize,
+}
+
+/// "1 week" / "5 min" / "45 s" — the disappearing-timer value.
+fn humantime_secs(secs: u64) -> String {
+    match secs {
+        0 => "Off".into(),
+        s if s % 86_400 == 0 => format!(
+            "{} day{}",
+            s / 86_400,
+            if s / 86_400 > 1 { "s" } else { "" }
+        ),
+        s if s % 3_600 == 0 => {
+            format!("{} hour{}", s / 3_600, if s / 3_600 > 1 { "s" } else { "" })
+        }
+        s if s % 60 == 0 => format!("{} min", s / 60),
+        s => format!("{s} s"),
+    }
+}
+
+/// "4 days ago" / "2 h ago" / "just now" — the contact last-seen line.
+fn relative_ago(ts: i64) -> String {
+    use chrono::{Local, TimeZone};
+    let Some(t) = Local.timestamp_opt(ts, 0).single() else {
+        return "Never".into();
+    };
+    let mins = (Local::now() - t).num_minutes();
+    match mins {
+        m if m < 1 => "just now".into(),
+        m if m < 60 => format!("{m} min ago"),
+        m if m < 1_440 => format!("{} h ago", m / 60),
+        m if m < 43_200 => format!(
+            "{} day{} ago",
+            m / 1_440,
+            if m / 1_440 > 1 { "s" } else { "" }
+        ),
+        _ => t.format("%b %e, %Y").to_string(),
+    }
+}
+
 /// What a pasted link did.
 #[derive(Debug)]
 pub enum LinkDone {
@@ -84,6 +141,14 @@ fn day(ts: i64) -> String {
         .single()
         .map(|t| t.format("%a, %d %b %Y").to_string())
         .unwrap_or_default()
+}
+
+/// Number of media messages of `vt`/`vt2` types in the chat.
+async fn media_count(ctx: &Context, chat_id: ChatId, vt: Viewtype, vt2: Viewtype) -> usize {
+    chat::get_chat_media(ctx, Some(chat_id), vt, vt2, Viewtype::Unknown)
+        .await
+        .map(|v| v.len())
+        .unwrap_or(0)
 }
 
 impl Core {
@@ -313,6 +378,122 @@ impl Core {
 
     pub fn mark_seen(&self, id: ChatId) {
         let _ = self.rt.block_on(chat::marknoticed_chat(&self.ctx, id));
+    }
+
+    /// True when the chat is a 1:1 chat (profile screen shows contact data).
+    pub fn is_single_chat(&self, id: ChatId) -> bool {
+        self.rt.block_on(async {
+            Chat::load_from_db(&self.ctx, id)
+                .await
+                .map(|c| c.get_type() == Chattype::Single)
+                .unwrap_or(false)
+        })
+    }
+
+    /// Blocks or unblocks the 1:1 peer behind `chat_id`.
+    pub fn set_peer_blocked(&self, chat_id: ChatId, block: bool) -> Result<()> {
+        let ctx = &self.ctx;
+        self.rt.block_on(async {
+            let contacts = chat::get_chat_contacts(ctx, chat_id).await?;
+            let Some(&cid) = contacts.first() else {
+                anyhow::bail!("chat has no contact");
+            };
+            if block {
+                Contact::block(ctx, cid).await
+            } else {
+                Contact::unblock(ctx, cid).await
+            }
+        })
+    }
+
+    /// The contact-id of a 1:1 chat's peer (for edit-name later).
+    pub fn peer_contact_id(&self, chat_id: ChatId) -> Option<ContactId> {
+        self.rt.block_on(async {
+            let contacts = chat::get_chat_contacts(&self.ctx, chat_id).await.ok()?;
+            contacts
+                .first()
+                .copied()
+                .filter(|cid| *cid != ContactId::SELF)
+        })
+    }
+
+    /// Everything the profile screen shows for a 1:1 chat (web contact sheet).
+    pub fn profile(&self, chat_id: ChatId) -> Result<Profile> {
+        let ctx = &self.ctx;
+        self.rt.block_on(async {
+            let chat = Chat::load_from_db(ctx, chat_id).await?;
+            anyhow::ensure!(chat.get_type() == Chattype::Single, "not a 1:1 chat");
+            let contacts = chat::get_chat_contacts(ctx, chat_id).await?;
+            let cid = contacts.first().copied().context("chat has no contact")?;
+            let c = Contact::get_by_id(ctx, cid).await?;
+
+            let photos = media_count(ctx, chat_id, Viewtype::Image, Viewtype::Gif).await;
+            let videos = media_count(ctx, chat_id, Viewtype::Video, Viewtype::Unknown).await;
+            let audio = media_count(ctx, chat_id, Viewtype::Audio, Viewtype::Voice).await;
+            let files = media_count(ctx, chat_id, Viewtype::File, Viewtype::Unknown).await;
+            let apps = media_count(ctx, chat_id, Viewtype::Webxdc, Viewtype::Unknown).await;
+            let mut storage = 0u64;
+            for vt in [
+                Viewtype::Image,
+                Viewtype::Gif,
+                Viewtype::Video,
+                Viewtype::Audio,
+                Viewtype::Voice,
+                Viewtype::File,
+                Viewtype::Webxdc,
+            ] {
+                if let Ok(ids) = chat::get_chat_media(
+                    ctx,
+                    Some(chat_id),
+                    vt,
+                    Viewtype::Unknown,
+                    Viewtype::Unknown,
+                )
+                .await
+                {
+                    for mid in ids {
+                        if let Ok(m) = Message::load_from_db(ctx, mid).await
+                            && let Ok(Some(bytes)) = m.get_filebytes(ctx).await
+                        {
+                            storage += bytes;
+                        }
+                    }
+                }
+            }
+
+            let timer = chat_id.get_ephemeral_timer(ctx).await.unwrap_or_default();
+            let ephemeral = match timer {
+                Timer::Disabled => "Off".into(),
+                Timer::Enabled { duration } => humantime_secs(duration.get() as u64),
+            };
+            let last_seen = if c.last_seen() > 0 {
+                relative_ago(c.last_seen())
+            } else {
+                "Never".into()
+            };
+            let chats_in_common = Chatlist::try_load(ctx, 0, None, Some(cid))
+                .await
+                .map(|l| l.len())
+                .unwrap_or(0);
+
+            Ok(Profile {
+                chat_id,
+                name: c.get_display_name().to_string(),
+                addr: c.get_addr().to_string(),
+                fingerprint: c.fingerprint().map(|f| f.hex()),
+                last_seen,
+                blocked: c.is_blocked(),
+                muted: chat.is_muted(),
+                ephemeral,
+                apps,
+                photos,
+                videos,
+                audio,
+                files,
+                storage,
+                chats_in_common,
+            })
+        })
     }
 
     /// Acts on a pasted link the way Velta does, in the background:
