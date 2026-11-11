@@ -57,4 +57,7 @@ android {
 
 dependencies {
     implementation("androidx.games:games-activity:4.4.2")
+    // games-activity's GameActivity extends AppCompatActivity and uses
+    // androidx.core insets APIs, but its POM declares no dependencies.
+    implementation("androidx.appcompat:appcompat:1.7.1")
 }
