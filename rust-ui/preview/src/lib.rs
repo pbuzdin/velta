@@ -65,11 +65,10 @@ fn normalize_relay(s: &str) -> String {
     }
 }
 
-/// A `relay` string extra on the launch intent (`am start --es relay …`) —
-/// the highest-priority override, and the only one that works on a
-/// non-debuggable test APK.
+/// A string extra on the launch intent (`am start --es <key> …`) — the only
+/// config channel that works on a non-debuggable test APK.
 #[cfg(target_os = "android")]
-fn relay_from_intent() -> Option<String> {
+fn intent_extra(key: &str) -> Option<String> {
     let ctx = ndk_context::android_context();
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
     let mut env = vm.attach_current_thread().ok()?;
@@ -79,9 +78,9 @@ fn relay_from_intent() -> Option<String> {
         let intent = env
             .call_method(&activity, "getIntent", "()Landroid/content/Intent;", &[])?
             .l()?;
-        let key = env.new_string("relay")?;
+        let jkey = env.new_string(key)?;
         let extra = env
-            .call_method(&intent, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;", &[(&key).into()])?
+            .call_method(&intent, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;", &[(&jkey).into()])?
             .l()?;
         if extra.is_null() {
             return Ok(None);
@@ -96,6 +95,13 @@ fn relay_from_intent() -> Option<String> {
         env.exception_clear().ok();
     }
     inner.ok().flatten().filter(|s| !s.trim().is_empty())
+}
+
+/// A `relay` string extra on the launch intent (`am start --es relay …`) —
+/// the highest-priority override for the first-run relay.
+#[cfg(target_os = "android")]
+fn relay_from_intent() -> Option<String> {
+    intent_extra("relay")
 }
 
 /// The NativeActivity jobject (ndk_context only hands out the Application).
@@ -124,6 +130,12 @@ fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidA
             panic!("core open failed: {e:#}");
         }
     };
+    // `am start --es add_relay <host>`: add a second relay to the live
+    // account (multi-relay), for test setups that must not wipe the account.
+    if let Some(host) = intent_extra("add_relay") {
+        say("adding relay from launch intent");
+        core.add_relay(&host);
+    }
     say("core open");
     let mut event_loop = masonry_winit::app::EventLoop::with_user_event();
     let _ = ACTIVITY.set(app.activity_as_ptr() as usize);

@@ -98,34 +98,71 @@ impl Core {
         self.rt.block_on(deltachat::securejoin::get_securejoin_qr(&self.ctx, None)).unwrap_or_default()
     }
 
+    /// Adds a relay to the configured account in the background (multi-relay),
+    /// reporting the outcome on the status log.
+    pub fn add_relay(&self, link: &str) {
+        let ctx = self.ctx.clone();
+        let link = link.trim().to_string();
+        self.rt.spawn(async move {
+            let r = ctx.add_transport_from_qr(&link).await;
+            match r {
+                Ok(()) => crate::say("relay added"),
+                Err(e) => crate::say(format!("relay add failed: {e:#}")),
+            }
+        });
+    }
+
     pub fn self_addr(&self) -> String {
         self.rt.block_on(self.ctx.get_primary_self_addr()).unwrap_or_default()
     }
 
-    /// Calls `notify` (from a core thread) whenever the visible data may have changed.
+    /// Calls `notify` (from a core thread) whenever the visible data may have
+    /// changed. Core event bursts (delivered + read + changed per message)
+    /// are coalesced on a 200 ms tick: every message rebuilds the affected
+    /// chat once and the list once, not five times — the un-coalesced flood
+    /// throttled Android's logd into dropping all our logs and kept the
+    /// widget tree churning (tag leak) for nothing.
     pub fn listen(&self, notify: impl Fn(Change) + Send + 'static) {
         let accounts = self.accounts.clone();
         let account_id = self.ctx.get_id();
         self.rt.spawn(async move {
             let emitter = accounts.read().await.get_event_emitter();
-            while let Some(ev) = emitter.recv().await {
-                if ev.id != account_id {
-                    continue;
-                }
-                match ev.typ {
-                    EventType::IncomingMsg { chat_id, .. }
-                    | EventType::MsgsChanged { chat_id, .. }
-                    | EventType::MsgDelivered { chat_id, .. }
-                    | EventType::MsgRead { chat_id, .. }
-                    | EventType::MsgFailed { chat_id, .. } => {
-                        notify(Change::Chat(chat_id));
-                        notify(Change::Chatlist);
+            let mut dirty_chats: std::collections::HashSet<ChatId> = Default::default();
+            let mut dirty_list = false;
+            let mut flush = tokio::time::interval(std::time::Duration::from_millis(200));
+            flush.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    ev = emitter.recv() => {
+                        let Some(ev) = ev else { break };
+                        if ev.id != account_id {
+                            continue;
+                        }
+                        match ev.typ {
+                            EventType::IncomingMsg { chat_id, .. }
+                            | EventType::MsgsChanged { chat_id, .. }
+                            | EventType::MsgDelivered { chat_id, .. }
+                            | EventType::MsgRead { chat_id, .. }
+                            | EventType::MsgFailed { chat_id, .. } => {
+                                dirty_chats.insert(chat_id);
+                                dirty_list = true;
+                            }
+                            EventType::ConfigureProgress { progress: 1000, .. }
+                            | EventType::ChatModified(_)
+                            | EventType::ChatlistChanged
+                            | EventType::ContactsChanged(_) => dirty_list = true,
+                            _ => {}
+                        }
                     }
-                    EventType::ConfigureProgress { progress: 1000, .. } => notify(Change::Chatlist),
-                    EventType::ChatModified(_) | EventType::ChatlistChanged | EventType::ContactsChanged(_) => {
-                        notify(Change::Chatlist)
+                    _ = flush.tick() => {
+                        for c in dirty_chats.drain() {
+                            notify(Change::Chat(c));
+                        }
+                        if dirty_list {
+                            dirty_list = false;
+                            notify(Change::Chatlist);
+                        }
                     }
-                    _ => {}
                 }
             }
         });
