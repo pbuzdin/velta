@@ -44,8 +44,8 @@ Chosen at build time with Cargo features:
 
 | Feature  | Renderer             | Notes |
 |----------|----------------------|-------|
-| `gpu` (default) | vello (wgpu compute) | Black screen and lag on at least one real phone. |
-| `hybrid` | vello_hybrid (CPU + GPU) | Works on the phone. No colour emoji yet. |
+| `gpu` (default) | vello (wgpu compute) | **Do not ship on Android.** On the vivo (Adreno/GLES) it deadlocks in surface/adapter init: no first frame, no logs, every thread asleep; same story under both activity backends. Keep for desktop only. |
+| `hybrid` | vello_hybrid (CPU + GPU) | **The Android renderer.** Works on the phone (see numbers above). No colour emoji yet. |
 
 ## Android activity backends
 
