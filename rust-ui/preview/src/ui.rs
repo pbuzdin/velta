@@ -13,7 +13,7 @@ use masonry::properties::types::{CrossAxisAlignment, MainAxisAlignment};
 use masonry::properties::{Background, ContentColor, CornerRadius, LineBreaking, Padding};
 use masonry::theme::default_property_set;
 use masonry::peniko::{ImageAlphaType, ImageData, ImageFormat};
-use masonry::widgets::{Button, ButtonPress, Flex, Image, Label, Portal, SizedBox, TextAction, TextArea, TextInput};
+use masonry::widgets::{Button, ButtonPress, Flex, Image, InsertNewline, Label, Portal, SizedBox, TextAction, TextArea, TextInput};
 use masonry_winit::app::{AppDriver, DriverCtx, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
 use masonry_winit::app::MasonryState;
 use masonry_winit::winit::application::ApplicationHandler;
@@ -204,7 +204,17 @@ impl Driver {
         self.core.mark_seen(id);
         let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique() };
         let msgs = NewWidget::new(Portal::new(NewWidget::new(self.messages(id))).constrain_horizontal(true)).with_tag(tags.msgs);
-        let input = NewWidget::new(TextInput::new("").with_placeholder("Message")).with_tag(tags.input);
+        // Multi-line, wrapping composer: Enter inserts a newline (never an
+        // Entered action), so the Send button is the send path.
+        let input = NewWidget::new(
+            TextInput::from_text_area(NewWidget::new(
+                TextArea::new("")
+                    .with_word_wrap(true)
+                    .with_insert_newline(InsertNewline::OnEnter),
+            ))
+            .with_placeholder("Message"),
+        )
+        .with_tag(tags.input);
         let send = NewWidget::new(Button::with_text("Send")).with_tag(tags.send);
         let composer = NewWidget::new(Flex::row().with(input, 1.0).with_fixed_spacer(px(8.0)).with_fixed(send))
             .with_props(
