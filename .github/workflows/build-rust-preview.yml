@@ -163,8 +163,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       # skia's linux text stack links fontconfig/freetype via pkg-config.
+      # Runner DNS has flaked on security.ubuntu.com (2026-11-11 outage);
+      # the azure mirror resolves, so point the security pocket at it.
       - name: Install fontconfig dev
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+        run: |
+          sudo sed -i 's|security.ubuntu.com|azure.archive.ubuntu.com|g' /etc/apt/sources.list*
+          sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
