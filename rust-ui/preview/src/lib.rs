@@ -74,49 +74,60 @@ fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidA
 pub fn ime_bottom() -> f64 {
     #[cfg(target_os = "android")]
     {
-        let res = (|| -> jni::errors::Result<f64> {
-            let ctx = ndk_context::android_context();
-            let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }?;
-            let mut env = vm.attach_current_thread()?;
-            let Some(&ptr) = ACTIVITY.get() else { return Ok(0.0) };
-            let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
-            let window = env
-                .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])?
-                .l()?;
-            let decor = env
-                .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?
-                .l()?;
-            let insets = env
-                .call_method(&decor, "getRootWindowInsets", "()Landroid/view/WindowInsets;", &[])?
-                .l()?;
-            let sdk = env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?.i()?;
-            let bottom = if sdk >= 30 {
-                let kind = env
-                    .call_static_method("android/view/WindowInsets$Type", "ime", "()I", &[])?
-                    .i()?;
-                let ime = env
-                    .call_method(&insets, "getInsets", "(I)Landroid/view/Insets;", &[kind.into()])?
-                    .l()?;
-                env.get_field(&ime, "bottom", "I")?.i()?
-            } else {
-                env.call_method(&insets, "getSystemWindowInsetBottom", "()I", &[])?.i()?
-            };
-            let density = env
-                .call_method(&activity, "getResources", "()Landroid/content/res/Resources;", &[])?
-                .l()?;
-            let metrics = env
-                .call_method(&density, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;", &[])?
-                .l()?;
-            let d = env.get_field(&metrics, "density", "F")?.f()? as f64;
-            if d <= 0.0 {
-                return Ok(0.0);
-            }
-            Ok(bottom as f64 / d)
-        })();
-        res.unwrap_or(0.0)
+        ime_bottom_android().unwrap_or(0.0)
     }
     #[cfg(not(target_os = "android"))]
     0.0
+}
+
+/// JNI query; `java.lang.NoSuchMethodError` and friends must never escape —
+/// a pending exception left on the thread crashes the whole app.
+#[cfg(target_os = "android")]
+fn ime_bottom_android() -> jni::errors::Result<f64> {
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }?;
+    let mut env = vm.attach_current_thread()?;
+    let inner = || -> jni::errors::Result<f64> {
+        let Some(&ptr) = ACTIVITY.get() else { return Ok(0.0) };
+        let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
+        let window = env
+            .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])?
+            .l()?;
+        let decor = env
+            .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?
+            .l()?;
+        let insets = env
+            .call_method(&decor, "getRootWindowInsets", "()Landroid/view/WindowInsets;", &[])?
+            .l()?;
+        let sdk = env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?.i()?;
+        let bottom = if sdk >= 30 {
+            let kind = env
+                .call_static_method("android/view/WindowInsets$Type", "ime", "()I", &[])?
+                .i()?;
+            // Insets lives in android.graphics, not android.view.
+            let ime = env
+                .call_method(&insets, "getInsets", "(I)Landroid/graphics/Insets;", &[kind.into()])?
+                .l()?;
+            env.get_field(&ime, "bottom", "I")?.i()?
+        } else {
+            env.call_method(&insets, "getSystemWindowInsetBottom", "()I", &[])?.i()?
+        };
+        let resources = env
+            .call_method(&activity, "getResources", "()Landroid/content/res/Resources;", &[])?
+            .l()?;
+        let metrics = env
+            .call_method(&resources, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;", &[])?
+            .l()?;
+        let d = env.get_field(&metrics, "density", "F")?.f()? as f64;
+        if d <= 0.0 {
+            return Ok(0.0);
+        }
+        Ok(bottom as f64 / d)
+    }();
+    if inner.is_err() && env.exception_check()? {
+        env.exception_clear()?;
+    }
+    inner
 }
 
 /// Sends the app to the background, like Back on a home screen does.
