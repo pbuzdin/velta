@@ -4,13 +4,14 @@ Read the root `AGENTS.md` first for repo rules (commit identity, "Refs #N",
 no force-push, no private hostnames). This file covers only `rust-ui/preview`.
 
 - Issues: goal #314, roadmap #315 (tick boxes there as work lands).
-- First-run relay override, highest priority first: a `relay` string extra
+- Default relay for **Create account**, highest priority first: a `relay` string extra
   on the launch intent (Android, `adb shell am start -n
   cc.velta.preview/com.google.androidgamesdk.GameActivity --es relay <host>`;
   the only way on the release APK, which is **not debuggable** because vivo's
   installer hangs on debuggable APKs), then `VELTA_RELAY` env (desktop), then
-  `relay.txt` in the accounts dir or its parent. It only matters on first run
-  (empty accounts dir). Bare hostnames get the `dcaccount:` scheme. Never
+  `relay.txt` in the accounts dir or its parent, else `nine.testrun.org`.
+  No account is created on its own: the user pastes a relay link or taps
+  Create account on the Add by link screen. Bare hostnames get the `dcaccount:` scheme. Never
   commit a private relay hostname (repo rule).
 - Branch: `rust-ui-preview`. Not merged into master.
 - Standalone crate with its own `[workspace]` and a pinned `Cargo.lock`
@@ -27,7 +28,13 @@ no force-push, no private hostnames). This file covers only `rust-ui/preview`.
 - `src/main.rs`: desktop entry.
 - `src/core.rs`: synchronous wrapper around the chat core (own tokio runtime),
   event listener that reports `Change::Chatlist` / `Change::Chat(id)`.
-- `src/ui.rs`: screens (list, chat, invite) swapped inside one `BODY` slot,
+- `src/ui.rs`: screens (list, chat, add by link, my QR) swapped inside one
+  `BODY` slot; all but the chat carry the bottom action bar (`Self::bar`,
+  unique tags per build). Add by link hands any link to `Core::use_link`,
+  which routes it by `check_qr` like Velta: relay link (dcaccount:/dclogin:)
+  creates the first account or adds a relay, contact/group/channel invite
+  starts a securejoin and opens the chat, socks5 link adds a proxy. It runs
+  in the background and reports back as `Async::Link`. Also
   the `Driver` (Masonry `AppDriver`) and `App`, our own winit
   `ApplicationHandler` around `MasonryState` (needed to catch Back and to
   bridge touch events into Portal panning).
@@ -59,9 +66,14 @@ no force-push, no private hostnames). This file covers only `rust-ui/preview`.
   (with `ContentColor`/`CaretColor` pinned for the dark surface) — `TextArea`
   is the interactive core `TextInput` wraps, and `TextAction` still flows.
 - **Portal has no touch drag-to-pan at rev dc49687** — only wheel scrolls and
-  accessibility actions. Touch scrolling is bridged in `App::window_event`
-  (winit `Touch` events → `Async::Pan(dy)` → `Portal::pan_viewport_by`,
-  physical dy divided by `root.scale_factor()`). List and chat portals both
+  accessibility actions. `App::window_event` forwards raw winit `Touch`
+  events as `Async::Touch`; `Driver::touch` (logical px) locks direction
+  after 12 px like Velta's chat-view.js: vertical pans the portal, a left
+  drag anywhere in a chat slides `BODY` (`WidgetMut::set_transform`) and
+  goes back past min(72 px, 28% width), a right drag that started on a bubble
+  moves that row (max 64 px) and sets the reply at 48 px. Bubble hit test
+  uses the rows' `bounding_box` (window coords). Edge swipes are left to the
+  system. List and chat portals both
   take a unique tag stored on the screen, since screen portals are rebuilt.
 - **Widget properties can't be updated in place** on a live widget (no
   prop-mutation API on `WidgetMut` at this rev). The IME spacer works around

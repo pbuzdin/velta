@@ -18,12 +18,20 @@ on Android (#294). Goal and scope: #314. Roadmap with checkboxes: #315.
   while a chat is open and the app is in the foreground) and the composer
   rides above the keyboard. Typed text is read from the keyboard buffer,
   since winit drops GameActivity text events; the caret stays at the end.
-- First run creates an account on `nine.testrun.org` and shows an invite QR
-  (tap **Invite**). Scan it from Velta to start a chat.
-  To use another relay on first run: `am start -n
+- Bottom action bar: **Chats**, **Add by link**, **My QR**.
+- Links work like in Velta: paste any link on **Add by link**. A relay link
+  (`dcaccount:`/`dclogin:`) creates your account on first run and adds a
+  relay after that; a friend's, group or channel invite starts the chat; a
+  `socks5://` link adds a proxy. First run opens this screen with a
+  **Create account** button for the default relay (`nine.testrun.org`).
+  **My QR** shows your invite QR for Velta to scan.
+  To change the default relay: `am start -n
   cc.velta.preview/com.google.androidgamesdk.GameActivity --es relay <host>`
   (Android) or `VELTA_RELAY=<host>` (desktop).
 - A startup log strip at the top shows timings for each step.
+- Gestures as in Velta: swipe left anywhere in a chat to go back; swipe a
+  bubble right to reply (a "Reply to" banner sits over the composer, and the
+  message goes out quoted). Quotes show inside bubbles.
 - Back (Android) or Escape (desktop) goes from a chat to the list; on the list
   it sends the app to the background.
 

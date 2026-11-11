@@ -25,13 +25,26 @@ pub struct ChatRow {
 
 pub enum Item {
     Day(String),
-    Msg { id: MsgId, outgoing: bool, sender: Option<String>, text: String, time: String },
+    Msg { id: MsgId, outgoing: bool, sender: Option<String>, text: String, time: String, quote: Option<String> },
 }
 
 pub struct Core {
     rt: Runtime,
     accounts: Arc<RwLock<Accounts>>,
     ctx: Context,
+    /// Relay link "Create account" uses (DEFAULT_RELAY or a test override).
+    pub default_relay: String,
+}
+
+/// What a pasted link did.
+#[derive(Debug)]
+pub enum LinkDone {
+    /// A contact, group or channel invite: open this chat.
+    Chat(ChatId),
+    /// A relay link created this (first) account.
+    AccountCreated,
+    /// Anything else that worked; a short note for the status line.
+    Note(&'static str),
 }
 
 /// What the background listener reports back to the UI.
@@ -63,27 +76,17 @@ impl Core {
                 accounts.add_account().await?;
             }
             let ctx = accounts.get_selected_account().context("no account in this accounts dir")?;
+            // No account is created on its own: the user pastes a relay link
+            // (dcaccount:/dclogin:) or taps "Create account" (default relay).
             if ctx.is_configured().await? {
                 accounts.start_io().await;
                 crate::say("io started");
             } else {
-                let ctx = ctx.clone();
-                let relay = relay.to_string();
-                crate::say("no account yet, setting one up");
-                tokio::spawn(async move {
-                    let _ = ctx.set_config(deltachat::config::Config::Displayname, Some("Velta preview")).await;
-                    match ctx.add_transport_from_qr(&relay).await {
-                        Ok(()) => {
-                            crate::say("account ready");
-                            ctx.start_io().await
-                        }
-                        Err(e) => crate::say(format!("account setup failed: {e:#}")),
-                    }
-                });
+                crate::say("no account yet; waiting for a relay link");
             }
             anyhow::Ok((accounts, ctx))
         })?;
-        Ok(Core { rt, accounts: Arc::new(RwLock::new(accounts)), ctx })
+        Ok(Core { rt, accounts: Arc::new(RwLock::new(accounts)), ctx, default_relay: relay.to_string() })
     }
 
     pub fn is_configured(&self) -> bool {
@@ -179,7 +182,7 @@ impl Core {
                         if let Some(f) = m.get_filename() {
                             text = if text.is_empty() { format!("[{f}]") } else { format!("[{f}]\n{text}") };
                         }
-                        out.push(Item::Msg { id: msg_id, outgoing, sender, text, time: hm(m.get_timestamp()) });
+                        out.push(Item::Msg { id: msg_id, outgoing, sender, text, time: hm(m.get_timestamp()), quote: m.quoted_text() });
                     }
                 }
             }
@@ -191,8 +194,61 @@ impl Core {
         let _ = self.rt.block_on(chat::marknoticed_chat(&self.ctx, id));
     }
 
-    pub fn send_text(&self, id: ChatId, text: String) -> Result<()> {
-        self.rt.block_on(chat::send_text_msg(&self.ctx, id, text))?;
-        Ok(())
+    /// Acts on a pasted link the way Velta does, in the background:
+    /// relay link (dcaccount:/dclogin:) creates the account or adds a relay,
+    /// contact/group/channel invite starts a chat, socks5 link adds a proxy.
+    pub fn use_link(&self, link: &str, done: impl FnOnce(Result<LinkDone>) + Send + 'static) {
+        use deltachat::qr::{check_qr, Qr};
+        let ctx = self.ctx.clone();
+        let link = link.trim().to_string();
+        self.rt.spawn(async move {
+            let r = async {
+                let configured = ctx.is_configured().await?;
+                match check_qr(&ctx, &link).await? {
+                    Qr::AskVerifyContact { .. } | Qr::AskVerifyGroup { .. } | Qr::AskJoinBroadcast { .. } => {
+                        anyhow::ensure!(configured, "create your account first (paste a relay link or tap Create account)");
+                        Ok(LinkDone::Chat(deltachat::securejoin::join_securejoin(&ctx, &link).await?))
+                    }
+                    Qr::Account { .. } | Qr::Login { .. } => {
+                        if !configured {
+                            ctx.set_config(deltachat::config::Config::Displayname, Some("Velta preview")).await?;
+                        }
+                        ctx.add_transport_from_qr(&link).await?;
+                        if configured {
+                            Ok(LinkDone::Note("Relay added."))
+                        } else {
+                            ctx.start_io().await;
+                            Ok(LinkDone::AccountCreated)
+                        }
+                    }
+                    Qr::Proxy { .. } => {
+                        deltachat::qr::set_config_from_qr(&ctx, &link).await?;
+                        Ok(LinkDone::Note("Proxy added."))
+                    }
+                    Qr::Backup2 { .. } | Qr::BackupTooNew { .. } => anyhow::bail!("backups can't be restored in the preview yet"),
+                    _ => anyhow::bail!("not an invite, relay or proxy link"),
+                }
+            }
+            .await;
+            done(r)
+        });
+    }
+
+    /// Sends `text`, quoting `reply_to` when set (the swipe-to-reply path).
+    pub fn send_text(&self, id: ChatId, text: String, reply_to: Option<MsgId>) -> Result<()> {
+        self.rt.block_on(async {
+            let mut msg = Message::new_text(text);
+            if let Some(q) = reply_to {
+                let quoted = Message::load_from_db(&self.ctx, q).await?;
+                msg.set_quote(&self.ctx, Some(&quoted)).await?;
+            }
+            chat::send_msg(&self.ctx, id, &mut msg).await?;
+            anyhow::Ok(())
+        })
+    }
+
+    /// One-line text of a message, for the reply banner.
+    pub fn msg_text(&self, id: MsgId) -> String {
+        self.rt.block_on(async { Message::load_from_db(&self.ctx, id).await.map(|m| m.get_text()).unwrap_or_default() })
     }
 }
