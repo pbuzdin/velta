@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /** P1 read-path UI: login, chat list, chat view. Bare bones by design (issue #192). */
 @Composable
@@ -420,10 +421,10 @@ private fun ChatListRow(item: ChatListItem, onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .background(color = chatColor(item.color), shape = RoundedCornerShape(22.dp)),
+                .background(color = prismTileColor(item.name), shape = RoundedCornerShape(22.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(item.name.take(1).uppercase(), fontWeight = FontWeight.Bold)
+            Text(prismInitials(item.name), fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
@@ -446,11 +447,21 @@ private fun ChatListRow(item: ChatListItem, onClick: () -> Unit) {
     }
 }
 
-/** Parse the core's "#rrggbb" chat color; falls back to a slate blue. */
-private fun chatColor(hex: String?): androidx.compose.ui.graphics.Color {
-    val rgb = hex?.removePrefix("#")?.toLongOrNull(16)
-    val argb = if (rgb != null) (0xFF000000L or rgb) else 0xFF335577L
-    return androidx.compose.ui.graphics.Color(argb)
+/** Prism avatar fill (web parity): the person color, darkened for 3:1 initials. */
+private fun prismTileColor(name: String): androidx.compose.ui.graphics.Color {
+    val c = prismFill(name)
+    return androidx.compose.ui.graphics.Color(c[0], c[1], c[2])
+}
+
+/** Prism sender color: the person color nudged to read on the bubble surface. */
+private fun prismSenderColor(name: String, bg: androidx.compose.ui.graphics.Color): androidx.compose.ui.graphics.Color {
+    val bgRgb = intArrayOf(
+        (bg.red * 255.0).roundToInt(),
+        (bg.green * 255.0).roundToInt(),
+        (bg.blue * 255.0).roundToInt(),
+    )
+    val c = prismSender(name, bgRgb)
+    return androidx.compose.ui.graphics.Color(c[0], c[1], c[2])
 }
 
 /** One row of the chat view: a day separator or a message. */
@@ -774,7 +785,7 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                 Text(
                     senderName,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = prismSenderColor(senderName, MaterialTheme.colorScheme.surfaceVariant),
                     modifier = Modifier.padding(start = 12.dp, bottom = 1.dp),
                 )
             }
