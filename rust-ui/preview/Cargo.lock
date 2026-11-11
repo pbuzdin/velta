@@ -8711,6 +8711,7 @@ dependencies = [
  "masonry_winit",
  "ndk-context",
  "qrcodegen",
+ "skia-safe",
  "tokio",
  "winit",
 ]

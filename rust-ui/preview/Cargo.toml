@@ -22,7 +22,7 @@ hybrid = ["masonry_winit/imaging_vello_hybrid"]
 # Skia renderer — the CPU/GPU rasterizer with a full image-filter suite
 # (displacement maps, blur): the only path to true backdrop refraction
 # (liquid glass) in this stack. Experimental; see #315.
-skia = ["masonry_winit/imaging_skia"]
+skia = ["masonry_winit/imaging_skia", "dep:skia-safe"]
 # Android activity backend, picked per build: NativeActivity ships via cargo-apk,
 # GameActivity (androidx.games — the IME/insets backend the composer needs) via the
 # Gradle shell in android/. Exactly one must be enabled for an Android build.
@@ -37,6 +37,15 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 qrcodegen = "1.8"
+# Direct skia access for the glass prototype (gate 4, docs/agents/rust-ui-glass.md);
+# same crate imaging_skia pulls, so the bindings build is shared.
+skia-safe = { version = "0.93", optional = true }
+
+# Liquid-glass filter-chain prototype: desktop/CI only, needs the skia feature.
+[[bin]]
+name = "glass_proto"
+path = "src/bin/glass_proto.rs"
+required-features = ["skia"]
 
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { version = "0.30.13" }
