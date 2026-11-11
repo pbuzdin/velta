@@ -14,8 +14,10 @@ on Android (#294). Goal and scope: #314. Roadmap with checkboxes: #315.
   rev, so the app bridges winit touch events to `Portal::pan_viewport_by`
   (chat list and chat history both pan; taps go through the normal pipeline).
 - Soft keyboard: GameActivity ignores `adjustResize`, so a spacer under the
-  composer grows by the IME bottom inset (polled over JNI at 200 ms) and the
-  composer rides above the keyboard.
+  composer grows by the IME bottom inset (polled over JNI at 200 ms, only
+  while a chat is open and the app is in the foreground) and the composer
+  rides above the keyboard. Typed text is read from the keyboard buffer,
+  since winit drops GameActivity text events; the caret stays at the end.
 - First run creates an account on `nine.testrun.org` and shows an invite QR
   (tap **Invite**). Scan it from Velta to start a chat.
   To use another relay on first run: `am start -n

@@ -127,10 +127,59 @@ fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidA
     say("core open");
     let mut event_loop = masonry_winit::app::EventLoop::with_user_event();
     let _ = ACTIVITY.set(app.activity_as_ptr() as usize);
+    let _ = APP.set(app.clone());
     event_loop.with_android_app(app);
     if let Err(e) = ui::run(core, started, event_loop) {
         log::error!("ui exited: {e:#}");
     }
+}
+
+#[cfg(target_os = "android")]
+static APP: std::sync::OnceLock<masonry_winit::winit::platform::android::activity::AndroidApp> = std::sync::OnceLock::new();
+
+/// Soft-keyboard text. GameActivity's keyboard edits a GameTextInput buffer and
+/// reports it as `TextEvent`, which winit 0.30 drops ("Unknown android_activity
+/// input event"), so the composer never saw typed text. The UI reads the buffer
+/// itself and mirrors it into the TextArea. `None` off the GameActivity build.
+pub fn ime_text() -> Option<String> {
+    #[cfg(all(target_os = "android", feature = "game-activity"))]
+    {
+        APP.get().map(|a| a.text_input_state().text)
+    }
+    #[cfg(not(all(target_os = "android", feature = "game-activity")))]
+    None
+}
+
+/// Empty the keyboard buffer (after Send, and when a chat opens).
+pub fn clear_ime_text() {
+    #[cfg(all(target_os = "android", feature = "game-activity"))]
+    if let Some(a) = APP.get() {
+        a.set_text_input_state(Default::default());
+    }
+}
+
+static IME_POLL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static IME_THREAD: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
+
+/// The keyboard-inset poller runs only while a chat (the only screen with a
+/// composer) is open and the app is in the foreground; otherwise it parks.
+pub fn set_ime_polling(on: bool) {
+    IME_POLL.store(on, std::sync::atomic::Ordering::Relaxed);
+    if on && let Some(t) = IME_THREAD.get() {
+        t.unpark();
+    }
+}
+
+/// Called by the poller thread: parks until polling is on. Returns true if it
+/// had to wait, so the caller re-reads the inset from scratch.
+pub fn ime_poll_wait() -> bool {
+    let _ = IME_THREAD.set(std::thread::current());
+    let mut waited = false;
+    while !IME_POLL.load(std::sync::atomic::Ordering::Relaxed) {
+        std::thread::park();
+        waited = true;
+    }
+    waited
 }
 
 /// The visible height under the window the on-screen keyboard covers, in

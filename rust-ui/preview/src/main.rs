@@ -11,7 +11,8 @@ fn main() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("usage: velta-preview ACCOUNTS_DIR"))?;
     let started = std::time::Instant::now();
     say("main");
-    let core = core::Core::open(dir.into(), &velta_preview::relay_for(&dir))?;
+    let relay = velta_preview::relay_for(std::path::Path::new(&dir));
+    let core = core::Core::open(dir.into(), &relay)?;
     say(format!("core open as {}", core.self_addr()));
     ui::run(core, started, masonry_winit::app::EventLoop::with_user_event())
 }

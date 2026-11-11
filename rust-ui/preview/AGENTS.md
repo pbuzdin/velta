@@ -67,6 +67,19 @@ no force-push, no private hostnames). This file covers only `rust-ui/preview`.
   prop-mutation API on `WidgetMut` at this rev). The IME spacer works around
   it by using a plain `SizedBox` under the composer and mutating its height
   via `SizedBox::set_height` — rebuild-free, so input focus never drops.
+- **winit 0.30 drops GameActivity keyboard text.** The soft keyboard edits a
+  GameTextInput buffer and reports it as `InputEvent::TextEvent`, which winit
+  logs as "Unknown android_activity input event" and throws away, so a
+  TextArea never sees typed text. `App::about_to_wait` reads
+  `AndroidApp::text_input_state()` (`crate::ime_text`) on the chat screen and
+  mirrors changes into the composer via `Async::ImeText` + `reset_text`; key
+  events (except Back) are swallowed on the GameActivity build so they don't
+  double the edits. Send and opening a chat clear the buffer
+  (`crate::clear_ime_text`). Known limits: the caret always sits at the end,
+  and the keyboard's own Enter/action key does nothing (Send sends).
+- **The keyboard-inset poller must stay gated** (`crate::set_ime_polling`):
+  it runs only while a chat is open and the app is resumed, and parks
+  otherwise. Don't add always-on timers; the phone is a daily driver.
 - `CaretColor` here is a plain struct (`CaretColor { color }`), not
   constructed via `new`.
 - **GameActivity ignores `windowSoftInputMode="adjustResize"`** (verified on

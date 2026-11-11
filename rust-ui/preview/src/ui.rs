@@ -57,6 +57,8 @@ enum Async {
     ScrollBottom,
     /// Soft keyboard bottom inset changed (logical px).
     Insets(f64),
+    /// Soft-keyboard buffer changed (GameActivity; see `crate::ime_text`).
+    ImeText(String),
     /// Finger drag delta (physical px) for touch scrolling — Masonry's
     /// Portal has no touch drag-to-pan at this rev; we bridge it ourselves.
     Pan(f64),
@@ -108,6 +110,8 @@ impl Driver {
     }
 
     fn show_list(&mut self, root: &mut RenderRoot) {
+        crate::set_ime_polling(false);
+        self.ime = 0.0;
         let t = Instant::now();
         let rows = self.core.chats().unwrap_or_default();
         let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -155,6 +159,8 @@ impl Driver {
     }
 
     fn show_invite(&mut self, root: &mut RenderRoot) {
+        crate::set_ime_polling(false);
+        self.ime = 0.0;
         let link = self.core.invite();
         let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Center).with_fixed_spacer(px(16.0));
         if link.is_empty() {
@@ -248,6 +254,8 @@ impl Driver {
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(screen)));
         Self::set_title(root, &self.core.chat_name(id), true);
         self.screen = Screen::Chat { id, draft: String::new(), tags };
+        crate::clear_ime_text();
+        crate::set_ime_polling(true);
         self.post(Async::ScrollBottom);
         crate::say(format!("chat {id} built in {} ms", t.elapsed().as_millis()));
     }
@@ -271,6 +279,7 @@ impl Driver {
             crate::say(format!("send failed: {e:#}"));
         }
         root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut i, ""));
+        crate::clear_ime_text();
         self.refresh_chat(root, id);
     }
 }
@@ -328,6 +337,16 @@ impl AppDriver for Driver {
         if matches!(*a, Async::Log) {
             let t = crate::log_text();
             root.edit_widget_with_tag(LOG, |mut l| Label::set_text(&mut l, t));
+            return;
+        }
+        if let Async::ImeText(t) = &*a {
+            if let Screen::Chat { draft, tags, .. } = &mut self.screen
+                && *draft != *t
+            {
+                *draft = t.clone();
+                let input = tags.input;
+                root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut i, t));
+            }
             return;
         }
         if let Async::Insets(v) = *a {
@@ -392,14 +411,17 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     });
 
     // Track the soft keyboard: GameActivity ignores adjustResize, so the UI pads
-    // its composer by the IME inset itself. Polling is cheap and keeps every
-    // backend/vendor quirk out of the layout code.
+    // its composer by the IME inset itself. The poller only runs while a chat is
+    // open and the app is in the foreground (battery); otherwise it parks.
     #[cfg(target_os = "android")]
     {
         let ime_proxy = proxy.clone();
         std::thread::spawn(move || {
             let mut last = 0.0_f64;
             loop {
+                if crate::ime_poll_wait() {
+                    last = -1.0;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 let v = crate::ime_bottom();
                 if (v - last).abs() > 0.5 {
@@ -437,7 +459,7 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     let attrs = Window::default_attributes().with_title("Velta preview").with_inner_size(LogicalSize::new(420.0, 820.0));
     let windows = vec![NewWindow::new_with_id(window, attrs, NewWidget::new(root).erased()).with_base_color(BG)];
     let _ = masonry::app::try_init_tracing();
-    let mut app = App { state: MasonryState::new(event_loop.create_proxy(), windows, default_property_set()), driver, touch: None };
+    let mut app = App { state: MasonryState::new(event_loop.create_proxy(), windows, default_property_set()), driver, touch: None, ime_text: String::new() };
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -450,13 +472,17 @@ struct App {
     driver: Driver,
     /// (window, last touch y in physical px) while a finger is down.
     touch: Option<(masonry_winit::winit::window::WindowId, f64)>,
+    /// Last soft-keyboard buffer mirrored into the composer.
+    ime_text: String,
 }
 
 impl ApplicationHandler<MasonryUserEvent> for App {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         self.state.handle_resumed(el, &mut self.driver);
+        crate::set_ime_polling(matches!(self.driver.screen, Screen::Chat { .. }));
     }
     fn suspended(&mut self, el: &ActiveEventLoop) {
+        crate::set_ime_polling(false);
         self.state.handle_suspended(el);
         self.touch = None;
     }
@@ -464,6 +490,11 @@ impl ApplicationHandler<MasonryUserEvent> for App {
         if let WindowEvent::KeyboardInput { event: k, .. } = &event {
             if k.state == ElementState::Pressed && matches!(k.logical_key, Key::Named(NamedKey::BrowserBack | NamedKey::Escape)) {
                 self.driver.post(Async::Back);
+                return;
+            }
+            // GameActivity: the keyboard buffer is the only source of composer
+            // text; letting key events into the TextArea too would double edits.
+            if cfg!(all(target_os = "android", feature = "game-activity")) {
                 return;
             }
         }
@@ -491,6 +522,13 @@ impl ApplicationHandler<MasonryUserEvent> for App {
         self.state.handle_user_event(el, event, &mut self.driver);
     }
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        if matches!(self.driver.screen, Screen::Chat { .. })
+            && let Some(t) = crate::ime_text()
+            && t != self.ime_text
+        {
+            self.ime_text = t.clone();
+            self.driver.post(Async::ImeText(t));
+        }
         self.state.handle_about_to_wait(el);
     }
     fn new_events(&mut self, el: &ActiveEventLoop, cause: StartCause) {
