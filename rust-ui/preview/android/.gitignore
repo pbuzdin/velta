@@ -1,0 +1,6 @@
+# Gradle build state and locally generated inputs; CI recreates all of it.
+.gradle/
+build/
+app/build/
+app/src/main/jniLibs/
+local.properties

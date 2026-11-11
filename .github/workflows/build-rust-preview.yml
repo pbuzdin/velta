@@ -65,10 +65,89 @@ jobs:
           # vendored OpenSSL (core) looks for the target-prefixed ranlib otherwise.
           env "RANLIB_aarch64-linux-android=$NDKB/llvm-ranlib" \
             CARGO_APK_RELEASE_KEYSTORE="$K" CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
-            cargo apk build --release --lib --no-default-features --features ${{ matrix.renderer }}
+            cargo apk build --release --lib --no-default-features \
+            --features ${{ matrix.renderer }},native-activity
           cp target/release/apk/velta-preview.apk "velta-preview-${{ matrix.renderer }}-${GITHUB_SHA::8}-arm64.apk"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: velta-preview-${{ matrix.renderer }}-arm64
           path: rust-ui/preview/velta-preview-${{ matrix.renderer }}-*-arm64.apk
+
+  # GameActivity APK (#315 Phase 0): cargo builds the lib with the
+  # `game-activity` feature, Gradle packages it with androidx.games
+  # GameActivity — the IME/insets backend the composer needs and
+  # cargo-apk cannot ship. The NativeActivity job above stays until
+  # this flavor is verified on a phone.
+  apk-gameactivity:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        renderer: [gpu, hybrid]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: actions/setup-java@b6effb05e45b25005698d9166046bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK / NDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          cmdline-tools-version: 11076708
+          packages: "ndk;27.2.12479018 platforms;android-35 build-tools;35.0.0"
+
+      - name: Install Gradle 8.12
+        run: |
+          curl -sL https://services.gradle.org/distributions/gradle-8.12-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d "$HOME/.gradle-dist"
+          echo "$HOME/.gradle-dist/gradle-8.12/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: ./rust-ui/preview
+          cache-bin: false
+          key: game-${{ matrix.renderer }}
+
+      - name: Restore test keystore
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/velta-preview-test.jks
+          key: velta-preview-test-keystore-v1
+
+      - name: Build lib and package APK
+        working-directory: rust-ui/preview
+        run: |
+          K=~/velta-preview-test.jks
+          [ -f "$K" ] || keytool -genkeypair -keystore "$K" -alias androiddebugkey -keyalg RSA -keysize 2048 \
+            -validity 10000 -storepass android -keypass android -dname "CN=Velta Preview Test"
+          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/27.2.12479018"
+          NDKB="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export PATH="$NDKB:$PATH"
+          # Same vendored-OpenSSL ranlib fix as the cargo-apk job, plus the
+          # NDK linker/ar a plain cargo android build needs.
+          env "RANLIB_aarch64-linux-android=$NDKB/llvm-ranlib" \
+            "AR_aarch64_linux_android=$NDKB/llvm-ar" \
+            "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDKB/aarch64-linux-android28-clang" \
+            cargo build --release --lib --target aarch64-linux-android \
+            --no-default-features --features ${{ matrix.renderer }},game-activity
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp target/aarch64-linux-android/release/libvelta_preview.so android/app/src/main/jniLibs/arm64-v8a/
+          cd android
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          VELTA_KEYSTORE="$K" VELTA_KEYSTORE_PASSWORD=android \
+            VELTA_KEY_ALIAS=androiddebugkey VELTA_KEY_PASSWORD=android \
+            gradle --no-daemon -q :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk \
+            "../velta-preview-game-${{ matrix.renderer }}-${GITHUB_SHA::8}-arm64.apk"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: velta-preview-game-${{ matrix.renderer }}-arm64
+          path: rust-ui/preview/velta-preview-game-${{ matrix.renderer }}-*-arm64.apk

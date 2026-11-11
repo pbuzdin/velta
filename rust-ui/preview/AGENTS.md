@@ -54,12 +54,35 @@ Desktop:
 cargo run --release -- /path/to/accounts
 ```
 
-Android (needs NDK r27, SDK platform 35, JDK 17, `cargo install cargo-apk --version 0.10.0`):
+Android has **two activity backends**, picked by a feature; exactly one per
+build (an Android build with neither fails to compile winit):
+
+- `native-activity` — framework NativeActivity, packaged by cargo-apk.
+- `game-activity` — androidx.games GameActivity (proper IME/insets for the
+  composer), packaged by the Gradle shell in `android/`. cargo-apk cannot
+  ship it: GameActivity is not a framework class and cargo-apk embeds no
+  Java classes. This is the backend Phase 0 of #315 is migrating to.
+
+NativeActivity (needs NDK r27, SDK platform 35, JDK 17, `cargo install cargo-apk --version 0.10.0`):
 
 ```
 env "RANLIB_aarch64-linux-android=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" \
   CARGO_APK_RELEASE_KEYSTORE=/path/test.jks CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
-  cargo apk build --release --lib --no-default-features --features hybrid
+  cargo apk build --release --lib --no-default-features --features hybrid,native-activity
+```
+
+GameActivity (same NDK/SDK/JDK, plus Gradle 8.12; AGP is fetched by Gradle):
+
+```
+NDKB="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"; export PATH="$NDKB:$PATH"
+env "RANLIB_aarch64-linux-android=$NDKB/llvm-ranlib" \
+  "AR_aarch64_linux_android=$NDKB/llvm-ar" \
+  "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDKB/aarch64-linux-android28-clang" \
+  cargo build --release --lib --target aarch64-linux-android \
+  --no-default-features --features hybrid,game-activity
+mkdir -p android/app/src/main/jniLibs/arm64-v8a
+cp target/aarch64-linux-android/release/libvelta_preview.so android/app/src/main/jniLibs/arm64-v8a/
+cd android && echo "sdk.dir=$ANDROID_HOME" > local.properties && gradle --no-daemon :app:assembleRelease
 ```
 
 - `--lib` is required (the crate is both bin and cdylib).
@@ -80,6 +103,8 @@ env "RANLIB_aarch64-linux-android=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/lin
 ## CI
 
 `.github/workflows/build-rust-preview.yml` runs on pushes to `rust-ui-preview`
-that touch `rust-ui/preview/**` and on manual dispatch. It builds `gpu` and
-`hybrid` arm64 APKs and uploads them as artifacts. The test keystore is cached
-under `velta-preview-test-keystore-v1`.
+that touch `rust-ui/preview/**` and on manual dispatch. Two jobs, each with a
+`gpu`/`hybrid` matrix: `apk` (NativeActivity via cargo-apk) and
+`apk-gameactivity` (Gradle shell, artifacts `velta-preview-game-*-arm64`).
+Both sign with the test keystore cached under
+`velta-preview-test-keystore-v1`, so any flavor installs over any other.

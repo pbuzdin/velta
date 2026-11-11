@@ -19,6 +19,11 @@ default = ["gpu"]
 # Vello on the GPU (wgpu). The CPU path (vello_cpu) needs our own host; see README.
 gpu = ["masonry_winit/imaging_vello"]
 hybrid = ["masonry_winit/imaging_vello_hybrid"]
+# Android activity backend, picked per build: NativeActivity ships via cargo-apk,
+# GameActivity (androidx.games — the IME/insets backend the composer needs) via the
+# Gradle shell in android/. Exactly one must be enabled for an Android build.
+native-activity = ["winit/android-native-activity"]
+game-activity = ["winit/android-game-activity"]
 
 [dependencies]
 deltachat = { path = "../../core" }
@@ -30,7 +35,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 qrcodegen = "1.8"
 
 [target.'cfg(target_os = "android")'.dependencies]
-winit = { version = "0.30.13", features = ["android-native-activity"] }
+winit = { version = "0.30.13" }
 android_logger = "0.15"
 log = "0.4"
 jni = "0.21"

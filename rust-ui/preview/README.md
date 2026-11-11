@@ -23,6 +23,14 @@ Chosen at build time with Cargo features:
 | `gpu` (default) | vello (wgpu compute) | Black screen and lag on at least one real phone. |
 | `hybrid` | vello_hybrid (CPU + GPU) | Works on the phone. No colour emoji yet. |
 
+## Android activity backends
+
+A second build-time axis, mutually exclusive: `native-activity`
+(framework NativeActivity, packaged by cargo-apk) or `game-activity`
+(androidx.games GameActivity via the Gradle shell in `android/` — the
+backend with proper IME and insets support that the composer needs, and
+where #315 Phase 0 is heading).
+
 ## Desktop (Linux)
 
 ```
@@ -36,9 +44,10 @@ The accounts dir uses the same layout as other Velta clients, or set
 
 Install the APK from the **Build Rust preview APK** workflow
 (`.github/workflows/build-rust-preview.yml`): open the latest run on the
-`rust-ui-preview` branch and download `velta-preview-hybrid-arm64` or
-`velta-preview-gpu-arm64`. Both use the package id `cc.velta.preview`, so one
-replaces the other, and both install next to the normal Velta app.
+`rust-ui-preview` branch and download `velta-preview-hybrid-arm64`,
+`velta-preview-gpu-arm64` (NativeActivity) or the `velta-preview-game-*`
+artifacts (GameActivity). All use the package id `cc.velta.preview`, so one
+replaces the other, and all install next to the normal Velta app.
 
 The APK is signed with a throwaway test key. Logs:
 
