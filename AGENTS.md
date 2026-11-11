@@ -37,11 +37,15 @@ a numbered version or move the tag to include it.
 
 ---
 
-## Rust preview UI (experimental, branch `rust-ui-preview`)
+## Rust preview UI (successor track, branch `rust-ui-preview`)
 
-`rust-ui/preview/` is a separate Masonry/winit preview app (#314, roadmap #315).
-It is not the Android path (#294 stands). Read `rust-ui/preview/AGENTS.md`
-before touching it; it lists the Masonry and Android pitfalls and build steps.
+`rust-ui/preview/` is a separate Masonry/winit Velta UI (#314, roadmap #315).
+Goal since 2026-11: a **full-parity native client** — every Tauri-app function
+transfers here in phases, with the web UI shipping on every platform until the
+Phase-5 flip (#294 stands until then). On Android it runs as a GameActivity
+APK (`cc.velta.preview`, vello_hybrid renderer — the vello/gpu flavor deadlocks
+on Adreno and is desktop-only). Read `rust-ui/preview/AGENTS.md` before
+touching it; it lists the Masonry and Android pitfalls and build steps.
 
 ---
 

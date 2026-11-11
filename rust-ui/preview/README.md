@@ -7,7 +7,15 @@ on Android (#294). Goal and scope: #314. Roadmap with checkboxes: #315.
 
 ## What it does
 
-- Chat list, chat view with text bubbles and day separators, plain-text composer.
+- Chat list, chat view with text bubbles and day separators, multi-line
+  wrapping composer (Enter = newline; **Send** sends; text and caret are
+  pinned to the theme colors).
+- Touch scrolling: Masonry's Portal has no finger-drag panning at the pinned
+  rev, so the app bridges winit touch events to `Portal::pan_viewport_by`
+  (chat list and chat history both pan; taps go through the normal pipeline).
+- Soft keyboard: GameActivity ignores `adjustResize`, so a spacer under the
+  composer grows by the IME bottom inset (polled over JNI at 200 ms) and the
+  composer rides above the keyboard.
 - First run creates an account on `nine.testrun.org` and shows an invite QR
   (tap **Invite**). Scan it from Velta to start a chat.
 - A startup log strip at the top shows timings for each step.
@@ -34,9 +42,23 @@ preview's strip logs each step; `adb logcat -s velta-preview` reproduces.
 Verified working on device: boot, chat list with unread pills, chat view
 (text + image filename placeholders), live incoming updates while open,
 Back (chat→list→background), mark-read on open, account intact across
-reinstall. Open: keyboard/insets behavior (composer TODO), `gpu` flavor
-still black-screens (unchanged), chat-list rebuilds fire more often than
-needed (listener over-triggers — harmless, 3–13 ms each).
+reinstall, **composer above the soft keyboard (insets verified)**.
+Open: typed-text rendering in the new raw-TextArea composer and touch
+scrolling landed together (build `55c11b69`) — on-device pass pending;
+chat-list rebuilds fire more often than needed (listener over-triggers —
+harmless, 3–13 ms each).
+
+## Vivo testing quirks (V2307A)
+
+- Installs hang (`adb install` never returns) when the phone wants a
+  USB-debugging / vivo "install via USB" confirmation, or right after
+  `adb kill-server` (device goes `unauthorized`). Allow the dialog, retry.
+- Force-stop the app before installing; installs over a live process hang.
+- The first boot right after an install can come up silent (no log strip,
+  black surface — the native lib load stalls). Force-stop and start again:
+  the second boot is clean.
+- A piped `adb install | tail` hides failures (pipeline exit = tail's).
+  Check `dumpsys package cc.velta.preview | grep lastUpdateTime` instead.
 
 ## Renderers
 

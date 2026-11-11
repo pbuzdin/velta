@@ -21,7 +21,8 @@ no force-push, no private hostnames). This file covers only `rust-ui/preview`.
   event listener that reports `Change::Chatlist` / `Change::Chat(id)`.
 - `src/ui.rs`: screens (list, chat, invite) swapped inside one `BODY` slot,
   the `Driver` (Masonry `AppDriver`) and `App`, our own winit
-  `ApplicationHandler` around `MasonryState` (needed to catch Back).
+  `ApplicationHandler` around `MasonryState` (needed to catch Back and to
+  bridge touch events into Portal panning).
 
 ## Masonry gotchas (learned the hard way)
 
@@ -43,8 +44,30 @@ no force-push, no private hostnames). This file covers only `rust-ui/preview`.
   child of a constrained Portal, so a long one-line label pushes its row past
   the screen. Chat rows use wrapping labels with text shortened by `short()`.
 - Android draws edge to edge: the log strip has extra top padding and the
-  composer extra bottom padding (status bar and gesture bar). Real insets are
-  still a TODO.
+  composer extra bottom padding (status bar and gesture bar).
+- **TextInput is single-line by design.** Its docs say so; a multiline
+  TextArea child inside it broke typed-text rendering and two-line layout.
+  For a multi-line composer use a raw `TextArea::new_editable("")` widget
+  (with `ContentColor`/`CaretColor` pinned for the dark surface) — `TextArea`
+  is the interactive core `TextInput` wraps, and `TextAction` still flows.
+- **Portal has no touch drag-to-pan at rev dc49687** — only wheel scrolls and
+  accessibility actions. Touch scrolling is bridged in `App::window_event`
+  (winit `Touch` events → `Async::Pan(dy)` → `Portal::pan_viewport_by`,
+  physical dy divided by `root.scale_factor()`). List and chat portals both
+  take a unique tag stored on the screen, since screen portals are rebuilt.
+- **Widget properties can't be updated in place** on a live widget (no
+  prop-mutation API on `WidgetMut` at this rev). The IME spacer works around
+  it by using a plain `SizedBox` under the composer and mutating its height
+  via `SizedBox::set_height` — rebuild-free, so input focus never drops.
+- `CaretColor` here is a plain struct (`CaretColor { color }`), not
+  constructed via `new`.
+- **GameActivity ignores `windowSoftInputMode="adjustResize"`** (verified on
+  a V2307A). The layout pads itself: a JNI poller (`ime_bottom`, 200 ms)
+  reads the IME bottom inset from the decor view
+  (`WindowInsets.Type.ime()` — Insets lives in **android.graphics**, not
+  android.view) and posts `Async::Insets`, which sizes the spacer. Any JNI
+  failure must clear the pending exception or the poller thread crashes the
+  app (`NoSuchMethodError` did exactly that once).
 
 ## Build locally
 
@@ -99,6 +122,11 @@ cd android && echo "sdk.dir=$ANDROID_HOME" > local.properties && gradle --no-dae
 - Always test "open chat, Back, open chat again" after touching `ui.rs`.
 - The emulator uses a software GPU, so it can't reproduce real-GPU problems;
   ask for a phone test of both APKs.
+- Vivo (V2307A) install/boot quirks — see README "Vivo testing quirks":
+  install dialogs can leave adb hanging (check `lastUpdateTime`, not adb's
+  exit), force-stop before installing, and a first boot right after an
+  install may come up silent — restart the app once before diagnosing.
+- Drive taps only with the user's say-so; the phone is a daily driver.
 
 ## CI
 
