@@ -41,6 +41,9 @@ struct ChatTags {
     send: WidgetTag<Button>,
     input: WidgetTag<TextInput>,
     msgs: WidgetTag<Portal<Flex>>,
+    /// Grows by the soft keyboard height so the composer rides above it
+    /// (GameActivity ignores adjustResize; the layout does the padding).
+    spacer: WidgetTag<SizedBox>,
 }
 
 const LIMIT: usize = 200;
@@ -52,6 +55,8 @@ enum Async {
     Back,
     Core(Change),
     ScrollBottom,
+    /// Soft keyboard bottom inset changed (logical px).
+    Insets(f64),
 }
 
 enum Screen {
@@ -69,6 +74,8 @@ struct Driver {
     /// False until the first screen is built. On Android the window only exists after
     /// the activity resumes, so async actions posted before that are dropped.
     built: bool,
+    /// Soft keyboard height (logical px); pads the composer via `ChatTags::spacer`.
+    ime: f64,
 }
 
 fn px(v: f64) -> Length {
@@ -202,7 +209,7 @@ impl Driver {
     fn show_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
         let t = Instant::now();
         self.core.mark_seen(id);
-        let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique() };
+        let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique(), spacer: WidgetTag::unique() };
         let msgs = NewWidget::new(Portal::new(NewWidget::new(self.messages(id))).constrain_horizontal(true)).with_tag(tags.msgs);
         // Multi-line, wrapping composer: Enter inserts a newline (never an
         // Entered action), so the Send button is the send path.
@@ -223,7 +230,12 @@ impl Driver {
                     .with(Padding { top: px(8.0), left: px(8.0), right: px(8.0), bottom: px(if cfg!(target_os = "android") { 28.0 } else { 8.0 }) })
                     .with(Background::Color(SURFACE)),
             );
-        let screen = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with(msgs, 1.0).with_fixed(composer);
+        let spacer = NewWidget::new(SizedBox::empty().height(px(self.ime))).with_tag(tags.spacer);
+        let screen = Flex::column()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with(msgs, 1.0)
+            .with_fixed(composer)
+            .with_fixed(spacer);
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(screen)));
         Self::set_title(root, &self.core.chat_name(id), true);
         self.screen = Screen::Chat { id, draft: String::new(), tags };
@@ -309,6 +321,13 @@ impl AppDriver for Driver {
             root.edit_widget_with_tag(LOG, |mut l| Label::set_text(&mut l, t));
             return;
         }
+        if let Async::Insets(v) = *a {
+            self.ime = v;
+            if let Screen::Chat { tags, .. } = &self.screen {
+                root.edit_widget_with_tag(tags.spacer, |mut s| SizedBox::set_height(&mut s, px(v)));
+            }
+            return;
+        }
         match (*a, &self.screen) {
             (Async::ScrollBottom, Screen::Chat { tags, .. }) => {
                 root.edit_widget_with_tag(tags.msgs, |mut p| {
@@ -350,6 +369,27 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
         let _ = notify_proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Core(c))));
     });
 
+    // Track the soft keyboard: GameActivity ignores adjustResize, so the UI pads
+    // its composer by the IME inset itself. Polling is cheap and keeps every
+    // backend/vendor quirk out of the layout code.
+    #[cfg(target_os = "android")]
+    {
+        let ime_proxy = proxy.clone();
+        std::thread::spawn(move || {
+            let mut last = 0.0_f64;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let v = crate::ime_bottom();
+                if (v - last).abs() > 0.5 {
+                    last = v;
+                    if ime_proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Insets(v)))).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
     let back = NewWidget::new(Button::with_text(" ")).with_tag(BACK)
         .with_props(PropertySet::new().with(Background::Color(SURFACE)));
     let invite = NewWidget::new(Button::with_text("Invite")).with_tag(INVITE)
@@ -365,7 +405,7 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
         .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding { top: px(if cfg!(target_os = "android") { 36.0 } else { 4.0 }), bottom: px(4.0), left: px(8.0), right: px(8.0) }));
     let root = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(log).with_fixed(header).with(body, 1.0);
 
-    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![] }, started: Some(started), built: false };
+    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![] }, started: Some(started), built: false, ime: 0.0 };
     // First content arrives as an async refresh so the window paints immediately.
     driver.post(Async::Core(Change::Chatlist));
     if !driver.core.is_configured() {
