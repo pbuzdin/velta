@@ -9,6 +9,7 @@ use deltachat::EventType;
 use deltachat::accounts::Accounts;
 use deltachat::chat::{self, Chat, ChatId, ChatItem};
 use deltachat::chatlist::Chatlist;
+use deltachat::constants::Chattype;
 use deltachat::contact::{Contact, ContactId};
 use deltachat::context::Context;
 use deltachat::message::{Message, MsgId, Viewtype};
@@ -18,6 +19,9 @@ use tokio::sync::RwLock;
 pub struct ChatRow {
     pub id: ChatId,
     pub name: String,
+    /// Fingerprint hex of the 1:1 peer (identity matrix), None for
+    /// groups/broadcasts/saved-messages.
+    pub identity: Option<String>,
     pub summary: String,
     pub time: String,
     pub unread: usize,
@@ -214,9 +218,21 @@ impl Core {
                     .as_ref()
                     .map(|p| format!("{p}: "))
                     .unwrap_or_default();
+                // Identity matrix needs the 1:1 peer's key; Saved messages is
+                // a Single chat with SELF — excluded (stable shows a gradient).
+                let mut identity = None;
+                if chat.get_type() == Chattype::Single
+                    && let Ok(contacts) = chat::get_chat_contacts(ctx, id).await
+                    && let Some(&cid) = contacts.first()
+                    && cid != ContactId::SELF
+                    && let Ok(contact) = Contact::get_by_id(ctx, cid).await
+                {
+                    identity = contact.fingerprint().map(|f| f.hex());
+                }
                 rows.push(ChatRow {
                     id,
                     name: chat.get_name().to_string(),
+                    identity,
                     summary: format!("{prefix}{}", s.text),
                     time: if s.timestamp > 0 {
                         hm(s.timestamp)

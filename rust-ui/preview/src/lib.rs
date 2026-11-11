@@ -1,6 +1,7 @@
 //! Velta Rust preview UI. Experimental, see #314.
 
 pub mod core;
+pub mod identity;
 pub mod prism;
 pub mod ui;
 

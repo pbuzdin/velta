@@ -37,6 +37,7 @@ use masonry_winit::winit::keyboard::{Key, NamedKey};
 use masonry_winit::winit::window::Window;
 
 use crate::core::{Change, Core, Item, LinkDone};
+use crate::identity;
 use crate::prism;
 
 const BG: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0x10, 0x12, 0x17);
@@ -450,20 +451,43 @@ impl Driver {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .with_fixed(NewWidget::new(top))
                 .with_fixed(NewWidget::new(bottom));
-            // Prism tile: stable color + initials (web .velta-avatar-tile).
-            let avatar = NewWidget::new(
-                SizedBox::new(NewWidget::new(Align::centered(one_line(
-                    prism::initials(&r.name),
-                    15.0,
-                    prism::to_color(prism::INK),
-                ))))
-                .size(px(38.0), px(38.0)),
-            )
-            .with_props(
-                PropertySet::new()
-                    .with(Background::Color(prism::to_color(prism::fill(&r.name))))
-                    .with(CornerRadius::all(px(19.0))),
-            );
+            // Avatar tile: 1:1 peers with a key get the fingerprint identity
+            // matrix (web avatar.js); everything else the Prism initials tile.
+            // Corner cells stay square — CornerRadius is uniform-only at this
+            // rev, no per-corner clipping.
+            let avatar = match r.identity.as_deref().and_then(identity::cells) {
+                Some(cells) => {
+                    let mut grid = Flex::column();
+                    for range in [0..3usize, 3..5, 5..7, 7..10] {
+                        let mut row = Flex::row();
+                        for i in range {
+                            let (_, rgb) = cells[i];
+                            row = row.with(
+                                NewWidget::new(SizedBox::empty()).with_props(
+                                    PropertySet::new()
+                                        .with(Background::Color(prism::to_color(rgb))),
+                                ),
+                                1.0,
+                            );
+                        }
+                        grid = grid.with(NewWidget::new(row), 1.0);
+                    }
+                    NewWidget::new(SizedBox::new(NewWidget::new(grid)).size(px(38.0), px(38.0)))
+                }
+                None => NewWidget::new(
+                    SizedBox::new(NewWidget::new(Align::centered(one_line(
+                        prism::initials(&r.name),
+                        15.0,
+                        prism::to_color(prism::INK),
+                    ))))
+                    .size(px(38.0), px(38.0)),
+                )
+                .with_props(
+                    PropertySet::new()
+                        .with(Background::Color(prism::to_color(prism::fill(&r.name))))
+                        .with(CornerRadius::all(px(19.0))),
+                ),
+            };
             let body = Flex::row()
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_fixed(avatar)

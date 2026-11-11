@@ -9,9 +9,7 @@
 
 use sk::{
     BlendMode, ClipOp, Color, ColorChannel, Data, EncodedImageFormat, IRect, Image, ImageInfo,
-    Paint, Point, RRect, Rect,
-    canvas::SaveLayerRec,
-    image_filters,
+    Paint, Point, RRect, Rect, canvas::SaveLayerRec, image_filters,
 };
 use skia_safe as sk;
 
@@ -148,7 +146,8 @@ fn lens_map(w: i32, h: i32, _radius: f32) -> Image {
             }
         }
     }
-    sk::images::raster_from_data(&info, Data::new_copy(&px), (w * 4) as usize).expect("lens map fits")
+    sk::images::raster_from_data(&info, Data::new_copy(&px), (w * 4) as usize)
+        .expect("lens map fits")
 }
 
 /// A stand-in chat screen: header, bubbles with text bars, bottom bar.
