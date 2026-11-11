@@ -182,6 +182,18 @@ struct BarLayer {
     rect: Rect,
 }
 
+/// The header floats over the body as an overlay layer so content scrolls
+/// beneath its glass (same trick as the bottom bar).
+const HEADER_HEIGHT: f64 = 52.0;
+fn header_space() -> f64 {
+    HEADER_HEIGHT + 2.0
+}
+struct HeaderLayer {
+    tag: WidgetTag<SizedBox>,
+    id: WidgetId,
+    rect: Rect,
+}
+
 const LIMIT: usize = 200;
 
 #[derive(Debug)]
@@ -261,6 +273,7 @@ struct Driver {
     ime: f64,
     gesture: Option<Gesture>,
     bar_layer: Option<BarLayer>,
+    header_layer: Option<HeaderLayer>,
     /// Decoded message pictures: MsgId → (image, logical w, h); oldest evicted.
     imgs: HashMap<MsgId, (masonry::peniko::ImageData, f64, f64)>,
     img_order: Vec<MsgId>,
@@ -378,8 +391,30 @@ impl Driver {
         if let Some(layer) = self.bar_layer.take() {
             root.remove_layer(layer.id);
         }
+        self.update_glass(root);
+    }
+
+    /// Pushes the current glass lenses (header always, bar when present).
+    fn update_glass(&mut self, _root: &mut RenderRoot) {
         #[cfg(feature = "glass")]
-        masonry_winit::glass::set_rects(vec![]);
+        {
+            let mut rects = Vec::new();
+            if let Some(h) = &self.header_layer {
+                rects.push(masonry_winit::glass::GlassRect {
+                    rect: h.rect,
+                    radius: 0.0,
+                    strength: 10.0,
+                });
+            }
+            if let Some(b) = &self.bar_layer {
+                rects.push(masonry_winit::glass::GlassRect {
+                    rect: b.rect,
+                    radius: 28.0,
+                    strength: 10.0,
+                });
+            }
+            masonry_winit::glass::set_rects(rects);
+        }
     }
 
     fn bar_rect(root: &RenderRoot) -> Rect {
@@ -389,6 +424,73 @@ impl Driver {
         Rect::new(12.0, y, 12.0 + width, y + BAR_HEIGHT)
     }
 
+    /// The header spans the body's top edge (below the log strip).
+    fn header_rect(root: &RenderRoot) -> Rect {
+        let (x0, y0, x1) = root
+            .get_widget_with_tag(BODY)
+            .map(|w| {
+                let bb = w.ctx().bounding_box();
+                (bb.x0, bb.y0, bb.x1)
+            })
+            .unwrap_or_else(|| {
+                let w = root.size().to_logical::<f64>(root.scale_factor()).width;
+                (0.0, 0.0, w)
+            });
+        Rect::new(x0, y0, x1, y0 + HEADER_HEIGHT)
+    }
+
+    /// Creates the header overlay layer once (repositioned on every redraw).
+    fn ensure_header_layer(&mut self, root: &mut RenderRoot) {
+        if self.header_layer.is_some() {
+            self.layout_header(root);
+            return;
+        }
+        let rect = Self::header_rect(root);
+        let tag = WidgetTag::unique();
+        let layer = NewWidget::new(
+            SizedBox::new(Self::header_row()).size(px(rect.width()), px(HEADER_HEIGHT)),
+        )
+        .with_tag(tag);
+        let id = layer.id();
+        root.add_layer(layer, rect.origin());
+        self.header_layer = Some(HeaderLayer { tag, id, rect });
+        self.layout_header(root);
+    }
+
+    /// The header row content — transparent under glass (the lens supplies
+    /// the backdrop treatment; the row's own text stays sharp above it).
+    fn header_row() -> NewWidget<Flex> {
+        let bg = if cfg!(feature = "glass") {
+            AlphaColor::TRANSPARENT
+        } else {
+            SURFACE
+        };
+        let back = NewWidget::new(Button::with_text(" "))
+            .with_tag(BACK)
+            .with_props(PropertySet::new().with(Background::Color(bg)));
+        let title = NewWidget::new(Label::new("Chats").with_style(StyleProperty::FontSize(19.0)))
+            .with_tag(TITLE)
+            .with_props(
+                PropertySet::new()
+                    .with(ContentColor::new(TEXT))
+                    .with(LineBreaking::Clip),
+            );
+        NewWidget::new(
+            Flex::row()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_fixed(back)
+                .with_fixed_spacer(px(8.0))
+                .with(title, 1.0)
+                .with_fixed_spacer(px(8.0))
+                .with_fixed(NewWidget::new(SizedBox::empty()).with_tag(INFO_SLOT)),
+        )
+        .with_props(
+            PropertySet::new()
+                .with(Padding::all(px(8.0)))
+                .with(Background::Color(bg)),
+        )
+    }
+
     /// Overlay participates in Masonry hit-testing, but is painted after refraction.
     fn set_body_with_bar<W: masonry::core::Widget>(
         &mut self,
@@ -396,6 +498,7 @@ impl Driver {
         content: NewWidget<W>,
         bar: NewWidget<Flex>,
     ) {
+        self.ensure_header_layer(root);
         self.clear_bar(root);
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, content));
         let rect = Self::bar_rect(root);
@@ -411,9 +514,24 @@ impl Driver {
     /// Called before each redraw, including after resize / DPI changes; no timer.
     fn layout_bar(&mut self, root: &mut RenderRoot) {
         let rect = Self::bar_rect(root);
-        let Some(layer) = &mut self.bar_layer else {
+        if let Some(layer) = &mut self.bar_layer
+            && layer.rect != rect
+        {
+            root.edit_widget_with_tag(layer.tag, |mut b| {
+                SizedBox::set_width(&mut b, px(rect.width()));
+                SizedBox::set_height(&mut b, px(rect.height()));
+            });
+            root.reposition_layer(layer.id, rect.origin());
+            layer.rect = rect;
+        }
+        self.update_glass(root);
+    }
+
+    fn layout_header(&mut self, root: &mut RenderRoot) {
+        let Some(layer) = &mut self.header_layer else {
             return;
         };
+        let rect = Self::header_rect(root);
         if layer.rect != rect {
             root.edit_widget_with_tag(layer.tag, |mut b| {
                 SizedBox::set_width(&mut b, px(rect.width()));
@@ -422,12 +540,7 @@ impl Driver {
             root.reposition_layer(layer.id, rect.origin());
             layer.rect = rect;
         }
-        #[cfg(feature = "glass")]
-        masonry_winit::glass::set_rects(vec![masonry_winit::glass::GlassRect {
-            rect,
-            radius: 28.0,
-            strength: 10.0,
-        }]);
+        self.update_glass(root);
     }
 
     fn bar_hit(
@@ -456,6 +569,8 @@ impl Driver {
         let t = Instant::now();
         let rows = self.core.chats().unwrap_or_default();
         let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch);
+        // Content scrolls beneath the glass header; start below it.
+        col = col.with_fixed_spacer(px(header_space()));
         let mut map = Vec::with_capacity(rows.len());
         for r in &rows {
             let tag = WidgetTag::unique();
@@ -593,6 +708,7 @@ impl Driver {
         };
         let mut col = Flex::column()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_fixed_spacer(px(header_space()))
             .with_fixed(label(intro, 15.0, TEXT))
             .with_fixed_spacer(px(8.0))
             .with_fixed(NewWidget::new(
@@ -654,10 +770,12 @@ impl Driver {
             };
             Flex::column()
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .with_fixed_spacer(px(header_space()))
                 .with_fixed(label(text, 16.0, TEXT))
         } else {
             Flex::column()
                 .cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_fixed_spacer(px(header_space()))
                 .with_fixed(label(
                     "Let a friend scan this in Velta (Add contact, then scan QR).",
                     15.0,
@@ -774,6 +892,8 @@ impl Driver {
         Vec<(MsgId, String)>,
     ) {
         let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch);
+        // Chat content scrolls beneath the glass header; start below it.
+        col = col.with_fixed_spacer(px(header_space()));
         let mut bubbles = Vec::new();
         let mut img_slots = Vec::new();
         let mut img_reqs = Vec::new();
@@ -879,6 +999,7 @@ impl Driver {
     }
 
     fn show_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
+        self.ensure_header_layer(root);
         self.clear_bar(root);
         let t = Instant::now();
         self.core.mark_seen(id);
@@ -969,6 +1090,7 @@ impl Driver {
     /// actions. 1:1 chats only — other chats fall back to the chat view.
     fn show_profile(&mut self, root: &mut RenderRoot, chat_id: ChatId) {
         crate::set_ime_polling(false);
+        self.ensure_header_layer(root);
         self.set_info(root, None);
         self.ime = 0.0;
         let Ok(p) = self.core.profile(chat_id) else {
@@ -1051,6 +1173,7 @@ impl Driver {
 
         let col = Flex::column()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_fixed_spacer(px(header_space()))
             .with_fixed(NewWidget::new(tiles))
             .with_fixed_spacer(px(10.0))
             .with_fixed(NewWidget::new(Align::centered(label(
@@ -1306,11 +1429,15 @@ impl Driver {
         match phase {
             TouchPhase::Started => {
                 // A drag on the floating controls must not scroll content underneath.
-                if self
+                let over_layer = self
                     .bar_layer
                     .as_ref()
                     .is_some_and(|b| b.rect.contains(Point::new(x, y)))
-                {
+                    || self
+                        .header_layer
+                        .as_ref()
+                        .is_some_and(|h| h.rect.contains(Point::new(x, y)));
+                if over_layer {
                     self.gesture = None;
                     return;
                 }
@@ -1745,30 +1872,7 @@ pub fn run(
         });
     }
 
-    let back = NewWidget::new(Button::with_text(" "))
-        .with_tag(BACK)
-        .with_props(PropertySet::new().with(Background::Color(SURFACE)));
-    let title = NewWidget::new(Label::new("Chats").with_style(StyleProperty::FontSize(19.0)))
-        .with_tag(TITLE)
-        .with_props(
-            PropertySet::new()
-                .with(ContentColor::new(TEXT))
-                .with(LineBreaking::Clip),
-        );
-    let header = NewWidget::new(
-        Flex::row()
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_fixed(back)
-            .with_fixed_spacer(px(8.0))
-            .with(title, 1.0)
-            .with_fixed_spacer(px(8.0))
-            .with_fixed(NewWidget::new(SizedBox::empty()).with_tag(INFO_SLOT)),
-    )
-    .with_props(
-        PropertySet::new()
-            .with(Padding::all(px(8.0)))
-            .with(Background::Color(SURFACE)),
-    );
+    // Header content lives in the overlay layer (ensure_header_layer).
     let body = NewWidget::new(SizedBox::empty()).with_tag(BODY);
     let log =
         NewWidget::new(Label::new(crate::log_text()).with_style(StyleProperty::FontSize(11.0)))
@@ -1788,10 +1892,12 @@ pub fn run(
                         right: px(8.0),
                     }),
             );
+    // The header is an overlay layer floating over the body (like the bottom
+    // bar), so content scrolls beneath its glass (see ensure_header_layer);
+    // the root column only carries the log strip and the body.
     let root = Flex::column()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .with_fixed(log)
-        .with_fixed(header)
         .with(body, 1.0);
 
     let mut driver = Driver {
@@ -1812,6 +1918,7 @@ pub fn run(
         ime: 0.0,
         gesture: None,
         bar_layer: None,
+        header_layer: None,
         imgs: HashMap::new(),
         img_order: Vec::new(),
         img_pending: HashSet::new(),
@@ -1906,6 +2013,7 @@ impl ApplicationHandler<MasonryUserEvent> for App {
         }
         if matches!(event, WindowEvent::RedrawRequested) {
             for root in self.state.roots() {
+                self.driver.layout_header(root);
                 self.driver.layout_bar(root);
             }
         }
