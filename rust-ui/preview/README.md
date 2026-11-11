@@ -14,6 +14,30 @@ on Android (#294). Goal and scope: #314. Roadmap with checkboxes: #315.
 - Back (Android) or Escape (desktop) goes from a chat to the list; on the list
   it sends the app to the background.
 
+## On-device numbers (vivo V2307A, Android 15, hybrid renderer, GameActivity)
+
+Measured 2026-11-11, `velta-preview-game-hybrid` `52b81d7e`, configured account
+(3 chats), warm process table against the Tauri web app (`org.velta`) on the
+same phone, same session:
+
+| Metric | Rust preview (GameActivity) | Tauri web app |
+|---|---|---|
+| Cold start, first Android frame (`am start -W` TotalTime) | **157 ms** | 184 ms |
+| Usable: chat list built (startup strip) | **+519 ms** | not measured yet |
+| Chat list rebuild (live event) | 3–13 ms | — |
+| TOTAL PSS | 126 MB | 113 MB (+38 MB swap) |
+| TOTAL RSS | 277 MB | 281 MB |
+
+Both apps carry the full core in-process, which is why PSS is close. The
+preview's strip logs each step; `adb logcat -s velta-preview` reproduces.
+
+Verified working on device: boot, chat list with unread pills, chat view
+(text + image filename placeholders), live incoming updates while open,
+Back (chat→list→background), mark-read on open, account intact across
+reinstall. Open: keyboard/insets behavior (composer TODO), `gpu` flavor
+still black-screens (unchanged), chat-list rebuilds fire more often than
+needed (listener over-triggers — harmless, 3–13 ms each).
+
 ## Renderers
 
 Chosen at build time with Cargo features:
