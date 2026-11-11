@@ -30,8 +30,8 @@ glass = ["masonry_winit/glass"]
 # Android activity backend, picked per build: NativeActivity ships via cargo-apk,
 # GameActivity (androidx.games — the IME/insets backend the composer needs) via the
 # Gradle shell in android/. Exactly one must be enabled for an Android build.
-native-activity = ["winit/android-native-activity"]
-game-activity = ["winit/android-game-activity"]
+native-activity = ["winit/android-native-activity", "android-activity/native-activity"]
+game-activity = ["winit/android-game-activity", "android-activity/game-activity"]
 
 [dependencies]
 deltachat = { path = "../../core" }
@@ -55,9 +55,12 @@ required-features = ["skia"]
 
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { version = "0.30.13" }
-# Same crate+version winit's game-activity backend uses; a direct dep so
-# `android_activity::TextInputState` (ime buffer sync) resolves by name.
-android-activity = { version = "0.6", features = ["game-activity"] }
+# Same crate winit's activity backends use, as a direct dep so
+# `android_activity::input::TextInputState` (IME buffer sync) resolves by
+# name. Optional + no default features: the flavor feature rides the
+# native-activity/game-activity axis — android-activity compile_errors when
+# both flavors are enabled at once.
+android-activity = { version = "0.6", default-features = false, optional = true }
 android_logger = "0.15"
 log = "0.4"
 jni = "0.21"
