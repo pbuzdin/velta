@@ -86,7 +86,8 @@ fn relay_from_intent() -> Option<String> {
         if extra.is_null() {
             return Ok(None);
         }
-        let s: String = env.get_string(extra.into())?.into();
+        let extra = jni::objects::JString::from(extra);
+        let s: String = env.get_string(&extra)?.into();
         Ok(Some(s))
     }();
     if let Err(_e) = &inner

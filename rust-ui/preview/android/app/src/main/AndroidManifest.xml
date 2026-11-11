@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- GameActivity launcher for the Rust preview. The native library is
      libvelta_preview.so, built by cargo with the `game-activity` feature
-     and copied into app/src/main/jniLibs/arm64-v8a/. adjustResize makes
-     the window relayout around the soft keyboard (composer, #315). -->
+     and copied into app/src/main/jniLibs/arm64-v8a/. adjustResize is kept for
+     correctness, but GameActivity ignores it: the composer lifts itself
+     above the keyboard from the IME inset polled over JNI (#315). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />

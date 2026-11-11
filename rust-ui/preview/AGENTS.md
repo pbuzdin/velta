@@ -4,10 +4,14 @@ Read the root `AGENTS.md` first for repo rules (commit identity, "Refs #N",
 no force-push, no private hostnames). This file covers only `rust-ui/preview`.
 
 - Issues: goal #314, roadmap #315 (tick boxes there as work lands).
-- First-run relay override: `VELTA_RELAY` env (desktop) or `relay.txt` in the
-  accounts dir / app files dir (Android, placed via `adb push` + `run-as`;
-  the test APK is debuggable for exactly this). Bare hostnames get the
-  `dcaccount:` scheme. Never commit a private relay hostname — repo rule.
+- First-run relay override, highest priority first: a `relay` string extra
+  on the launch intent (Android, `adb shell am start -n
+  cc.velta.preview/com.google.androidgamesdk.GameActivity --es relay <host>`;
+  the only way on the release APK, which is **not debuggable** because vivo's
+  installer hangs on debuggable APKs), then `VELTA_RELAY` env (desktop), then
+  `relay.txt` in the accounts dir or its parent. It only matters on first run
+  (empty accounts dir). Bare hostnames get the `dcaccount:` scheme. Never
+  commit a private relay hostname (repo rule).
 - Branch: `rust-ui-preview`. Not merged into master.
 - Standalone crate with its own `[workspace]` and a pinned `Cargo.lock`
   (force-added, since `**/Cargo.lock` is gitignored). Keep the lock committed.

@@ -18,6 +18,9 @@ on Android (#294). Goal and scope: #314. Roadmap with checkboxes: #315.
   composer rides above the keyboard.
 - First run creates an account on `nine.testrun.org` and shows an invite QR
   (tap **Invite**). Scan it from Velta to start a chat.
+  To use another relay on first run: `am start -n
+  cc.velta.preview/com.google.androidgamesdk.GameActivity --es relay <host>`
+  (Android) or `VELTA_RELAY=<host>` (desktop).
 - A startup log strip at the top shows timings for each step.
 - Back (Android) or Escape (desktop) goes from a chat to the list; on the list
   it sends the app to the background.
