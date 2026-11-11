@@ -53,9 +53,7 @@ target_sdk_version = 35
 
 [package.metadata.android.application]
 label = "Velta Preview"
-# Throwaway-key test APK: debuggable so adb run-as can place a relay
-# override file (relay.txt) into the app's files dir.
-debuggable = true
+debuggable = false
 
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"

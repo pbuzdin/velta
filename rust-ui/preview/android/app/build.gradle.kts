@@ -36,9 +36,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Throwaway-key test APK: debuggable so adb run-as can place a
-            // relay override file (relay.txt) into the app's files dir.
-            isDebuggable = true
+            // vivo's installer hangs on debuggable APKs — keep release
+            // non-debuggable and pass test config via the launch intent
+            // (`am start --es relay …`) instead of files.
             if (System.getenv("VELTA_KEYSTORE") != null) {
                 signingConfig = signingConfigs.getByName("test")
             }

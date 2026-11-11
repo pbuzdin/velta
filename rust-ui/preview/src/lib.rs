@@ -65,6 +65,37 @@ fn normalize_relay(s: &str) -> String {
     }
 }
 
+/// A `relay` string extra on the launch intent (`am start --es relay …`) —
+/// the highest-priority override, and the only one that works on a
+/// non-debuggable test APK.
+#[cfg(target_os = "android")]
+fn relay_from_intent() -> Option<String> {
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
+    let mut env = vm.attach_current_thread().ok()?;
+    let inner = || -> jni::errors::Result<Option<String>> {
+        let Some(&ptr) = ACTIVITY.get() else { return Ok(None) };
+        let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
+        let intent = env
+            .call_method(&activity, "getIntent", "()Landroid/content/Intent;", &[])?
+            .l()?;
+        let extra = env
+            .call_method(&intent, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;", &["relay".into()])?
+            .l()?;
+        if extra.is_null() {
+            return Ok(None);
+        }
+        let s: String = env.get_string(extra.into())?.into();
+        Ok(Some(s))
+    }();
+    if let Err(_e) = &inner
+        && env.exception_check().unwrap_or(false)
+    {
+        env.exception_clear().ok();
+    }
+    inner.ok().flatten().filter(|s| !s.trim().is_empty())
+}
+
 /// The NativeActivity jobject (ndk_context only hands out the Application).
 #[cfg(target_os = "android")]
 static ACTIVITY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
@@ -82,8 +113,8 @@ fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidA
     say("android_main");
     let dir = app.internal_data_path().expect("app data dir").join("accounts");
     say(format!("opening accounts at {}", dir.display()));
-    let relay = relay_for(&dir);
-    log::info!("first-run relay override active: {relay}");
+    let relay = relay_from_intent().unwrap_or_else(|| relay_for(&dir));
+    log::info!("first-run relay: {relay}");
     let core = match core::Core::open(dir, &relay) {
         Ok(c) => c,
         Err(e) => {
