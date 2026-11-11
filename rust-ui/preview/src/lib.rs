@@ -170,6 +170,97 @@ pub fn clear_ime_text() {
     }
 }
 
+/// Sync the keyboard buffer to `text` after the field changed behind the
+/// IME's back (paste/cut): the next `ImeText` tick would otherwise reset the
+/// field to the stale buffer content.
+pub fn set_ime_text(text: String) {
+    #[cfg(all(target_os = "android", feature = "game-activity"))]
+    if let Some(a) = APP.get() {
+        a.set_text_input_state(android_activity::TextInputState {
+            text: text.into(),
+            ..Default::default()
+        });
+    }
+}
+
+/// Puts `text` on the Android clipboard (JNI ClipboardManager).
+pub fn clipboard_set(text: String) {
+    #[cfg(target_os = "android")]
+    {
+        let res = with_env(|env, activity| {
+            let svc = env
+                .call_method(activity, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", &[env.new_string("clipboard")?.into()])?
+                .l()?;
+            let label = env.new_string("velta")?;
+            let content = env.new_string(&text)?;
+            let clip = env
+                .call_static_method(
+                    "android/content/ClipData",
+                    "newPlainText",
+                    "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;",
+                    &[(&label).into(), (&content).into()],
+                )?
+                .l()?;
+            env.call_method(&svc, "setPrimaryClip", "(Landroid/content/ClipData;)V", &[(&clip).into()])?;
+            Ok(())
+        });
+        match res {
+            Ok(()) => say("copied to clipboard"),
+            Err(e) => say(format!("clipboard set failed: {e}")),
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = text;
+}
+
+/// Reads the Android clipboard (text flavor only).
+pub fn clipboard_get() -> Option<String> {
+    #[cfg(target_os = "android")]
+    {
+        with_env(|env, activity| {
+            let svc = env
+                .call_method(activity, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", &[env.new_string("clipboard")?.into()])?
+                .l()?;
+            let clip = env.call_method(&svc, "getPrimaryClip", "()Landroid/content/ClipData;", &[])?.l()?;
+            if clip.is_null() {
+                return Ok(None);
+            }
+            let item = env.call_method(&clip, "getItemAt", "(I)Landroid/content/ClipData$Item;", &[0i32.into()])?.l()?;
+            let text = env
+                .call_method(&item, "coerceToText", "(Landroid/content/Context;)Ljava/lang/CharSequence;", &[activity.into()])?
+                .l()?;
+            if text.is_null() {
+                return Ok(None);
+            }
+            Ok(Some(env.get_string(&jni::objects::JString::from(text))?.into()))
+        })
+        .ok()
+        .flatten()
+    }
+    #[cfg(not(target_os = "android"))]
+    None
+}
+
+/// Runs `f` with an attached JNI env and the activity jobject (the shared
+/// shape of every small JNI helper here).
+#[cfg(target_os = "android")]
+fn with_env<T>(
+    f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> jni::errors::Result<T>,
+) -> jni::errors::Result<T> {
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }?;
+    let mut env = vm.attach_current_thread()?;
+    let Some(&ptr) = ACTIVITY.get() else {
+        return Err(jni::errors::Error::JavaException);
+    };
+    let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
+    let out = f(&mut env, activity);
+    if out.is_err() && env.exception_check().unwrap_or(false) {
+        env.exception_clear().ok();
+    }
+    out
+}
+
 static IME_POLL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static IME_THREAD: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
 

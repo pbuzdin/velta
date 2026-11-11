@@ -6,7 +6,7 @@ use std::time::Instant;
 use deltachat::chat::ChatId;
 use deltachat::message::MsgId;
 use masonry::app::RenderRoot;
-use masonry::core::{ErasedAction, NewWidget, PropertySet, StyleProperty, WidgetId, WidgetTag};
+use masonry::core::{ErasedAction, NewWidget, PropertySet, StyleProperty, TextEvent, WidgetId, WidgetTag};
 use masonry::dpi::LogicalSize;
 use masonry::kurbo::{Affine, Point, Vec2};
 use masonry::layout::Length;
@@ -47,7 +47,40 @@ struct ChatTags {
     spacer: WidgetTag<SizedBox>,
     /// Slot above the composer for the "Reply to" banner.
     reply: WidgetTag<SizedBox>,
+    /// Slot above the reply banner: the long-press text menu (Copy/Paste/…).
+    menu: WidgetTag<SizedBox>,
 }
+
+/// Buttons of the text menu while it is open.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MenuTags {
+    copy: WidgetTag<Button>,
+    cut: WidgetTag<Button>,
+    paste: WidgetTag<Button>,
+    all: WidgetTag<Button>,
+    close: WidgetTag<Button>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MenuCmd {
+    Copy,
+    Cut,
+    Paste,
+    SelectAll,
+    Close,
+}
+
+/// Bumped by every touch move/end: a pending long-press arm is stale when
+/// the counter changed. (Long-press = 450 ms without either.)
+fn touch_bump() {
+    TOUCH_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn touch_gen() -> u64 {
+    TOUCH_GEN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+static TOUCH_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A finger on the screen. Mirrors Velta's touch gestures (chat-view.js):
 /// direction locks after 12 px; a left drag anywhere in a chat goes back
@@ -111,13 +144,17 @@ enum Async {
     /// Raw touch (physical px). Masonry's Portal has no touch drag-to-pan at
     /// this rev and no swipe gestures, so the driver does both (see Gesture).
     Touch(TouchPhase, f64, f64),
+    /// Long-press fired (450 ms, no movement): open the text menu.
+    OpenMenu,
+    /// A text-menu button was tapped.
+    Menu(MenuCmd),
     /// A pasted link finished (core works in the background).
     Link(Result<LinkDone, String>),
 }
 
 enum Screen {
     List { rows: Vec<(WidgetTag<Button>, ChatId)>, portal: WidgetTag<Portal<Flex>>, bar: BarTags },
-    Chat { id: ChatId, draft: String, tags: ChatTags, bubbles: Vec<(WidgetTag<Flex>, MsgId)>, reply: Option<(MsgId, WidgetTag<Button>)> },
+    Chat { id: ChatId, draft: String, tags: ChatTags, bubbles: Vec<(WidgetTag<Flex>, MsgId)>, reply: Option<(MsgId, WidgetTag<Button>)>, menu: Option<MenuTags> },
     /// `busy`: a link is being used; further taps are ignored until it ends.
     Add { draft: String, tags: AddTags, bar: BarTags, busy: bool },
     /// `ready`: the QR was shown; until then list changes rebuild the screen
@@ -432,7 +469,7 @@ impl Driver {
     fn show_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
         let t = Instant::now();
         self.core.mark_seen(id);
-        let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique(), spacer: WidgetTag::unique(), reply: WidgetTag::unique() };
+        let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique(), spacer: WidgetTag::unique(), reply: WidgetTag::unique(), menu: WidgetTag::unique() };
         let (col, bubbles) = self.messages(id);
         let msgs = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true)).with_tag(tags.msgs);
         // Raw editable TextArea (TextInput is single-line by design): Enter
@@ -463,12 +500,13 @@ impl Driver {
         let screen = Flex::column()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with(msgs, 1.0)
+            .with_fixed(NewWidget::new(SizedBox::empty()).with_tag(tags.menu))
             .with_fixed(NewWidget::new(SizedBox::empty()).with_tag(tags.reply))
             .with_fixed(composer)
             .with_fixed(spacer);
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(screen)));
         Self::set_title(root, &self.core.chat_name(id), true);
-        self.screen = Screen::Chat { id, draft: String::new(), tags, bubbles, reply: None };
+        self.screen = Screen::Chat { id, draft: String::new(), tags, bubbles, reply: None, menu: None };
         crate::clear_ime_text();
         crate::set_ime_polling(true);
         self.post(Async::ScrollBottom);
@@ -482,6 +520,88 @@ impl Driver {
         let msgs = tags.msgs;
         root.edit_widget_with_tag(msgs, |mut p| Portal::set_child(&mut p, NewWidget::new(col)));
         self.post(Async::ScrollBottom);
+    }
+
+    /// Opens the long-press text menu (a strip in the `menu` slot above the
+    /// reply banner). Not the native ActionMode yet — that needs a Java
+    /// interface; this is the no-fork v1 (see #315 text essentials).
+    fn open_menu(&mut self, root: &mut RenderRoot) {
+        let Screen::Chat { tags, menu, .. } = &mut self.screen else { return };
+        if menu.is_some() {
+            return;
+        }
+        let mt = MenuTags {
+            copy: WidgetTag::unique(),
+            cut: WidgetTag::unique(),
+            paste: WidgetTag::unique(),
+            all: WidgetTag::unique(),
+            close: WidgetTag::unique(),
+        };
+        let btn = |text: &str, tag: WidgetTag<Button>| {
+            NewWidget::new(Button::new(NewWidget::new(Label::new(text.to_string()).with_style(StyleProperty::FontSize(14.0)))))
+                .with_tag(tag)
+                .with_props(PropertySet::new().with(Background::Color(SURFACE)))
+        };
+        let row = Flex::row()
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_fixed(btn("Copy", mt.copy))
+            .with_fixed_spacer(px(6.0))
+            .with_fixed(btn("Cut", mt.cut))
+            .with_fixed_spacer(px(6.0))
+            .with_fixed(btn("Paste", mt.paste))
+            .with_fixed_spacer(px(6.0))
+            .with_fixed(btn("All", mt.all))
+            .with_spacer(1.0)
+            .with_fixed(btn("✕", mt.close))
+            .with_props(
+                PropertySet::new()
+                    .with(Padding::from_vh(px(4.0), px(8.0)))
+                    .with(Background::Color(SURFACE)),
+            );
+        root.edit_widget_with_tag(tags.menu, |mut b| SizedBox::set_child(&mut b, NewWidget::new(row)));
+        *menu = Some(mt);
+    }
+
+    fn close_menu(&mut self, root: &mut RenderRoot) {
+        let Screen::Chat { tags, menu, .. } = &mut self.screen else { return };
+        if menu.take().is_some() {
+            root.edit_widget_with_tag(tags.menu, |mut b| SizedBox::remove_child(&mut b));
+        }
+    }
+
+    /// One text-menu command. Copy/Cut act on the whole composer draft for
+    /// now (selection read-back needs a small Masonry patch, L3 in #315);
+    /// Paste goes through the editor so it lands at the cursor.
+    fn menu_cmd(&mut self, root: &mut RenderRoot, cmd: MenuCmd) {
+        let Screen::Chat { draft, tags, .. } = &mut self.screen else { return };
+        let (input, draft) = (tags.input, draft);
+        match cmd {
+            MenuCmd::Copy => crate::clipboard_set(draft.clone()),
+            MenuCmd::Cut => {
+                crate::clipboard_set(draft.clone());
+                root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut i, ""));
+                draft.clear();
+                crate::clear_ime_text();
+            }
+            MenuCmd::Paste => {
+                if let Some(text) = crate::clipboard_get() {
+                    root.handle_text_event(TextEvent::ClipboardPaste(text.clone()));
+                    // Re-sync the keyboard buffer to the new field text so the
+                    // next ImeText tick can't clobber the pasted content.
+                    let mut new_text = String::new();
+                    root.edit_widget_with_tag(input, |mut i| new_text = i.widget.text().to_string());
+                    *draft = new_text.clone();
+                    crate::set_ime_text(new_text);
+                } else {
+                    crate::say("clipboard empty");
+                }
+            }
+            MenuCmd::SelectAll => {
+                let len = draft.len();
+                root.edit_widget_with_tag(input, |mut i| TextArea::select_byte_range(&mut i, 0, len));
+            }
+            MenuCmd::Close => self.close_menu(root),
+        }
     }
 
     fn send(&mut self, root: &mut RenderRoot) {
@@ -542,8 +662,22 @@ impl Driver {
                     _ => (Mode::Pan, None),
                 };
                 self.gesture = Some(Gesture { x0: x, y0: y, last_y: y, dx: 0.0, mode, bubble });
+                // Arm the long-press text menu: fires at 450 ms unless any
+                // movement/end bumps the generation first.
+                let g = touch_gen();
+                let proxy = self.proxy.clone();
+                let win = self.window;
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(450));
+                    if touch_gen() == g
+                        && proxy.send_event(MasonryUserEvent::AsyncAction(win, Box::new(Async::OpenMenu))).is_err()
+                    {
+                        // loop gone; nothing to do
+                    }
+                });
             }
             TouchPhase::Moved => {
+                touch_bump();
                 let Some(g) = &mut self.gesture else { return };
                 let (dx, dy) = (x - g.x0, y - g.y0);
                 if g.mode == Mode::Undecided {
@@ -586,6 +720,7 @@ impl Driver {
                 }
             }
             TouchPhase::Ended | TouchPhase::Cancelled => {
+                touch_bump();
                 let Some(g) = self.gesture.take() else { return };
                 let commit = phase == TouchPhase::Ended;
                 match g.mode {
@@ -628,6 +763,23 @@ impl AppDriver for Driver {
                 }
             } else if matches!(&self.screen, Screen::Chat { tags, .. } if is(root, tags.send)) {
                 self.send(root);
+            } else if let Screen::Chat { menu: Some(mt), .. } = &self.screen {
+                let cmd = if is(root, mt.copy) {
+                    Some(MenuCmd::Copy)
+                } else if is(root, mt.cut) {
+                    Some(MenuCmd::Cut)
+                } else if is(root, mt.paste) {
+                    Some(MenuCmd::Paste)
+                } else if is(root, mt.all) {
+                    Some(MenuCmd::SelectAll)
+                } else if is(root, mt.close) {
+                    Some(MenuCmd::Close)
+                } else {
+                    None
+                };
+                if let Some(cmd) = cmd {
+                    self.menu_cmd(root, cmd);
+                }
             } else if matches!(&self.screen, Screen::Chat { reply: Some((_, c)), .. } if is(root, *c)) {
                 self.clear_reply(root);
             } else if matches!(&self.screen, Screen::Add { tags, .. } if is(root, tags.go)) {
@@ -665,11 +817,26 @@ impl AppDriver for Driver {
             if matches!(self.screen, Screen::Add { .. }) { self.show_add(root) } else { self.show_list(root) }
         }
         if matches!(*a, Async::Back) {
+            // Back first closes the text menu, like the reply banner.
+            if matches!(self.screen, Screen::Chat { menu: Some(_), .. }) {
+                self.close_menu(root);
+                return;
+            }
             if matches!(self.screen, Screen::List { .. }) {
                 crate::to_background();
             } else {
                 self.show_list(root);
             }
+            return;
+        }
+        if matches!(*a, Async::OpenMenu) {
+            if matches!(self.screen, Screen::Chat { menu: None, .. }) {
+                self.open_menu(root);
+            }
+            return;
+        }
+        if let Async::Menu(cmd) = *a {
+            self.menu_cmd(root, cmd);
             return;
         }
         if matches!(*a, Async::Log) {

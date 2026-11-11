@@ -162,6 +162,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
+      # skia's linux text stack links fontconfig/freetype via pkg-config.
+      - name: Install fontconfig dev
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: ./rust-ui/preview
