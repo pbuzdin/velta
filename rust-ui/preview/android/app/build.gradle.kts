@@ -10,7 +10,9 @@ android {
         applicationId = "cc.velta.preview"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
+        // Above cargo-apk's computed versionCode (16777472 for 0.1.0), so a
+        // Gradle APK installs over an existing cargo-apk NativeActivity one.
+        versionCode = 16800000
         versionName = "0.1"
         ndk {
             abiFilters += "arm64-v8a"
