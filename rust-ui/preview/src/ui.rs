@@ -10,10 +10,10 @@ use masonry::kurbo::Point;
 use masonry::layout::Length;
 use masonry::peniko::color::AlphaColor;
 use masonry::properties::types::{CrossAxisAlignment, MainAxisAlignment};
-use masonry::properties::{Background, ContentColor, CornerRadius, LineBreaking, Padding};
+use masonry::properties::{Background, CaretColor, ContentColor, CornerRadius, LineBreaking, Padding};
 use masonry::theme::default_property_set;
 use masonry::peniko::{ImageAlphaType, ImageData, ImageFormat};
-use masonry::widgets::{Button, ButtonPress, Flex, Image, InsertNewline, Label, Portal, SizedBox, TextAction, TextArea, TextInput};
+use masonry::widgets::{Button, ButtonPress, Flex, Image, InsertNewline, Label, Portal, SizedBox, TextAction, TextArea};
 use masonry_winit::app::{AppDriver, DriverCtx, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
 use masonry_winit::app::MasonryState;
 use masonry_winit::winit::application::ApplicationHandler;
@@ -39,7 +39,7 @@ const INVITE: WidgetTag<Button> = WidgetTag::named("invite");
 // (the chat screen) take a fresh unique tag each time instead of a named one.
 struct ChatTags {
     send: WidgetTag<Button>,
-    input: WidgetTag<TextInput>,
+    input: WidgetTag<TextArea<true>>,
     msgs: WidgetTag<Portal<Flex>>,
     /// Grows by the soft keyboard height so the composer rides above it
     /// (GameActivity ignores adjustResize; the layout does the padding).
@@ -211,17 +211,22 @@ impl Driver {
         self.core.mark_seen(id);
         let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique(), spacer: WidgetTag::unique() };
         let msgs = NewWidget::new(Portal::new(NewWidget::new(self.messages(id))).constrain_horizontal(true)).with_tag(tags.msgs);
-        // Multi-line, wrapping composer: Enter inserts a newline (never an
-        // Entered action), so the Send button is the send path.
+        // Raw editable TextArea (TextInput is single-line by design): Enter
+        // inserts a newline, so the Send button is the send path. ContentColor
+        // pinned so typed text stays visible on the dark surface.
         let input = NewWidget::new(
-            TextInput::from_text_area(NewWidget::new(
-                TextArea::new("")
-                    .with_word_wrap(true)
-                    .with_insert_newline(InsertNewline::OnEnter),
-            ))
-            .with_placeholder("Message"),
+            TextArea::new_editable("")
+                .with_word_wrap(true)
+                .with_insert_newline(InsertNewline::OnEnter),
         )
-        .with_tag(tags.input);
+        .with_tag(tags.input)
+        .with_props(
+            PropertySet::new()
+                .with(ContentColor::new(TEXT))
+                .with(CaretColor::new(TEXT))
+                .with(Padding::from_vh(px(10.0), px(12.0)))
+                .with(Background::Color(SURFACE)),
+        );
         let send = NewWidget::new(Button::with_text("Send")).with_tag(tags.send);
         let composer = NewWidget::new(Flex::row().with(input, 1.0).with_fixed_spacer(px(8.0)).with_fixed(send))
             .with_props(
@@ -261,7 +266,7 @@ impl Driver {
         if let Err(e) = self.core.send_text(id, text) {
             crate::say(format!("send failed: {e:#}"));
         }
-        root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut TextInput::text_mut(&mut i), ""));
+        root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut i, ""));
         self.refresh_chat(root, id);
     }
 }
