@@ -4,6 +4,12 @@ Native Android + Desktop client (Kotlin Multiplatform + Compose Multiplatform).
 Tracking issue: **#192**. Phase status + honest gaps: **docs/PHASES.md**.
 Read this file before touching anything in this folder.
 
+**2026-11-12: this folder is the Android delivery track** (flip decision —
+the Rust UI preview is a lab, verdict in #314; public write-up
+velta.cc/news/rust-ui-take.html). Phase plan in #192: N1 design port
+(Prism + identity matrix — shipped, see PrismIdentityTest), N2
+conversation notifications + RPC hardening, N3 AGSL glass, N4 release.
+
 ## Layout
 
 ```
@@ -30,6 +36,12 @@ that BOTH targets need goes in jvmCommon (wire it with `dependsOn(commonMain.get
 JVM facade classes collide (Media.kt → MediaAndroid.kt/MediaDesktop.kt).
 ⚠️ ANY source change (including renames) needs the tar-sync below; renames
 also need explicit `rm` of the old file in the WSL copy (overlay keeps it).
+⚠️ The tar-sync only OVERLAYS: files deleted on the Windows side linger in
+~/velta-kmp-build forever (a stale Chrome.kt from Nov 2 survived until it
+broke the build with duplicate declarations). `rm` such files explicitly.
+⚠️ Every Kotlin file MUST carry its `package` line — a package-less file
+lands in the default package and its symbols are unresolvable from
+org.velta.kmp.*; the errors appear in the CONSUMING files, not the culprit.
 ⚠️ FragmentActivity traps: (1) registered ActivityResult launchers crash
 with "lower 16 bits for requestCode" — route results through AppHolder
 instead; (2) biometric 1.1.0 drags fragment < 1.3 (breaks ActivityResult)
@@ -168,6 +180,10 @@ never run Gradle on the Windows side.
   (`dbkey.bio`, 30 s Keystore validity after a prompt); unlock = prompt →
   `unlockDek` inside the window → `spawnRpcServerWithKey(dir, dek)`.
   PIN/Argon2id fallback deferred.
+- Message timestamps on the RPC surface are unix SECONDS, not millis —
+formatTimestamp/formatDateHeader must use Instant.ofEpochSecond (reading
+them as millis rendered every day header as Jan 1970; TimestampTest
+guards it).
 - Message state numbers (core/src/message.rs): 10=InFresh, 13=InNoticed,
   16=InSeen, 19=OutDraft, 20=OutPending, 24=OutFailed, 26=OutDelivered,
   28=OutMdnRcvd. Wire casing: `MessageLoadResult` kind is **"message"**
@@ -196,6 +212,12 @@ never run Gradle on the Windows side.
   reading serde attributes instead of probing shipped a silent drop-everything
   bug once. Raw-string JSON concatenation doubles quotes — write one string.
 - `runBlocking` + real PNG fixtures for the decoders (DecodeImageTest).
+- Prism/identity parity vectors (PrismIdentityTest) come from the WEB
+implementation (name-color.js / avatar.js) — the web is the source of
+truth. If a vector fails, suspect the port, never the vector: hashing
+must feed only the high UTF-16 surrogate for astral code points, and the
+identity used-color rule is NAME-based (Magenta and Fuchsia share an RGB
+but are distinct pool entries). Re-derive vectors with node when in doubt.
 
 ## Desktop run
 
