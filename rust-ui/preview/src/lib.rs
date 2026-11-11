@@ -1,6 +1,7 @@
 //! Velta Rust preview UI. Experimental, see #314.
 
 pub mod core;
+pub mod prism;
 pub mod ui;
 
 use std::sync::Mutex;
@@ -44,7 +45,13 @@ pub fn relay_for(accounts_dir: &std::path::Path) -> String {
     {
         return normalize_relay(&r);
     }
-    for dir in [accounts_dir.to_path_buf(), accounts_dir.parent().map(|p| p.to_path_buf()).unwrap_or_default()] {
+    for dir in [
+        accounts_dir.to_path_buf(),
+        accounts_dir
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default(),
+    ] {
         let Ok(s) = std::fs::read_to_string(dir.join("relay.txt")) else {
             continue;
         };
@@ -73,14 +80,21 @@ fn intent_extra(key: &str) -> Option<String> {
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
     let mut env = vm.attach_current_thread().ok()?;
     let inner = || -> jni::errors::Result<Option<String>> {
-        let Some(&ptr) = ACTIVITY.get() else { return Ok(None) };
+        let Some(&ptr) = ACTIVITY.get() else {
+            return Ok(None);
+        };
         let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
         let intent = env
             .call_method(&activity, "getIntent", "()Landroid/content/Intent;", &[])?
             .l()?;
         let jkey = env.new_string(key)?;
         let extra = env
-            .call_method(&intent, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;", &[(&jkey).into()])?
+            .call_method(
+                &intent,
+                "getStringExtra",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[(&jkey).into()],
+            )?
             .l()?;
         if extra.is_null() {
             return Ok(None);
@@ -115,11 +129,18 @@ static ACTIVITY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidApp) {
     use masonry_winit::winit::platform::android::EventLoopBuilderExtAndroid;
     // stderr goes nowhere on Android; send our log lines and panics to logcat (tag velta-preview).
-    android_logger::init_once(android_logger::Config::default().with_tag("velta-preview").with_max_level(log::LevelFilter::Info));
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_tag("velta-preview")
+            .with_max_level(log::LevelFilter::Info),
+    );
     std::panic::set_hook(Box::new(|p| log::error!("panic: {p}")));
     let started = *START.get_or_init(Instant::now);
     say("android_main");
-    let dir = app.internal_data_path().expect("app data dir").join("accounts");
+    let dir = app
+        .internal_data_path()
+        .expect("app data dir")
+        .join("accounts");
     say(format!("opening accounts at {}", dir.display()));
     let relay = relay_from_intent().unwrap_or_else(|| relay_for(&dir));
     log::info!("first-run relay: {relay}");
@@ -147,7 +168,8 @@ fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidA
 }
 
 #[cfg(target_os = "android")]
-static APP: std::sync::OnceLock<masonry_winit::winit::platform::android::activity::AndroidApp> = std::sync::OnceLock::new();
+static APP: std::sync::OnceLock<masonry_winit::winit::platform::android::activity::AndroidApp> =
+    std::sync::OnceLock::new();
 
 /// Soft-keyboard text. GameActivity's keyboard edits a GameTextInput buffer and
 /// reports it as `TextEvent`, which winit 0.30 drops ("Unknown android_activity
@@ -176,7 +198,7 @@ pub fn clear_ime_text() {
 pub fn set_ime_text(text: String) {
     #[cfg(all(target_os = "android", feature = "game-activity"))]
     if let Some(a) = APP.get() {
-        a.set_text_input_state(android_activity::TextInputState {
+        a.set_text_input_state(android_activity::input::TextInputState {
             text: text.into(),
             ..Default::default()
         });
@@ -188,8 +210,14 @@ pub fn clipboard_set(text: String) {
     #[cfg(target_os = "android")]
     {
         let res = with_env(|env, activity| {
+            let svc_name = env.new_string("clipboard")?;
             let svc = env
-                .call_method(activity, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", &[env.new_string("clipboard")?.into()])?
+                .call_method(
+                    activity,
+                    "getSystemService",
+                    "(Ljava/lang/String;)Ljava/lang/Object;",
+                    &[(&svc_name).into()],
+                )?
                 .l()?;
             let label = env.new_string("velta")?;
             let content = env.new_string(&text)?;
@@ -201,7 +229,12 @@ pub fn clipboard_set(text: String) {
                     &[(&label).into(), (&content).into()],
                 )?
                 .l()?;
-            env.call_method(&svc, "setPrimaryClip", "(Landroid/content/ClipData;)V", &[(&clip).into()])?;
+            env.call_method(
+                &svc,
+                "setPrimaryClip",
+                "(Landroid/content/ClipData;)V",
+                &[(&clip).into()],
+            )?;
             Ok(())
         });
         match res {
@@ -218,21 +251,43 @@ pub fn clipboard_get() -> Option<String> {
     #[cfg(target_os = "android")]
     {
         with_env(|env, activity| {
+            let svc_name = env.new_string("clipboard")?;
             let svc = env
-                .call_method(activity, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", &[env.new_string("clipboard")?.into()])?
+                .call_method(
+                    &activity,
+                    "getSystemService",
+                    "(Ljava/lang/String;)Ljava/lang/Object;",
+                    &[(&svc_name).into()],
+                )?
                 .l()?;
-            let clip = env.call_method(&svc, "getPrimaryClip", "()Landroid/content/ClipData;", &[])?.l()?;
+            let clip = env
+                .call_method(&svc, "getPrimaryClip", "()Landroid/content/ClipData;", &[])?
+                .l()?;
             if clip.is_null() {
                 return Ok(None);
             }
-            let item = env.call_method(&clip, "getItemAt", "(I)Landroid/content/ClipData$Item;", &[0i32.into()])?.l()?;
+            let item = env
+                .call_method(
+                    &clip,
+                    "getItemAt",
+                    "(I)Landroid/content/ClipData$Item;",
+                    &[0i32.into()],
+                )?
+                .l()?;
             let text = env
-                .call_method(&item, "coerceToText", "(Landroid/content/Context;)Ljava/lang/CharSequence;", &[activity.into()])?
+                .call_method(
+                    &item,
+                    "coerceToText",
+                    "(Landroid/content/Context;)Ljava/lang/CharSequence;",
+                    &[(&activity).into()],
+                )?
                 .l()?;
             if text.is_null() {
                 return Ok(None);
             }
-            Ok(Some(env.get_string(&jni::objects::JString::from(text))?.into()))
+            Ok(Some(
+                env.get_string(&jni::objects::JString::from(text))?.into(),
+            ))
         })
         .ok()
         .flatten()
@@ -306,7 +361,9 @@ fn ime_bottom_android() -> jni::errors::Result<f64> {
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }?;
     let mut env = vm.attach_current_thread()?;
     let inner = || -> jni::errors::Result<f64> {
-        let Some(&ptr) = ACTIVITY.get() else { return Ok(0.0) };
+        let Some(&ptr) = ACTIVITY.get() else {
+            return Ok(0.0);
+        };
         let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
         let window = env
             .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])?
@@ -315,26 +372,49 @@ fn ime_bottom_android() -> jni::errors::Result<f64> {
             .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?
             .l()?;
         let insets = env
-            .call_method(&decor, "getRootWindowInsets", "()Landroid/view/WindowInsets;", &[])?
+            .call_method(
+                &decor,
+                "getRootWindowInsets",
+                "()Landroid/view/WindowInsets;",
+                &[],
+            )?
             .l()?;
-        let sdk = env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?.i()?;
+        let sdk = env
+            .get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?
+            .i()?;
         let bottom = if sdk >= 30 {
             let kind = env
                 .call_static_method("android/view/WindowInsets$Type", "ime", "()I", &[])?
                 .i()?;
             // Insets lives in android.graphics, not android.view.
             let ime = env
-                .call_method(&insets, "getInsets", "(I)Landroid/graphics/Insets;", &[kind.into()])?
+                .call_method(
+                    &insets,
+                    "getInsets",
+                    "(I)Landroid/graphics/Insets;",
+                    &[kind.into()],
+                )?
                 .l()?;
             env.get_field(&ime, "bottom", "I")?.i()?
         } else {
-            env.call_method(&insets, "getSystemWindowInsetBottom", "()I", &[])?.i()?
+            env.call_method(&insets, "getSystemWindowInsetBottom", "()I", &[])?
+                .i()?
         };
         let resources = env
-            .call_method(&activity, "getResources", "()Landroid/content/res/Resources;", &[])?
+            .call_method(
+                &activity,
+                "getResources",
+                "()Landroid/content/res/Resources;",
+                &[],
+            )?
             .l()?;
         let metrics = env
-            .call_method(&resources, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;", &[])?
+            .call_method(
+                &resources,
+                "getDisplayMetrics",
+                "()Landroid/util/DisplayMetrics;",
+                &[],
+            )?
             .l()?;
         let d = env.get_field(&metrics, "density", "F")?.f()? as f64;
         if d <= 0.0 {
@@ -356,13 +436,17 @@ pub fn to_background() {
             let ctx = ndk_context::android_context();
             let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }?;
             let mut env = vm.attach_current_thread()?;
-            let Some(&ptr) = ACTIVITY.get() else { return Ok(()) };
+            let Some(&ptr) = ACTIVITY.get() else {
+                return Ok(());
+            };
             let activity = unsafe { jni::objects::JObject::from_raw(ptr as jni::sys::jobject) };
             let r = env.call_method(&activity, "moveTaskToBack", "(Z)Z", &[true.into()]);
             if env.exception_check()? {
                 let ex = env.exception_occurred()?;
                 env.exception_clear()?;
-                let msg = env.call_method(&ex, "toString", "()Ljava/lang/String;", &[])?.l()?;
+                let msg = env
+                    .call_method(&ex, "toString", "()Ljava/lang/String;", &[])?
+                    .l()?;
                 let msg: String = env.get_string(&msg.into())?.into();
                 say(format!("moveTaskToBack: {msg}"));
             }

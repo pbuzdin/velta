@@ -8,7 +8,7 @@ publish = false
 
 # Standalone: not part of core's workspace.
 [workspace]
-members = ["vendor/masonry_winit", "vendor/masonry"]
+members = ["vendor/masonry_winit", "vendor/masonry", "vendor/include_doc_path"]
 
 [lib]
 name = "velta_preview"
@@ -41,6 +41,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 qrcodegen = "1.8"
+# Message-picture decoding (Image/GIF/Sticker → RGBA for masonry's Image).
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 # Direct skia access for the glass prototype (gate 4, docs/agents/rust-ui-glass.md);
 # same crate imaging_skia pulls, so the bindings build is shared.
 skia-safe = { version = "0.93", optional = true }
@@ -53,6 +55,9 @@ required-features = ["skia"]
 
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { version = "0.30.13" }
+# Same crate+version winit's game-activity backend uses; a direct dep so
+# `android_activity::TextInputState` (ime buffer sync) resolves by name.
+android-activity = { version = "0.6", features = ["game-activity"] }
 android_logger = "0.15"
 log = "0.4"
 jni = "0.21"
@@ -82,3 +87,9 @@ codegen-units = 4
 [patch."https://github.com/linebender/xilem"]
 masonry_winit = { path = "vendor/masonry_winit" }
 masonry = { path = "vendor/masonry" }
+
+# Workspace-internal dep of vendored masonry, unpublished on crates.io;
+# vendored + patched so adding a plain crates.io dependency (re-resolution)
+# can't strand it behind the xilem git source.
+[patch.crates-io]
+linebender_include_doc_path = { path = "vendor/include_doc_path" }

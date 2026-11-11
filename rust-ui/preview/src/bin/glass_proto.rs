@@ -7,11 +7,11 @@
 //!
 //!     cargo run --release --bin glass_proto --features skia -- [out_dir]
 
-use skia_safe as sk;
 use sk::{
-    canvas::SaveLayerRec, image_filters, BlendMode, ClipOp, Color, ColorChannel, IRect, Image,
-    ImageInfo, Paint, Point, Rect, RRect,
+    BlendMode, ClipOp, Color, ColorChannel, IRect, Image, ImageInfo, Paint, Point, RRect, Rect,
+    canvas::SaveLayerRec, image_filters,
 };
+use skia_safe as sk;
 
 const W: i32 = 540; // half a phone width keeps CI fast; effects scale
 const H: i32 = 1170;
@@ -48,14 +48,21 @@ fn main() -> anyhow::Result<()> {
     let lens = lens_map(snap.width(), snap.height(), radius);
     let lens_filter = image_filters::image(lens, None, None, None);
     let disp = image_filters::displacement_map(
-        ColorChannel::R, ColorChannel::G, 40.0, lens_filter, None, None,
+        ColorChannel::R,
+        ColorChannel::G,
+        40.0,
+        lens_filter,
+        None,
+        None,
     );
     let blurred = image_filters::blur((6.0, 6.0), None, disp, None);
 
     let mut plate = sk::surfaces::raster_n32_premul((snap.width(), snap.height())).unwrap();
     let mut gp = Paint::default();
     gp.set_image_filter(blurred.as_ref());
-    plate.canvas().draw_image(backdrop.clone(), (0, 0), Some(&gp));
+    plate
+        .canvas()
+        .draw_image(backdrop.clone(), (0, 0), Some(&gp));
     let glass_image = plate.image_snapshot().unwrap();
 
     // --- 4. Composite onto the frame: filtered backdrop clipped to the plate,
@@ -151,7 +158,11 @@ fn draw_chat(c: &sk::Canvas) {
     let mut y = 90.0;
     for i in 0..9 {
         let outgoing = i % 2 == 0;
-        let x = if outgoing { W as f32 - bubble_w - 16.0 } else { 16.0 };
+        let x = if outgoing {
+            W as f32 - bubble_w - 16.0
+        } else {
+            16.0
+        };
         let h = 56.0 + (i % 3) as f32 * 14.0;
         let mut bp = Paint::default();
         bp.set_color(if outgoing {
@@ -159,13 +170,19 @@ fn draw_chat(c: &sk::Canvas) {
         } else {
             Color::from_argb(255, 44, 47, 56)
         });
-        let rr = RRect::new_rect_radii(Rect::from_xywh(x, y, bubble_w, h), &[Point::new(18.0, 18.0); 4]);
+        let rr = RRect::new_rect_radii(
+            Rect::from_xywh(x, y, bubble_w, h),
+            &[Point::new(18.0, 18.0); 4],
+        );
         c.draw_rrect(rr, &bp);
         let mut tp = Paint::default();
         tp.set_color(Color::from_argb(255, 242, 244, 248));
         for line in 0..(i % 3 + 1) {
             let lw = bubble_w - 40.0 - (line as f32 * 34.0).min(120.0);
-            c.draw_rect(Rect::from_xywh(x + 20.0, y + 14.0 + line as f32 * 16.0, lw, 4.0), &tp);
+            c.draw_rect(
+                Rect::from_xywh(x + 20.0, y + 14.0 + line as f32 * 16.0, lw, 4.0),
+                &tp,
+            );
         }
         y += h + 14.0;
     }

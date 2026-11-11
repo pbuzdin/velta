@@ -5,13 +5,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
+use deltachat::EventType;
 use deltachat::accounts::Accounts;
 use deltachat::chat::{self, Chat, ChatId, ChatItem};
 use deltachat::chatlist::Chatlist;
 use deltachat::contact::{Contact, ContactId};
 use deltachat::context::Context;
-use deltachat::message::{Message, MsgId};
-use deltachat::EventType;
+use deltachat::message::{Message, MsgId, Viewtype};
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 
@@ -25,7 +25,17 @@ pub struct ChatRow {
 
 pub enum Item {
     Day(String),
-    Msg { id: MsgId, outgoing: bool, sender: Option<String>, text: String, time: String, quote: Option<String> },
+    /// `image`: blob path of a renderable picture (Image/GIF/Sticker), to be
+    /// decoded off-thread by the UI.
+    Msg {
+        id: MsgId,
+        outgoing: bool,
+        sender: Option<String>,
+        text: String,
+        time: String,
+        quote: Option<String>,
+        image: Option<String>,
+    },
 }
 
 pub struct Core {
@@ -56,12 +66,20 @@ pub enum Change {
 
 fn hm(ts: i64) -> String {
     use chrono::{Local, TimeZone};
-    Local.timestamp_opt(ts, 0).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default()
+    Local
+        .timestamp_opt(ts, 0)
+        .single()
+        .map(|t| t.format("%H:%M").to_string())
+        .unwrap_or_default()
 }
 
 fn day(ts: i64) -> String {
     use chrono::{Local, TimeZone};
-    Local.timestamp_opt(ts, 0).single().map(|t| t.format("%a, %d %b %Y").to_string()).unwrap_or_default()
+    Local
+        .timestamp_opt(ts, 0)
+        .single()
+        .map(|t| t.format("%a, %d %b %Y").to_string())
+        .unwrap_or_default()
 }
 
 impl Core {
@@ -69,13 +87,18 @@ impl Core {
     /// and a first account if needed. An unconfigured account is set up in the background
     /// on `relay` (a `dcaccount:` relay), so the window can paint at once.
     pub fn open(dir: PathBuf, relay: &str) -> Result<Self> {
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(2).build()?;
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(2)
+            .build()?;
         let (accounts, ctx) = rt.block_on(async {
             let mut accounts = Accounts::new(dir, true).await?;
             if accounts.get_all().is_empty() {
                 accounts.add_account().await?;
             }
-            let ctx = accounts.get_selected_account().context("no account in this accounts dir")?;
+            let ctx = accounts
+                .get_selected_account()
+                .context("no account in this accounts dir")?;
             // No account is created on its own: the user pastes a relay link
             // (dcaccount:/dclogin:) or taps "Create account" (default relay).
             if ctx.is_configured().await? {
@@ -86,7 +109,12 @@ impl Core {
             }
             anyhow::Ok((accounts, ctx))
         })?;
-        Ok(Core { rt, accounts: Arc::new(RwLock::new(accounts)), ctx, default_relay: relay.to_string() })
+        Ok(Core {
+            rt,
+            accounts: Arc::new(RwLock::new(accounts)),
+            ctx,
+            default_relay: relay.to_string(),
+        })
     }
 
     pub fn is_configured(&self) -> bool {
@@ -95,7 +123,9 @@ impl Core {
 
     /// This account's invite link (empty until the account is set up).
     pub fn invite(&self) -> String {
-        self.rt.block_on(deltachat::securejoin::get_securejoin_qr(&self.ctx, None)).unwrap_or_default()
+        self.rt
+            .block_on(deltachat::securejoin::get_securejoin_qr(&self.ctx, None))
+            .unwrap_or_default()
     }
 
     /// Adds a relay to the configured account in the background (multi-relay),
@@ -113,7 +143,9 @@ impl Core {
     }
 
     pub fn self_addr(&self) -> String {
-        self.rt.block_on(self.ctx.get_primary_self_addr()).unwrap_or_default()
+        self.rt
+            .block_on(self.ctx.get_primary_self_addr())
+            .unwrap_or_default()
     }
 
     /// Calls `notify` (from a core thread) whenever the visible data may have
@@ -177,12 +209,20 @@ impl Core {
                 let id = list.get_chat_id(i)?;
                 let chat = Chat::load_from_db(ctx, id).await?;
                 let s = list.get_summary(ctx, i, Some(&chat)).await?;
-                let prefix = s.prefix.as_ref().map(|p| format!("{p}: ")).unwrap_or_default();
+                let prefix = s
+                    .prefix
+                    .as_ref()
+                    .map(|p| format!("{p}: "))
+                    .unwrap_or_default();
                 rows.push(ChatRow {
                     id,
                     name: chat.get_name().to_string(),
                     summary: format!("{prefix}{}", s.text),
-                    time: if s.timestamp > 0 { hm(s.timestamp) } else { String::new() },
+                    time: if s.timestamp > 0 {
+                        hm(s.timestamp)
+                    } else {
+                        String::new()
+                    },
                     unread: id.get_fresh_msg_cnt(ctx).await.unwrap_or(0),
                 });
             }
@@ -191,7 +231,10 @@ impl Core {
     }
 
     pub fn chat_name(&self, id: ChatId) -> String {
-        self.rt.block_on(Chat::load_from_db(&self.ctx, id)).map(|c| c.get_name().to_string()).unwrap_or_default()
+        self.rt
+            .block_on(Chat::load_from_db(&self.ctx, id))
+            .map(|c| c.get_name().to_string())
+            .unwrap_or_default()
     }
 
     /// The last `limit` items of a chat, oldest first.
@@ -213,13 +256,38 @@ impl Core {
                         } else if let Some(n) = m.get_override_sender_name() {
                             Some(n)
                         } else {
-                            Contact::get_by_id(ctx, from).await.ok().map(|c| c.get_display_name().to_string())
+                            Contact::get_by_id(ctx, from)
+                                .await
+                                .ok()
+                                .map(|c| c.get_display_name().to_string())
                         };
                         let mut text = m.get_text();
-                        if let Some(f) = m.get_filename() {
-                            text = if text.is_empty() { format!("[{f}]") } else { format!("[{f}]\n{text}") };
+                        // Pictures render as images; other attachments keep
+                        // the "[filename]" text placeholder.
+                        let image = matches!(
+                            m.get_viewtype(),
+                            Viewtype::Image | Viewtype::Gif | Viewtype::Sticker
+                        )
+                        .then(|| m.get_filename())
+                        .flatten();
+                        if image.is_none()
+                            && let Some(f) = m.get_filename()
+                        {
+                            text = if text.is_empty() {
+                                format!("[{f}]")
+                            } else {
+                                format!("[{f}]\n{text}")
+                            };
                         }
-                        out.push(Item::Msg { id: msg_id, outgoing, sender, text, time: hm(m.get_timestamp()), quote: m.quoted_text() });
+                        out.push(Item::Msg {
+                            id: msg_id,
+                            outgoing,
+                            sender,
+                            text,
+                            time: hm(m.get_timestamp()),
+                            quote: m.quoted_text(),
+                            image,
+                        });
                     }
                 }
             }
@@ -235,20 +303,31 @@ impl Core {
     /// relay link (dcaccount:/dclogin:) creates the account or adds a relay,
     /// contact/group/channel invite starts a chat, socks5 link adds a proxy.
     pub fn use_link(&self, link: &str, done: impl FnOnce(Result<LinkDone>) + Send + 'static) {
-        use deltachat::qr::{check_qr, Qr};
+        use deltachat::qr::{Qr, check_qr};
         let ctx = self.ctx.clone();
         let link = link.trim().to_string();
         self.rt.spawn(async move {
             let r = async {
                 let configured = ctx.is_configured().await?;
                 match check_qr(&ctx, &link).await? {
-                    Qr::AskVerifyContact { .. } | Qr::AskVerifyGroup { .. } | Qr::AskJoinBroadcast { .. } => {
-                        anyhow::ensure!(configured, "create your account first (paste a relay link or tap Create account)");
-                        Ok(LinkDone::Chat(deltachat::securejoin::join_securejoin(&ctx, &link).await?))
+                    Qr::AskVerifyContact { .. }
+                    | Qr::AskVerifyGroup { .. }
+                    | Qr::AskJoinBroadcast { .. } => {
+                        anyhow::ensure!(
+                            configured,
+                            "create your account first (paste a relay link or tap Create account)"
+                        );
+                        Ok(LinkDone::Chat(
+                            deltachat::securejoin::join_securejoin(&ctx, &link).await?,
+                        ))
                     }
                     Qr::Account { .. } | Qr::Login { .. } => {
                         if !configured {
-                            ctx.set_config(deltachat::config::Config::Displayname, Some("Velta preview")).await?;
+                            ctx.set_config(
+                                deltachat::config::Config::Displayname,
+                                Some("Velta preview"),
+                            )
+                            .await?;
                         }
                         ctx.add_transport_from_qr(&link).await?;
                         if configured {
@@ -262,7 +341,9 @@ impl Core {
                         deltachat::qr::set_config_from_qr(&ctx, &link).await?;
                         Ok(LinkDone::Note("Proxy added."))
                     }
-                    Qr::Backup2 { .. } | Qr::BackupTooNew { .. } => anyhow::bail!("backups can't be restored in the preview yet"),
+                    Qr::Backup2 { .. } | Qr::BackupTooNew { .. } => {
+                        anyhow::bail!("backups can't be restored in the preview yet")
+                    }
                     _ => anyhow::bail!("not an invite, relay or proxy link"),
                 }
             }
@@ -286,6 +367,11 @@ impl Core {
 
     /// One-line text of a message, for the reply banner.
     pub fn msg_text(&self, id: MsgId) -> String {
-        self.rt.block_on(async { Message::load_from_db(&self.ctx, id).await.map(|m| m.get_text()).unwrap_or_default() })
+        self.rt.block_on(async {
+            Message::load_from_db(&self.ctx, id)
+                .await
+                .map(|m| m.get_text())
+                .unwrap_or_default()
+        })
     }
 }

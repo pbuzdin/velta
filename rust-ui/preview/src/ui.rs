@@ -1,36 +1,59 @@
 //! Screens: chat list, chat view, add-by-link and my QR, swapped inside one body
 //! slot. All but the chat view carry the bottom action bar.
 
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use deltachat::chat::ChatId;
 use deltachat::message::MsgId;
 use masonry::app::RenderRoot;
-use masonry::core::{ErasedAction, NewWidget, PropertySet, StyleProperty, TextEvent, WidgetId, WidgetTag};
+use masonry::core::{
+    ErasedAction, NewWidget, PropertySet, StyleProperty, TextEvent, WidgetId, WidgetTag,
+};
 use masonry::dpi::LogicalSize;
 use masonry::kurbo::{Affine, Point, Rect, Vec2};
 use masonry::layout::Length;
 use masonry::peniko::color::AlphaColor;
-use masonry::properties::types::{CrossAxisAlignment, MainAxisAlignment};
-use masonry::properties::{Background, CaretColor, ContentColor, CornerRadius, LineBreaking, Padding};
-use masonry::theme::default_property_set;
 use masonry::peniko::{ImageAlphaType, ImageData, ImageFormat};
-use masonry::widgets::{Button, ButtonPress, Flex, Image, InsertNewline, Label, Portal, SizedBox, TextAction, TextArea};
-use masonry_winit::app::{AppDriver, DriverCtx, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
+use masonry::properties::types::{CrossAxisAlignment, MainAxisAlignment};
+use masonry::properties::{
+    Background, CaretColor, ContentColor, CornerRadius, LineBreaking, Padding,
+};
+use masonry::theme::default_property_set;
+use masonry::widgets::{
+    Align, Button, ButtonPress, Flex, Image, InsertNewline, Label, Portal, SizedBox, TextAction,
+    TextArea,
+};
 use masonry_winit::app::MasonryState;
+use masonry_winit::app::{
+    AppDriver, DriverCtx, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId,
+};
 use masonry_winit::winit::application::ApplicationHandler;
-use masonry_winit::winit::event::{DeviceEvent, DeviceId, ElementState, StartCause, TouchPhase, WindowEvent};
+use masonry_winit::winit::event::{
+    DeviceEvent, DeviceId, ElementState, StartCause, TouchPhase, WindowEvent,
+};
 use masonry_winit::winit::event_loop::ActiveEventLoop;
 use masonry_winit::winit::keyboard::{Key, NamedKey};
 use masonry_winit::winit::window::Window;
 
 use crate::core::{Change, Core, Item, LinkDone};
+use crate::prism;
 
 const BG: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0x10, 0x12, 0x17);
 const SURFACE: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0x1c, 0x1f, 0x26);
 const OUT: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0x2f, 0x4a, 0x9e);
 const TEXT: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0xf2, 0xf4, 0xf8);
 const MUTED: AlphaColor<masonry::peniko::color::Srgb> = AlphaColor::from_rgb8(0xb4, 0xba, 0xc6);
+/// SURFACE as bytes, for the prism contrast math (sender names on bubbles).
+const SURFACE_RGB: [u8; 3] = [0x1c, 0x1f, 0x26];
+
+/// Message pictures decode so the long side is ≤ 720 device px (~2× the
+/// bubble width for crisp rendering), then aspect-fit into the bubble.
+const IMG_MAX_PX: f64 = 720.0;
+const IMG_MAX_W: f64 = 240.0;
+const IMG_MAX_H: f64 = 320.0;
+const IMG_PLACE_W: f64 = 240.0;
+const IMG_PLACE_H: f64 = 160.0;
 
 const BODY: WidgetTag<SizedBox> = WidgetTag::named("body");
 const TITLE: WidgetTag<Label> = WidgetTag::named("title");
@@ -130,9 +153,21 @@ struct AddTags {
 
 // Floating capsule stays clear of Android's system gesture strip.
 const BAR_HEIGHT: f64 = 64.0;
-fn bar_bottom() -> f64 { if cfg!(target_os = "android") { 28.0 } else { 12.0 } }
-fn bar_space() -> f64 { BAR_HEIGHT + bar_bottom() + 12.0 }
-struct BarLayer { tag: WidgetTag<SizedBox>, id: WidgetId, rect: Rect }
+fn bar_bottom() -> f64 {
+    if cfg!(target_os = "android") {
+        28.0
+    } else {
+        12.0
+    }
+}
+fn bar_space() -> f64 {
+    BAR_HEIGHT + bar_bottom() + 12.0
+}
+struct BarLayer {
+    tag: WidgetTag<SizedBox>,
+    id: WidgetId,
+    rect: Rect,
+}
 
 const LIMIT: usize = 200;
 
@@ -157,13 +192,37 @@ enum Async {
     Menu(MenuCmd),
     /// A pasted link finished (core works in the background).
     Link(Result<LinkDone, String>),
+    /// A message picture finished decoding off-thread: (image, logical w, h).
+    /// The slot is found by MsgId on arrival (a rebuild between spawn and
+    /// result gives the message a fresh tag).
+    Image(
+        MsgId,
+        Result<(masonry::peniko::ImageData, f64, f64), String>,
+    ),
 }
 
 enum Screen {
-    List { rows: Vec<(WidgetTag<Button>, ChatId)>, portal: WidgetTag<Portal<Flex>>, bar: BarTags },
-    Chat { id: ChatId, draft: String, tags: ChatTags, bubbles: Vec<(WidgetTag<Flex>, MsgId)>, reply: Option<(MsgId, WidgetTag<Button>)>, menu: Option<MenuTags> },
+    List {
+        rows: Vec<(WidgetTag<Button>, ChatId)>,
+        portal: WidgetTag<Portal<Flex>>,
+        bar: BarTags,
+    },
+    Chat {
+        id: ChatId,
+        draft: String,
+        tags: ChatTags,
+        bubbles: Vec<(WidgetTag<Flex>, MsgId)>,
+        imgs: Vec<(WidgetTag<SizedBox>, MsgId)>,
+        reply: Option<(MsgId, WidgetTag<Button>)>,
+        menu: Option<MenuTags>,
+    },
     /// `busy`: a link is being used; further taps are ignored until it ends.
-    Add { draft: String, tags: AddTags, bar: BarTags, busy: bool },
+    Add {
+        draft: String,
+        tags: AddTags,
+        bar: BarTags,
+        busy: bool,
+    },
     /// `ready`: the QR was shown; until then list changes rebuild the screen
     /// so the QR appears once the account is ready.
     Qr { ready: bool, bar: BarTags },
@@ -182,46 +241,84 @@ struct Driver {
     ime: f64,
     gesture: Option<Gesture>,
     bar_layer: Option<BarLayer>,
+    /// Decoded message pictures: MsgId → (image, logical w, h); oldest evicted.
+    imgs: HashMap<MsgId, (masonry::peniko::ImageData, f64, f64)>,
+    img_order: Vec<MsgId>,
+    /// Decodes in flight — a chat rebuild while one is running must not spawn
+    /// a second decode for the same message.
+    img_pending: HashSet<MsgId>,
 }
 
 fn px(v: f64) -> Length {
     Length::px(v)
 }
 
-fn label(text: impl Into<String>, size: f32, color: AlphaColor<masonry::peniko::color::Srgb>) -> NewWidget<Label> {
-    NewWidget::new(Label::new(text.into()).with_style(StyleProperty::FontSize(size)))
-        .with_props(PropertySet::new().with(ContentColor::new(color)).with(LineBreaking::WordWrap))
+fn label(
+    text: impl Into<String>,
+    size: f32,
+    color: AlphaColor<masonry::peniko::color::Srgb>,
+) -> NewWidget<Label> {
+    NewWidget::new(Label::new(text.into()).with_style(StyleProperty::FontSize(size))).with_props(
+        PropertySet::new()
+            .with(ContentColor::new(color))
+            .with(LineBreaking::WordWrap),
+    )
 }
 
-fn one_line(text: impl Into<String>, size: f32, color: AlphaColor<masonry::peniko::color::Srgb>) -> NewWidget<Label> {
-    NewWidget::new(Label::new(text.into()).with_style(StyleProperty::FontSize(size)))
-        .with_props(PropertySet::new().with(ContentColor::new(color)).with(LineBreaking::Clip))
+fn one_line(
+    text: impl Into<String>,
+    size: f32,
+    color: AlphaColor<masonry::peniko::color::Srgb>,
+) -> NewWidget<Label> {
+    NewWidget::new(Label::new(text.into()).with_style(StyleProperty::FontSize(size))).with_props(
+        PropertySet::new()
+            .with(ContentColor::new(color))
+            .with(LineBreaking::Clip),
+    )
 }
 
 impl Driver {
     fn post(&self, a: Async) {
-        let _ = self.proxy.send_event(MasonryUserEvent::AsyncAction(self.window, Box::new(a)));
+        let _ = self
+            .proxy
+            .send_event(MasonryUserEvent::AsyncAction(self.window, Box::new(a)));
     }
 
     fn set_title(root: &mut RenderRoot, title: &str, back: bool) {
         root.edit_widget_with_tag(TITLE, |mut l| Label::set_text(&mut l, title.to_string()));
         root.edit_widget_with_tag(BACK, |mut b| {
-            Button::set_child(&mut b, NewWidget::new(Label::new(if back { "Back" } else { "Velta" }).with_style(StyleProperty::FontSize(22.0))));
+            Button::set_child(
+                &mut b,
+                NewWidget::new(
+                    Label::new(if back { "Back" } else { "Velta" })
+                        .with_style(StyleProperty::FontSize(22.0)),
+                ),
+            );
         });
     }
 
     fn bar(active: Tab) -> (NewWidget<Flex>, BarTags) {
-        let tags = BarTags { chats: WidgetTag::unique(), add: WidgetTag::unique(), qr: WidgetTag::unique() };
+        let tags = BarTags {
+            chats: WidgetTag::unique(),
+            add: WidgetTag::unique(),
+            qr: WidgetTag::unique(),
+        };
         let item = |text: &str, tab: Tab, tag: WidgetTag<Button>| {
-            NewWidget::new(Button::new(NewWidget::new(Label::new(text.to_string()).with_style(StyleProperty::FontSize(15.0)))))
-                .with_tag(tag)
-                .with_props(
-                    PropertySet::new()
-                        .with(ContentColor::new(TEXT))
-                        .with(Background::Color(if tab == active { OUT } else { AlphaColor::TRANSPARENT }))
-                        .with(CornerRadius::all(px(18.0)))
-                        .with(Padding::from_vh(px(10.0), px(8.0))),
-                )
+            NewWidget::new(Button::new(NewWidget::new(
+                Label::new(text.to_string()).with_style(StyleProperty::FontSize(15.0)),
+            )))
+            .with_tag(tag)
+            .with_props(
+                PropertySet::new()
+                    .with(ContentColor::new(TEXT))
+                    .with(Background::Color(if tab == active {
+                        OUT
+                    } else {
+                        AlphaColor::TRANSPARENT
+                    }))
+                    .with(CornerRadius::all(px(18.0)))
+                    .with(Padding::from_vh(px(10.0), px(8.0))),
+            )
         };
         let row = Flex::row()
             .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -234,13 +331,19 @@ impl Driver {
             PropertySet::new()
                 .with(Padding::all(px(10.0)))
                 .with(CornerRadius::all(px(28.0)))
-                .with(Background::Color(if cfg!(feature = "glass") { AlphaColor::TRANSPARENT } else { SURFACE.with_alpha(0.94) })),
+                .with(Background::Color(if cfg!(feature = "glass") {
+                    AlphaColor::TRANSPARENT
+                } else {
+                    SURFACE.with_alpha(0.94)
+                })),
         );
         (bar, tags)
     }
 
     fn clear_bar(&mut self, root: &mut RenderRoot) {
-        if let Some(layer) = self.bar_layer.take() { root.remove_layer(layer.id); }
+        if let Some(layer) = self.bar_layer.take() {
+            root.remove_layer(layer.id);
+        }
         #[cfg(feature = "glass")]
         masonry_winit::glass::set_rects(vec![]);
     }
@@ -253,12 +356,18 @@ impl Driver {
     }
 
     /// Overlay participates in Masonry hit-testing, but is painted after refraction.
-    fn set_body_with_bar<W: masonry::core::Widget>(&mut self, root: &mut RenderRoot, content: NewWidget<W>, bar: NewWidget<Flex>) {
+    fn set_body_with_bar<W: masonry::core::Widget>(
+        &mut self,
+        root: &mut RenderRoot,
+        content: NewWidget<W>,
+        bar: NewWidget<Flex>,
+    ) {
         self.clear_bar(root);
         root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, content));
         let rect = Self::bar_rect(root);
         let tag = WidgetTag::unique();
-        let layer = NewWidget::new(SizedBox::new(bar).size(px(rect.width()), px(rect.height()))).with_tag(tag);
+        let layer = NewWidget::new(SizedBox::new(bar).size(px(rect.width()), px(rect.height())))
+            .with_tag(tag);
         let id = layer.id();
         root.add_layer(layer, rect.origin());
         self.bar_layer = Some(BarLayer { tag, id, rect });
@@ -268,7 +377,9 @@ impl Driver {
     /// Called before each redraw, including after resize / DPI changes; no timer.
     fn layout_bar(&mut self, root: &mut RenderRoot) {
         let rect = Self::bar_rect(root);
-        let Some(layer) = &mut self.bar_layer else { return };
+        let Some(layer) = &mut self.bar_layer else {
+            return;
+        };
         if layer.rect != rect {
             root.edit_widget_with_tag(layer.tag, |mut b| {
                 SizedBox::set_width(&mut b, px(rect.width()));
@@ -278,15 +389,30 @@ impl Driver {
             layer.rect = rect;
         }
         #[cfg(feature = "glass")]
-        masonry_winit::glass::set_rects(vec![masonry_winit::glass::GlassRect { rect, radius: 28.0, strength: 10.0 }]);
+        masonry_winit::glass::set_rects(vec![masonry_winit::glass::GlassRect {
+            rect,
+            radius: 28.0,
+            strength: 10.0,
+        }]);
     }
 
-    fn bar_hit(&self, root: &RenderRoot, is: &dyn Fn(&RenderRoot, WidgetTag<Button>) -> bool) -> Option<Tab> {
+    fn bar_hit(
+        &self,
+        root: &RenderRoot,
+        is: &dyn Fn(&RenderRoot, WidgetTag<Button>) -> bool,
+    ) -> Option<Tab> {
         let bar = match &self.screen {
             Screen::List { bar, .. } | Screen::Add { bar, .. } | Screen::Qr { bar, .. } => bar,
             Screen::Chat { .. } => return None,
         };
-        [(bar.chats, Tab::Chats), (bar.add, Tab::Add), (bar.qr, Tab::Qr)].into_iter().find(|(t, _)| is(root, *t)).map(|(_, tab)| tab)
+        [
+            (bar.chats, Tab::Chats),
+            (bar.add, Tab::Add),
+            (bar.qr, Tab::Qr),
+        ]
+        .into_iter()
+        .find(|(t, _)| is(root, *t))
+        .map(|(_, tab)| tab)
     }
 
     fn show_list(&mut self, root: &mut RenderRoot) {
@@ -304,7 +430,12 @@ impl Driver {
                 .with_fixed_spacer(px(8.0))
                 .with_fixed(one_line(r.time.clone(), 13.0, MUTED));
             // Flexible children keep long names and summaries inside the row width.
-            let mut bottom = Flex::row().cross_axis_alignment(CrossAxisAlignment::Center).with(label(short(&r.summary.replace('\n', " "), 34), 14.0, MUTED), 1.0);
+            let mut bottom = Flex::row()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .with(
+                    label(short(&r.summary.replace('\n', " "), 34), 14.0, MUTED),
+                    1.0,
+                );
             if r.unread > 0 {
                 let pill = one_line(r.unread.to_string(), 12.0, TEXT).with_props(
                     PropertySet::new()
@@ -319,6 +450,25 @@ impl Driver {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .with_fixed(NewWidget::new(top))
                 .with_fixed(NewWidget::new(bottom));
+            // Prism tile: stable color + initials (web .velta-avatar-tile).
+            let avatar = NewWidget::new(
+                SizedBox::new(NewWidget::new(Align::centered(one_line(
+                    prism::initials(&r.name),
+                    15.0,
+                    prism::to_color(prism::INK),
+                ))))
+                .size(px(38.0), px(38.0)),
+            )
+            .with_props(
+                PropertySet::new()
+                    .with(Background::Color(prism::to_color(prism::fill(&r.name))))
+                    .with(CornerRadius::all(px(19.0))),
+            );
+            let body = Flex::row()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_fixed(avatar)
+                .with_fixed_spacer(px(10.0))
+                .with(NewWidget::new(body), 1.0);
             let btn = NewWidget::new(Button::new(NewWidget::new(body)))
                 .with_tag(tag)
                 .with_props(
@@ -332,19 +482,40 @@ impl Driver {
         }
         col = col.with_fixed_spacer(px(bar_space()));
         let portal_tag = WidgetTag::unique();
-        let portal = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true)).with_tag(portal_tag);
+        let portal = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true))
+            .with_tag(portal_tag);
         let (bar, bar_tags) = Self::bar(Tab::Chats);
         if rows.is_empty() {
-            let hint = label("No chats yet. Tap Add by link to paste an invite, or show My QR to a friend.", 15.0, MUTED)
-                .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding::all(px(16.0))));
-            let col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(hint).with(portal, 1.0);
+            let hint = label(
+                "No chats yet. Tap Add by link to paste an invite, or show My QR to a friend.",
+                15.0,
+                MUTED,
+            )
+            .with_props(
+                PropertySet::new()
+                    .with(ContentColor::new(MUTED))
+                    .with(LineBreaking::WordWrap)
+                    .with(Padding::all(px(16.0))),
+            );
+            let col = Flex::column()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .with_fixed(hint)
+                .with(portal, 1.0);
             self.set_body_with_bar(root, NewWidget::new(col), bar);
         } else {
             self.set_body_with_bar(root, portal, bar);
         }
         Self::set_title(root, "Chats", false);
-        self.screen = Screen::List { rows: map, portal: portal_tag, bar: bar_tags };
-        crate::say(format!("chat list ({} chats) built in {} ms", rows.len(), t.elapsed().as_millis()));
+        self.screen = Screen::List {
+            rows: map,
+            portal: portal_tag,
+            bar: bar_tags,
+        };
+        crate::say(format!(
+            "chat list ({} chats) built in {} ms",
+            rows.len(),
+            t.elapsed().as_millis()
+        ));
     }
 
     fn show_add(&mut self, root: &mut RenderRoot) {
@@ -352,7 +523,12 @@ impl Driver {
         self.ime = 0.0;
         crate::clear_ime_text();
         let configured = self.core.is_configured();
-        let tags = AddTags { input: WidgetTag::unique(), go: WidgetTag::unique(), create: WidgetTag::unique(), status: WidgetTag::unique() };
+        let tags = AddTags {
+            input: WidgetTag::unique(),
+            go: WidgetTag::unique(),
+            create: WidgetTag::unique(),
+            status: WidgetTag::unique(),
+        };
         let input = NewWidget::new(TextArea::new_editable("").with_word_wrap(true))
             .with_tag(tags.input)
             .with_props(
@@ -365,7 +541,11 @@ impl Driver {
         let go = NewWidget::new(Button::with_text("Use link")).with_tag(tags.go);
         let status = NewWidget::new(Label::new("").with_style(StyleProperty::FontSize(13.0)))
             .with_tag(tags.status)
-            .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap));
+            .with_props(
+                PropertySet::new()
+                    .with(ContentColor::new(MUTED))
+                    .with(LineBreaking::WordWrap),
+            );
         let intro = if configured {
             "Paste a link and tap Use link. A friend's or group invite starts a chat, a relay link (dcaccount: or dclogin:) adds a relay, and a socks5 link adds a proxy."
         } else {
@@ -375,19 +555,49 @@ impl Driver {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_fixed(label(intro, 15.0, TEXT))
             .with_fixed_spacer(px(8.0))
-            .with_fixed(NewWidget::new(Flex::row().with(input, 1.0).with_fixed_spacer(px(8.0)).with_fixed(go)))
+            .with_fixed(NewWidget::new(
+                Flex::row()
+                    .with(input, 1.0)
+                    .with_fixed_spacer(px(8.0))
+                    .with_fixed(go),
+            ))
             .with_fixed_spacer(px(6.0))
             .with_fixed(status);
         if !configured {
-            let host = self.core.default_relay.split_once(':').map(|(_, h)| h).unwrap_or(&self.core.default_relay).to_string();
-            let create = NewWidget::new(Button::with_text(format!("Create account on {host}"))).with_tag(tags.create);
+            let host = self
+                .core
+                .default_relay
+                .split_once(':')
+                .map(|(_, h)| h)
+                .unwrap_or(&self.core.default_relay)
+                .to_string();
+            let create = NewWidget::new(Button::with_text(format!("Create account on {host}")))
+                .with_tag(tags.create);
             col = col.with_fixed_spacer(px(20.0)).with_fixed(create);
         }
-        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding { top: px(16.0), left: px(16.0), right: px(16.0), bottom: px(bar_space()) }));
+        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding {
+            top: px(16.0),
+            left: px(16.0),
+            right: px(16.0),
+            bottom: px(bar_space()),
+        }));
         let (bar, bar_tags) = Self::bar(Tab::Add);
-        self.set_body_with_bar(root, NewWidget::new(Portal::new(col).constrain_horizontal(true)), bar);
-        Self::set_title(root, if configured { "Add by link" } else { "Welcome" }, false);
-        self.screen = Screen::Add { draft: String::new(), tags, bar: bar_tags, busy: false };
+        self.set_body_with_bar(
+            root,
+            NewWidget::new(Portal::new(col).constrain_horizontal(true)),
+            bar,
+        );
+        Self::set_title(
+            root,
+            if configured { "Add by link" } else { "Welcome" },
+            false,
+        );
+        self.screen = Screen::Add {
+            draft: String::new(),
+            tags,
+            bar: bar_tags,
+            busy: false,
+        };
     }
 
     fn show_qr(&mut self, root: &mut RenderRoot) {
@@ -396,31 +606,65 @@ impl Driver {
         let link = self.core.invite();
         let ready = !link.is_empty();
         let col = if !ready {
-            let text = if self.core.is_configured() { "Setting up your account. The QR shows up here in a few seconds." } else { "No account yet. Create one in Add by link." };
-            Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(label(text, 16.0, TEXT))
+            let text = if self.core.is_configured() {
+                "Setting up your account. The QR shows up here in a few seconds."
+            } else {
+                "No account yet. Create one in Add by link."
+            };
+            Flex::column()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .with_fixed(label(text, 16.0, TEXT))
         } else {
             Flex::column()
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_fixed(label("Let a friend scan this in Velta (Add contact, then scan QR).", 15.0, TEXT))
+                .with_fixed(label(
+                    "Let a friend scan this in Velta (Add contact, then scan QR).",
+                    15.0,
+                    TEXT,
+                ))
                 .with_fixed_spacer(px(16.0))
-                .with_fixed(NewWidget::new(SizedBox::new(NewWidget::new(Image::new(qr_image(&link)))).size(px(300.0), px(300.0))))
+                .with_fixed(NewWidget::new(
+                    SizedBox::new(NewWidget::new(Image::new(qr_image(&link))))
+                        .size(px(300.0), px(300.0)),
+                ))
                 .with_fixed_spacer(px(16.0))
                 .with_fixed(label(self.core.self_addr(), 13.0, MUTED))
         };
-        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding { top: px(16.0), left: px(16.0), right: px(16.0), bottom: px(bar_space()) }));
+        let col = NewWidget::new(col).with_props(PropertySet::new().with(Padding {
+            top: px(16.0),
+            left: px(16.0),
+            right: px(16.0),
+            bottom: px(bar_space()),
+        }));
         let (bar, bar_tags) = Self::bar(Tab::Qr);
-        self.set_body_with_bar(root, NewWidget::new(Portal::new(col).constrain_horizontal(true)), bar);
+        self.set_body_with_bar(
+            root,
+            NewWidget::new(Portal::new(col).constrain_horizontal(true)),
+            bar,
+        );
         Self::set_title(root, "My QR", false);
-        self.screen = Screen::Qr { ready, bar: bar_tags };
+        self.screen = Screen::Qr {
+            ready,
+            bar: bar_tags,
+        };
     }
 
     /// Hands the pasted link (or, with `create`, the default relay) to core.
     fn use_link(&mut self, root: &mut RenderRoot, create: bool) {
-        let Screen::Add { draft, tags, busy, .. } = &mut self.screen else { return };
+        let Screen::Add {
+            draft, tags, busy, ..
+        } = &mut self.screen
+        else {
+            return;
+        };
         if *busy {
             return;
         }
-        let link = if create { self.core.default_relay.clone() } else { draft.trim().to_string() };
+        let link = if create {
+            self.core.default_relay.clone()
+        } else {
+            draft.trim().to_string()
+        };
         let status = tags.status;
         let say = |root: &mut RenderRoot, t: &str| {
             let t = t.to_string();
@@ -430,11 +674,21 @@ impl Driver {
             return say(root, "Paste a link first.");
         }
         *busy = true;
-        say(root, if create { "Creating your account…" } else { "Working on it…" });
+        say(
+            root,
+            if create {
+                "Creating your account…"
+            } else {
+                "Working on it…"
+            },
+        );
         let (proxy, window) = (self.proxy.clone(), self.window);
         self.core.use_link(&link, move |r| {
             let r = r.map_err(|e| format!("{e:#}"));
-            let _ = proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Link(r))));
+            let _ = proxy.send_event(MasonryUserEvent::AsyncAction(
+                window,
+                Box::new(Async::Link(r)),
+            ));
         });
     }
 
@@ -445,7 +699,12 @@ impl Driver {
             Ok(LinkDone::AccountCreated) => return self.show_list(root),
             _ => {}
         }
-        let Screen::Add { draft, tags, busy, .. } = &mut self.screen else { return };
+        let Screen::Add {
+            draft, tags, busy, ..
+        } = &mut self.screen
+        else {
+            return;
+        };
         *busy = false;
         let text = match r {
             Ok(LinkDone::Note(n)) => {
@@ -461,20 +720,48 @@ impl Driver {
         root.edit_widget_with_tag(tags.status, |mut l| Label::set_text(&mut l, text));
     }
 
-    fn messages(&self, id: ChatId) -> (Flex, Vec<(WidgetTag<Flex>, MsgId)>) {
+    /// Builds the chat history column. Returns the column, the bubble row
+    /// tags (reply-swipe targets), the picture-slot tags (decode results land
+    /// there) and the picture decode requests still missing from the cache.
+    fn messages(
+        &self,
+        id: ChatId,
+    ) -> (
+        Flex,
+        Vec<(WidgetTag<Flex>, MsgId)>,
+        Vec<(WidgetTag<SizedBox>, MsgId)>,
+        Vec<(MsgId, String)>,
+    ) {
         let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch);
         let mut bubbles = Vec::new();
+        let mut img_slots = Vec::new();
+        let mut img_reqs = Vec::new();
         for it in self.core.items(id, LIMIT).unwrap_or_default() {
             match it {
                 Item::Day(d) => {
                     col = col.with_fixed(NewWidget::new(
-                        Flex::row().main_axis_alignment(MainAxisAlignment::Center).with_fixed(one_line(d, 12.0, MUTED)),
+                        Flex::row()
+                            .main_axis_alignment(MainAxisAlignment::Center)
+                            .with_fixed(one_line(d, 12.0, MUTED)),
                     ));
                 }
-                Item::Msg { id: msg_id, outgoing, sender, text, time, quote } => {
+                Item::Msg {
+                    id: msg_id,
+                    outgoing,
+                    sender,
+                    text,
+                    time,
+                    quote,
+                    image,
+                } => {
                     let mut bubble = Flex::column().cross_axis_alignment(CrossAxisAlignment::Start);
-                    if let Some(s) = sender {
-                        bubble = bubble.with_fixed(one_line(s, 13.0, MUTED));
+                    if let Some(s) = &sender {
+                        // Prism: the person color, nudged to read on the bubble.
+                        bubble = bubble.with_fixed(one_line(
+                            s.clone(),
+                            13.0,
+                            prism::to_color(prism::sender(s, SURFACE_RGB)),
+                        ));
                     }
                     if let Some(q) = quote {
                         let q = label(short(&q.replace('\n', " "), 60), 13.0, MUTED).with_props(
@@ -487,9 +774,45 @@ impl Driver {
                         );
                         bubble = bubble.with_fixed(q).with_fixed_spacer(px(4.0));
                     }
-                    bubble = bubble.with_fixed(label(text, 16.0, TEXT));
+                    if let Some(path) = &image {
+                        let slot_tag = WidgetTag::unique();
+                        let inner = match self.imgs.get(&msg_id) {
+                            Some((img, w, h)) => NewWidget::new(
+                                SizedBox::new(NewWidget::new(Image::new(img.clone())))
+                                    .size(px(*w), px(*h)),
+                            ),
+                            None => {
+                                img_reqs.push((msg_id, path.clone()));
+                                // Placeholder until the decode lands (shows the filename).
+                                let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+                                let ph = NewWidget::new(
+                                    SizedBox::new(NewWidget::new(Align::centered(one_line(
+                                        short(name, 22),
+                                        13.0,
+                                        MUTED,
+                                    ))))
+                                    .size(px(IMG_PLACE_W), px(IMG_PLACE_H)),
+                                )
+                                .with_props(
+                                    PropertySet::new()
+                                        .with(Background::Color(BG))
+                                        .with(CornerRadius::all(px(10.0))),
+                                );
+                                ph
+                            }
+                        };
+                        img_slots.push((slot_tag, msg_id));
+                        bubble = bubble
+                            .with_fixed(NewWidget::new(SizedBox::new(inner)).with_tag(slot_tag))
+                            .with_fixed_spacer(px(4.0));
+                    }
+                    if image.is_none() || !text.is_empty() {
+                        bubble = bubble.with_fixed(label(text, 16.0, TEXT));
+                    }
                     bubble = bubble.with_fixed(NewWidget::new(
-                        Flex::row().main_axis_alignment(MainAxisAlignment::End).with_fixed(one_line(time, 11.0, MUTED)),
+                        Flex::row()
+                            .main_axis_alignment(MainAxisAlignment::End)
+                            .with_fixed(one_line(time, 11.0, MUTED)),
                     ));
                     let bubble = NewWidget::new(bubble).with_props(
                         PropertySet::new()
@@ -503,22 +826,33 @@ impl Driver {
                         Flex::row().with(bubble, 0.75).with_spacer(0.25)
                     };
                     let tag = WidgetTag::unique();
-                    let row = NewWidget::new(row).with_tag(tag).with_props(PropertySet::new().with(Padding::from_vh(px(3.0), px(8.0))));
+                    let row = NewWidget::new(row)
+                        .with_tag(tag)
+                        .with_props(PropertySet::new().with(Padding::from_vh(px(3.0), px(8.0))));
                     col = col.with_fixed(row);
                     bubbles.push((tag, msg_id));
                 }
             }
         }
-        (col, bubbles)
+        (col, bubbles, img_slots, img_reqs)
     }
 
     fn show_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
         self.clear_bar(root);
         let t = Instant::now();
         self.core.mark_seen(id);
-        let tags = ChatTags { send: WidgetTag::unique(), input: WidgetTag::unique(), msgs: WidgetTag::unique(), spacer: WidgetTag::unique(), reply: WidgetTag::unique(), menu: WidgetTag::unique() };
-        let (col, bubbles) = self.messages(id);
-        let msgs = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true)).with_tag(tags.msgs);
+        let tags = ChatTags {
+            send: WidgetTag::unique(),
+            input: WidgetTag::unique(),
+            msgs: WidgetTag::unique(),
+            spacer: WidgetTag::unique(),
+            reply: WidgetTag::unique(),
+            menu: WidgetTag::unique(),
+        };
+        let (col, bubbles, img_slots, img_reqs) = self.messages(id);
+        self.request_images(img_reqs);
+        let msgs = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true))
+            .with_tag(tags.msgs);
         // Raw editable TextArea (TextInput is single-line by design): Enter
         // inserts a newline, so the Send button is the send path. ContentColor
         // pinned so typed text stays visible on the dark surface.
@@ -536,13 +870,27 @@ impl Driver {
                 .with(Background::Color(SURFACE)),
         );
         let send = NewWidget::new(Button::with_text("Send")).with_tag(tags.send);
-        let composer = NewWidget::new(Flex::row().with(input, 1.0).with_fixed_spacer(px(8.0)).with_fixed(send))
-            .with_props(
-                PropertySet::new()
-                    // Android draws edge to edge; keep the composer above the gesture bar.
-                    .with(Padding { top: px(8.0), left: px(8.0), right: px(8.0), bottom: px(if cfg!(target_os = "android") { 28.0 } else { 8.0 }) })
-                    .with(Background::Color(SURFACE)),
-            );
+        let composer = NewWidget::new(
+            Flex::row()
+                .with(input, 1.0)
+                .with_fixed_spacer(px(8.0))
+                .with_fixed(send),
+        )
+        .with_props(
+            PropertySet::new()
+                // Android draws edge to edge; keep the composer above the gesture bar.
+                .with(Padding {
+                    top: px(8.0),
+                    left: px(8.0),
+                    right: px(8.0),
+                    bottom: px(if cfg!(target_os = "android") {
+                        28.0
+                    } else {
+                        8.0
+                    }),
+                })
+                .with(Background::Color(SURFACE)),
+        );
         let spacer = NewWidget::new(SizedBox::empty().height(px(self.ime))).with_tag(tags.spacer);
         let screen = Flex::column()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -551,9 +899,19 @@ impl Driver {
             .with_fixed(NewWidget::new(SizedBox::empty()).with_tag(tags.reply))
             .with_fixed(composer)
             .with_fixed(spacer);
-        root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(screen)));
+        root.edit_widget_with_tag(BODY, |mut b| {
+            SizedBox::set_child(&mut b, NewWidget::new(screen))
+        });
         Self::set_title(root, &self.core.chat_name(id), true);
-        self.screen = Screen::Chat { id, draft: String::new(), tags, bubbles, reply: None, menu: None };
+        self.screen = Screen::Chat {
+            id,
+            draft: String::new(),
+            tags,
+            bubbles,
+            imgs: img_slots,
+            reply: None,
+            menu: None,
+        };
         crate::clear_ime_text();
         crate::set_ime_polling(true);
         self.post(Async::ScrollBottom);
@@ -561,19 +919,49 @@ impl Driver {
     }
 
     fn refresh_chat(&mut self, root: &mut RenderRoot, id: ChatId) {
-        let (col, list) = self.messages(id);
-        let Screen::Chat { tags, bubbles, .. } = &mut self.screen else { return };
+        let (col, list, img_slots, img_reqs) = self.messages(id);
+        self.request_images(img_reqs);
+        let Screen::Chat {
+            tags,
+            bubbles,
+            imgs,
+            ..
+        } = &mut self.screen
+        else {
+            return;
+        };
         *bubbles = list;
+        *imgs = img_slots;
         let msgs = tags.msgs;
         root.edit_widget_with_tag(msgs, |mut p| Portal::set_child(&mut p, NewWidget::new(col)));
         self.post(Async::ScrollBottom);
+    }
+
+    /// Spawns off-thread decodes for the requested message pictures (cache
+    /// hits were already inlined by `messages`; in-flight ones not re-spawned).
+    fn request_images(&mut self, reqs: Vec<(MsgId, String)>) {
+        for (msg, path) in reqs {
+            if self.imgs.contains_key(&msg) || !self.img_pending.insert(msg) {
+                continue;
+            }
+            let (proxy, window) = (self.proxy.clone(), self.window);
+            std::thread::spawn(move || {
+                let r = decode_image(&path);
+                let _ = proxy.send_event(MasonryUserEvent::AsyncAction(
+                    window,
+                    Box::new(Async::Image(msg, r)),
+                ));
+            });
+        }
     }
 
     /// Opens the long-press text menu (a strip in the `menu` slot above the
     /// reply banner). Not the native ActionMode yet — that needs a Java
     /// interface; this is the no-fork v1 (see #315 text essentials).
     fn open_menu(&mut self, root: &mut RenderRoot) {
-        let Screen::Chat { tags, menu, .. } = &mut self.screen else { return };
+        let Screen::Chat { tags, menu, .. } = &mut self.screen else {
+            return;
+        };
         if menu.is_some() {
             return;
         }
@@ -585,32 +973,38 @@ impl Driver {
             close: WidgetTag::unique(),
         };
         let btn = |text: &str, tag: WidgetTag<Button>| {
-            NewWidget::new(Button::new(NewWidget::new(Label::new(text.to_string()).with_style(StyleProperty::FontSize(14.0)))))
-                .with_tag(tag)
-                .with_props(PropertySet::new().with(Background::Color(SURFACE)))
+            NewWidget::new(Button::new(NewWidget::new(
+                Label::new(text.to_string()).with_style(StyleProperty::FontSize(14.0)),
+            )))
+            .with_tag(tag)
+            .with_props(PropertySet::new().with(Background::Color(SURFACE)))
         };
-        let row = Flex::row()
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_fixed(btn("Copy", mt.copy))
-            .with_fixed_spacer(px(6.0))
-            .with_fixed(btn("Cut", mt.cut))
-            .with_fixed_spacer(px(6.0))
-            .with_fixed(btn("Paste", mt.paste))
-            .with_fixed_spacer(px(6.0))
-            .with_fixed(btn("All", mt.all))
-            .with_spacer(1.0)
-            .with_fixed(btn("✕", mt.close))
-            .with_props(
-                PropertySet::new()
-                    .with(Padding::from_vh(px(4.0), px(8.0)))
-                    .with(Background::Color(SURFACE)),
-            );
-        root.edit_widget_with_tag(tags.menu, |mut b| SizedBox::set_child(&mut b, NewWidget::new(row)));
+        let row = NewWidget::new(
+            Flex::row()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_fixed(btn("Copy", mt.copy))
+                .with_fixed_spacer(px(6.0))
+                .with_fixed(btn("Cut", mt.cut))
+                .with_fixed_spacer(px(6.0))
+                .with_fixed(btn("Paste", mt.paste))
+                .with_fixed_spacer(px(6.0))
+                .with_fixed(btn("All", mt.all))
+                .with_spacer(1.0)
+                .with_fixed(btn("✕", mt.close)),
+        )
+        .with_props(
+            PropertySet::new()
+                .with(Padding::from_vh(px(4.0), px(8.0)))
+                .with(Background::Color(SURFACE)),
+        );
+        root.edit_widget_with_tag(tags.menu, |mut b| SizedBox::set_child(&mut b, row));
         *menu = Some(mt);
     }
 
     fn close_menu(&mut self, root: &mut RenderRoot) {
-        let Screen::Chat { tags, menu, .. } = &mut self.screen else { return };
+        let Screen::Chat { tags, menu, .. } = &mut self.screen else {
+            return;
+        };
         if menu.take().is_some() {
             root.edit_widget_with_tag(tags.menu, |mut b| SizedBox::remove_child(&mut b));
         }
@@ -621,16 +1015,20 @@ impl Driver {
     /// whole draft; Paste goes through the editor so it lands at the cursor
     /// and replaces the selection when there is one.
     fn menu_cmd(&mut self, root: &mut RenderRoot, cmd: MenuCmd) {
-        let Screen::Chat { draft, tags, .. } = &mut self.screen else { return };
+        let Screen::Chat { draft, tags, .. } = &mut self.screen else {
+            return;
+        };
         let (input, draft) = (tags.input, draft);
-        let selection = || {
+        let mut selection = || {
             let mut sel = None;
             root.edit_widget_with_tag(input, |mut i| sel = TextArea::selected_text(&mut i));
             sel
         };
         match cmd {
             MenuCmd::Copy => {
-                let text = selection().filter(|s| !s.is_empty()).unwrap_or_else(|| draft.clone());
+                let text = selection()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| draft.clone());
                 crate::clipboard_set(text);
             }
             MenuCmd::Cut => {
@@ -640,7 +1038,9 @@ impl Driver {
                     root.edit_widget_with_tag(input, |mut i| TextArea::delete_selection(&mut i));
                     // Field changed behind the IME: read back and re-sync.
                     let mut new_text = String::new();
-                    root.edit_widget_with_tag(input, |mut i| new_text = i.widget.text().to_string());
+                    root.edit_widget_with_tag(input, |mut i| {
+                        new_text = i.widget.text().to_string()
+                    });
                     *draft = new_text.clone();
                     crate::set_ime_text(new_text);
                 } else {
@@ -655,7 +1055,9 @@ impl Driver {
                     // Re-sync the keyboard buffer to the new field text so the
                     // next ImeText tick can't clobber the pasted content.
                     let mut new_text = String::new();
-                    root.edit_widget_with_tag(input, |mut i| new_text = i.widget.text().to_string());
+                    root.edit_widget_with_tag(input, |mut i| {
+                        new_text = i.widget.text().to_string()
+                    });
                     *draft = new_text.clone();
                     crate::set_ime_text(new_text);
                 } else {
@@ -664,14 +1066,25 @@ impl Driver {
             }
             MenuCmd::SelectAll => {
                 let len = draft.len();
-                root.edit_widget_with_tag(input, |mut i| TextArea::select_byte_range(&mut i, 0, len));
+                root.edit_widget_with_tag(input, |mut i| {
+                    TextArea::select_byte_range(&mut i, 0, len)
+                });
             }
             MenuCmd::Close => self.close_menu(root),
         }
     }
 
     fn send(&mut self, root: &mut RenderRoot) {
-        let Screen::Chat { id, draft, tags, reply, .. } = &mut self.screen else { return };
+        let Screen::Chat {
+            id,
+            draft,
+            tags,
+            reply,
+            ..
+        } = &mut self.screen
+        else {
+            return;
+        };
         let text = std::mem::take(draft);
         if text.trim().is_empty() {
             return;
@@ -690,7 +1103,9 @@ impl Driver {
 impl Driver {
     fn set_reply(&mut self, root: &mut RenderRoot, msg: MsgId) {
         let text = short(&self.core.msg_text(msg).replace('\n', " "), 40);
-        let Screen::Chat { tags, reply, .. } = &mut self.screen else { return };
+        let Screen::Chat { tags, reply, .. } = &mut self.screen else {
+            return;
+        };
         let cancel = WidgetTag::unique();
         let banner = Flex::row()
             .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -698,14 +1113,23 @@ impl Driver {
             .with_fixed_spacer(px(8.0))
             .with_fixed(NewWidget::new(Button::with_text("Cancel")).with_tag(cancel));
         let banner = NewWidget::new(banner).with_props(
-            PropertySet::new().with(Background::Color(SURFACE)).with(Padding { top: px(8.0), bottom: px(0.0), left: px(12.0), right: px(8.0) }),
+            PropertySet::new()
+                .with(Background::Color(SURFACE))
+                .with(Padding {
+                    top: px(8.0),
+                    bottom: px(0.0),
+                    left: px(12.0),
+                    right: px(8.0),
+                }),
         );
         root.edit_widget_with_tag(tags.reply, |mut b| SizedBox::set_child(&mut b, banner));
         *reply = Some((msg, cancel));
     }
 
     fn clear_reply(&mut self, root: &mut RenderRoot) {
-        let Screen::Chat { tags, reply, .. } = &mut self.screen else { return };
+        let Screen::Chat { tags, reply, .. } = &mut self.screen else {
+            return;
+        };
         if reply.take().is_some() {
             root.edit_widget_with_tag(tags.reply, |mut b| SizedBox::remove_child(&mut b));
         }
@@ -717,7 +1141,11 @@ impl Driver {
         match phase {
             TouchPhase::Started => {
                 // A drag on the floating controls must not scroll content underneath.
-                if self.bar_layer.as_ref().is_some_and(|b| b.rect.contains(Point::new(x, y))) {
+                if self
+                    .bar_layer
+                    .as_ref()
+                    .is_some_and(|b| b.rect.contains(Point::new(x, y)))
+                {
                     self.gesture = None;
                     return;
                 }
@@ -726,13 +1154,23 @@ impl Driver {
                         let p = Point::new(x, y);
                         let hit = bubbles
                             .iter()
-                            .find(|(t, _)| root.get_widget_with_tag(*t).is_some_and(|w| w.ctx().bounding_box().contains(p)))
+                            .find(|(t, _)| {
+                                root.get_widget_with_tag(*t)
+                                    .is_some_and(|w| w.ctx().bounding_box().contains(p))
+                            })
                             .copied();
                         (Mode::Undecided, hit)
                     }
                     _ => (Mode::Pan, None),
                 };
-                self.gesture = Some(Gesture { x0: x, y0: y, last_y: y, dx: 0.0, mode, bubble });
+                self.gesture = Some(Gesture {
+                    x0: x,
+                    y0: y,
+                    last_y: y,
+                    dx: 0.0,
+                    mode,
+                    bubble,
+                });
                 // Arm the long-press text menu: fires at 450 ms unless any
                 // movement/end bumps the generation first.
                 let g = touch_gen();
@@ -742,7 +1180,10 @@ impl Driver {
                     std::thread::sleep(std::time::Duration::from_millis(450));
                     if touch_gen() == g
                         && proxy
-                            .send_event(MasonryUserEvent::AsyncAction(win, Box::new(Async::OpenMenu(x, y))))
+                            .send_event(MasonryUserEvent::AsyncAction(
+                                win,
+                                Box::new(Async::OpenMenu(x, y)),
+                            ))
                             .is_err()
                     {
                         // loop gone; nothing to do
@@ -774,7 +1215,9 @@ impl Driver {
                             Screen::Add { .. } | Screen::Qr { .. } => None,
                         };
                         if let Some(tag) = tag {
-                            root.edit_widget_with_tag(tag, |mut p| Portal::pan_viewport_by(&mut p, Vec2::new(0.0, d)));
+                            root.edit_widget_with_tag(tag, |mut p| {
+                                Portal::pan_viewport_by(&mut p, Vec2::new(0.0, d))
+                            });
                         }
                     }
                     Mode::Back => {
@@ -798,7 +1241,10 @@ impl Driver {
                 let commit = phase == TouchPhase::Ended;
                 match g.mode {
                     Mode::Back => {
-                        let width = root.get_widget_with_tag(BODY).map(|w| w.ctx().bounding_box().width()).unwrap_or(320.0);
+                        let width = root
+                            .get_widget_with_tag(BODY)
+                            .map(|w| w.ctx().bounding_box().width())
+                            .unwrap_or(320.0);
                         root.edit_widget_with_tag(BODY, |mut b| b.set_transform(Affine::IDENTITY));
                         if commit && g.dx <= -(72.0f64).min(width * 0.28) {
                             self.show_list(root);
@@ -806,7 +1252,9 @@ impl Driver {
                     }
                     Mode::Reply => {
                         if let Some((tag, msg)) = g.bubble {
-                            root.edit_widget_with_tag(tag, |mut b| b.set_transform(Affine::IDENTITY));
+                            root.edit_widget_with_tag(tag, |mut b| {
+                                b.set_transform(Affine::IDENTITY)
+                            });
                             if commit && g.dx >= 48.0 {
                                 self.set_reply(root, msg);
                             }
@@ -820,10 +1268,18 @@ impl Driver {
 }
 
 impl AppDriver for Driver {
-    fn on_action(&mut self, window_id: WindowId, ctx: &mut DriverCtx<'_>, widget_id: WidgetId, action: ErasedAction) {
+    fn on_action(
+        &mut self,
+        window_id: WindowId,
+        ctx: &mut DriverCtx<'_>,
+        widget_id: WidgetId,
+        action: ErasedAction,
+    ) {
         let root = ctx.render_root(window_id);
         if action.is::<ButtonPress>() {
-            let is = |root: &RenderRoot, tag: WidgetTag<Button>| root.get_widget_with_tag(tag).map(|w| w.id()) == Some(widget_id);
+            let is = |root: &RenderRoot, tag: WidgetTag<Button>| {
+                root.get_widget_with_tag(tag).map(|w| w.id()) == Some(widget_id)
+            };
             if is(root, BACK) {
                 if !matches!(self.screen, Screen::List { .. }) {
                     self.show_list(root);
@@ -853,14 +1309,18 @@ impl AppDriver for Driver {
                 if let Some(cmd) = cmd {
                     self.menu_cmd(root, cmd);
                 }
-            } else if matches!(&self.screen, Screen::Chat { reply: Some((_, c)), .. } if is(root, *c)) {
+            } else if matches!(&self.screen, Screen::Chat { reply: Some((_, c)), .. } if is(root, *c))
+            {
                 self.clear_reply(root);
             } else if matches!(&self.screen, Screen::Add { tags, .. } if is(root, tags.go)) {
                 self.use_link(root, false);
             } else if matches!(&self.screen, Screen::Add { tags, .. } if is(root, tags.create)) {
                 self.use_link(root, true);
             } else if let Screen::List { rows, .. } = &self.screen {
-                let hit = rows.iter().find(|(tag, _)| is(root, *tag)).map(|(_, id)| *id);
+                let hit = rows
+                    .iter()
+                    .find(|(tag, _)| is(root, *tag))
+                    .map(|(_, id)| *id);
                 if let Some(id) = hit {
                     self.show_chat(root, id);
                 }
@@ -872,22 +1332,40 @@ impl AppDriver for Driver {
                     Screen::List { .. } | Screen::Qr { .. } => {}
                 },
                 TextAction::Entered(_) => {
-                    if matches!(self.screen, Screen::Add { .. }) { self.use_link(root, false) } else { self.send(root) }
+                    if matches!(self.screen, Screen::Add { .. }) {
+                        self.use_link(root, false)
+                    } else {
+                        self.send(root)
+                    }
                 }
                 TextAction::Cancelled => {}
             }
         }
     }
 
-    fn on_async_action(&mut self, window_id: WindowId, ctx: &mut DriverCtx<'_>, action: ErasedAction) {
+    fn on_async_action(
+        &mut self,
+        window_id: WindowId,
+        ctx: &mut DriverCtx<'_>,
+        action: ErasedAction,
+    ) {
         let root = ctx.render_root(window_id);
         if let Some(started) = self.started.take() {
-            crate::say(format!("first frame cycle after {} ms", started.elapsed().as_millis()));
+            crate::say(format!(
+                "first frame cycle after {} ms",
+                started.elapsed().as_millis()
+            ));
         }
-        let Ok(a) = action.downcast::<Async>() else { return };
+        let Ok(a) = action.downcast::<Async>() else {
+            return;
+        };
         if !self.built {
             self.built = true;
-            if matches!(self.screen, Screen::Add { .. }) { self.show_add(root) } else { self.show_list(root) }
+            if matches!(self.screen, Screen::Add { .. }) {
+                self.show_add(root)
+            } else {
+                self.show_list(root)
+            }
         }
         if matches!(*a, Async::Back) {
             // Back first closes the text menu, like the reply banner.
@@ -903,7 +1381,10 @@ impl AppDriver for Driver {
             return;
         }
         if let Async::OpenMenu(x, y) = *a {
-            if let Screen::Chat { tags, menu: None, .. } = &self.screen {
+            if let Screen::Chat {
+                tags, menu: None, ..
+            } = &self.screen
+            {
                 // Word-select under the finger before the menu appears, so
                 // Copy/Cut act on real text (velta-text patch).
                 let input = tags.input;
@@ -922,6 +1403,35 @@ impl AppDriver for Driver {
         }
         if let Async::Menu(cmd) = *a {
             self.menu_cmd(root, cmd);
+            return;
+        }
+        if let Async::Image(msg, r) = *a {
+            self.img_pending.remove(&msg);
+            match r {
+                Ok((img, w, h)) => {
+                    // Cache, evicting the oldest entry past the cap.
+                    if !self.imgs.contains_key(&msg) {
+                        self.img_order.push(msg);
+                        if self.img_order.len() > 40 {
+                            let evict = self.img_order.remove(0);
+                            self.imgs.remove(&evict);
+                        }
+                    }
+                    self.imgs.insert(msg, (img.clone(), w, h));
+                    // Swap the placeholder for the picture if the slot is on
+                    // the screen that's showing right now.
+                    if let Screen::Chat { imgs, .. } = &self.screen
+                        && let Some((tag, _)) = imgs.iter().find(|(_, m)| *m == msg)
+                    {
+                        let tag = *tag;
+                        let slot = NewWidget::new(
+                            SizedBox::new(NewWidget::new(Image::new(img))).size(px(w), px(h)),
+                        );
+                        root.edit_widget_with_tag(tag, |mut b| SizedBox::set_child(&mut b, slot));
+                    }
+                }
+                Err(e) => crate::say(format!("image {msg} failed: {e}")),
+            }
             return;
         }
         if matches!(*a, Async::Log) {
@@ -974,7 +1484,11 @@ impl AppDriver for Driver {
 }
 
 /// `event_loop` is a builder so the Android entry can attach its `AndroidApp` first.
-pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::EventLoopBuilder) -> anyhow::Result<()> {
+pub fn run(
+    core: Core,
+    started: Instant,
+    mut event_loop: masonry_winit::app::EventLoopBuilder,
+) -> anyhow::Result<()> {
     let event_loop = event_loop.build()?;
     let proxy = event_loop.create_proxy();
     let window = WindowId::next();
@@ -992,14 +1506,20 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     std::thread::spawn(move || {
         for _ in 0..120 {
             std::thread::sleep(std::time::Duration::from_millis(500));
-            if log_proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Log))).is_err() {
+            if log_proxy
+                .send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Log)))
+                .is_err()
+            {
                 break;
             }
         }
     });
     let notify_proxy = proxy.clone();
     core.listen(move |c| {
-        let _ = notify_proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Core(c))));
+        let _ = notify_proxy.send_event(MasonryUserEvent::AsyncAction(
+            window,
+            Box::new(Async::Core(c)),
+        ));
     });
 
     // Track the soft keyboard: GameActivity ignores adjustResize, so the UI pads
@@ -1018,7 +1538,13 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
                 let v = crate::ime_bottom();
                 if (v - last).abs() > 0.5 {
                     last = v;
-                    if ime_proxy.send_event(MasonryUserEvent::AsyncAction(window, Box::new(Async::Insets(v)))).is_err() {
+                    if ime_proxy
+                        .send_event(MasonryUserEvent::AsyncAction(
+                            window,
+                            Box::new(Async::Insets(v)),
+                        ))
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -1026,33 +1552,110 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
         });
     }
 
-    let back = NewWidget::new(Button::with_text(" ")).with_tag(BACK)
+    let back = NewWidget::new(Button::with_text(" "))
+        .with_tag(BACK)
         .with_props(PropertySet::new().with(Background::Color(SURFACE)));
-    let title = NewWidget::new(Label::new("Chats").with_style(StyleProperty::FontSize(19.0))).with_tag(TITLE)
-        .with_props(PropertySet::new().with(ContentColor::new(TEXT)).with(LineBreaking::Clip));
+    let title = NewWidget::new(Label::new("Chats").with_style(StyleProperty::FontSize(19.0)))
+        .with_tag(TITLE)
+        .with_props(
+            PropertySet::new()
+                .with(ContentColor::new(TEXT))
+                .with(LineBreaking::Clip),
+        );
     let header = NewWidget::new(
-        Flex::row().cross_axis_alignment(CrossAxisAlignment::Center).with_fixed(back).with_fixed_spacer(px(8.0)).with(title, 1.0),
+        Flex::row()
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_fixed(back)
+            .with_fixed_spacer(px(8.0))
+            .with(title, 1.0),
     )
-    .with_props(PropertySet::new().with(Padding::all(px(8.0))).with(Background::Color(SURFACE)));
+    .with_props(
+        PropertySet::new()
+            .with(Padding::all(px(8.0)))
+            .with(Background::Color(SURFACE)),
+    );
     let body = NewWidget::new(SizedBox::empty()).with_tag(BODY);
-    let log = NewWidget::new(Label::new(crate::log_text()).with_style(StyleProperty::FontSize(11.0))).with_tag(LOG)
-        .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding { top: px(if cfg!(target_os = "android") { 36.0 } else { 4.0 }), bottom: px(4.0), left: px(8.0), right: px(8.0) }));
-    let root = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(log).with_fixed(header).with(body, 1.0);
+    let log =
+        NewWidget::new(Label::new(crate::log_text()).with_style(StyleProperty::FontSize(11.0)))
+            .with_tag(LOG)
+            .with_props(
+                PropertySet::new()
+                    .with(ContentColor::new(MUTED))
+                    .with(LineBreaking::WordWrap)
+                    .with(Padding {
+                        top: px(if cfg!(target_os = "android") {
+                            36.0
+                        } else {
+                            4.0
+                        }),
+                        bottom: px(4.0),
+                        left: px(8.0),
+                        right: px(8.0),
+                    }),
+            );
+    let root = Flex::column()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .with_fixed(log)
+        .with_fixed(header)
+        .with(body, 1.0);
 
-    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![], portal: WidgetTag::unique(), bar: BarTags { chats: WidgetTag::unique(), add: WidgetTag::unique(), qr: WidgetTag::unique() } }, started: Some(started), built: false, ime: 0.0, gesture: None, bar_layer: None };
+    let mut driver = Driver {
+        core,
+        window,
+        proxy,
+        screen: Screen::List {
+            rows: vec![],
+            portal: WidgetTag::unique(),
+            bar: BarTags {
+                chats: WidgetTag::unique(),
+                add: WidgetTag::unique(),
+                qr: WidgetTag::unique(),
+            },
+        },
+        started: Some(started),
+        built: false,
+        ime: 0.0,
+        gesture: None,
+        bar_layer: None,
+        imgs: HashMap::new(),
+        img_order: Vec::new(),
+        img_pending: HashSet::new(),
+    };
     // First content arrives as an async refresh so the window paints immediately.
     driver.post(Async::Core(Change::Chatlist));
     if !driver.core.is_configured() {
         // Placeholder until the first build; show_add makes the real one.
-        let tags = AddTags { input: WidgetTag::unique(), go: WidgetTag::unique(), create: WidgetTag::unique(), status: WidgetTag::unique() };
-        let bar = BarTags { chats: WidgetTag::unique(), add: WidgetTag::unique(), qr: WidgetTag::unique() };
-        driver.screen = Screen::Add { draft: String::new(), tags, bar, busy: false };
+        let tags = AddTags {
+            input: WidgetTag::unique(),
+            go: WidgetTag::unique(),
+            create: WidgetTag::unique(),
+            status: WidgetTag::unique(),
+        };
+        let bar = BarTags {
+            chats: WidgetTag::unique(),
+            add: WidgetTag::unique(),
+            qr: WidgetTag::unique(),
+        };
+        driver.screen = Screen::Add {
+            draft: String::new(),
+            tags,
+            bar,
+            busy: false,
+        };
     }
 
-    let attrs = Window::default_attributes().with_title("Velta preview").with_inner_size(LogicalSize::new(420.0, 820.0));
-    let windows = vec![NewWindow::new_with_id(window, attrs, NewWidget::new(root).erased()).with_base_color(BG)];
+    let attrs = Window::default_attributes()
+        .with_title("Velta preview")
+        .with_inner_size(LogicalSize::new(420.0, 820.0));
+    let windows = vec![
+        NewWindow::new_with_id(window, attrs, NewWidget::new(root).erased()).with_base_color(BG),
+    ];
     let _ = masonry::app::try_init_tracing();
-    let mut app = App { state: MasonryState::new(event_loop.create_proxy(), windows, default_property_set()), driver, ime_text: String::new() };
+    let mut app = App {
+        state: MasonryState::new(event_loop.create_proxy(), windows, default_property_set()),
+        driver,
+        ime_text: String::new(),
+    };
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -1077,11 +1680,22 @@ impl ApplicationHandler<MasonryUserEvent> for App {
         crate::set_ime_polling(false);
         self.state.handle_suspended(el);
         // A finger lifted while backgrounded never reports Ended; settle any swipe.
-        self.driver.post(Async::Touch(TouchPhase::Cancelled, 0.0, 0.0));
+        self.driver
+            .post(Async::Touch(TouchPhase::Cancelled, 0.0, 0.0));
     }
-    fn window_event(&mut self, el: &ActiveEventLoop, id: masonry_winit::winit::window::WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        el: &ActiveEventLoop,
+        id: masonry_winit::winit::window::WindowId,
+        event: WindowEvent,
+    ) {
         if let WindowEvent::KeyboardInput { event: k, .. } = &event {
-            if k.state == ElementState::Pressed && matches!(k.logical_key, Key::Named(NamedKey::BrowserBack | NamedKey::Escape)) {
+            if k.state == ElementState::Pressed
+                && matches!(
+                    k.logical_key,
+                    Key::Named(NamedKey::BrowserBack | NamedKey::Escape)
+                )
+            {
                 self.driver.post(Async::Back);
                 return;
             }
@@ -1092,15 +1706,20 @@ impl ApplicationHandler<MasonryUserEvent> for App {
             }
         }
         if let WindowEvent::Touch(t) = &event {
-            self.driver.post(Async::Touch(t.phase, t.location.x, t.location.y));
+            self.driver
+                .post(Async::Touch(t.phase, t.location.x, t.location.y));
         }
         if matches!(event, WindowEvent::RedrawRequested) {
-            for root in self.state.roots() { self.driver.layout_bar(root); }
+            for root in self.state.roots() {
+                self.driver.layout_bar(root);
+            }
         }
-        self.state.handle_window_event(el, id, event, &mut self.driver);
+        self.state
+            .handle_window_event(el, id, event, &mut self.driver);
     }
     fn device_event(&mut self, el: &ActiveEventLoop, id: DeviceId, event: DeviceEvent) {
-        self.state.handle_device_event(el, id, event, &mut self.driver);
+        self.state
+            .handle_device_event(el, id, event, &mut self.driver);
     }
     fn user_event(&mut self, el: &ActiveEventLoop, event: MasonryUserEvent) {
         self.state.handle_user_event(el, event, &mut self.driver);
@@ -1150,5 +1769,44 @@ fn qr_image(text: &str) -> ImageData {
             data.extend_from_slice(&[v, v, v, 255]);
         }
     }
-    ImageData { data: data.into(), format: ImageFormat::Rgba8, alpha_type: ImageAlphaType::Alpha, width: n as u32, height: n as u32 }
+    ImageData {
+        data: data.into(),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: n as u32,
+        height: n as u32,
+    }
+}
+
+/// Reads and decodes a message picture (runs off-thread). The bitmap is
+/// downscaled so its long side is ≤ `IMG_MAX_PX` device px; the returned
+/// logical size aspect-fits the bubble (≤ `IMG_MAX_W` × `IMG_MAX_H`).
+fn decode_image(path: &str) -> Result<(ImageData, f64, f64), String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let img = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+    let (w0, h0) = (img.width() as f64, img.height() as f64);
+    if !(w0 > 0.0 && h0 > 0.0) {
+        return Err("empty image".into());
+    }
+    let scale = (IMG_MAX_PX / w0.max(h0)).min(1.0);
+    let img = if scale < 1.0 {
+        img.resize(
+            ((w0 * scale).max(1.0) as u32).max(1),
+            ((h0 * scale).max(1.0) as u32).max(1),
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        img
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = (rgba.width(), rgba.height());
+    let fit = (IMG_MAX_W / w as f64).min(IMG_MAX_H / h as f64).min(1.0);
+    let data = ImageData {
+        data: rgba.into_raw().into(),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: w,
+        height: h,
+    };
+    Ok((data, (w as f64 * fit).max(8.0), (h as f64 * fit).max(8.0)))
 }

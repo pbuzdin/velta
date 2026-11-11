@@ -1421,8 +1421,10 @@ impl<const EDITABLE: bool> TextArea<EDITABLE> {
         let geometry = this.widget.editor.selection_geometry();
         let first = geometry.first()?;
         let last = geometry.last()?;
-        let first = bounding_box_to_rect(*first.0);
-        let last = bounding_box_to_rect(*last.0);
+        // Field access on the tuple reference auto-derefs — first.0 is
+        // already the BoundingBox place.
+        let first = bounding_box_to_rect(first.0);
+        let last = bounding_box_to_rect(last.0);
         Some((
             Point::new(first.x0, first.y0),
             Point::new(last.x1, last.y1),

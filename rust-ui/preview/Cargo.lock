@@ -4276,7 +4276,6 @@ dependencies = [
 [[package]]
 name = "linebender_include_doc_path"
 version = "0.1.0"
-source = "git+https://github.com/linebender/xilem?rev=dc49687#dc496876a2f6ff2ce7687bfc8c19bd311bb553dc"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4400,7 +4399,6 @@ dependencies = [
 [[package]]
 name = "masonry"
 version = "0.4.0"
-source = "git+https://github.com/linebender/xilem?rev=dc49687#dc496876a2f6ff2ce7687bfc8c19bd311bb553dc"
 dependencies = [
  "accesskit",
  "linebender_include_doc_path",
@@ -8735,10 +8733,12 @@ dependencies = [
 name = "velta-preview"
 version = "0.1.0"
 dependencies = [
+ "android-activity",
  "android_logger",
  "anyhow",
  "chrono",
  "deltachat",
+ "image",
  "jni 0.21.1",
  "log",
  "masonry",
