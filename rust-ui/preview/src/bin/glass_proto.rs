@@ -8,8 +8,10 @@
 //!     cargo run --release --bin glass_proto --features skia -- [out_dir]
 
 use sk::{
-    BlendMode, ClipOp, Color, ColorChannel, IRect, Image, ImageInfo, Paint, Point, RRect, Rect,
-    canvas::SaveLayerRec, image_filters,
+    BlendMode, ClipOp, Color, ColorChannel, Data, EncodedImageFormat, IRect, Image, ImageInfo,
+    Paint, Point, RRect, Rect,
+    canvas::SaveLayerRec,
+    image_filters,
 };
 use skia_safe as sk;
 
@@ -26,9 +28,7 @@ fn main() -> anyhow::Result<()> {
     // --- 1. Synthetic chat backdrop (dark Velta-ish theme).
     let mut surface = sk::surfaces::raster_n32_premul((W, H)).unwrap();
     draw_chat(surface.canvas());
-    surface
-        .image_snapshot()
-        .save_to_path(format!("{out}/before.png"))?;
+    save_png(&surface.image_snapshot(), &format!("{out}/before.png"))?;
 
     // --- 2. The glass plate region.
     let glass = Rect::from_xywh(20.0, H as f32 - 260.0, W as f32 - 40.0, 150.0);
@@ -42,14 +42,13 @@ fn main() -> anyhow::Result<()> {
         (glass.width() + PAD * 2.0) as i32,
         (glass.height() + PAD * 2.0) as i32,
     );
-    let backdrop = surface.make_image_snapshot(Some(snap)).unwrap();
+    let backdrop = surface.image_snapshot_with_bounds(snap).unwrap();
 
     // Refraction: displacement through the generated lens map, then frost blur.
     let lens = lens_map(snap.width(), snap.height(), radius);
     let lens_filter = image_filters::image(lens, None, None, None);
     let disp = image_filters::displacement_map(
-        ColorChannel::R,
-        ColorChannel::G,
+        (ColorChannel::R, ColorChannel::G),
         40.0,
         lens_filter,
         None,
@@ -59,11 +58,11 @@ fn main() -> anyhow::Result<()> {
 
     let mut plate = sk::surfaces::raster_n32_premul((snap.width(), snap.height())).unwrap();
     let mut gp = Paint::default();
-    gp.set_image_filter(blurred.as_ref());
+    gp.set_image_filter(blurred);
     plate
         .canvas()
         .draw_image(backdrop.clone(), (0, 0), Some(&gp));
-    let glass_image = plate.image_snapshot().unwrap();
+    let glass_image = plate.image_snapshot();
 
     // --- 4. Composite onto the frame: filtered backdrop clipped to the plate,
     // then chromatic-aberration ghost + tint + specular highlight on top.
@@ -75,14 +74,13 @@ fn main() -> anyhow::Result<()> {
     c.draw_image(glass_image.clone(), (0, 0), None);
     let ghost = image_filters::offset(
         (2.0, 0.5),
-        None,
         image_filters::image(glass_image.clone(), None, None, None),
         None,
     );
     let mut ab = Paint::default();
     ab.set_blend_mode(BlendMode::Plus);
-    ab.set_alpha_float(0.14);
-    ab.set_image_filter(ghost.as_ref());
+    ab.set_alpha_f(0.14);
+    ab.set_image_filter(ghost);
     c.draw_image(glass_image.clone(), (0, 0), Some(&ab));
     c.restore();
 
@@ -97,10 +95,17 @@ fn main() -> anyhow::Result<()> {
     c.draw_rrect(rrect, &spec);
     c.restore();
 
-    surface
-        .image_snapshot()
-        .save_to_path(format!("{out}/after.png"))?;
+    save_png(&surface.image_snapshot(), &format!("{out}/after.png"))?;
     println!("wrote {out}/before.png + {out}/after.png (glass at {glass:?})");
+    Ok(())
+}
+
+/// 0.93 has no `Image::save_to_path` — encode + write (CI and local both).
+fn save_png(image: &Image, path: &str) -> anyhow::Result<()> {
+    let data = image
+        .encode_to_data(EncodedImageFormat::PNG)
+        .ok_or_else(|| anyhow::anyhow!("PNG encode failed"))?;
+    std::fs::write(path, data.as_bytes())?;
     Ok(())
 }
 
@@ -109,7 +114,7 @@ fn main() -> anyhow::Result<()> {
 /// within `ZONE` px of the plate edge, R/G encode a sample offset toward
 /// that edge so the backdrop bends inward at the rim, flat in the center.
 fn lens_map(w: i32, h: i32, _radius: f32) -> Image {
-    let info = ImageInfo::new_n32_premul((w, h));
+    let info = ImageInfo::new_n32_premul((w, h), None);
     let mut px = vec![128u8; (w * h * 4) as usize];
     let zone = 34.0;
     let inner_l = PAD;
@@ -143,7 +148,7 @@ fn lens_map(w: i32, h: i32, _radius: f32) -> Image {
             }
         }
     }
-    Image::from_pixel(&info, &px).unwrap()
+    sk::images::raster_from_data(&info, Data::new_copy(&px), (w * 4) as usize).expect("lens map fits")
 }
 
 /// A stand-in chat screen: header, bubbles with text bars, bottom bar.
