@@ -13,6 +13,7 @@
         <activity
             android:name="com.google.androidgamesdk.GameActivity"
             android:exported="true"
+            android:theme="@style/Theme.VeltaPreview"
             android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|density|uiMode|navigation|smallestScreenSize"
             android:windowSoftInputMode="adjustResize">
             <meta-data
