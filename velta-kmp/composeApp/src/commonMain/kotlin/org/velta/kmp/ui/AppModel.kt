@@ -51,6 +51,11 @@ class AppModel(
     var chatsLoading by mutableStateOf(false)
         private set
 
+    /** Peer fingerprint hex per 1:1 chat id (identity matrix tiles); filled
+     * asynchronously after the list lands. */
+    var identities by mutableStateOf<Map<Long, String>>(emptyMap())
+        private set
+
     // ---- Relay management (P4) ----
     var relays by mutableStateOf<List<org.velta.kmp.core.RelayCard>>(emptyList())
     var relaysLoading by mutableStateOf(false)
@@ -354,11 +359,31 @@ class AppModel(
                 compareByDescending<ChatListItem> { it.isPinned }
                     .thenByDescending { it.lastUpdated ?: 0L },
             )
+            scope.launch { loadIdentities(id, items) }
         } catch (t: Throwable) {
             println("velta-kmp: refreshChats failed: $t")
         } finally {
             chatsLoading = false
         }
+    }
+
+    /** Fetches each 1:1 peer's fingerprint for the identity matrix tiles.
+     * Sequential is fine: a handful of chats, two small RPCs each. */
+    private suspend fun loadIdentities(accountId: Long, items: List<ChatListItem>) {
+        val veltaCore = core ?: return
+        val map = HashMap<Long, String>()
+        for (item in items) {
+            if (item.isGroup || item.isSelfTalk || item.isDeviceTalk) continue
+            try {
+                val cid = veltaCore.chatContactIds(accountId, item.id).firstOrNull() ?: continue
+                val info = veltaCore.contactEncryptionInfo(accountId, cid) ?: continue
+                val fpr = identityFingerprintFromEncrInfo(info) ?: continue
+                map[item.id] = fpr
+            } catch (t: Throwable) {
+                println("velta-kmp: identity for chat ${item.id} failed: $t")
+            }
+        }
+        identities = map
     }
 
     fun openChat(item: ChatListItem) {
