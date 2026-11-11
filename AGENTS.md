@@ -37,14 +37,17 @@ a numbered version or move the tag to include it.
 
 ---
 
-## Rust preview UI (experimental, branch `rust-ui-preview`)
+## Rust UI (lab, branch `rust-ui-preview`)
 
-`rust-ui/preview/` is a separate Masonry/winit Velta UI (#314, roadmap #315).
-It is a **work-in-progress experiment**, not a successor and not the Android
-path: the web UI stays Velta's UI on every platform (#294 stands). On Android
-it runs as a GameActivity APK (`cc.velta.preview`, vello_hybrid renderer; the
-vello/gpu flavor deadlocks on Adreno and is desktop-only). Read
-`rust-ui/preview/AGENTS.md` before
+`rust-ui/preview/` is a Masonry/winit **lab**, not a delivery track
+(#314): a playground for renderer experiments (skia/vello hybrid/gpu,
+glass compositing) and design ports (Prism, identity matrix). Do not
+invest Android delivery effort here — the Android app is the Compose
+client (see `velta-kmp/`, #192); the web UI stays the desktop app
+(#294 stands). Renderer verdicts from the lab: vello/gpu deadlocks on
+Adreno (desktop-only), vello_hybrid renders no color emoji, skia is the
+only renderer that met the requirement set. It runs as a GameActivity
+APK (`cc.velta.preview`). Read `rust-ui/preview/AGENTS.md` before
 touching it; it lists the Masonry and Android pitfalls and build steps.
 
 ---
@@ -56,9 +59,13 @@ touching it; it lists the Masonry and Android pitfalls and build steps.
 
 - **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
-- **`velta-kmp/`** — frozen Kotlin Multiplatform experiment (#294). Do not
-  invest in it; Android stays on the Tauri web UI. `build-kmp.yml` is
-  `workflow_dispatch` only (no push trigger).
+- **`velta-kmp/`** — **the native Android client** (Compose Multiplatform,
+  core in-process via the rpc-shim cdylib, #192). Android delivery track
+  after the Rust-UI flip (2026-11-12): P0–P5.1 shipped (messaging, QR
+  onboarding, relays, accounts, DB encryption, app lock, background sync);
+  next = conversation notifications, RPC timeout/respawn, Prism/identity
+  port, AGSL glass. `build-kmp.yml` is `workflow_dispatch` only (no push
+  trigger yet).
 - **Standalone browser** — the wasm PWA dist (`scripts/build-pwa.mjs`) is a
   static site with the Chatmail core in a worker. Mail uses a WebSocket
   proxy on a chatmail relay; the PWA origin and the proxy host can differ
