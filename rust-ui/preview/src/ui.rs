@@ -52,7 +52,7 @@ struct ChatTags {
 }
 
 /// Buttons of the text menu while it is open.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 struct MenuTags {
     copy: WidgetTag<Button>,
     cut: WidgetTag<Button>,
@@ -150,8 +150,9 @@ enum Async {
     /// Raw touch (physical px). Masonry's Portal has no touch drag-to-pan at
     /// this rev and no swipe gestures, so the driver does both (see Gesture).
     Touch(TouchPhase, f64, f64),
-    /// Long-press fired (450 ms, no movement): open the text menu.
-    OpenMenu,
+    /// Long-press fired (450 ms, no movement) at logical (x, y): word-select
+    /// in the composer if the press is inside it, then open the text menu.
+    OpenMenu(f64, f64),
     /// A text-menu button was tapped.
     Menu(MenuCmd),
     /// A pasted link finished (core works in the background).
@@ -615,19 +616,38 @@ impl Driver {
         }
     }
 
-    /// One text-menu command. Copy/Cut act on the whole composer draft for
-    /// now (selection read-back needs a small Masonry patch, L3 in #315);
-    /// Paste goes through the editor so it lands at the cursor.
+    /// One text-menu command. Copy/Cut prefer the real editor selection
+    /// (long-press word-select via the velta-text patch) and fall back to the
+    /// whole draft; Paste goes through the editor so it lands at the cursor
+    /// and replaces the selection when there is one.
     fn menu_cmd(&mut self, root: &mut RenderRoot, cmd: MenuCmd) {
         let Screen::Chat { draft, tags, .. } = &mut self.screen else { return };
         let (input, draft) = (tags.input, draft);
+        let selection = || {
+            let mut sel = None;
+            root.edit_widget_with_tag(input, |mut i| sel = TextArea::selected_text(&mut i));
+            sel
+        };
         match cmd {
-            MenuCmd::Copy => crate::clipboard_set(draft.clone()),
+            MenuCmd::Copy => {
+                let text = selection().filter(|s| !s.is_empty()).unwrap_or_else(|| draft.clone());
+                crate::clipboard_set(text);
+            }
             MenuCmd::Cut => {
-                crate::clipboard_set(draft.clone());
-                root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut i, ""));
-                draft.clear();
-                crate::clear_ime_text();
+                let text = selection().filter(|s| !s.is_empty());
+                crate::clipboard_set(text.clone().unwrap_or_else(|| draft.clone()));
+                if text.is_some() {
+                    root.edit_widget_with_tag(input, |mut i| TextArea::delete_selection(&mut i));
+                    // Field changed behind the IME: read back and re-sync.
+                    let mut new_text = String::new();
+                    root.edit_widget_with_tag(input, |mut i| new_text = i.widget.text().to_string());
+                    *draft = new_text.clone();
+                    crate::set_ime_text(new_text);
+                } else {
+                    root.edit_widget_with_tag(input, |mut i| TextArea::reset_text(&mut i, ""));
+                    draft.clear();
+                    crate::clear_ime_text();
+                }
             }
             MenuCmd::Paste => {
                 if let Some(text) = crate::clipboard_get() {
@@ -721,7 +741,9 @@ impl Driver {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(450));
                     if touch_gen() == g
-                        && proxy.send_event(MasonryUserEvent::AsyncAction(win, Box::new(Async::OpenMenu))).is_err()
+                        && proxy
+                            .send_event(MasonryUserEvent::AsyncAction(win, Box::new(Async::OpenMenu(x, y))))
+                            .is_err()
                     {
                         // loop gone; nothing to do
                     }
@@ -880,8 +902,20 @@ impl AppDriver for Driver {
             }
             return;
         }
-        if matches!(*a, Async::OpenMenu) {
-            if matches!(self.screen, Screen::Chat { menu: None, .. }) {
+        if let Async::OpenMenu(x, y) = *a {
+            if let Screen::Chat { tags, menu: None, .. } = &self.screen {
+                // Word-select under the finger before the menu appears, so
+                // Copy/Cut act on real text (velta-text patch).
+                let input = tags.input;
+                if let Some(w) = root.get_widget_with_tag(input) {
+                    let bb = w.ctx().bounding_box();
+                    if bb.contains(Point::new(x, y)) {
+                        let (lx, ly) = ((x - bb.origin().x) as f32, (y - bb.origin().y) as f32);
+                        root.edit_widget_with_tag(input, |mut i| {
+                            TextArea::select_word_at_point(&mut i, lx, ly)
+                        });
+                    }
+                }
                 self.open_menu(root);
             }
             return;

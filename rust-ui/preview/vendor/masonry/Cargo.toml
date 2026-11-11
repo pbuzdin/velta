@@ -1,0 +1,25 @@
+# velta-text: vendored from linebender/xilem revision dc49687, Apache-2.0
+# (license included). Workspace metadata/dependencies expanded for standalone
+# vendoring; the preview patches only this crate. Changes carry `velta-text:`
+# markers. Tests/benches/examples are not vendored; masonry_core stays pinned
+# upstream via the git dependency below.
+[package]
+name = "masonry"
+version = "0.4.0" # We mimic Xilem's version
+description = "Traits and types of the Masonry toolkit."
+edition = "2024"
+rust-version = "1.96"
+license = "Apache-2.0"
+repository = "https://github.com/linebender/xilem"
+
+[features]
+default = []
+
+[dependencies]
+accesskit = "0.24.0"
+masonry_core = { git = "https://github.com/linebender/xilem", rev = "dc49687", default-features = false }
+smallvec = "1.15.1"
+tracing = { version = "0.1.44", features = ["default"] }
+include_doc_path = { version = "0.1.0", package = "linebender_include_doc_path" }
+resvg = "0.47.0"
+understory_virtual_list = "0.1.2"

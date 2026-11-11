@@ -8,7 +8,7 @@ publish = false
 
 # Standalone: not part of core's workspace.
 [workspace]
-members = ["vendor/masonry_winit"]
+members = ["vendor/masonry_winit", "vendor/masonry"]
 
 [lib]
 name = "velta_preview"
@@ -81,3 +81,4 @@ codegen-units = 4
 
 [patch."https://github.com/linebender/xilem"]
 masonry_winit = { path = "vendor/masonry_winit" }
+masonry = { path = "vendor/masonry" }
