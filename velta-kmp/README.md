@@ -3,7 +3,10 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-02):** P0–P3 complete, P4 functional slices done (12),
+**Status (2026-11-12):** promoted to the Android delivery track (Rust-UI flip,
+#314 verdict) — design port started (Prism person colors + fingerprint
+identity matrix, web-parity vectors pinned in tests). Previous status:
+**2026-11-02:** P0–P3 complete, P4 functional slices done (12),
 P5 opened (release builds + size shipped) — the client onboards from
 invites or QR scans, manages relays, switches accounts, sends with
 attachments/quotes/reactions, renders media, encrypts its database at
