@@ -1953,9 +1953,11 @@ fn short(text: &str, max: usize) -> String {
 /// The fingerprint identity matrix (3/2/2/3 grid, flush square cells —
 /// CornerRadius is uniform-only at this rev, no per-corner clipping).
 fn matrix_tile(cells: &[(&'static str, [u8; 3]); 10], size: f64) -> NewWidget<SizedBox> {
-    let mut grid = Flex::column();
+    // Stretch everywhere: the cells have zero intrinsic size and only become
+    // visible when the flex weights get to distribute both axes.
+    let mut grid = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch);
     for range in [0..3usize, 3..5, 5..7, 7..10] {
-        let mut row = Flex::row();
+        let mut row = Flex::row().cross_axis_alignment(CrossAxisAlignment::Stretch);
         for i in range {
             let (_, rgb) = cells[i];
             row = row.with(
@@ -1971,9 +1973,9 @@ fn matrix_tile(cells: &[(&'static str, [u8; 3]); 10], size: f64) -> NewWidget<Si
 
 /// The same matrix with the color-name captions inside each cell (profile).
 fn legend_tile(cells: &[(&'static str, [u8; 3]); 10], size: f64) -> NewWidget<SizedBox> {
-    let mut grid = Flex::column();
+    let mut grid = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch);
     for range in [0..3usize, 3..5, 5..7, 7..10] {
-        let mut row = Flex::row();
+        let mut row = Flex::row().cross_axis_alignment(CrossAxisAlignment::Stretch);
         for i in range {
             let (name, rgb) = cells[i];
             let cell = NewWidget::new(SizedBox::new(NewWidget::new(Align::centered(one_line(
