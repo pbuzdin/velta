@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Our Rust UI take: what two days of native Velta taught us — Velta</title>
+  <meta name="description" content="We built a working Velta client for Android in Rust — no WebView — and ran it on a real phone next to the web app. What the experiment proved, where the costs came due, and why the Android app ships Kotlin with the same core in-process.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=22">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Engineering</p>
+    <h1>Our Rust UI take: what two days of native Velta taught us</h1>
+    <p><time>12 November 2026</time> · 5 min read</p>
+    <p>We built a working Velta client for Android in Rust — no WebView, no browser engine — and ran it on a mid-range phone next to the web app. Then we decided the Android app will be Kotlin. Both halves of that sentence are good news; this is the take.</p>
+    <div class="body">
+<h2>Why we tried it</h2>
+<p>The Velta app you use on Windows, macOS and Linux is one build-less web UI wrapped in a system WebView, with the Delta Chat messaging core linked in-process. That shape has served well — but the pull of a native Rust UI is obvious: drop the WebView entirely, keep the core in-process, and share one user interface across every platform. A Rust UI toolkit (Masonry) with a working Android story exists, so we gave it a real shot: not a sketch, a client. Chat list with unread pills, chat view with day separators and quotes, a composer that rides the keyboard, swipe gestures, live incoming messages, links and invites — all rendered in Rust, booted on a phone.</p>
+<h2>What it proved</h2>
+<p>The architecture question is answered, and the answer is yes. Cold start to first frame: <strong>157 ms</strong> on the phone, against 184 ms for the web app on the same device. Memory within noise of the web app (~126 MB vs ~113 MB — both carry the full messaging core in-process, which is why they sit so close). A chat list rebuild takes 3–13 ms; incoming messages land while you watch. Nothing about native performance scared us off, and the numbers are worth having: whichever UI ships, the core belongs in the process.</p>
+<h2>Where the bill came due</h2>
+<p>A UI toolkit draws. Everything a phone actually does around the drawing is yours to build, and the itemized list grew faster than the feature list. Copy and paste: a hand-written bridge into the platform clipboard service. The soft keyboard: a poller thread reading window insets, because the activity backend ignores the resize event. Typed text: a mirror of the input buffer, because the events never arrive. Scrolling: a gesture bridge. Text selection: a patched copy of the toolkit we vendor and maintain. One uncleared platform exception took the whole app down — once was enough to see the pattern.</p>
+<p>The renderers told the same story from a different angle. Vello's GPU path deadlocks outright on Adreno-class phones. The hybrid path draws no color emoji — a dealbreaker for a messenger, where an emoji is content, not decoration. Skia met the full requirement set and carried a working liquid-glass prototype. And then we learned the punchline: Android's own platform shaders do displacement maps and blur natively. The effect we spent a day forking a rendering stack to get is a built-in on the platform we were leaving.</p>
+<p>What remained was the honest mountain: notifications, attachment picking, share intents, accessibility, push, background sync — each one another bridge like the ones above, each one a new crash class. For a project with one maintainer, that math does not close.</p>
+<h2>The decision</h2>
+<p>The Android app is Kotlin with Jetpack Compose, running the same Delta Chat core in process. The architecture we validated carries over whole; the platform layer stops being our code and becomes the operating system's. A Kotlin client built earlier this autumn already carries encrypted-at-rest storage with a biometric lock, QR onboarding, relay management, account switching, attachments, reactions and background sync — it becomes the delivery track. Desktop keeps the web UI, which ships. The Rust client stays around as a lab: a place where renderer experiments cost an afternoon instead of a release.</p>
+<h2>What we keep</h2>
+<ul>
+<li><strong>The numbers</strong> — the core-in-process architecture is proven, with measurements to point at.</li>
+<li><strong>The renderer verdicts</strong> — written down, with repro steps, so nobody re-litigates them from scratch.</li>
+<li><strong>Design with receipts</strong> — Velta Prism (the person colors) and the fingerprint identity matrix now exist as parity-tested algorithms shared bit-for-bit between the web UI and the lab; the same name always produces the same colors, pinned by tests on both sides.</li>
+<li><strong>Gratitude</strong> — Masonry and the vello family are promising and moving fast. Our verdict is about one maintainer's budget and a shipping deadline, not about the stacks; the lab will keep playing with them.</li>
+</ul>
+<p>The native Android client is the work now. The next thing Android users should notice is not a new renderer — it is notifications, attachments and accessibility that simply work, because the platform provides them.</p>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client, built on the Delta Chat core</span><span>Site visits measured cookielessly; the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=8"></script>
+</body>
+</html>
