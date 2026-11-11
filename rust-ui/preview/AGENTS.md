@@ -4,6 +4,10 @@ Read the root `AGENTS.md` first for repo rules (commit identity, "Refs #N",
 no force-push, no private hostnames). This file covers only `rust-ui/preview`.
 
 - Issues: goal #314, roadmap #315 (tick boxes there as work lands).
+- First-run relay override: `VELTA_RELAY` env (desktop) or `relay.txt` in the
+  accounts dir / app files dir (Android, placed via `adb push` + `run-as`;
+  the test APK is debuggable for exactly this). Bare hostnames get the
+  `dcaccount:` scheme. Never commit a private relay hostname — repo rule.
 - Branch: `rust-ui-preview`. Not merged into master.
 - Standalone crate with its own `[workspace]` and a pinned `Cargo.lock`
   (force-added, since `**/Cargo.lock` is gitignored). Keep the lock committed.

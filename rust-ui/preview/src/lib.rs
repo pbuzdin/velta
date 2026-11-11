@@ -34,6 +34,37 @@ pub fn log_text() -> String {
 /// Relay used to create a first account when the accounts dir is empty.
 pub const DEFAULT_RELAY: &str = "dcaccount:nine.testrun.org";
 
+/// First-run relay override: `VELTA_RELAY` env (desktop), or `relay.txt` in
+/// the accounts dir / the app's files dir (Android; pushed there with
+/// `adb push` + `run-as`). Lets test devices use a private relay without
+/// hardcoding its hostname in the repo.
+pub fn relay_for(accounts_dir: &std::path::Path) -> String {
+    if let Ok(r) = std::env::var("VELTA_RELAY")
+        && !r.trim().is_empty()
+    {
+        return normalize_relay(&r);
+    }
+    for dir in [accounts_dir.to_path_buf(), accounts_dir.parent().map(|p| p.to_path_buf()).unwrap_or_default()] {
+        let Ok(s) = std::fs::read_to_string(dir.join("relay.txt")) else {
+            continue;
+        };
+        if !s.trim().is_empty() {
+            return normalize_relay(&s);
+        }
+    }
+    DEFAULT_RELAY.to_string()
+}
+
+/// Bare hostnames become `dcaccount:<host>`; anything with a scheme passes through.
+fn normalize_relay(s: &str) -> String {
+    let s = s.trim();
+    if s.contains(':') {
+        s.to_string()
+    } else {
+        format!("dcaccount:{s}")
+    }
+}
+
 /// The NativeActivity jobject (ndk_context only hands out the Application).
 #[cfg(target_os = "android")]
 static ACTIVITY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
@@ -51,7 +82,9 @@ fn android_main(app: masonry_winit::winit::platform::android::activity::AndroidA
     say("android_main");
     let dir = app.internal_data_path().expect("app data dir").join("accounts");
     say(format!("opening accounts at {}", dir.display()));
-    let core = match core::Core::open(dir, DEFAULT_RELAY) {
+    let relay = relay_for(&dir);
+    log::info!("first-run relay override active: {relay}");
+    let core = match core::Core::open(dir, &relay) {
         Ok(c) => c,
         Err(e) => {
             say(format!("core open failed: {e:#}"));

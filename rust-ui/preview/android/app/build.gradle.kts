@@ -36,6 +36,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Throwaway-key test APK: debuggable so adb run-as can place a
+            // relay override file (relay.txt) into the app's files dir.
+            isDebuggable = true
             if (System.getenv("VELTA_KEYSTORE") != null) {
                 signingConfig = signingConfigs.getByName("test")
             }
