@@ -1,9 +1,14 @@
 name: Build KMP
 
 on:
-  # Frozen 2026-11-06 (#294): KMP is not invested in; keep the workflow for
-  # manual runs only so push to master does not burn CI on velta-kmp changes.
+  # Unfrozen 2026-11-12: velta-kmp is the Android delivery track (#192,
+  # Rust-UI flip) — build on every master push that touches it.
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "velta-kmp/**"
+      - ".github/workflows/build-kmp.yml" 
 
 permissions:
   contents: read
