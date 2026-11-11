@@ -727,7 +727,14 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     let proxy = event_loop.create_proxy();
     let window = WindowId::next();
 
-    crate::say(format!("renderer: {}", if cfg!(feature = "hybrid") { "vello_hybrid" } else { "vello (gpu)" }));
+    let renderer = if cfg!(feature = "hybrid") {
+        "vello_hybrid"
+    } else if cfg!(feature = "skia") {
+        "skia (gpu)"
+    } else {
+        "vello (gpu)"
+    };
+    crate::say(format!("renderer: {renderer}"));
     // Refresh the log strip twice a second for the first minute.
     let log_proxy = proxy.clone();
     std::thread::spawn(move || {
