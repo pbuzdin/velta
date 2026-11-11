@@ -6,7 +6,7 @@ use deltachat::chat::ChatId;
 use masonry::app::RenderRoot;
 use masonry::core::{ErasedAction, NewWidget, PropertySet, StyleProperty, WidgetId, WidgetTag};
 use masonry::dpi::LogicalSize;
-use masonry::kurbo::Point;
+use masonry::kurbo::{Point, Vec2};
 use masonry::layout::Length;
 use masonry::peniko::color::AlphaColor;
 use masonry::properties::types::{CrossAxisAlignment, MainAxisAlignment};
@@ -17,7 +17,7 @@ use masonry::widgets::{Button, ButtonPress, Flex, Image, InsertNewline, Label, P
 use masonry_winit::app::{AppDriver, DriverCtx, EventLoopProxy, MasonryUserEvent, NewWindow, WindowId};
 use masonry_winit::app::MasonryState;
 use masonry_winit::winit::application::ApplicationHandler;
-use masonry_winit::winit::event::{DeviceEvent, DeviceId, ElementState, StartCause, WindowEvent};
+use masonry_winit::winit::event::{DeviceEvent, DeviceId, ElementState, StartCause, TouchPhase, WindowEvent};
 use masonry_winit::winit::event_loop::ActiveEventLoop;
 use masonry_winit::winit::keyboard::{Key, NamedKey};
 use masonry_winit::winit::window::Window;
@@ -57,10 +57,13 @@ enum Async {
     ScrollBottom,
     /// Soft keyboard bottom inset changed (logical px).
     Insets(f64),
+    /// Finger drag delta (physical px) for touch scrolling — Masonry's
+    /// Portal has no touch drag-to-pan at this rev; we bridge it ourselves.
+    Pan(f64),
 }
 
 enum Screen {
-    List { rows: Vec<(WidgetTag<Button>, ChatId)> },
+    List { rows: Vec<(WidgetTag<Button>, ChatId)>, portal: WidgetTag<Portal<Flex>> },
     Chat { id: ChatId, draft: String, tags: ChatTags },
     Invite,
 }
@@ -143,10 +146,11 @@ impl Driver {
             col = col.with_fixed(btn);
             map.push((tag, r.id));
         }
-        let portal = Portal::new(NewWidget::new(col)).constrain_horizontal(true);
-        root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, NewWidget::new(portal)));
+        let portal_tag = WidgetTag::unique();
+        let portal = NewWidget::new(Portal::new(NewWidget::new(col)).constrain_horizontal(true)).with_tag(portal_tag);
+        root.edit_widget_with_tag(BODY, |mut b| SizedBox::set_child(&mut b, portal));
         Self::set_title(root, "Chats", false);
-        self.screen = Screen::List { rows: map };
+        self.screen = Screen::List { rows: map, portal: portal_tag };
         crate::say(format!("chat list ({} chats) built in {} ms", rows.len(), t.elapsed().as_millis()));
     }
 
@@ -223,7 +227,7 @@ impl Driver {
         .with_props(
             PropertySet::new()
                 .with(ContentColor::new(TEXT))
-                .with(CaretColor::new(TEXT))
+                .with(CaretColor { color: TEXT })
                 .with(Padding::from_vh(px(10.0), px(12.0)))
                 .with(Background::Color(SURFACE)),
         );
@@ -284,7 +288,7 @@ impl AppDriver for Driver {
                 self.show_invite(root);
             } else if matches!(&self.screen, Screen::Chat { tags, .. } if is(root, tags.send)) {
                 self.send(root);
-            } else if let Screen::List { rows } = &self.screen {
+            } else if let Screen::List { rows, .. } = &self.screen {
                 let hit = rows.iter().find(|(tag, _)| is(root, *tag)).map(|(_, id)| *id);
                 if let Some(id) = hit {
                     self.show_chat(root, id);
@@ -330,6 +334,19 @@ impl AppDriver for Driver {
             self.ime = v;
             if let Screen::Chat { tags, .. } = &self.screen {
                 root.edit_widget_with_tag(tags.spacer, |mut s| SizedBox::set_height(&mut s, px(v)));
+            }
+            return;
+        }
+        if let Async::Pan(dy) = *a {
+            // dy arrives in physical px; Portal pans in logical.
+            let scale = root.scale_factor();
+            let tag = match &self.screen {
+                Screen::Chat { tags, .. } => Some(tags.msgs),
+                Screen::List { portal, .. } => Some(*portal),
+                Screen::Invite => None,
+            };
+            if let Some(tag) = tag {
+                root.edit_widget_with_tag(tag, |mut p| Portal::pan_viewport_by(&mut p, Vec2::new(0.0, dy / scale)));
             }
             return;
         }
@@ -410,7 +427,7 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
         .with_props(PropertySet::new().with(ContentColor::new(MUTED)).with(LineBreaking::WordWrap).with(Padding { top: px(if cfg!(target_os = "android") { 36.0 } else { 4.0 }), bottom: px(4.0), left: px(8.0), right: px(8.0) }));
     let root = Flex::column().cross_axis_alignment(CrossAxisAlignment::Stretch).with_fixed(log).with_fixed(header).with(body, 1.0);
 
-    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![] }, started: Some(started), built: false, ime: 0.0 };
+    let mut driver = Driver { core, window, proxy, screen: Screen::List { rows: vec![], portal: WidgetTag::unique() }, started: Some(started), built: false, ime: 0.0 };
     // First content arrives as an async refresh so the window paints immediately.
     driver.post(Async::Core(Change::Chatlist));
     if !driver.core.is_configured() {
@@ -420,16 +437,19 @@ pub fn run(core: Core, started: Instant, mut event_loop: masonry_winit::app::Eve
     let attrs = Window::default_attributes().with_title("Velta preview").with_inner_size(LogicalSize::new(420.0, 820.0));
     let windows = vec![NewWindow::new_with_id(window, attrs, NewWidget::new(root).erased()).with_base_color(BG)];
     let _ = masonry::app::try_init_tracing();
-    let mut app = App { state: MasonryState::new(event_loop.create_proxy(), windows, default_property_set()), driver };
+    let mut app = App { state: MasonryState::new(event_loop.create_proxy(), windows, default_property_set()), driver, touch: None };
     event_loop.run_app(&mut app)?;
     Ok(())
 }
 
 /// Masonry's own event loop handler, plus the Back key: winit marks every key as handled
-/// on Android, so without this Back does nothing.
+/// on Android, so without this Back does nothing. Also the touch-scroll bridge: Masonry's
+/// Portal only pans on wheel events, not finger drags.
 struct App {
     state: MasonryState,
     driver: Driver,
+    /// (window, last touch y in physical px) while a finger is down.
+    touch: Option<(masonry_winit::winit::window::WindowId, f64)>,
 }
 
 impl ApplicationHandler<MasonryUserEvent> for App {
@@ -438,12 +458,28 @@ impl ApplicationHandler<MasonryUserEvent> for App {
     }
     fn suspended(&mut self, el: &ActiveEventLoop) {
         self.state.handle_suspended(el);
+        self.touch = None;
     }
     fn window_event(&mut self, el: &ActiveEventLoop, id: masonry_winit::winit::window::WindowId, event: WindowEvent) {
         if let WindowEvent::KeyboardInput { event: k, .. } = &event {
             if k.state == ElementState::Pressed && matches!(k.logical_key, Key::Named(NamedKey::BrowserBack | NamedKey::Escape)) {
                 self.driver.post(Async::Back);
                 return;
+            }
+        }
+        if let WindowEvent::Touch(t) = &event {
+            match t.phase {
+                TouchPhase::Started => self.touch = Some((id, t.location.y)),
+                TouchPhase::Moved => {
+                    if let Some((wid, last)) = &mut self.touch
+                        && *wid == id
+                    {
+                        let dy = *last - t.location.y;
+                        *last = t.location.y;
+                        self.driver.post(Async::Pan(dy));
+                    }
+                }
+                _ => self.touch = None,
             }
         }
         self.state.handle_window_event(el, id, event, &mut self.driver);
