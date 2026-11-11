@@ -5,3 +5,6 @@ expect fun formatTimestamp(epochSeconds: Long): String
 
 /** Day-separator header, local date of the message timestamp. */
 expect fun formatDateHeader(epochSeconds: Long): String
+
+/** "4 days ago" / "2 h ago" / "just now" for a contact last-seen. */
+expect fun relativeLastSeen(epochSeconds: Long): String

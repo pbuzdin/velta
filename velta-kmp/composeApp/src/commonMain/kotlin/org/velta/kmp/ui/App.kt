@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
 /** P1 read-path UI: login, chat list, chat view. Bare bones by design (issue #192). */
@@ -63,6 +66,7 @@ fun App(model: AppModel) {
                     AppModel.Screen.Accounts -> AccountsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Chat -> ChatScreen(model, current)
+                    is AppModel.Screen.Profile -> ProfileScreen(model, current)
                 }
             }
         }
@@ -631,6 +635,9 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     TextButton(onClick = { model.backToChatList() }) { Text("‹ Back") }
                 },
                 actions = {
+                    if (!chat.isGroup) {
+                        TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Text("ⓘ") }
+                    }
                     if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
                     Spacer(Modifier.size(12.dp))
                 },
@@ -718,6 +725,169 @@ private fun stateGlyph(state: Int): String? = when (state) {
 }
 
 private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
+
+/** "1 week" / "5 min" / "45 s" — the disappearing-timer value. */
+private fun humantimeSecs(secs: Int): String = when {
+    secs <= 0 -> "Off"
+    secs % 86400 == 0 -> "${secs / 86400} day${if (secs / 86400 > 1) "s" else ""}"
+    secs % 3600 == 0 -> "${secs / 3600} hour${if (secs / 3600 > 1) "s" else ""}"
+    secs % 60 == 0 -> "${secs / 60} min"
+    else -> "$secs s"
+}
+
+/** "0E69 2C68 … 1009" / "3DD1 … BED9" — 5 groups of 4 per line. */
+private fun groupedFpr(fpr: String): String {
+    val hex = fpr.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
+    return (0 until 10)
+        .map { i -> hex.slice(i * 20 until i * 20 + 20).chunked(4).joinToString(" ") }
+        .joinToString("\n")
+}
+
+/** The contact sheet (web profile screen): identity tiles, contact data,
+ * actions. Any chat can open it; contact rows appear for 1:1 chats. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
+    PlatformBackHandler {
+        model.backFromProfile()
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Profile") },
+                navigationIcon = {
+                    TextButton(onClick = { model.backFromProfile() }) { Text("‹ Back") }
+                },
+            )
+        },
+    ) { inner ->
+        val p = model.profile
+        if (p == null) {
+            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (model.profileLoading) CircularProgressIndicator(Modifier.size(20.dp))
+            }
+            return@Scaffold
+        }
+        Column(
+            Modifier
+                .padding(inner)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.size(12.dp))
+            // Avatar: identity matrix with its rounded corners; Prism tile
+            // for key-less chats.
+            val cells = p.fingerprint?.let { identityCells(it) }
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(RoundedCornerShape(if (cells != null) 26.dp else 60.dp))
+                    .background(
+                        color = if (cells == null) prismTileColor(p.contactName.ifEmpty { p.chatName })
+                        else androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (cells != null) {
+                    Column(Modifier.fillMaxSize()) {
+                        listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
+                            Row(Modifier.weight(1f)) {
+                                range.forEach { i ->
+                                    val (_, rgb) = cells[i]
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .background(
+                                                color = androidx.compose.ui.graphics.Color(
+                                                    rgb[0], rgb[1], rgb[2],
+                                                ),
+                                            ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        prismInitials(p.contactName.ifEmpty { p.chatName }),
+                        fontSize = 42.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Spacer(Modifier.size(10.dp))
+            Text(
+                p.contactName.ifEmpty { p.chatName },
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (p.addr.isNotEmpty()) {
+                Text(
+                    p.addr,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { model.backFromProfile() }) { Text("Send message") }
+                if (p.contactId != null) {
+                    TextButton(onClick = { model.toggleBlockPeer() }) {
+                        Text(
+                            if (p.blocked) "Unblock" else "Block",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+            HorizontalDivider()
+            profileRows(p)
+            Spacer(Modifier.size(24.dp))
+        }
+    }
+}
+
+/** The contact-sheet data rows (media counts, address, key, timers). */
+@Composable
+private fun profileRows(p: AppModel.ProfileData) {
+    val rows = buildList {
+        add("Apps" to p.apps.toString())
+        add("Photos" to p.photos.toString())
+        add("Videos" to p.videos.toString())
+        add("Audio" to p.audio.toString())
+        add("Files" to p.files.toString())
+        if (p.addr.isNotEmpty()) add("Address" to p.addr)
+        p.fingerprint?.let { add("Profile key" to groupedFpr(it)) }
+        add("Last seen" to relativeLastSeen(p.lastSeenSeconds))
+        add("Notifications" to if (p.muted) "Off" else "On")
+        add("Disappearing messages" to humantimeSecs(p.ephemeralSecs))
+    }
+    rows.forEach { (k, v) ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                k,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(0.4f),
+            )
+            Text(
+                v,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(0.6f),
+            )
+        }
+        HorizontalDivider()
+    }
+}
 
 /** Tapping a bubble opens this bar: quick reactions + reply. */
 @Composable
