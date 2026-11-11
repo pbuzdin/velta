@@ -13,6 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import org.velta.kmp.ui.identityCells
 import org.velta.kmp.ui.identityContrastText
+import org.velta.kmp.ui.identityFingerprintFromEncrInfo
 import org.velta.kmp.ui.identityGroups
 import org.velta.kmp.ui.identityMonoFill
 import org.velta.kmp.ui.prismFill
@@ -111,6 +112,19 @@ class PrismIdentityTest {
         assertNull(identityGroups("0E692C68"))
         assertNull(identityGroups(""))
         assertNull(identityCells("nokey"))
+    }
+
+    // blockFpr semantics on get_contact_encryption_info text (the "Profile
+    // key" blocks; first block wins).
+    @Test
+    fun identityFingerprintParsesEncrInfo() {
+        val info = "Pavel:\n0E69 2C68 1043 36C2 1009 3DD1 2D40 21C2 591A BED9\n"
+        assertEquals("0E692C68104336C210093DD12D4021C2591ABED9", identityFingerprintFromEncrInfo(info))
+        val two = "Me:\nAAAA BBBB CCCC DDDD EEEE FFFF 0000 1111 2222 3333\n" +
+            "Pavel:\n0E69 2C68 1043 36C2 1009 3DD1 2D40 21C2 591A BED9"
+        assertEquals("AAAABBBBCCCCDDDDEEEEFFFF0000111122223333", identityFingerprintFromEncrInfo(two))
+        assertNull(identityFingerprintFromEncrInfo("no key here"))
+        assertNull(identityFingerprintFromEncrInfo("short: 0E69 2C68"))
     }
 
     @Test

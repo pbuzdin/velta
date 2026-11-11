@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -40,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -401,7 +403,7 @@ private fun ChatListScreen(model: AppModel) {
         } else {
             LazyColumn(Modifier.padding(inner)) {
                 items(model.chats, key = { it.id }) { item ->
-                    ChatListRow(item) { model.openChat(item) }
+                    ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
                     HorizontalDivider()
                 }
             }
@@ -410,7 +412,7 @@ private fun ChatListScreen(model: AppModel) {
 }
 
 @Composable
-private fun ChatListRow(item: ChatListItem, onClick: () -> Unit) {
+private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -418,13 +420,42 @@ private fun ChatListRow(item: ChatListItem, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // 1:1 peers with a key wear the fingerprint identity matrix (web
+        // avatar.js); everything else the Prism initials tile.
+        val cells = identityFpr?.let { identityCells(it) }
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .background(color = prismTileColor(item.name), shape = RoundedCornerShape(22.dp)),
+                .clip(RoundedCornerShape(if (cells != null) 10.dp else 22.dp))
+                .background(
+                    color = if (cells == null) prismTileColor(item.name)
+                    else androidx.compose.ui.graphics.Color.Transparent,
+                ),
             contentAlignment = Alignment.Center,
         ) {
-            Text(prismInitials(item.name), fontWeight = FontWeight.Bold)
+            if (cells != null) {
+                Column(Modifier.fillMaxSize()) {
+                    listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
+                        Row(Modifier.weight(1f)) {
+                            range.forEach { i ->
+                                val (_, rgb) = cells[i]
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(
+                                            color = androidx.compose.ui.graphics.Color(
+                                                rgb[0], rgb[1], rgb[2],
+                                            ),
+                                        ),
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(prismInitials(item.name), fontWeight = FontWeight.Bold)
+            }
         }
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {

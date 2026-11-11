@@ -256,6 +256,26 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         } ?: emptyList()
     }
 
+    /** Contact ids of a chat (a 1:1 chat holds exactly the peer). */
+    suspend fun chatContactIds(accountId: Long, chatId: Long): List<Long> {
+        val result = client.call(
+            "get_chat_contacts",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+        return (result as? JsonArray)?.mapNotNull { entry ->
+            (entry as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+        } ?: emptyList()
+    }
+
+    /** The contact's encryption-info text (the "Profile key" blocks). */
+    suspend fun contactEncryptionInfo(accountId: Long, contactId: Long): String? {
+        val result = client.call(
+            "get_contact_encryption_info",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(contactId)),
+        )
+        return (result as? kotlinx.serialization.json.JsonPrimitive)?.content
+    }
+
     /** Returns only the successfully loaded items; errored entries are logged. */
     suspend fun chatlistItems(accountId: Long, chatIds: List<Long>): List<ChatListItem> {
         if (chatIds.isEmpty()) return emptyList()

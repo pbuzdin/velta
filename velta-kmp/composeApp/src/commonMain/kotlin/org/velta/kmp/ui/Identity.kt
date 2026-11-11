@@ -147,6 +147,21 @@ private fun identityColorForCell(
 }
 
 /**
+ * The peer's fingerprint from `get_contact_encryption_info` text (the
+ * "Profile key" blocks — core writes the key as ten 4-hex groups per line).
+ * Web `blockFpr`: collect ALL non-overlapping 5-group windows (a 10-group
+ * line = exactly 2), join, strip to hex, need ≥40, cut at 40, uppercase.
+ */
+fun identityFingerprintFromEncrInfo(text: String): String? {
+    val joined = Regex("(?:[0-9A-Fa-f]{4} ){4}[0-9A-Fa-f]{4}")
+        .findAll(text)
+        .joinToString("") { it.value }
+    if (joined.isEmpty()) return null
+    val hex = joined.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
+    return if (hex.length >= 40) hex.take(40).uppercase() else null
+}
+
+/**
  * The tile: 10 (name, rgb) cells in draw order (row-major 3/2/2/3), `null`
  * when the key is missing or too short.
  */
