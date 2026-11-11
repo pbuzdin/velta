@@ -30,6 +30,7 @@ class AppModel(
         data object Accounts : Screen
         data object Join : Screen
         data class Chat(val chatId: Long, val title: String, val isGroup: Boolean) : Screen
+        data class Profile(val chatId: Long, val title: String) : Screen
     }
 
     var screen by mutableStateOf<Screen>(Screen.Login)
@@ -54,6 +55,33 @@ class AppModel(
     /** Peer fingerprint hex per 1:1 chat id (identity matrix tiles); filled
      * asynchronously after the list lands. */
     var identities by mutableStateOf<Map<Long, String>>(emptyMap())
+        private set
+
+    // ---- Profile (contact sheet) ----
+
+    data class ProfileData(
+        val chatId: Long,
+        val contactId: Long?,
+        val chatName: String,
+        val contactName: String,
+        val addr: String,
+        val fingerprint: String?,
+        val lastSeenSeconds: Long,
+        val blocked: Boolean,
+        val muted: Boolean,
+        val ephemeralSecs: Int,
+        val isSingle: Boolean,
+        val isSelfTalk: Boolean,
+        val isDeviceTalk: Boolean,
+        val photos: Int,
+        val videos: Int,
+        val audio: Int,
+        val files: Int,
+        val apps: Int,
+    )
+
+    var profile by mutableStateOf<ProfileData?>(null)
+    var profileLoading by mutableStateOf(false)
         private set
 
     // ---- Relay management (P4) ----
@@ -384,6 +412,96 @@ class AppModel(
             }
         }
         identities = map
+    }
+
+    // ---- Profile (contact sheet) ----
+
+    fun openProfile(chatId: Long, title: String) {
+        screen = Screen.Profile(chatId, title)
+        profile = null
+        scope.launch { loadProfile(chatId) }
+    }
+
+    fun backFromProfile() {
+        val p = profile
+        if (p != null) screen = Screen.Chat(p.chatId, p.chatName, false) else screen = Screen.ChatList
+    }
+
+    fun toggleBlockPeer() {
+        val p = profile ?: return
+        val cid = p.contactId ?: return
+        scope.launch {
+            val veltaCore = core
+            val id = accountId
+            if (veltaCore == null || id == null) return@launch
+            try {
+                veltaCore.setContactBlocked(id, cid, !p.blocked)
+            } catch (t: Throwable) {
+                println("velta-kmp: block failed: $t")
+                return@launch
+            }
+            loadProfile(p.chatId)
+        }
+    }
+
+    private suspend fun loadProfile(chatId: Long) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        profileLoading = true
+        try {
+            val chat = veltaCore.fullChat(id, chatId) ?: return
+            fun jstr(o: kotlinx.serialization.json.JsonObject, k: String) =
+                (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            fun jbool(o: kotlinx.serialization.json.JsonObject, k: String) =
+                (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+            val isSingle = jstr(chat, "chatType") == "Single"
+            var contactId: Long? = null
+            var addr = ""
+            var contactName = ""
+            var lastSeen = 0L
+            var blocked = false
+            var fingerprint: String? = null
+            if (isSingle) {
+                val cid = (chat["contactIds"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
+                    ?.firstOrNull()
+                if (cid != null) {
+                    contactId = cid
+                    val c = veltaCore.contact(id, cid)
+                    if (c != null) {
+                        addr = c.address
+                        contactName = c.displayName
+                        lastSeen = c.lastSeen
+                        blocked = c.isBlocked
+                    }
+                    fingerprint = identityFingerprintFromEncrInfo(veltaCore.contactEncryptionInfo(id, cid) ?: "")
+                }
+            }
+            profile = ProfileData(
+                chatId = chatId,
+                contactId = contactId,
+                chatName = jstr(chat, "name") ?: "",
+                contactName = contactName,
+                addr = addr,
+                fingerprint = fingerprint,
+                lastSeenSeconds = lastSeen,
+                blocked = blocked,
+                muted = jbool(chat, "isMuted"),
+                ephemeralSecs = jstr(chat, "ephemeralTimer")?.toIntOrNull() ?: 0,
+                isSingle = isSingle,
+                isSelfTalk = jbool(chat, "isSelfTalk"),
+                isDeviceTalk = jbool(chat, "isDeviceChat"),
+                photos = veltaCore.chatMediaIds(id, chatId, "Image", "Gif", null).size,
+                videos = veltaCore.chatMediaIds(id, chatId, "Video", null, null).size,
+                audio = veltaCore.chatMediaIds(id, chatId, "Audio", "Voice", null).size,
+                files = veltaCore.chatMediaIds(id, chatId, "File", null, null).size,
+                apps = veltaCore.chatMediaIds(id, chatId, "Webxdc", null, null).size,
+            )
+        } catch (t: Throwable) {
+            println("velta-kmp: profile $chatId failed: $t")
+        } finally {
+            profileLoading = false
+        }
     }
 
     fun openChat(item: ChatListItem) {

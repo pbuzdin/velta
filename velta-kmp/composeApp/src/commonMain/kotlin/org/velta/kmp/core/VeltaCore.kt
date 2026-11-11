@@ -276,6 +276,40 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         return (result as? kotlinx.serialization.json.JsonPrimitive)?.content
     }
 
+    /** The full chat record (contacts, mute, ephemeral timer, type). */
+    suspend fun fullChat(accountId: Long, chatId: Long): kotlinx.serialization.json.JsonObject? {
+        val result = client.call(
+            "get_full_chat_by_id",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+        return result as? kotlinx.serialization.json.JsonObject
+    }
+
+    /** Message ids of up to three viewtypes in the chat (types are PascalCase: "Image", "Webxdc"...). */
+    suspend fun chatMediaIds(accountId: Long, chatId: Long, type1: String, type2: String?, type3: String?): List<Long> {
+        val result = client.call(
+            "get_chat_media",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                RpcClient.param(chatId),
+                RpcClient.param(type1),
+                RpcClient.param(type2),
+                RpcClient.param(type3),
+            ),
+        )
+        return (result as? JsonArray)?.mapNotNull { entry ->
+            (entry as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+        } ?: emptyList()
+    }
+
+    /** Blocks or unblocks a contact. */
+    suspend fun setContactBlocked(accountId: Long, contactId: Long, blocked: Boolean) {
+        client.call(
+            if (blocked) "block_contact" else "unblock_contact",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(contactId)),
+        )
+    }
+
     /** Returns only the successfully loaded items; errored entries are logged. */
     suspend fun chatlistItems(accountId: Long, chatIds: List<Long>): List<ChatListItem> {
         if (chatIds.isEmpty()) return emptyList()

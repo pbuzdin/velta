@@ -72,6 +72,8 @@ data class Contact(
     val address: String = "",
     val color: String? = null,
     val profileImage: String? = null,
+    val lastSeen: Long = 0,
+    val isBlocked: Boolean = false,
 )
 
 /** Chat draft (camelCase) — text + optional quote; file fields not used yet. */

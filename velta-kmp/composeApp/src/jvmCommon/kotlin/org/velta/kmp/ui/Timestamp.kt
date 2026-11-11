@@ -17,3 +17,17 @@ actual fun formatTimestamp(epochSeconds: Long): String =
 /** actual — day-separator header, local date of the message timestamp. */
 actual fun formatDateHeader(epochSeconds: Long): String =
     DAY.withZone(zone).format(Instant.ofEpochSecond(epochSeconds))
+
+/** actual — contact last seen, relative. 0 or less = "Never". */
+actual fun relativeLastSeen(epochSeconds: Long): String {
+    if (epochSeconds <= 0L) return "Never"
+    val t = Instant.ofEpochSecond(epochSeconds).atZone(zone)
+    val mins = java.time.Duration.between(t, java.time.ZonedDateTime.now()).toMinutes()
+    return when {
+        mins < 1 -> "just now"
+        mins < 60 -> "$mins min ago"
+        mins < 1440 -> "${mins / 60} h ago"
+        mins < 43200 -> "${mins / 1440} day${if (mins / 1440 > 1) "s" else ""} ago"
+        else -> t.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy"))
+    }
+}
