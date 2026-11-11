@@ -79,8 +79,9 @@ fn relay_from_intent() -> Option<String> {
         let intent = env
             .call_method(&activity, "getIntent", "()Landroid/content/Intent;", &[])?
             .l()?;
+        let key = env.new_string("relay")?;
         let extra = env
-            .call_method(&intent, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;", &["relay".into()])?
+            .call_method(&intent, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;", &[(&key).into()])?
             .l()?;
         if extra.is_null() {
             return Ok(None);
