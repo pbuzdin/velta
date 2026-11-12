@@ -19,7 +19,7 @@ no-network e2e round-trips against the real core gate every push. See
 |---|---|---|
 | PWA (`../app`) | build-less web UI | flagship, unchanged |
 | Tauri shell (`../velta-app`) | wraps the PWA | unchanged until KMP parity |
-| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | P4/P5 in progress, issue #192 |
+| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | **Android delivery track** (2026-11-12), issue #192 |
 
 ## What works today
 
@@ -44,7 +44,16 @@ no-network e2e round-trips against the real core gate every push. See
   off); after a process kill the sticky service rebuilds the core
   headlessly (`am crash` verified); UnifiedPush receiver wired (relay-side
   notifier still pending); battery-allowance row for OEM savers.
-- **Look** — `VeltaTheme` lifted from the PWA tokens, system dark/light.
+- **Profile** — the contact sheet: fingerprint identity matrix (or Prism
+  tile), media counts, profile key, last seen, notifications and
+  disappearing-messages state, block/unblock.
+- **Notifications** — per-chat conversation cards on a Messages channel;
+  muted chats and the on-screen chat are skipped; tap deep-opens the
+  chat. (Background delivery still needs the relay-side UnifiedPush
+  notifier.)
+- **Look** — `VeltaTheme` lifted from the PWA tokens, system dark/light;
+  Prism person colors and fingerprint identity matrices are
+  bit-identical to the PWA (vectors pinned in `PrismIdentityTest`).
 
 ## Layout
 

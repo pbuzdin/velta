@@ -20,7 +20,8 @@ composeApp/src/
                  startActivityForResult — 16-bit crash, use startActivity + AppHolder),
                  AppHolder (process-wide model), VeltaForegroundService, push/VeltaPushService,
                  scan/ScanActivity (CameraX + ZXing), VeltaKeystore + VeltaLock (app lock,
-                 dbkey.wrap + dbkey.bio), RpcShim (JNI), CorePlatform impl, MediaAndroid
+                 dbkey.wrap + dbkey.bio), RpcShim (JNI), CorePlatform impl, MediaAndroid,
+                 AndroidIncomingNotifier (conversation notifications)
   desktopMain/   DesktopCorePlatform (sidecar spawn), Main (window + FileDialog),
                  MediaDesktop, PlatformBack actual
   desktopTest/   all tests (scripted transports + real-binary IT)
@@ -180,6 +181,11 @@ never run Gradle on the Windows side.
   (`dbkey.bio`, 30 s Keystore validity after a prompt); unlock = prompt →
   `unlockDek` inside the window → `spawnRpcServerWithKey(dir, dek)`.
   PIN/Argon2id fallback deferred.
+- IncomingMsg events carry `chat_id`/`msg_id` (snake case on the wire —
+  AppModel probes both casings); notifications post per chat
+  (notification id = chatId.toInt()) on the `messages` channel, skipped
+  for the on-screen chat and muted chats; tap deep-opens via the
+  MainActivity `chatId` extra (singleTop) -> `pendingOpenChatId`.
 - Message timestamps on the RPC surface are unix SECONDS, not millis —
 formatTimestamp/formatDateHeader must use Instant.ofEpochSecond (reading
 them as millis rendered every day header as Jan 1970; TimestampTest
@@ -218,6 +224,9 @@ truth. If a vector fails, suspect the port, never the vector: hashing
 must feed only the high UTF-16 surrogate for astral code points, and the
 identity used-color rule is NAME-based (Magenta and Fuchsia share an RGB
 but are distinct pool entries). Re-derive vectors with node when in doubt.
+- The blockFpr fingerprint parser joins ALL non-overlapping 5-group regex
+  windows BEFORE validating (a 10-group key line is exactly two windows;
+  per-window validation never sees 40 hex).
 
 ## Desktop run
 

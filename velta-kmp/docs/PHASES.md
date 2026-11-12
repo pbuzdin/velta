@@ -354,3 +354,29 @@ for Play delivery.
 **Remaining in P5**: production keystore + distribution channel, crash
 reporting, CI release lane (signed artifacts), the push-epic relay side,
 and the `org.velta` switchover decision.
+
+## 2026-11-12 — the delivery-track flip, N0/N1
+
+The Rust-UI experiment (verdict in #314, write-up at
+velta.cc/news/rust-ui-take.html) made this client the Android delivery
+track. Shipped:
+
+- **Design port (N1)** — Prism person colors + the fingerprint identity
+  matrix, bit-identical to the PWA (vectors pinned in PrismIdentityTest,
+  including a real profile's legend); chat-list tiles, group sender
+  colors, and the contact-sheet profile screen (identity matrix, media
+  counts, profile key, last seen, block/unblock).
+- **Conversation notifications** — IncomingMsg events post per-chat cards
+  (Messages channel, notification id = chat id), muted chats and the
+  on-screen chat skipped, tap deep-opens the chat (singleTop +
+  pendingOpenChatId).
+- **Timestamp fix** — RPC timestamps are unix seconds; day headers and
+  bubble times rendered Jan 1970 (TimestampTest guards it).
+- **CI** — build-kmp.yml unfrozen: builds/tests on every master push
+  touching velta-kmp/**, and uploads the debug APK as an artifact.
+
+**Missing / next (N2, N3):** background delivery of notifications still
+needs the relay-side UnifiedPush notifier; RPC `call()` has no timeout and
+no core respawn; shim lifecycle is start-only; Storage and
+Chats-in-common profile rows; AGSL glass on the composer/header;
+ktlint/detekt.
