@@ -66,7 +66,11 @@ half4 main(float2 coord) {
   float theta = atan(slope);
   float snell = sin(theta) / 1.5;
   float bend = snell >= 1.0 ? slope : tan(theta - asin(snell));
+  // Quadratic falloff: full bend at the rim, flat middle. A linear bevel on
+  // a wide-short bar displaces vertical backdrop edges by an amount that
+  // varies with height — every edge shears into a wedge (the "triangle").
   float amount = clamp(bend / 1.05, 0.0, 1.0);
+  amount *= amount;
   float2 shift = n * (strength * amount);
   // The plate raster ends at its own edges; refraction at the left/right
   // ends of a full-width bar would sample outside it (transparent garbage)
@@ -144,7 +148,7 @@ internal actual fun GlassPlate(
                             shader.setFloatUniform("size", size.width, size.height)
                             shader.setFloatUniform("radius", radiusPx)
                             shader.setFloatUniform("strength", short * 0.30f)
-                            shader.setFloatUniform("blur", short * 0.10f)
+                            shader.setFloatUniform("blur", short * 0.045f)
                             shader.setFloatUniform("plateMix", mix)
                             shader.setFloatUniform("plate", plate.red, plate.green, plate.blue)
                             android.graphics.RenderEffect
