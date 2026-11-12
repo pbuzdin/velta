@@ -51,9 +51,29 @@ no-network e2e round-trips against the real core gate every push. See
   muted chats and the on-screen chat are skipped; tap deep-opens the
   chat. (Background delivery still needs the relay-side UnifiedPush
   notifier.)
-- **Look** — `VeltaTheme` lifted from the PWA tokens, system dark/light;
-  Prism person colors and fingerprint identity matrices are
+- **Look** — `VeltaTheme` built from tokens generated from Velta
+  stable's `app/css/main.css` (#318): dark, light, brutal and AMOLED,
+  system dark/light by default; Prism person colors and fingerprint identity matrices are
   bit-identical to the PWA (vectors pinned in `PrismIdentityTest`).
+
+## Theme tokens (#318)
+
+`composeApp/src/commonMain/kotlin/org/velta/kmp/ui/VeltaTokens.kt` is
+generated — never hand-edit it. After changing a token in
+`app/css/main.css`, run from the repo root:
+
+```sh
+node tools/gen-kmp-theme.mjs
+```
+
+`tests/kmp-theme-tokens.test.mjs` (part of `node --test 'tests/**/*.test.mjs'`)
+fails when the file is stale. `Theme.kt` maps the tokens onto Material3
+(`ColorScheme`, `Typography`, `Shapes`); tokens Material has no slot for
+(bubbles, meta ink, read ticks, quote names, chat ground…) come from
+`Velta.tokens` (`LocalVeltaTokens`). `VeltaTheme(mode)` takes
+`VeltaThemeMode.System` (default), `Dark`, `Light`, `Brutal` or `Amoled`;
+there's no settings UI for it yet. `color-mix()` tokens (hover/pressed,
+call screen) aren't generated.
 
 ## Layout
 

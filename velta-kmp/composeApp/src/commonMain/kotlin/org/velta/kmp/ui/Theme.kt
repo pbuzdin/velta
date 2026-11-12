@@ -1,73 +1,125 @@
 package org.velta.kmp.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.em
 
 /**
- * Velta brand palette, lifted from the PWA's tokens (app/css/main.css) so the
- * KMP client and the web client read as one family. Dark values from the
- * PWA's dark theme, light from its light theme.
+ * The Velta look for the KMP client (#192, #318). Every value comes from the
+ * generated [VeltaTokens] (tools/gen-kmp-theme.mjs reads Velta stable's
+ * app/css/main.css), so the KMP client and the web client stay one family.
+ * Never hard-code a Velta color here: change main.css and regenerate.
  */
-private object VeltaColors {
-    // Shared
-    val accentLight = Color(0xFF3390EC) // light theme accent
-    val accentDark = Color(0xFF5AA2E6) // dark theme accent
+enum class VeltaThemeMode { System, Dark, Light, Brutal, Amoled }
 
-    // Dark
-    val darkBg = Color(0xFF0F0F14)
-    val darkElev = Color(0xFF1C1C26)
-    val darkSidebar = Color(0xFF181820)
-    val darkBubbleOut = Color(0xFF2B5278)
-    val darkBorder = Color(0xFF45434F)
-    val darkFg = Color(0xFFE8EAF0)
-
-    // Light
-    val lightBg = Color(0xFFF4F4F4)
-    val lightElev = Color(0xFFE7EBF0)
-    val lightBubbleOut = Color(0xFFE1F0FB)
-    val lightFg = Color(0xFF1B1B22)
+fun veltaTokensFor(mode: VeltaThemeMode, systemDark: Boolean): VeltaTokens = when (mode) {
+    VeltaThemeMode.System -> if (systemDark) VeltaTokenSets.Dark else VeltaTokenSets.Light
+    VeltaThemeMode.Dark -> VeltaTokenSets.Dark
+    VeltaThemeMode.Light -> VeltaTokenSets.Light
+    VeltaThemeMode.Brutal -> VeltaTokenSets.Brutal
+    VeltaThemeMode.Amoled -> VeltaTokenSets.Amoled
 }
 
-private val DarkScheme = darkColorScheme(
-    primary = VeltaColors.accentDark,
-    onPrimary = Color(0xFF0B1B2A),
-    primaryContainer = VeltaColors.darkBubbleOut,
-    onPrimaryContainer = Color(0xFFDCEBFF),
-    secondary = VeltaColors.accentDark,
-    background = VeltaColors.darkBg,
-    onBackground = VeltaColors.darkFg,
-    surface = VeltaColors.darkBg,
-    onSurface = VeltaColors.darkFg,
-    surfaceVariant = VeltaColors.darkElev,
-    onSurfaceVariant = Color(0xFFA9ADBB),
-    outline = VeltaColors.darkBorder,
-)
+/** Velta-only tokens (bubbles, meta ink, ticks, chat ground…) Material has no slot for. */
+val LocalVeltaTokens = staticCompositionLocalOf { VeltaTokenSets.Dark }
 
-private val LightScheme = lightColorScheme(
-    primary = VeltaColors.accentLight,
-    onPrimary = Color.White,
-    primaryContainer = VeltaColors.lightBubbleOut,
-    onPrimaryContainer = Color(0xFF12293D),
-    secondary = VeltaColors.accentLight,
-    background = VeltaColors.lightBg,
-    onBackground = VeltaColors.lightFg,
-    surface = VeltaColors.lightBg,
-    onSurface = VeltaColors.lightFg,
-    surfaceVariant = VeltaColors.lightElev,
-    onSurfaceVariant = Color(0xFF5A5E6A),
-    outline = Color(0xFFC4C8D0),
-)
+/** Shortcut: `Velta.tokens.bgBubbleIn` inside a [VeltaTheme]. */
+object Velta {
+    val tokens: VeltaTokens
+        @Composable get() = LocalVeltaTokens.current
+}
 
-/** P4 slice 1 (issue #192): the Velta look, shared by both platforms. */
-@Composable
-fun VeltaTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    MaterialTheme(
-        colorScheme = if (dark) DarkScheme else LightScheme,
-        content = content,
+internal fun veltaColorScheme(t: VeltaTokens): ColorScheme {
+    val base = if (t.isDark) darkColorScheme() else lightColorScheme()
+    return base.copy(
+        primary = t.accent,
+        onPrimary = t.onAccent,
+        primaryContainer = t.bgBubbleOut,
+        onPrimaryContainer = t.textOut,
+        secondary = t.accent2,
+        onSecondary = t.onBadge,
+        tertiary = t.green,
+        background = t.bg,
+        onBackground = t.text,
+        surface = t.bgSidebar,
+        onSurface = t.text,
+        surfaceVariant = t.bgElev,
+        onSurfaceVariant = t.textDim,
+        surfaceContainerLowest = t.bg,
+        surfaceContainerLow = t.bgSidebar,
+        surfaceContainer = t.bgSidebar,
+        surfaceContainerHigh = t.bgElev,
+        surfaceContainerHighest = t.bgElev,
+        inverseSurface = t.text,
+        inverseOnSurface = t.bg,
+        error = t.danger,
+        onError = t.onAccent,
+        outline = t.border,
+        outlineVariant = t.border,
     )
+}
+
+internal fun veltaTypography(): Typography {
+    val base = Typography()
+    val msg = TextStyle(fontSize = VeltaType.msgSize, lineHeight = VeltaType.msgLineHeight.em)
+    return base.copy(
+        // Message body: main.css .msg-text (15.5px / 1.36).
+        bodyLarge = base.bodyLarge.merge(msg),
+        // Secondary body: chat list preview size (.ci-last).
+        bodyMedium = base.bodyMedium.copy(fontSize = VeltaType.listLastSize),
+        // Chat list title: .ci-name (15.5px semibold).
+        titleMedium = base.titleMedium.copy(
+            fontSize = VeltaType.listNameSize,
+            fontWeight = FontWeight(VeltaType.listNameWeight),
+        ),
+        // Row time (.ci-time) and bubble meta (.msg-meta).
+        labelMedium = base.labelMedium.copy(fontSize = VeltaType.listTimeSize),
+        labelSmall = base.labelSmall.copy(fontSize = VeltaType.msgMetaSize),
+    )
+}
+
+// extraLarge (dialogs, sheets) keeps Material's default: main.css has no token for it.
+internal fun veltaShapes(t: VeltaTokens): Shapes = Shapes(
+    extraSmall = RoundedCornerShape(t.radiusTail),
+    small = RoundedCornerShape(t.radiusMedia),
+    medium = RoundedCornerShape(t.radiusBubble),
+    large = RoundedCornerShape(t.radiusBubble),
+)
+
+/** Bubble with its tail corner: bottom-start for incoming, bottom-end for outgoing (main.css .bubble). */
+fun veltaBubbleShape(t: VeltaTokens, outgoing: Boolean): RoundedCornerShape {
+    val r: Dp = t.radiusBubble
+    return if (outgoing) {
+        RoundedCornerShape(topStart = r, topEnd = r, bottomEnd = t.radiusTail, bottomStart = r)
+    } else {
+        RoundedCornerShape(topStart = r, topEnd = r, bottomEnd = r, bottomStart = t.radiusTail)
+    }
+}
+
+/**
+ * System light/dark by default; brutal and AMOLED via [mode] (no settings UI yet).
+ */
+@Composable
+fun VeltaTheme(mode: VeltaThemeMode = VeltaThemeMode.System, content: @Composable () -> Unit) {
+    val tokens = veltaTokensFor(mode, isSystemInDarkTheme())
+    CompositionLocalProvider(LocalVeltaTokens provides tokens) {
+        MaterialTheme(
+            colorScheme = veltaColorScheme(tokens),
+            typography = veltaTypography(),
+            shapes = veltaShapes(tokens),
+            content = content,
+        )
+    }
 }
