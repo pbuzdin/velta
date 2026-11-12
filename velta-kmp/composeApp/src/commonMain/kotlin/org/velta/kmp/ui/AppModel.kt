@@ -197,12 +197,14 @@ class AppModel(
                     ?: unconfiguredAccountId
                     ?: veltaCore.addAccount().also { accountId = it }
                 when {
-                    // DCACCOUNT and DCLOGIN both land here: addTransportFromQr
-                    // accepts both (the lab's relay_for did the same).
+                    // DCACCOUNT and DCLOGIN both land here. addTransportFromQr
+                    // handles both kinds, runs the full configure (probe +
+                    // transports-table insert) and restarts I/O itself —
+                    // do NOT call the legacy configure(): it loads old-style
+                    // addr/mail_pw configs the QR flow never sets and fails
+                    // with "missing email address" (core 2.69 multi-transport).
                     qr.isAccountInvite || qr.isLoginInvite -> {
                         veltaCore.addTransportFromQr(id, raw)
-                        status = "configuring"
-                        veltaCore.configure(id)
                         veltaCore.startIoForAllAccounts()
                         accountAddr = veltaCore.accountInfo(id).addr
                         loadChats()
