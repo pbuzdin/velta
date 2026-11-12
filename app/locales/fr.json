@@ -1650,5 +1650,8 @@
   "Don't ask again": "Ne plus demander",
   "Failed: {err}": "Échec : {err}",
   "Copied {n} messages": "Copié : {n}",
-  "Sent {filename}": "Envoyé : {filename}"
+  "Sent {filename}": "Envoyé : {filename}",
+  "Couldn't open the photo picker": "Impossible d'ouvrir le sélecteur de photos",
+  "Couldn't open the video picker": "Impossible d'ouvrir le sélecteur de vidéos",
+  "Couldn't open the file picker": "Impossible d'ouvrir le sélecteur de fichiers"
 }
