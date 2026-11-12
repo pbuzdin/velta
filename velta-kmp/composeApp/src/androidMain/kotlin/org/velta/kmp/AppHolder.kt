@@ -19,9 +19,6 @@ object AppHolder {
     @Volatile
     private var model: AppModel? = null
 
-    /** The model without creating one (service teardown paths). */
-    fun existing(): AppModel? = model
-
     fun obtain(context: Context): AppModel =
         model ?: synchronized(this) {
             model ?: AppModel(

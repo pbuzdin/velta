@@ -135,6 +135,12 @@ adb shell pidof org.velta.kmp            # NEW pid
 adb logcat -d | grep "connect ok"        # service-side handshake line
 ```
 
+⚠️ `VeltaForegroundService.onDestroy` fires on EVERY return to the
+foreground (MainActivity.onStart stops the service — battery pattern),
+NOT only on app exit — never tear the core down there (a shutdown there
+killed the RPC client mid-check_qr: Join screen showed "rpc client
+closed"). The shim dies with the process; `AppModel.shutdownCore` is for
+explicit teardown only.
 Gotchas: a fresh install shows the POST_NOTIFICATIONS dialog which BLOCKS
 everything (`GrantPermissionsActivity` on top) —
 `adb shell pm grant org.velta.kmp android.permission.POST_NOTIFICATIONS` +

@@ -32,10 +32,11 @@ class VeltaForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        // The service (and with it the reason to keep syncing) is gone — stop
-        // the shim so no core keeps the databases open; a sticky restart calls
-        // connect() again, which spawns fresh. No-op when never started.
-        AppHolder.existing()?.shutdownCore()
+        // Do NOT tear the core down here: onDestroy fires on every return to
+        // the foreground (MainActivity.onStart stops this service — battery
+        // pattern), not only on app exit, and the UI is about to talk to the
+        // core again. The shim dies with the process; AppModel.shutdownCore
+        // stays available for EXPLICIT teardown only.
         super.onDestroy()
     }
 
