@@ -29,6 +29,7 @@ class AccountsTest {
                 "get_all_accounts" to
                     """[{"id":1,"addr":"a@example.org","isConfigured":true},{"id":2,"addr":"b@example.org","isConfigured":true}]""",
                 "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[]",
             ),
         )
@@ -61,12 +62,12 @@ class AccountsTest {
             // fresh chatlist load must follow it.
             withTimeout(10_000) {
                 while (true) {
-                    val idx = transport.requests.indexOfFirst { "\"select_account\"" in it }
+                    val idx = transport.requests.indexOfFirst { "\"select_account\"" in it && "[2]" in it }
                     if (idx >= 0 && transport.requests.drop(idx + 1).any { "\"get_chatlist_entries\"" in it }) break
                     yield()
                 }
             }
-            val selectLine = transport.requests.first { "\"select_account\"" in it }
+            val selectLine = transport.requests.first { "\"select_account\"" in it && "[2]" in it }
             assertEquals(true, selectLine.contains("[2]"), "select params: $selectLine")
         } finally {
             scope.cancel()

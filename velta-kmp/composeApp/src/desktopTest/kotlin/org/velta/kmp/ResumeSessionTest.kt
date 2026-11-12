@@ -73,6 +73,8 @@ class ResumeSessionTest {
                 "get_selected_account_id" to "1",
                 "get_account_info" to
                     """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
                     """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"hello there","lastUpdated":1730000000000,"freshMessageCounter":2}}""",
@@ -103,6 +105,16 @@ class ResumeSessionTest {
             assertEquals(2, model.chats.first().freshMessageCounter)
             // No login attempt must have happened.
             assertTrue(transport.requests.none { it.contains("\"add_account\"") })
+            // Same order as rpc-core.js init: select the resumed account,
+            // start mail IO, then read the chat list.
+            val selectIdx = transport.requests.indexOfFirst { "\"select_account\"" in it }
+            val ioIdx = transport.requests.indexOfFirst { "\"start_io_for_all_accounts\"" in it }
+            val listIdx = transport.requests.indexOfFirst { "\"get_chatlist_entries\"" in it }
+            assertTrue(
+                selectIdx >= 0 && ioIdx > selectIdx && listIdx > ioIdx,
+                "select then io then chat list: ${transport.requests}",
+            )
+            assertTrue(transport.requests[selectIdx].contains("[1]"), transport.requests[selectIdx])
         } finally {
             model.let { }
             scope.cancel()
@@ -137,6 +149,45 @@ class ResumeSessionTest {
         } finally {
             assertEquals(AppModel.Screen.Login, model.screen)
             assertTrue(model.chats.isEmpty())
+            assertTrue(transport.requests.none { "\"select_account\"" in it || "\"start_io_for_all_accounts\"" in it })
+            scope.cancel()
+        }
+    }
+
+    /** Live core tags accounts with kind, not isConfigured. */
+    @Test
+    fun resumesKindConfiguredAccountAndListsRelays() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.69.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
+                "get_account_info" to """{"id":1,"kind":"Configured","displayName":null}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
+                "get_chatlist_entries" to "[]",
+                "list_transports" to """[{"addr":"a@relay.example"}]""",
+                "get_server_metadata" to "{}",
+            ),
+        )
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-resume-kind-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
+        }
+        val scope = testScope()
+        val model = AppModel(platform, scope)
+        try {
+            model.connect()
+            withTimeout(10_000) {
+                while (model.screen != AppModel.Screen.ChatList) yield()
+            }
+            assertEquals(1L, model.accountId)
+            model.openRelays()
+            withTimeout(10_000) {
+                while (model.relays.isEmpty()) yield()
+            }
+            assertEquals("a@relay.example", model.relays.first().addr)
+        } finally {
             scope.cancel()
         }
     }

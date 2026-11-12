@@ -248,6 +248,11 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call("start_io_for_all_accounts")
     }
 
+    /** Rough relay status for the chat-list strip. 1000 down, 2000 connecting, 4000 connected. */
+    suspend fun connectivity(accountId: Long): Int =
+        client.call("get_connectivity", RpcClient.params(RpcClient.param(accountId)))
+            .toString().trim('"').toInt()
+
     suspend fun chatlistEntries(accountId: Long): List<Long> {
         val result = client.call(
             "get_chatlist_entries",

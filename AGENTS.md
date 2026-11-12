@@ -44,18 +44,17 @@ a numbered version or move the tag to include it.
 
 - **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
-- **`velta-kmp/`** — native client, **work in progress** (Compose Multiplatform,
-  core in-process via the rpc-shim cdylib, #192), installed side by side with
-  the Tauri app (`org.velta.kmp`). Back in active work since 2026-11-12: P0–P5.1 shipped (messaging, QR
-  onboarding, relays, accounts, DB encryption, app lock, background sync).
-  2026-11-12 additions: Prism person colors + fingerprint identity
-  matrices (bit-identical to the PWA, pinned in PrismIdentityTest), the
-  contact-sheet profile screen, conversation notifications (per-chat
-  cards, deep-open), and the Jan-1970 timestamp fix. Next: background
-  notification delivery (relay-side UnifiedPush), RPC timeout/respawn,
-  AGSL glass. `build-kmp.yml` builds and tests on every master push
-  touching `velta-kmp/**`, and uploads the debug APK as an artifact.
-  Theme: `ui/VeltaTokens.kt` is generated from `app/css/main.css` by
+- **`velta-kmp/`** — **the native Android client** (Compose Multiplatform,
+  core in-process via the rpc-shim cdylib, #192). Android delivery track
+  after the Rust-UI flip (2026-11-12). N1–N3 are in: Prism and the
+  fingerprint identity matrix (bit-identical to the PWA, pinned in
+  PrismIdentityTest), conversation notifications, RPC timeout/recovery,
+  the chat-list logo header and relay strip, and AGSL glass on the
+  composer and header. Next is N4 (release signing and the `org.velta`
+  switchover); still open: relay-side UnifiedPush delivery, ktlint/detekt.
+  `build-kmp.yml` builds and tests on every master push touching
+  `velta-kmp/**`, and uploads the debug APK as an artifact. Theme:
+  `ui/VeltaTokens.kt` is generated from `app/css/main.css` by
   `tools/gen-kmp-theme.mjs` (#318). Never hand-edit it; regenerate after a
   token change, or `tests/kmp-theme-tokens.test.mjs` fails.
 - **`rust-ui/preview/`** (branch `rust-ui-preview`) — a renderer/design

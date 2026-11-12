@@ -3,6 +3,8 @@ package org.velta.kmp.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -107,6 +109,13 @@ class AppModel(
      * relay-cap error that routed the user here); cleared on next refresh. */
     var relaysNotice by mutableStateOf<String?>(null)
         private set
+
+    /** Account-wide connectivity (1000 down / 2000 connecting / 4000 connected). Null until the first read. */
+    var relayConnectivity by mutableStateOf<Int?>(null)
+        private set
+    private var relayLineBusy = false
+    private var relayLineArmed = false
+    private var relayLineMark = TimeSource.Monotonic.markNow()
 
     // ---- Account switcher (P4) ----
     var accounts by mutableStateOf<List<org.velta.kmp.core.Account>>(emptyList())
@@ -230,12 +239,14 @@ class AppModel(
                         accountAddr = veltaCore.accountInfo(id).addr
                         loadChats()
                         screen = Screen.ChatList
+                        refreshRelayLine()
                     }
                     qr.isSecureJoin -> {
                         veltaCore.startIoForAllAccounts()
                         veltaCore.secureJoin(id, raw)
                         loadChats()
                         screen = Screen.ChatList
+                        refreshRelayLine()
                     }
                     else -> joinError = "this QR is not an invite (kind: ${qr.kind})"
                 }
@@ -405,10 +416,17 @@ class AppModel(
         if (account != null) {
             accountId = account.id
             accountAddr = account.addr
+            // Write the choice back (the fallback may not be the core's
+            // selected id) and arm mail. A failure must not hide the local list.
+            runCatching { veltaCore.selectAccount(account.id) }
+                .onFailure { println("velta-kmp: selectAccount on resume failed: $it") }
+            runCatching { veltaCore.startIoForAllAccounts() }
+                .onFailure { println("velta-kmp: startIo on resume failed: $it") }
             // Sequential on purpose: the chat list is loaded BEFORE the screen
             // switches, so resume never flashes an empty list.
             loadChats()
             screen = Screen.ChatList
+            refreshRelayLine()
             status = "resumed ${account.addr ?: ""}".trim()
         } else {
             status = "connected"
@@ -490,7 +508,7 @@ class AppModel(
             try {
                 val cid = veltaCore.chatContactIds(accountId, item.id).firstOrNull() ?: continue
                 val info = veltaCore.contactEncryptionInfo(accountId, cid) ?: continue
-                val fpr = identityFingerprintFromEncrInfo(info) ?: continue
+                val fpr = identityFingerprintFromEncrInfo(info, contactName = item.name) ?: continue
                 map[item.id] = fpr
             } catch (t: Throwable) {
                 println("velta-kmp: identity for chat ${item.id} failed: $t")
@@ -559,7 +577,11 @@ class AppModel(
                         lastSeen = c.lastSeen
                         blocked = c.isBlocked
                     }
-                    fingerprint = identityFingerprintFromEncrInfo(veltaCore.contactEncryptionInfo(id, cid) ?: "")
+                    fingerprint = identityFingerprintFromEncrInfo(
+                        veltaCore.contactEncryptionInfo(id, cid) ?: "",
+                        contactAddr = addr,
+                        contactName = contactName,
+                    )
                 }
             }
             profile = ProfileData(
@@ -671,6 +693,27 @@ class AppModel(
 
     fun backFromRelays() {
         screen = Screen.ChatList
+    }
+
+    /** Chat-list strip. Skips bursts: get_connectivity itself emits ConnectivityChanged. */
+    private fun refreshRelayLine() {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            if (relayLineBusy) return@launch
+            if (relayLineArmed && relayLineMark.elapsedNow() < 1500.milliseconds) return@launch
+            relayLineBusy = true
+            relayLineArmed = true
+            relayLineMark = TimeSource.Monotonic.markNow()
+            try {
+                relayConnectivity = runCatching { veltaCore.connectivity(id) }.getOrNull()
+                if (relays.isEmpty()) {
+                    relays = runCatching { veltaCore.relayCards(id) }.getOrDefault(emptyList())
+                }
+            } finally {
+                relayLineBusy = false
+            }
+        }
     }
 
     fun refreshRelays() {
@@ -940,6 +983,10 @@ class AppModel(
     var hasMoreMessages by mutableStateOf(false)
         private set
 
+    /** Rows the last loadOlderMessages PREPENDED — the chat screen uses it to
+     * keep the viewport anchored; reset by the UI once consumed. */
+    var pendingPrependCount by mutableStateOf(0)
+
     private fun loadMessages(chatId: Long, isGroup: Boolean = false) {
         val veltaCore = core
         val id = accountId
@@ -984,6 +1031,7 @@ class AppModel(
                 if (listChanged || (screen as? Screen.Chat)?.chatId != current.chatId) return@launch
                 val from = (loadedFromIdx - MESSAGE_PAGE_SIZE).coerceAtLeast(0)
                 val older = veltaCore.messages(id, ids.subList(from, loadedFromIdx))
+                pendingPrependCount = older.size
                 chatMessages = (older + chatMessages).sortedBy { it.sortTimestamp ?: it.timestamp }
                 loadedFromIdx = from
                 hasMoreMessages = from > 0
@@ -1048,6 +1096,7 @@ class AppModel(
 
     private suspend fun handleEvent(event: CoreEvent) {
         when (event.kind) {
+            "ConnectivityChanged" -> refreshRelayLine()
             "ConfigureProgress" -> {
                 val comment = event.event?.get("comment")?.toString()?.trim('"')
                 if (!comment.isNullOrBlank()) loginProgress = comment
