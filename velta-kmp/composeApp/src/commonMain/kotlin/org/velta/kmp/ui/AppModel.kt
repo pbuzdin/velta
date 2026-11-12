@@ -156,11 +156,15 @@ class AppModel(
     /** (picked path, display name) awaiting send; the core dedups it into its blobdir. */
     var pendingAttachment by mutableStateOf<Pair<String, String>?>(null)
 
-    /** Platform-injected file-picker launcher (desktop FileDialog / Android SAF). */
-    var attachmentPicker: (() -> Unit)? = null
+    /** Attachment picker kinds — the web attach menu (chat-view.js). */
+    enum class AttachKind { PHOTO, VIDEO, FILE }
 
-    fun attach() {
-        attachmentPicker?.invoke()
+    /** Platform-injected file-picker launcher (desktop FileDialog / Android SAF),
+     * keyed by the menu kind so Android can pre-filter the SAF mime types. */
+    var attachmentPicker: ((AttachKind) -> Unit)? = null
+
+    fun attach(kind: AttachKind) {
+        attachmentPicker?.invoke(kind)
     }
 
     // ---- Invite / join (P4) ----
@@ -172,6 +176,10 @@ class AppModel(
 
     /** Platform-injected: run the camera scanner; result lands in onQrScanned. */
     var requestQrScan: (() -> Unit)? = null
+
+    /** Platform-injected camera capture (Android ACTION_IMAGE_CAPTURE); the
+     * shot lands in onAttachmentPicked. Null = no camera menu item. */
+    var cameraCapture: (() -> Unit)? = null
 
     /** Scanner result → the Join screen, pre-filled and immediately checked. */
     fun onQrScanned(text: String) {

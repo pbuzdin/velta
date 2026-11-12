@@ -31,6 +31,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -63,7 +66,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -123,6 +125,7 @@ fun App(model: AppModel) {
                     AppModel.Screen.Relays -> RelaysScreen(model)
                     AppModel.Screen.Settings -> SettingsScreen(model)
                     AppModel.Screen.Accounts -> AccountsScreen(model)
+                    AppModel.Screen.Settings -> SettingsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Chat -> ChatScreen(model, current)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
@@ -152,6 +155,7 @@ private fun LockScreen(model: AppModel) {
         Button(onClick = { model.requestUnlock?.invoke() }) { Text(L.t("Unlock")) }
     }
 }
+
 
 /** P4: account switcher — the core persists the selected account across restarts. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -213,6 +217,18 @@ private fun AccountsScreen(model: AppModel) {
                     onClick = { model.addAccountFromSwitcher() },
                     modifier = Modifier.padding(16.dp),
                 ) { Icon(VeltaIcons.plus, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text(L.t("Add account")) }
+            }
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { model.screen = AppModel.Screen.Settings }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(L.t("Settings"), modifier = Modifier.weight(1f))
+                    Icon(VeltaIcons.chevronRight, contentDescription = null, modifier = Modifier.size(20.dp), tint = Velta.tokens.textDim)
+                }
             }
             item {
                 BatteryRow(model)
@@ -1300,6 +1316,7 @@ private fun Composer(model: AppModel) {
     val reply = model.replyTo
     val attachment = model.pendingAttachment
     var showStickers by remember { mutableStateOf(false) }
+    var showAttachMenu by remember { mutableStateOf(false) }
     if (showStickers) {
         StickerPicker(
             packs = model.stickerPacks,
@@ -1368,7 +1385,7 @@ private fun Composer(model: AppModel) {
             verticalAlignment = Alignment.Bottom,
         ) {
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                IconButton(onClick = { model.attach() }, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = { showAttachMenu = !showAttachMenu }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         VeltaIcons.attach,
                         contentDescription = L.t("Attach"),
@@ -1376,6 +1393,25 @@ private fun Composer(model: AppModel) {
                         tint = Velta.tokens.textDim,
                     )
                 }
+                AttachMenu(
+                    expanded = showAttachMenu,
+                    stickersReady = true,
+                    cameraAvailable = model.cameraCapture != null,
+                    onDismiss = { showAttachMenu = false },
+                    onPick = { kind ->
+                        showAttachMenu = false
+                        model.attach(kind)
+                    },
+                    onStickers = {
+                        showAttachMenu = false
+                        model.loadStickers()
+                        showStickers = !showStickers
+                    },
+                    onCamera = {
+                        showAttachMenu = false
+                        model.cameraCapture?.invoke()
+                    },
+                )
             }
             Row(
                 Modifier
@@ -1390,7 +1426,7 @@ private fun Composer(model: AppModel) {
                     onValueChange = { model.composerText = it },
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 16.dp, end = 0.dp, top = 13.dp, bottom = 13.dp),
+                        .padding(start = 16.dp, end = 6.dp, top = 13.dp, bottom = 13.dp),
                     textStyle = TextStyle(
                         fontSize = 15.5.sp,
                         lineHeight = (15.5f * 1.3f).sp,
@@ -1414,19 +1450,6 @@ private fun Composer(model: AppModel) {
                         }
                     },
                 )
-                // Sticker picker trigger (web #btn-sticker): inside the
-                // wrap's right edge, 34dp circle, textDim.
-                Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
-                    IconButton(onClick = { model.loadStickers(); showStickers = !showStickers }, modifier = Modifier.size(34.dp)) {
-                        Icon(
-                            VeltaIcons.sticker,
-                            contentDescription = L.t("Stickers"),
-                            modifier = Modifier.size(22.dp),
-                            tint = Velta.tokens.textDim,
-                        )
-                    }
-                }
-                Spacer(Modifier.size(5.dp))
             }
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                 IconButton(
@@ -1451,6 +1474,58 @@ private fun Composer(model: AppModel) {
     }
 }
 
+/**
+ * Web attach menu (chat-view.js): Photo / Video / Camera / File / Stickers,
+ * anchored to the attach button, growing upward.
+ */
+@Composable
+private fun AttachMenu(
+    expanded: Boolean,
+    stickersReady: Boolean,
+    cameraAvailable: Boolean,
+    onDismiss: () -> Unit,
+    onPick: (AppModel.AttachKind) -> Unit,
+    onStickers: () -> Unit,
+    onCamera: () -> Unit,
+) {
+    if (!expanded) return
+    Popup(alignment = Alignment.BottomStart, offset = IntOffset(0, -240)) {
+        Surface(
+            color = Velta.tokens.bgSidebar,
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Velta.tokens.border),
+            shadowElevation = 6.dp,
+        ) {
+            Column(Modifier.width(220.dp).padding(vertical = 6.dp)) {
+                AttachMenuItem(VeltaIcons.photo, L.t("Photo")) { onDismiss(); onPick(AppModel.AttachKind.PHOTO) }
+                AttachMenuItem(VeltaIcons.video, L.t("Video")) { onDismiss(); onPick(AppModel.AttachKind.VIDEO) }
+                if (cameraAvailable) {
+                    AttachMenuItem(VeltaIcons.camera, L.t("Camera")) { onDismiss(); onCamera() }
+                }
+                AttachMenuItem(VeltaIcons.file, L.t("File")) { onDismiss(); onPick(AppModel.AttachKind.FILE) }
+                if (stickersReady) {
+                    AttachMenuItem(VeltaIcons.sticker, L.t("Stickers")) { onDismiss(); onStickers() }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = Velta.tokens.textDim)
+        Text(label, fontSize = 15.sp, color = Velta.tokens.text)
+    }
+}
+
 /** Web .sticker-pop (ui.js): pack-named grid of sticker images; a tap sends. */
 @Composable
 private fun StickerPicker(
@@ -1467,7 +1542,7 @@ private fun StickerPicker(
         ) {
             if (packs.isEmpty()) {
                 Text(
-                    "No sticker packs installed",
+                    L.t("No sticker packs installed"),
                     modifier = Modifier.padding(16.dp),
                     color = Velta.tokens.textDim,
                     fontSize = 14.sp,

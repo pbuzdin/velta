@@ -33,6 +33,19 @@ class MainActivity : FragmentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { }
 
+    /** Camera capture (#321 step 3 web parity): ACTION_IMAGE_CAPTURE into a
+     * cache file, staged like any other attachment. */
+    private var cameraOut: java.io.File? = null
+    private val takePicture = registerForActivityResult(
+        ActivityResultContracts.TakePicture(),
+    ) { ok ->
+        if (ok) {
+            cameraOut?.let { out ->
+                model.onAttachmentPicked(out.absolutePath, out.name)
+            }
+        }
+    }
+
     /** SAF picker → stage the content URI into a cache file the core can read. */
     private val pickFile = registerForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -102,7 +115,25 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         // Shared with the foreground service: one model, one core, one event loop.
         model = AppHolder.obtain(applicationContext)
-        model.attachmentPicker = { pickFile.launch(arrayOf("*/*")) }
+        model.cameraCapture = {
+            val out = File(
+                cacheDir,
+                "camera-${System.currentTimeMillis()}.jpg",
+            )
+            cameraOut = out
+            takePicture.launch(androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", out))
+        }
+        model.attachmentPicker = { kind ->
+            pickFile.launch(
+                arrayOf(
+                    when (kind) {
+                        AppModel.AttachKind.PHOTO -> "image/*"
+                        AppModel.AttachKind.VIDEO -> "video/*"
+                        AppModel.AttachKind.FILE -> "*/*"
+                    },
+                ),
+            )
+        }
         model.requestQrScan = { startQrScan() }
         model.batteryCheck = {
             val pm = getSystemService(android.os.PowerManager::class.java)

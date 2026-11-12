@@ -386,7 +386,6 @@ stays a separate experiment, #314). Shipped:
 - **CI** — build-kmp.yml unfrozen: builds/tests on every master push
   touching velta-kmp/**, and uploads the debug APK as an artifact.
 
-<<<<<<< HEAD
 **Missing / next (N2, N3):** background delivery of notifications still
 needs the relay-side UnifiedPush notifier; RPC `call()` has no timeout and
 no core respawn; shim lifecycle is start-only; Storage and
@@ -564,6 +563,7 @@ picker (misc_get_stickers packs, send_sticker). Tests pin bare-link
 tiers, mention resolution (both forms), invite annotation, and that
 non-https never links.
 
+<<<<<<< HEAD
 ## 2026-11-13 — step 4 fidelity fixes: invites.js semantics pinned
 
 The web-parity audit of the step-4 completion found three places where the
@@ -630,3 +630,21 @@ Tests: SettingsTest pins effective-mode AMOLED layering, normHex rules,
 the full derived-contrast guarantees on the dark palette, brutal
 BRUTAL_KEYS restraint, prefs round-trip through a NEW model, and the
 translation fallback chain.
+## 2026-11-13 — #321 step 5 + the attach menu
+
+- **Attach menu** (web chat-view.js parity): the attach button opens
+  Photo / Video / Camera / File / Stickers. Camera = ACTION_IMAGE_CAPTURE
+  via FileProvider (manifest provider + res/xml/file_paths.xml); the
+  pickers pre-filter image/* / video/* per kind. The sticker trigger
+  moved OUT of the input wrap (#278 parity) into this menu.
+- **Settings screen** (Accounts → Settings): Theme (System / Light /
+  Dark / Brutal / AMOLED — the generated VeltaTokenSets), Accent color
+  (default + 5 swatches; the override recolors accent + accentText, so
+  links, quote bars, send, mentions all follow), Language (System /
+  English / Français / Русский). Persisted via SettingsStore
+  (expect/actual: SharedPreferences / java.util.prefs).
+- **i18n** — I18n.t() port of app/js/i18n.js (English IS the key; fr/ru
+  packs); tools/gen-kmp-locales.mjs emits ui/Locales.kt with only the
+  keys the KMP references, from app/locales/*.json; staleness test
+  tests/kmp-locales.test.mjs. Visible static strings swapped
+  (attach menu, composer placeholder, settings, join card).
