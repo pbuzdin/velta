@@ -63,9 +63,25 @@ data class MessageObject(
     val showPadlock: Boolean = true,
     /** Raw `Reactions` object (`contactsByReaction`: emoji → contact list); parsed leniently in the UI. */
     val reactions: kotlinx.serialization.json.JsonElement? = null,
+    /** Quoted message (`MessageQuote`, tag "kind": JustText | WithMessage; the
+     * WithMessage variant is camelCase on the wire). */
+    val quote: MessageQuote? = null,
     val file: String? = null,
     val fileName: String? = null,
     val error: String? = null,
+)
+
+/** Core `MessageQuote` (message.rs): JustText carries only the text;
+ * WithMessage adds the author + metadata (camelCase via serde rename_all). */
+@Serializable
+data class MessageQuote(
+    val kind: String = "JustText",
+    val text: String? = null,
+    val authorDisplayName: String? = null,
+    val authorDisplayColor: String? = null,
+    val viewType: String? = null,
+    val image: String? = null,
+    val messageId: Long? = null,
 )
 
 /** DC contact (camelCase) — used for sender names in group chats. */

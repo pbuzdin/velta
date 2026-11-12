@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.windowInsetsTopHeight
@@ -39,9 +40,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.LocalContentColor
@@ -71,7 +77,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -81,7 +86,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Image
 import org.jetbrains.compose.resources.painterResource
 import org.velta.kmp.generated.resources.Res
 import org.velta.kmp.generated.resources.v_logo
@@ -545,19 +549,29 @@ private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () ->
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 1:1 peers with a key wear the fingerprint identity matrix (web
-        // avatar.js); everything else the Prism initials tile.
+        // avatar.js); a chat photo (avatarPath) the decoded image; everything
+        // else the Prism initials tile.
         val cells = identityFpr?.let { identityCells(it) }
+        val photo = item.avatarPath?.takeIf { it.isNotBlank() }
+        val photoBitmap = photo?.let { path -> remember(path) { decodeImage(path) } }
         Box(
             modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(if (cells != null) 10.dp else 22.dp))
+                .size(48.dp)
+                .clip(RoundedCornerShape(if (cells != null) 10.dp else 24.dp))
                 .background(
-                    color = if (cells == null) prismTileColor(item.name)
+                    color = if (cells == null && photoBitmap == null) prismTileColor(item.name)
                     else androidx.compose.ui.graphics.Color.Transparent,
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            if (cells != null) {
+            if (photoBitmap != null) {
+                Image(
+                    photoBitmap,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else if (cells != null) {
                 Column(Modifier.fillMaxSize()) {
                     listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
                         Row(Modifier.weight(1f)) {
@@ -596,8 +610,23 @@ private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () ->
                 )
             }
         }
-        if (item.freshMessageCounter > 0) {
-            Badge { Text(item.freshMessageCounter.toString()) }
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                item.lastUpdated?.let { formatTimestamp(it) } ?: "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (item.isMuted) {
+                    Icon(VeltaIcons.mute, contentDescription = "Muted", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (item.isPinned) {
+                    Icon(VeltaIcons.pin, contentDescription = "Pinned", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (item.freshMessageCounter > 0) {
+                    Badge { Text(item.freshMessageCounter.toString()) }
+                }
+            }
         }
     }
 }
@@ -1239,6 +1268,18 @@ private val MEDIA_VIEWTYPES = setOf("Image", "Gif", "Sticker")
 @Composable
 private fun MessageBubble(message: MessageObject, senderName: String?, onTap: () -> Unit) {
     val outgoing = message.fromId == 1L // ContactId.SELF
+    // .bubble CSS: radius 14px, the tail corner drops to 6px on the sender
+    // side; padding 7px 10px 6px; 1px shadow; tokens bgBubbleIn/Out.
+    val bubbleShape = RoundedCornerShape(
+        topStart = 14.dp,
+        topEnd = 14.dp,
+        bottomStart = if (outgoing) 14.dp else 6.dp,
+        bottomEnd = if (outgoing) 6.dp else 14.dp,
+    )
+    val dark = isSystemInDarkTheme()
+    val quoteText = if (outgoing) Color(0xFFCFE0F2) else if (dark) Color(0xFF9AA3B5) else Color(0xFF4D5A68)
+    val quoteName = if (outgoing) Color(0xFFD9E9FA) else Velta.tokens.accent
+    val quoteBg = if (dark) Color(0x0FF4F4F4) else Color(0x0D101010)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
@@ -1253,18 +1294,50 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                 )
             }
             Surface(
-                color = if (outgoing) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-                shape = RoundedCornerShape(14.dp),
+                color = if (outgoing) Velta.tokens.bgBubbleOut else Velta.tokens.bgBubbleIn,
+                shape = bubbleShape,
+                shadowElevation = 1.dp,
                 modifier = Modifier
                     .widthIn(max = 420.dp)
                     .heightIn(min = 20.dp)
                     .clickable(onClick = onTap),
             ) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(Modifier.padding(start = 10.dp, end = 10.dp, top = 7.dp, bottom = 6.dp)) {
+                // .msg-quote: 2.5dp accent bar, 6dp radius, name + one line.
+                message.quote?.let { quote ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                            .padding(bottom = 5.dp)
+                            .background(quoteBg, RoundedCornerShape(6.dp)),
+                    ) {
+                        Box(
+                            Modifier
+                                .width(2.5.dp)
+                                .fillMaxHeight()
+                                .background(Velta.tokens.accent),
+                        )
+                        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            if (!quote.authorDisplayName.isNullOrBlank()) {
+                                Text(
+                                    quote.authorDisplayName,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.5.sp,
+                                    color = quoteName,
+                                    maxLines = 1,
+                                )
+                            }
+                            Text(
+                                quote.text.orEmpty(),
+                                fontSize = 13.5.sp,
+                                color = quoteText,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
                 val mediaShown = message.viewType in MEDIA_VIEWTYPES && message.file != null
                 if (mediaShown) {
                     MediaFromDisk(message.file!!)
@@ -1285,7 +1358,16 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                     }
                 }
                     if (message.text.isNotBlank()) {
-                        Text(message.text, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            markdownAnnotated(
+                                message.text,
+                                accent = if (outgoing) quoteName else Velta.tokens.accent,
+                                codeBackground = quoteBg,
+                                textColor = Velta.tokens.text,
+                            ),
+                            fontSize = 15.5.sp,
+                            lineHeight = (15.5f * 1.3f).sp,
+                        )
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

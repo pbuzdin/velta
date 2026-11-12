@@ -529,3 +529,23 @@ chevronLeft/info at textDim per .chat-head. The sticker button (inside
 the wrap's right edge on the web) is skipped until a KMP sticker picker
 exists. GLASS DEFERRED by user decision: the header's refraction
 artifacts + rim line stay as-is for now (#321 step 5+ revisit).
+
+## 2026-11-12 — #321 step 4: bubbles, quote block, markdown, list rows
+
+- **Quote block** — MessageObject carries the core's MessageQuote now
+  (JustText | WithMessage, camelCase fields); bubbles render the web's
+  .msg-quote: 2.5dp accent bar, 6dp radius, measured WCAG text colors
+  (#9aa3b5 in / #cfe0f2 out / #4d5a68 light; names accent / #d9e9fa),
+  single-line ellipsis. Quote image thumbs not rendered yet.
+- **Bubbles** = .bubble CSS: radius 14 with the 6px tail corner on the
+  sender side, bgBubbleIn/Out tokens (were Material containers), 1dp
+  shadow, 7/10/6 padding.
+- **Markdown** (ui/Markdown.kt, port of app/js/markdown.js subset):
+  bold/italic/underline/code, [label](https://…) + bare https links as
+  URL-annotated spans, #hashtags, -/* bullets and numbered lines.
+  Nearest-marker dispatch; the text between markers still parses
+  emphasis (appendEmphasis). MarkdownTest pins spans, URLs, hashtags,
+  lists, and that non-https is never a link. Not ported: invites,
+  mentions, bare-link buttons, code-click-to-copy.
+- **Chat-list rows** — photo avatar (decodeImage of avatarPath, 48dp
+  crop) over the Prism tile, timestamp, mute/pin icons, counter badge.
