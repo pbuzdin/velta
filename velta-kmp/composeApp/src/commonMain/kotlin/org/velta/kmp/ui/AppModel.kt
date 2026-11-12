@@ -699,6 +699,7 @@ class AppModel(
     }
 
     fun backFromRelays() {
+        relaysNotice = null
         screen = Screen.ChatList
     }
 
@@ -729,7 +730,6 @@ class AppModel(
         if (veltaCore == null || id == null) return
         scope.launch {
             relaysLoading = true
-            relaysNotice = null
             try {
                 relays = veltaCore.relayCards(id)
             } catch (t: Throwable) {

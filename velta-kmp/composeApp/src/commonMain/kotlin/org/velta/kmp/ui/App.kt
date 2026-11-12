@@ -37,7 +37,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -133,7 +135,7 @@ private fun AccountsScreen(model: AppModel) {
             TopAppBar(
                 title = { Text("Accounts") },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromAccounts() }) { Text("‹ Back") }
+                    TextButton(onClick = { model.backFromAccounts() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
                 },
                 actions = {
                     if (model.accountsLoading) CircularProgressIndicator(Modifier.size(20.dp))
@@ -183,7 +185,7 @@ private fun AccountsScreen(model: AppModel) {
                 TextButton(
                     onClick = { model.addAccountFromSwitcher() },
                     modifier = Modifier.padding(16.dp),
-                ) { Text("+ Add account") }
+                ) { Icon(VeltaIcons.plus, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Add account") }
             }
             item {
                 BatteryRow(model)
@@ -217,9 +219,10 @@ private fun AppLockRow(model: AppModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            if (model.appLockOn) "🔒" else "🔓",
-            style = MaterialTheme.typography.labelLarge,
+        Icon(
+            if (model.appLockOn) VeltaIcons.lock else VeltaIcons.lockOpen,
+            contentDescription = if (model.appLockOn) "App lock on" else "App lock off",
+            modifier = Modifier.size(18.dp),
         )
     }
 }
@@ -244,10 +247,11 @@ private fun BatteryRow(model: AppModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            if (exempt) "✓" else "!",
-            style = MaterialTheme.typography.labelLarge,
-            color = if (exempt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+        Icon(
+            if (exempt) VeltaIcons.tick1 else VeltaIcons.warn,
+            contentDescription = if (exempt) "Battery exempt" else "Battery restricted",
+            modifier = Modifier.size(18.dp),
+            tint = if (exempt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
         )
     }
 }
@@ -265,7 +269,7 @@ private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
                 title = { Text(if (welcome) "Welcome to Velta" else "Join") },
                 navigationIcon = {
                     if (!welcome) {
-                        TextButton(onClick = { model.closeJoin() }) { Text("✕") }
+                        TextButton(onClick = { model.closeJoin() }) { Icon(VeltaIcons.close, contentDescription = "Close") }
                     }
                 },
             )
@@ -312,7 +316,7 @@ private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
             ) { Text("Check") }
             if (model.requestQrScan != null) {
                 Spacer(Modifier.size(8.dp))
-                TextButton(onClick = { model.requestQrScan?.invoke() }) { Text("📷 Scan a QR instead") }
+                TextButton(onClick = { model.requestQrScan?.invoke() }) { Icon(VeltaIcons.camera, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Scan a QR instead") }
             }
             model.joinError?.let {
                 Spacer(Modifier.size(8.dp))
@@ -639,7 +643,7 @@ private fun RelaysScreen(model: AppModel) {
             TopAppBar(
                 title = { Text("Relays") },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromRelays() }) { Text("‹ Back") }
+                    TextButton(onClick = { model.backFromRelays() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
                 },
                 actions = {
                     if (model.relaysLoading) CircularProgressIndicator(Modifier.size(20.dp))
@@ -821,7 +825,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = { model.backToChatList() }) { Text("‹ Back") }
+                TextButton(onClick = { model.backToChatList() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
                 Text(
                     chat.title,
                     modifier = Modifier.weight(1f),
@@ -829,7 +833,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 if (!chat.isGroup) {
-                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Text("ⓘ") }
+                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Icon(VeltaIcons.info, contentDescription = "Info") }
                 }
                 if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
@@ -891,24 +895,22 @@ private fun DayHeader(text: String) {
     }
 }
 
-private fun viewTypeGlyph(viewType: String): String = when (viewType) {
-    "Image" -> "📷"
-    "Gif" -> "🖼"
-    "Video" -> "🎞"
-    "Sticker" -> "✨"
-    "Audio" -> "🎵"
-    "Voice" -> "🎤"
-    "File" -> "📎"
-    "Webxdc" -> "🌐"
-    else -> "📎"
+private fun viewTypeIcon(viewType: String): ImageVector = when (viewType) {
+    "Image", "Gif" -> VeltaIcons.photo
+    "Video" -> VeltaIcons.video
+    "Sticker" -> VeltaIcons.sticker
+    "Audio", "Voice" -> VeltaIcons.mic
+    "File" -> VeltaIcons.fileLarge
+    "Webxdc" -> VeltaIcons.webxdc
+    else -> VeltaIcons.attach
 }
 
 /** Outgoing delivery state (core/src/message.rs): 20 pending, 24 failed, 26 delivered, 28 read. */
-private fun stateGlyph(state: Int): String? = when (state) {
-    20 -> "⏳"
-    24 -> "⚠️"
-    26 -> "✓"
-    28 -> "✓✓"
+private fun stateIcon(state: Int): ImageVector? = when (state) {
+    20 -> VeltaIcons.clock
+    24 -> VeltaIcons.warn
+    26 -> VeltaIcons.tick1
+    28 -> VeltaIcons.tick2
     else -> null
 }
 
@@ -943,7 +945,7 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
             TopAppBar(
                 title = { Text("Profile") },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromProfile() }) { Text("‹ Back") }
+                    TextButton(onClick = { model.backFromProfile() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
                 },
             )
         },
@@ -1091,8 +1093,8 @@ private fun MessageActionBar(model: AppModel) {
             TextButton(onClick = { model.react(message, emoji) }) { Text(emoji) }
         }
         Spacer(Modifier.weight(1f))
-        TextButton(onClick = { model.startReply(message) }) { Text("↩ Reply") }
-        TextButton(onClick = { model.toggleMessageActions(message) }) { Text("✕") }
+        TextButton(onClick = { model.startReply(message) }) { Icon(VeltaIcons.reply, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Reply") }
+        TextButton(onClick = { model.toggleMessageActions(message) }) { Icon(VeltaIcons.close, contentDescription = "Close") }
     }
 }
 
@@ -1106,14 +1108,19 @@ private fun Composer(model: AppModel) {
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Icon(
+                    VeltaIcons.reply,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
                 Text(
-                    "↩ ${reply.text.take(60)}",
+                    reply.text.take(60),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
-                TextButton(onClick = { model.replyTo = null }) { Text("✕") }
+                TextButton(onClick = { model.replyTo = null }) { Icon(VeltaIcons.close, contentDescription = "Close") }
             }
         }
         if (attachment != null) {
@@ -1121,14 +1128,21 @@ private fun Composer(model: AppModel) {
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Icon(
+                    VeltaIcons.attach,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(6.dp))
                 Text(
-                    "📎 ${attachment.second}",
+                    attachment.second,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
-                TextButton(onClick = { model.pendingAttachment = null }) { Text("✕") }
+                TextButton(onClick = { model.pendingAttachment = null }) { Icon(VeltaIcons.close, contentDescription = "Close") }
             }
         }
         model.sendError?.let {
@@ -1139,7 +1153,7 @@ private fun Composer(model: AppModel) {
             )
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            TextButton(onClick = { model.attach() }) { Text("📎") }
+            TextButton(onClick = { model.attach() }) { Icon(VeltaIcons.attach, contentDescription = "Attach") }
             OutlinedTextField(
                 value = model.composerText,
                 onValueChange = { model.composerText = it },
@@ -1160,7 +1174,7 @@ private fun Composer(model: AppModel) {
                 enabled = !model.sending &&
                     (model.composerText.isNotBlank() || model.pendingAttachment != null),
             ) {
-                Text(if (model.sending) "…" else "Send")
+                if (model.sending) Text("…") else Icon(VeltaIcons.send, contentDescription = "Send")
             }
         }
     }
@@ -1201,11 +1215,20 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                 if (mediaShown) {
                     MediaFromDisk(message.file!!)
                 } else if (message.viewType != "Text") {
-                    Text(
-                        "${viewTypeGlyph(message.viewType)} ${message.viewType}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            viewTypeIcon(message.viewType),
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            message.viewType,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                     if (message.text.isNotBlank()) {
                         Text(message.text, style = MaterialTheme.typography.bodyMedium)
@@ -1220,12 +1243,13 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (outgoing) {
-                            stateGlyph(message.state)?.let { glyph ->
+                            stateIcon(message.state)?.let { glyph ->
                                 Spacer(Modifier.size(4.dp))
-                                Text(
+                                Icon(
                                     glyph,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }

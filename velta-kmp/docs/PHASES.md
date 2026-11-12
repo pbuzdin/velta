@@ -495,3 +495,24 @@ logcat visibility, `RpcException` codes could distinguish timeouts in UI.
 the relay-side UnifiedPush notifier. Still open on the client: Storage
 and Chats-in-common profile rows, video/audio playback, the brand app
 icon, ktlint/detekt, and N4 (release keystore, `org.velta` switchover).
+
+## 2026-11-12 — #321 step 2: web-parity icons, emoji buttons dropped
+
+- `tools/gen-kmp-icons.mjs` reads the REAL `app/js/icons.js` module
+  (export-stripped eval, no hand copies) and emits
+  `ui/VeltaIcons.kt` — 96 ImageVectors with the house style (24 grid,
+  stroke 2, round caps + joins, black ink that Icon() tints). The
+  generator parses SVG path d-strings (M/L/H/V/C/S/Q/T/A/Z + packed arc
+  flags like `0 012-2`), circles, rects (rounded via 4 quarter arcs) and
+  polylines into Compose PathBuilder calls; S/T reflective commands pass
+  only the explicit args (Compose derives the reflected control).
+- `tests/kmp-icons.test.mjs` fails CI when the generated file is stale.
+- App.kt: every glyph button is now a vector — ‹ Back → arrowLeft,
+  ✕ → close, ⓘ → info, 📷 → camera, ↩ → reply, 📎 → attach, Send →
+  send, + → plus, 🔒/🔓 → lock/lockOpen, battery ✓/! → tick1/warn,
+  bubble ticks ⏳⚠️✓✓✓ → clock/warn/tick1/tick2 (14 dp, meta-tinted),
+  media chips → photo/video/sticker/mic/fileLarge/webxdc.
+  Reaction emojis and the composer text remain content, not chrome.
+- RelaysScreen notice race fixed: relaysNotice clears on
+  backFromRelays, not on refresh (openRelays' refresh was nulling the
+  max-relays reason it was given).
