@@ -28,6 +28,13 @@ interface CorePlatform {
     /** Human hint shown when [spawnRpcServer] returns null. */
     fun connectHint(): String = "core not available on this platform"
 
+    /**
+     * Tear the core down (shim: stop accept loop, close databases; sidecar
+     * platforms: nothing — the process ends with its transport). The next
+     * [spawnRpcServer] must start fresh.
+     */
+    fun stopRpcServer() {}
+
     /** App lock (phase 4 port): is the core blocked pending user unlock? */
     fun isAppLocked(): Boolean = false
 

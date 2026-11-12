@@ -95,7 +95,23 @@ class RpcClientTest {
         transport.emit("""{"id":${requestId(transport.sent[0])},"error":{"code":-32000,"message":"bad transport"}}""")
         val exception = assertFailsWith<RpcException> { call.await() }
         assertEquals(-32000, exception.code)
+        assertEquals("configure", exception.method, "errors must name the METHOD, not id=N")
         assertTrue(exception.message!!.endsWith("bad transport"))
+        client.close()
+    }
+
+    @Test
+    fun callTimesOutWhenTheCoreNeverAnswers() = runBlocking {
+        val transport = FakeRpcTransport()
+        val client = RpcClient(transport)
+        val start = System.currentTimeMillis()
+        val exception = assertFailsWith<RpcException> {
+            client.call("get_chatlist_entries", timeoutMs = 100)
+        }
+        assertTrue(System.currentTimeMillis() - start < 5000, "timeout must fire promptly")
+        assertEquals(RpcClient.CODE_TIMEOUT, exception.code)
+        assertEquals("get_chatlist_entries", exception.method)
+        assertTrue(exception.message!!.contains("no response within 100ms"))
         client.close()
     }
 

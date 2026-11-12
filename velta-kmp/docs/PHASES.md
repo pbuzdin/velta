@@ -420,3 +420,47 @@ The audit's must-fix bugs and the vivo max-relays fallout, in one pass:
 
 **Still open in N2**: RPC `call()` has no timeout (a wedged-but-alive core),
 paging for big chats (#223), shim stop/teardown, relay-side UnifiedPush.
+
+## 2026-11-12 — N2 slice 3: call timeout, shim teardown, chat paging (#222/#223/#224)
+
+The three skipped audit items, in one pass:
+
+- **`RpcClient.call()` timeout** — 30 s default; a wedged-but-alive core
+  (accepts the request, never answers) now fails with
+  `RpcException(method, -2, "no response within 30000ms")` instead of an
+  eternal spinner. Long-running calls opt out with `timeoutMs = null`:
+  `get_next_event` (long-poll with no server-side timeout — an idle account
+  may sit silent for minutes), `add_transport_from_qr` (probe + I/O
+  restart), `add_transport`, `delete_transport`, `configure`,
+  `secure_join`, `background_fetch` (has its own timeout parameter).
+- **Errors name the method** — the pending map carries the method next to
+  the deferred, so RpcException reads `add_transport_from_qr failed (…)`
+  instead of `id=27 failed (…)`.
+- **Shim stop/teardown (#224)** — Rust `stop_core`: a per-start Notify
+  (fresh instance installed by every start — a stale permit can never kill
+  a later session) ends the accept loop; live client sessions are aborted
+  so nothing keeps the Accounts/sqlite handles alive; databases close with
+  the process still up, so the next start spawns clean. Kotlin
+  `RpcShim.stopCoreOnce()` clears the cached port; `AppModel.shutdownCore()`
+  closes the client (deliberate close — no onDead) + stops the platform
+  core; `VeltaForegroundService.onDestroy` calls it, so swiping the app
+  away releases the core and a sticky restart rebuilds it via connect().
+  The second-start guard from N2 slice 2 (startCoreOnce) stays.
+- **Chat paging (#223)** — opening a chat fetches only the LAST 200 message
+  ids (`get_message_ids` stays a single cheap call, `get_messages` carries
+  the window); scrolling near the older end fetches the page before the
+  window (`loadOlderMessages`). The chat list is now a `reverseLayout`
+  LazyColumn (index 0 = bottom = newest): prepends add at the END of the
+  data so the viewport stays anchored — jump-free history loading, and the
+  auto-scroll only fires when the user is already at the bottom (no more
+  yanking to the newest message while reading history). Event-driven
+  reloads PRESERVE a wider window the user pulled in (loadedForChatId +
+  loadedFromIdx). Sender names merge instead of replace (a prepend only
+  passes the older page).
+- **Tests** — call timeout (prompt, code -2, method named), error method
+  name, open-fetches-last-page + loadOlder-fetches-remainder +
+  hasMoreMessages transitions, reopen-preserves-window; Rust: stop-signal
+  is per-start, stop-without-shim is a no-op.
+
+**Still open in N2**: relay-side UnifiedPush notifier (push epic), shim
+logcat visibility, `RpcException` codes could distinguish timeouts in UI.

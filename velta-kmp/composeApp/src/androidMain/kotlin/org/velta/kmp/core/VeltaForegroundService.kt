@@ -31,6 +31,14 @@ class VeltaForegroundService : Service() {
         return START_STICKY
     }
 
+    override fun onDestroy() {
+        // The service (and with it the reason to keep syncing) is gone — stop
+        // the shim so no core keeps the databases open; a sticky restart calls
+        // connect() again, which spawns fresh. No-op when never started.
+        AppHolder.existing()?.shutdownCore()
+        super.onDestroy()
+    }
+
     private fun buildNotification(): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {

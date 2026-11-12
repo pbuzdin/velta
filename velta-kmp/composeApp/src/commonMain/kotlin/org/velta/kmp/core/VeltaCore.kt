@@ -172,6 +172,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call(
             "delete_transport",
             RpcClient.params(RpcClient.param(accountId), RpcClient.param(addr)),
+            timeoutMs = null,
         )
     }
 
@@ -189,7 +190,11 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
 
     /** Starts the secure-join protocol for the QR; returns the chat id. Needs io. */
     suspend fun secureJoin(accountId: Long, qr: String): Long =
-        client.call("secure_join", RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)))
+        client.call(
+            "secure_join",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)),
+            timeoutMs = null, // secure-join runs while the caller polls for the chat
+        )
             .toString().toLong()
 
     /** Adds a transport from a `DCACCOUNT:` invite QR (relay onboarding). */
@@ -197,6 +202,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call(
             "add_transport_from_qr",
             RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)),
+            timeoutMs = null, // runs a server probe + I/O restart, minutes on slow relays
         )
     }
 
@@ -222,6 +228,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call(
             "background_fetch",
             RpcClient.params(RpcClient.param(timeoutSeconds)),
+            timeoutMs = null, // long-poll with its own timeout parameter
         )
     }
 
@@ -230,11 +237,11 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
             put("addr", addr)
             put("password", password)
         }
-        client.call("add_transport", RpcClient.params(RpcClient.param(accountId), param))
+        client.call("add_transport", RpcClient.params(RpcClient.param(accountId), param), timeoutMs = null)
     }
 
     suspend fun configure(accountId: Long) {
-        client.call("configure", RpcClient.params(RpcClient.param(accountId)))
+        client.call("configure", RpcClient.params(RpcClient.param(accountId)), timeoutMs = null)
     }
 
     suspend fun startIoForAllAccounts() {
@@ -368,7 +375,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
     suspend fun nextEvent(): CoreEvent =
         client.json.decodeFromString(
             CoreEvent.serializer(),
-            client.call("get_next_event").toString(),
+            client.call("get_next_event", timeoutMs = null).toString(),
         )
 
     /**

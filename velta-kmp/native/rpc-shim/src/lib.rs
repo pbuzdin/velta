@@ -7,14 +7,24 @@
 //! (`init_android_core`), minus the Tauri event plumbing.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use deltachat_jsonrpc::api::{Accounts, CommandApi};
 use futures_util::StreamExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use yerpc::{RpcClient, RpcSession};
+
+/// The current stop signal, installed by each `start_core` and taken by
+/// `stop_core`. A fresh Notify per start means a stale permit can never kill
+/// a later session (issue #224: the shim used to be start-only).
+static STOP: std::sync::RwLock<Option<Arc<tokio::sync::Notify>>> = std::sync::RwLock::new(None);
+
+/// Live client sessions, aborted on stop so no task keeps the Accounts (and
+/// the sqlite handles) alive after the accept loop has ended.
+static SESSIONS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
 
 /// One yerpc session per connection: read request lines, dispatch them as
 /// independent tasks, and forward responses/events back as JSON Lines.
@@ -117,6 +127,10 @@ fn start_core(accounts_dir: String, db_key: String) -> anyhow::Result<i32> {
     };
     let port = std_listener.local_addr()?.port() as i32;
 
+    let stop = Arc::new(tokio::sync::Notify::new());
+    *STOP.write().expect("stop lock") = Some(stop.clone());
+    SESSIONS.lock().expect("sessions lock").clear();
+
     std::thread::Builder::new()
         .name("velta-rpc-shim".into())
         .spawn(move || {
@@ -142,25 +156,56 @@ fn start_core(accounts_dir: String, db_key: String) -> anyhow::Result<i32> {
                 };
                 eprintln!("velta-rpc-shim: serving core on 127.0.0.1:{port}");
                 loop {
-                    let (stream, _peer) = match listener.accept().await {
-                        Ok(accepted) => accepted,
-                        Err(e) => {
-                            eprintln!("velta-rpc-shim: accept failed: {e}");
-                            continue;
+                    tokio::select! {
+                        _ = stop.notified() => {
+                            eprintln!("velta-rpc-shim: stop signal — shutting down");
+                            break;
                         }
-                    };
-                    let state = state.clone();
-                    let accounts = accounts.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = serve_connection(state, accounts, stream).await {
-                            eprintln!("velta-rpc-shim: connection ended: {e:#}");
+                        accepted = listener.accept() => {
+                            let (stream, _peer) = match accepted {
+                                Ok(accepted) => accepted,
+                                Err(e) => {
+                                    eprintln!("velta-rpc-shim: accept failed: {e}");
+                                    continue;
+                                }
+                            };
+                            let state = state.clone();
+                            let accounts = accounts.clone();
+                            let handle = tokio::spawn(async move {
+                                if let Err(e) = serve_connection(state, accounts, stream).await {
+                                    eprintln!("velta-rpc-shim: connection ended: {e:#}");
+                                }
+                            });
+                            let mut sessions = SESSIONS.lock().expect("sessions lock");
+                            sessions.retain(|h| !h.is_finished());
+                            sessions.push(handle);
                         }
-                    });
+                    }
                 }
+                // End the live client sessions so nothing keeps the Accounts
+                // (and their sqlite handles) alive after the accept loop.
+                for handle in SESSIONS.lock().expect("sessions lock").drain(..) {
+                    handle.abort();
+                }
+                // accounts/state drop here — databases close with the process
+                // still alive, so a later start_core starts clean.
             });
         })?;
 
     Ok(port)
+}
+
+/// Signals the accept loop to end, aborts live sessions and clears the
+/// installed stop signal. Returns 0 always (idempotent: no shim running =
+/// nothing to do); the Kotlin side clears its cached port.
+fn stop_core() -> i32 {
+    if let Some(stop) = STOP.write().expect("stop lock").take() {
+        stop.notify_one();
+    }
+    for handle in SESSIONS.lock().expect("sessions lock").drain(..) {
+        handle.abort();
+    }
+    0
 }
 
 /// JNI entry: `org.velta.kmp.core.RpcShim.startCore(accountsDir, dbKey) -> port`.
@@ -190,6 +235,15 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startCore<'local>(
     }
 }
 
+/// JNI entry: `org.velta.kmp.core.RpcShim.stopCore() -> 0`. Idempotent.
+#[no_mangle]
+pub extern "system" fn Java_org_velta_kmp_core_RpcShim_stopCore(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+) -> i32 {
+    stop_core()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +271,34 @@ mod tests {
             .is_none(),
             "regular RPC lines pass through"
         );
+    }
+
+    #[test]
+    fn stop_core_without_shim_is_a_noop() {
+        // STOP is process-global and other tests in this binary may hold it
+        // installed concurrently — only the return contract is asserted here;
+        // the per-start signal semantics live in stop_signal_is_per_start.
+        assert_eq!(stop_core(), 0);
+    }
+
+    /// The stop signal is consumed by the notify: after stop_core takes the
+    /// Notify, a NEW start installs a fresh one, so a stale permit can never
+    /// kill a later session.
+    #[tokio::test]
+    async fn stop_signal_is_per_start() {
+        let stop = Arc::new(tokio::sync::Notify::new());
+        *STOP.write().expect("stop lock") = Some(stop.clone());
+        // A waiter registered BEFORE the notify must wake immediately.
+        let waiter = {
+            let stop = stop.clone();
+            tokio::spawn(async move { stop.notified().await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(stop_core(), 0);
+        tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+            .await
+            .expect("waiter must wake on stop")
+            .expect("join");
+        assert!(STOP.read().expect("stop lock").is_none(), "stop consumed the signal");
     }
 }

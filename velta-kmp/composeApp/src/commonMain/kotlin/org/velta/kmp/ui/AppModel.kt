@@ -25,6 +25,11 @@ class AppModel(
     private val platform: CorePlatform,
     private val scope: CoroutineScope,
 ) {
+    companion object {
+        /** Messages fetched per page in the chat view (#223). */
+        const val MESSAGE_PAGE_SIZE = 200
+    }
+
     sealed interface Screen {
         data object Login : Screen
         data object ChatList : Screen
@@ -351,6 +356,18 @@ class AppModel(
             delay(2000)
             connect()
         }
+    }
+
+    /** Deliberate teardown (service destroyed): drop the client and stop the
+     * platform core. The next connect() starts fresh. */
+    fun shutdownCore() {
+        core?.raw?.close()
+        core = null
+        transport = null
+        connected = false
+        status = "core stopped"
+        platform.stopRpcServer()
+        println("velta-kmp: core stopped (shutdownCore)")
     }
 
     private fun modelAccountsSummary(): String =
@@ -913,6 +930,16 @@ class AppModel(
         messageActions = null
     }
 
+    // ---- Chat paging (#223) ----
+    // Load the LAST messagePageSize messages on open; scrolling near the top
+    // fetches the page before the loaded window (loadOlderMessages). A reload
+    // preserves an older window the user already pulled in.
+    private var loadedForChatId: Long? = null
+    private var loadedFromIdx = 0
+    private var loadingOlder = false
+    var hasMoreMessages by mutableStateOf(false)
+        private set
+
     private fun loadMessages(chatId: Long, isGroup: Boolean = false) {
         val veltaCore = core
         val id = accountId
@@ -920,9 +947,19 @@ class AppModel(
         scope.launch {
             chatLoading = true
             try {
-                val ids = veltaCore.messageIds(id, chatId)
-                val messages = veltaCore.messages(id, ids)
+                val ids = veltaCore.messageIds(id, chatId).sorted()
+                // Preserve history the user already pulled in for THIS chat;
+                // fresh opens get the newest window.
+                val from = if (loadedForChatId == chatId && loadedFromIdx in 1..ids.size) {
+                    loadedFromIdx
+                } else {
+                    (ids.size - MESSAGE_PAGE_SIZE).coerceAtLeast(0)
+                }
+                loadedForChatId = chatId
+                loadedFromIdx = from
+                val messages = veltaCore.messages(id, ids.drop(from))
                 chatMessages = messages.sortedBy { it.sortTimestamp ?: it.timestamp }
+                hasMoreMessages = from > 0
                 if (isGroup) loadSenderNames(veltaCore, id, messages)
             } catch (t: Throwable) {
                 println("velta-kmp: loadMessages failed: $t")
@@ -932,8 +969,37 @@ class AppModel(
         }
     }
 
+    /** Fetches the page BEFORE the loaded window and prepends it. Called by
+     * the chat screen when the user scrolls near the older end. */
+    fun loadOlderMessages() {
+        val current = screen as? Screen.Chat ?: return
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null || !hasMoreMessages || loadingOlder || chatLoading) return
+        loadingOlder = true
+        scope.launch {
+            try {
+                val ids = veltaCore.messageIds(id, current.chatId).sorted()
+                val listChanged = ids.size <= loadedFromIdx
+                if (listChanged || (screen as? Screen.Chat)?.chatId != current.chatId) return@launch
+                val from = (loadedFromIdx - MESSAGE_PAGE_SIZE).coerceAtLeast(0)
+                val older = veltaCore.messages(id, ids.subList(from, loadedFromIdx))
+                chatMessages = (older + chatMessages).sortedBy { it.sortTimestamp ?: it.timestamp }
+                loadedFromIdx = from
+                hasMoreMessages = from > 0
+                if (current.isGroup) loadSenderNames(veltaCore, id, older)
+            } catch (t: Throwable) {
+                println("velta-kmp: loadOlderMessages failed: $t")
+            } finally {
+                loadingOlder = false
+            }
+        }
+    }
+
     private suspend fun loadSenderNames(veltaCore: VeltaCore, accountId: Long, messages: List<MessageObject>) {
-        val names = mutableMapOf<Long, String>()
+        // MERGE into the known map: the paging prepend passes only the older
+        // page, and a replace would drop every sender already resolved.
+        val names = senderNames.toMutableMap()
         for (fromId in messages.map { it.fromId }.distinct()) {
             if (fromId <= 1L) continue // 0/1: special (self/system)
             val contact: Contact? = runCatching { veltaCore.contact(accountId, fromId) }.getOrNull()

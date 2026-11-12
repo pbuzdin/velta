@@ -37,6 +37,7 @@ import org.velta.kmp.core.ChatListItem
 import org.velta.kmp.core.MessageObject
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -578,10 +579,22 @@ private fun RelayFlag(letter: String, on: Boolean?) {
 @Composable
 private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     val listState = rememberLazyListState()
+    // ReverseLayout: index 0 = bottom = newest. Prepends (older pages) add at
+    // the END of the data, so the viewport stays anchored — paging is jump-free.
     LaunchedEffect(model.chatMessages.size) {
-        if (model.chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatRows(model.chatMessages).size - 1)
+        if (model.chatMessages.isNotEmpty() && listState.firstVisibleItemIndex <= 1) {
+            listState.animateScrollToItem(0)
         }
+    }
+    // Near the older end (visually the top = high indices): fetch the page before.
+    val nearOlderEnd by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            info.totalItemsCount > 0 && listState.firstVisibleItemIndex >= info.totalItemsCount - 5
+        }
+    }
+    LaunchedEffect(nearOlderEnd, model.hasMoreMessages) {
+        if (nearOlderEnd && model.hasMoreMessages) model.loadOlderMessages()
     }
 
     // System back (Android) returns to the chat list; desktop uses ‹ Back.
@@ -613,10 +626,11 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         },
         containerColor = Velta.tokens.bgChat,
     ) { inner ->
-        val rows = chatRows(model.chatMessages)
+        val rows = chatRows(model.chatMessages).asReversed()
         LazyColumn(
             modifier = Modifier.padding(inner).fillMaxSize(),
             state = listState,
+            reverseLayout = true,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {

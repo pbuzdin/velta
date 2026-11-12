@@ -5,12 +5,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -51,7 +53,12 @@ class RpcClient(
 
     private val lock = Mutex()
     private var nextId = 1
-    private val pending = HashMap<Int, CompletableDeferred<JsonElement>>()
+
+    /** In-flight call: the method name travels with the deferred so errors
+     * and timeouts report WHAT failed, not just `id=N`. */
+    private val pending = HashMap<Int, PendingCall>()
+
+    private class PendingCall(val method: String, val deferred: CompletableDeferred<JsonElement>)
 
     /** Set (with [lock] held) once the transport exit was observed: the core is gone. */
     private var dead = false
@@ -83,15 +90,25 @@ class RpcClient(
         }
     }
 
-    /** Send one call and await its response. Throws [RpcException] on error responses. */
-    suspend fun call(method: String, params: JsonArray = JsonArray(emptyList())): JsonElement {
-        val deferred: CompletableDeferred<JsonElement>
+    /**
+     * Send one call and await its response. Throws [RpcException] on error
+     * responses and on timeout. A wedged-but-alive core accepts the request
+     * and never answers — the default 30 s timeout turns that eternal
+     * spinner into a visible failure. Long-running operations (event
+     * long-poll, transport configure probes, background fetch) pass `null`.
+     */
+    suspend fun call(
+        method: String,
+        params: JsonArray = JsonArray(emptyList()),
+        timeoutMs: Long? = DEFAULT_TIMEOUT_MS,
+    ): JsonElement {
+        val call: PendingCall
         val id: Int
         lock.withLock {
             check(!dead) { "rpc connection closed" }
             id = nextId++
-            deferred = CompletableDeferred()
-            pending[id] = deferred
+            call = PendingCall(method, CompletableDeferred())
+            pending[id] = call
         }
         val line = buildJsonObject {
             put("jsonrpc", "2.0")
@@ -101,7 +118,12 @@ class RpcClient(
         }.toString()
         transport.send(line)
         try {
-            return deferred.await()
+            if (timeoutMs == null) {
+                return call.deferred.await()
+            }
+            return withTimeout(timeoutMs) { call.deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            throw RpcException(method, CODE_TIMEOUT, "no response within ${timeoutMs}ms")
         } finally {
             lock.withLock { pending.remove(id) }
         }
@@ -125,8 +147,8 @@ class RpcClient(
 
         val id = (obj["id"] as? JsonPrimitive)?.content?.toIntOrNull()
         if (id != null) {
-            val deferred = lock.withLock { pending.remove(id) }
-            if (deferred == null) {
+            val pendingCall = lock.withLock { pending.remove(id) }
+            if (pendingCall == null) {
                 log("response for unknown id $id")
                 return
             }
@@ -134,9 +156,9 @@ class RpcClient(
             if (error != null) {
                 val code = (error["code"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
                 val message = (error["message"] as? JsonPrimitive)?.content ?: "unknown error"
-                deferred.completeExceptionally(RpcException("id=$id", code, message))
+                pendingCall.deferred.completeExceptionally(RpcException(pendingCall.method, code, message))
             } else {
-                deferred.complete(obj["result"] ?: JsonPrimitive(null))
+                pendingCall.deferred.complete(obj["result"] ?: JsonPrimitive(null))
             }
         } else if (obj.containsKey("method")) {
             _pushes.tryEmit(line)
@@ -148,12 +170,18 @@ class RpcClient(
     private fun failAll(reason: String) {
         val snapshot = pending.values.toList()
         pending.clear()
-        for (deferred in snapshot) {
-            deferred.completeExceptionally(IllegalStateException(reason))
+        for (call in snapshot) {
+            call.deferred.completeExceptionally(IllegalStateException(reason))
         }
     }
 
     companion object {
+        /** Default per-call timeout; `null` opts a call out (long-poll, probes). */
+        val DEFAULT_TIMEOUT_MS: Long? = 30_000L
+
+        /** RpcException code for a call the server never answered. */
+        const val CODE_TIMEOUT = -2
+
         /** Convenience for building positional params. */
         fun params(vararg elements: JsonElement): JsonArray = JsonArray(elements.toList())
 

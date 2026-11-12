@@ -25,9 +25,21 @@ object RpcShim {
      */
     external fun startCore(accountsDir: String, dbKey: String): Int
 
+    /** Shuts the accept loop + live sessions down and closes the core's
+     * databases. Idempotent; always returns 0. */
+    external fun stopCore(): Int
+
     /** Port of the shim started in this process; 0 = none yet. */
     @Volatile
     private var runningPort = 0
+
+    /** [startCoreOnce]'s counterpart: stops the shim and forgets the port so
+     * the next start spawns fresh. Safe to call when nothing is running. */
+    fun stopCoreOnce(): Int = synchronized(this) {
+        val result = if (runningPort > 0) stopCore() else 0
+        runningPort = 0
+        result
+    }
 
     /**
      * One shim per process: each JNI startCore call spawns a NEW Accounts
