@@ -14,7 +14,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 
 /**
  * The Velta look for the KMP client (#192, #318). Every value comes from the
@@ -73,7 +73,12 @@ internal fun veltaColorScheme(t: VeltaTokens): ColorScheme {
 
 internal fun veltaTypography(): Typography {
     val base = Typography()
-    val msg = TextStyle(fontSize = VeltaType.msgSize, lineHeight = VeltaType.msgLineHeight.em)
+    // Line height in sp, not em: Material's own styles use sp, and text fields
+    // lerp bodyLarge -> bodySmall for the floating label, which throws on Em vs Sp.
+    val msg = TextStyle(
+        fontSize = VeltaType.msgSize,
+        lineHeight = (VeltaType.msgSize.value * VeltaType.msgLineHeight).sp,
+    )
     return base.copy(
         // Message body: main.css .msg-text (15.5px / 1.36).
         bodyLarge = base.bodyLarge.merge(msg),
