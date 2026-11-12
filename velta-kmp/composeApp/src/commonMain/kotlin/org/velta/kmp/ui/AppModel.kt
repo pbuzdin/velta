@@ -52,6 +52,13 @@ class AppModel(
     var chatsLoading by mutableStateOf(false)
         private set
 
+    /** Platform hook (Android): posts a conversation notification. Null on
+     * desktop. */
+    var notifier: IncomingNotifier? = null
+
+    /** Set from a notification tap; consumed when the chat list lands. */
+    var pendingOpenChatId: Long? = null
+
     /** Peer fingerprint hex per 1:1 chat id (identity matrix tiles); filled
      * asynchronously after the list lands. */
     var identities by mutableStateOf<Map<Long, String>>(emptyMap())
@@ -375,6 +382,11 @@ class AppModel(
         scope.launch { loadChats() }
     }
 
+    /** Platform hook contract: one notification per chat, latest text. */
+    fun interface IncomingNotifier {
+        fun notifyIncoming(chatId: Long, chatName: String, text: String)
+    }
+
     private suspend fun loadChats() {
         val veltaCore = core
         val id = accountId
@@ -387,6 +399,10 @@ class AppModel(
                 compareByDescending<ChatListItem> { it.isPinned }
                     .thenByDescending { it.lastUpdated ?: 0L },
             )
+            pendingOpenChatId?.let { wanted ->
+                chats.firstOrNull { it.id == wanted }?.let { openChat(it) }
+                pendingOpenChatId = null
+            }
             scope.launch { loadIdentities(id, items) }
         } catch (t: Throwable) {
             println("velta-kmp: refreshChats failed: $t")
@@ -881,17 +897,36 @@ class AppModel(
                 if (!comment.isNullOrBlank()) loginProgress = comment
             }
             "MsgsChanged", "IncomingMsg", "MsgsNoticed", "MsgDelivered" -> {
+                val chatId = event.chatId()
                 when (val current = screen) {
                     is Screen.Chat -> {
-                        if (current.chatId == event.chatId()) {
+                        if (current.chatId == chatId) {
                             loadMessages(current.chatId, current.isGroup)
                         }
                     }
                     Screen.ChatList -> refreshChats()
                     else -> {}
                 }
+                if (event.kind == "IncomingMsg" && chatId != null) {
+                    notifyIncoming(chatId, event)
+                }
             }
         }
+    }
+
+    /** Conversation notification for an incoming message — skipped while the
+     * user is looking at that chat, and for muted chats. */
+    private suspend fun notifyIncoming(chatId: Long, event: CoreEvent) {
+        val current = screen
+        if (current is Screen.Chat && current.chatId == chatId) return
+        val item = chats.firstOrNull { it.id == chatId }
+        if (item?.isMuted == true) return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val msgId = event.event?.get("msgId")?.toString()?.trim('"')?.toLongOrNull()
+            ?: event.event?.get("msg_id")?.toString()?.trim('"')?.toLongOrNull()
+        val text = msgId?.let { mid -> veltaCore.messages(id, listOf(mid)).firstOrNull()?.text } ?: ""
+        notifier?.notifyIncoming(chatId, item?.name ?: "New message", text.ifBlank { "New message" })
     }
 
     private fun CoreEvent.chatId(): Long? =

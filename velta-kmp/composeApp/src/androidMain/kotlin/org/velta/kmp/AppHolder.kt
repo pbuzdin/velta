@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import org.velta.kmp.core.AndroidIncomingNotifier
 import org.velta.kmp.ui.AppModel
 
 /**
@@ -23,6 +24,9 @@ object AppHolder {
             model ?: AppModel(
                 AndroidCorePlatform(context.applicationContext),
                 CoroutineScope(SupervisorJob() + Dispatchers.Default),
-            ).also { model = it }
+            ).also { created ->
+                created.notifier = AndroidIncomingNotifier(context.applicationContext)
+                model = created
+            }
         }
 }

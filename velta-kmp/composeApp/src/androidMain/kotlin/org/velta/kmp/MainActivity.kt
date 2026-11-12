@@ -135,11 +135,23 @@ class MainActivity : FragmentActivity() {
         ) {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        consumeChatIntent(intent)
         setContent {
             App(model)
             LaunchedEffect(Unit) { model.connect() }
         }
         org.velta.kmp.push.VeltaPushService.maybeRegister(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        consumeChatIntent(intent)
+    }
+
+    /** A notification tap carries the chat id; the list opens it on landing. */
+    private fun consumeChatIntent(intent: Intent?) {
+        val chatId = intent?.getLongExtra("chatId", -1L) ?: -1L
+        if (chatId >= 0) model.pendingOpenChatId = chatId
     }
 
     override fun onResume() {
