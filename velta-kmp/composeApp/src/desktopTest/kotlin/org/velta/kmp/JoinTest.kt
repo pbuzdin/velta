@@ -26,10 +26,10 @@ class JoinTest {
     }
 
     @Test
-    fun accountInviteOnboardsTransportThenConfigures() = runBlocking {
+    fun accountInviteOnboardsTransport() = runBlocking {
         val transport = ScriptedRpcTransport(
             mapOf(
-                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_system_info" to """{"deltachat_core_version":"v2.69.0"}""",
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"isConfigured":false}""",
@@ -37,7 +37,6 @@ class JoinTest {
                 "check_qr" to """{"kind":"account","domain":"relay.example"}""",
                 "add_account" to "9",
                 "add_transport_from_qr" to "null",
-                "configure" to "null",
                 "start_io_for_all_accounts" to "null",
             ),
         )
@@ -75,7 +74,15 @@ class JoinTest {
             awaitRequest(transport, "add_transport_from_qr")
             val addLine = transport.requests.first { "\"add_transport_from_qr\"" in it }
             assertTrue(addLine.contains("[1,\"DCACCOUNT:https://relay.example/i/tok\"]"), "add params: $addLine")
-            awaitRequest(transport, "configure")
+            // The legacy configure() RPC must NOT be called: in core 2.69's
+            // multi-transport world it loads old-style addr/mail_pw configs
+            // the QR flow never sets and fails "missing email address";
+            // add_transport_from_qr already configures (transports table)
+            // and restarts I/O itself.
+            assertTrue(
+                transport.requests.none { "\"configure\"" in it },
+                "legacy configure() must not be called",
+            )
         } finally {
             scope.cancel()
         }
