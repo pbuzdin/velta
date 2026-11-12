@@ -147,7 +147,14 @@ internal actual fun GlassPlate(
                             val short = min(size.width, size.height)
                             shader.setFloatUniform("size", size.width, size.height)
                             shader.setFloatUniform("radius", radiusPx)
-                            shader.setFloatUniform("strength", short * 0.30f)
+                            // Web-parity rim shift: glass-composer.js uses a
+                            // fixed small offset, not a fraction of the plate —
+                            // a proportional one dragged crisp bubble edges from
+                            // below the header into it as diagonal shards.
+                            shader.setFloatUniform(
+                                "strength",
+                                min(short * 0.30f, with(LocalDensity.current) { 14.dp.toPx() }),
+                            )
                             shader.setFloatUniform("blur", short * 0.045f)
                             shader.setFloatUniform("plateMix", mix)
                             shader.setFloatUniform("plate", plate.red, plate.green, plate.blue)
