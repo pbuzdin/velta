@@ -365,11 +365,10 @@ for Play delivery.
 reporting, CI release lane (signed artifacts), the push-epic relay side,
 and the `org.velta` switchover decision.
 
-## 2026-11-12 — the delivery-track flip, N0/N1
+## 2026-11-12 — KMP back in work, N0/N1
 
-The Rust-UI experiment (verdict in #314, write-up at
-velta.cc/news/rust-ui-take.html) made this client the Android delivery
-track. Shipped:
+KMP is back in active work as a work in progress (the Rust UI preview
+stays a separate experiment, #314). Shipped:
 
 - **Design port (N1)** — Prism person colors + the fingerprint identity
   matrix, bit-identical to the PWA (vectors pinned in PrismIdentityTest,
