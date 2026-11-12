@@ -41,6 +41,7 @@ uniform shader contents;
 uniform float2 size;
 uniform float radius;
 uniform float strength;
+uniform float blur;
 uniform float plateMix;
 uniform float3 plate;
 
@@ -67,17 +68,31 @@ half4 main(float2 coord) {
   float bend = snell >= 1.0 ? slope : tan(theta - asin(snell));
   float amount = clamp(bend / 1.05, 0.0, 1.0);
   float2 shift = n * (strength * amount);
-  float2 refracted = coord - shift;
-  half4 glass = contents.eval(refracted);
-  half4 cr = contents.eval(refracted + shift * 0.06);
-  half4 cb = contents.eval(refracted - shift * 0.06);
-  glass.r = mix(glass.r, cr.r, amount * 0.45);
-  glass.b = mix(glass.b, cb.b, amount * 0.45);
+  // The plate raster ends at its own edges; refraction at the left/right
+  // ends of a full-width bar would sample outside it (transparent garbage)
+  // unless the sample point is clamped inside.
+  float2 lo = float2(0.5);
+  float2 hi = size - float2(0.5);
+  float2 ref = clamp(coord - shift, lo, hi);
+  half4 glass = contents.eval(ref);
+  half3 acc = half3(glass.rgb);
+  // Frost: two rings of 8 taps around the refracted point (1 + 16 samples).
+  for (int i = 0; i < 8; i++) {
+    float a = 6.2831853 * (float(i) + 0.5) / 8.0;
+    float2 o = float2(cos(a), sin(a));
+    acc += half3(contents.eval(clamp(ref + o * blur, lo, hi)).rgb);
+    acc += half3(contents.eval(clamp(ref + o * blur * 0.55, lo, hi)).rgb);
+  }
+  glass.rgb = acc / 17.0;
+  half4 cr = contents.eval(clamp(ref + shift * 0.08, lo, hi));
+  half4 cb = contents.eval(clamp(ref - shift * 0.08, lo, hi));
+  glass.r = mix(glass.r, cr.r, amount * 0.55);
+  glass.b = mix(glass.b, cb.b, amount * 0.55);
   glass.r = mix(glass.r, half(plate.r), plateMix);
   glass.g = mix(glass.g, half(plate.g), plateMix);
   glass.b = mix(glass.b, half(plate.b), plateMix);
-  float spec = (0.07 + 0.22 * max(dot(n, normalize(float2(-0.6, -0.8))), 0.0))
-      * exp(-abs(d + 1.0) / 1.4) * amount;
+  float spec = (0.07 + 0.12 * max(dot(n, normalize(float2(-0.6, -0.8))), 0.0))
+      * exp(-abs(d + 1.0) / 2.4) * amount;
   return half4(glass.r + spec, glass.g + spec, glass.b + spec, coverage);
 }
 """
@@ -128,7 +143,8 @@ internal actual fun GlassPlate(
                             val short = min(size.width, size.height)
                             shader.setFloatUniform("size", size.width, size.height)
                             shader.setFloatUniform("radius", radiusPx)
-                            shader.setFloatUniform("strength", short * 0.18f)
+                            shader.setFloatUniform("strength", short * 0.30f)
+                            shader.setFloatUniform("blur", short * 0.10f)
                             shader.setFloatUniform("plateMix", mix)
                             shader.setFloatUniform("plate", plate.red, plate.green, plate.blue)
                             android.graphics.RenderEffect
@@ -136,7 +152,7 @@ internal actual fun GlassPlate(
                                 .asComposeRenderEffect()
                         } else {
                             android.graphics.RenderEffect
-                                .createBlurEffect(16f, 16f, android.graphics.Shader.TileMode.CLAMP)
+                                .createBlurEffect(28f, 28f, android.graphics.Shader.TileMode.CLAMP)
                                 .asComposeRenderEffect()
                         }
                     }
