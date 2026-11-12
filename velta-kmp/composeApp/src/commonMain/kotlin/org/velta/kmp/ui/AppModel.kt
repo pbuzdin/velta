@@ -229,17 +229,19 @@ class AppModel(
                     // addr/mail_pw configs the QR flow never sets and fails
                     // with "missing email address" (core 2.69 multi-transport).
                     qr.isAccountInvite || qr.isLoginInvite -> {
-                        // A retry after a half-broken flow must REPLACE the
-                        // same-domain transport, not stack another one —
-                        // duplicates piled up to the core's per-account cap
-                        // ("maximum number of relays (5)") on the vivo.
-                        qr.domain?.let { domain ->
-                            veltaCore.relayCards(id)
-                                .firstOrNull { it.addr.contains(domain) }
-                                ?.let { existing -> veltaCore.deleteTransport(id, existing.addr) }
+                        // Re-scanning an invite for a relay the account is
+                        // ALREADY on must skip: a delete-then-re-add of the
+                        // only transport once errored and would leave the
+                        // account with zero transports if the add failed.
+                        // Stacking duplicates (the old cap-5 bug) is equally
+                        // out — one row per domain.
+                        val onThisRelay = qr.domain?.let { domain ->
+                            veltaCore.relayCards(id).firstOrNull { it.addr.contains(domain) }
                         }
-                        veltaCore.addTransportFromQr(id, raw)
-                        veltaCore.startIoForAllAccounts()
+                        if (onThisRelay == null) {
+                            veltaCore.addTransportFromQr(id, raw)
+                            veltaCore.startIoForAllAccounts()
+                        }
                         accountAddr = veltaCore.accountInfo(id).addr
                         loadChats()
                         screen = Screen.ChatList
@@ -257,6 +259,7 @@ class AppModel(
             } catch (t: Throwable) {
                 val message = t.message ?: t.toString()
                 joinError = message
+                println("velta-kmp: join error: $message")
                 // The relay cap is not a dead end: send the user to the relay
                 // manager where a slot can be freed, with the reason attached.
                 if (message.contains("maximum number of relays", ignoreCase = true)) {

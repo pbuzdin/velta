@@ -93,10 +93,11 @@ class JoinTest {
         }
     }
 
-    /** A broken-flow retry must REPLACE the same-domain transport instead of
-     * stacking duplicates up to the core's per-account relay cap (vivo d13). */
+    /** Re-scanning an invite for a relay the account is ALREADY on must skip
+     * entirely — no delete (which once errored on the only transport), no
+     * re-add, no duplicate stacking; straight back to the chat list. */
     @Test
-    fun repeatJoinReplacesSameDomainTransport() = runBlocking {
+    fun repeatJoinSkipsAlreadyConnectedRelay() = runBlocking {
         val transport = ScriptedRpcTransport(
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.69.0"}""",
@@ -108,13 +109,11 @@ class JoinTest {
                 "add_account" to "9",
                 "list_transports" to """[{"addr":"relay.example","imapServer":"relay.example","smtpServer":"relay.example"}]""",
                 "get_server_metadata" to "{}",
-                "delete_transport" to "null",
-                "add_transport_from_qr" to "null",
-                "start_io_for_all_accounts" to "null",
+                "get_account_info" to """{"id":1,"isConfigured":false}""",
             ),
         )
         val platform = object : CorePlatform {
-            override fun accountsDir(): String = "/tmp/velta-kmp-join-replace-test"
+            override fun accountsDir(): String = "/tmp/velta-kmp-join-skip-test"
             override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
         }
         val scope = testScope()
@@ -134,16 +133,15 @@ class JoinTest {
             withTimeout(10_000) {
                 while (model.screen != AppModel.Screen.ChatList) yield()
             }
-            awaitRequest(transport, "add_transport_from_qr")
-            val addIdx = transport.requests.indexOfFirst { "\"add_transport_from_qr\"" in it }
-            val deleteIdx = transport.requests.indexOfFirst { "\"delete_transport\"" in it }
-            assertTrue(deleteIdx >= 0, "same-domain transport must be deleted first; reqs=${transport.requests}")
+            withTimeout(10_000) { while (transport.requests.none { "\"get_account_info\"" in it }) yield() }
             assertTrue(
-                deleteIdx < addIdx,
-                "delete must precede the re-add; reqs=${transport.requests.joinToString(" | ")}",
+                transport.requests.none { "\"delete_transport\"" in it },
+                "an already-connected relay must not be deleted; reqs=${transport.requests}",
             )
-            val deleteLine = transport.requests.first { "\"delete_transport\"" in it }
-            assertTrue(deleteLine.contains("[1,\"relay.example\"]"), "delete params: $deleteLine")
+            assertTrue(
+                transport.requests.none { "\"add_transport_from_qr\"" in it },
+                "an already-connected relay must not be re-added; reqs=${transport.requests}",
+            )
         } finally {
             scope.cancel()
         }
