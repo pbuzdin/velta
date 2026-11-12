@@ -191,7 +191,10 @@ class AppModel(
             joinBusy = true
             joinError = null
             try {
-                joinChecked = veltaCore.checkQr(id ?: veltaCore.addAccount().also { accountId = it }, qr)
+                joinChecked = veltaCore.checkQr(
+                    (id ?: veltaCore.addAccount()).also { accountId = it },
+                    qr,
+                )
             } catch (t: Throwable) {
                 joinError = t.message ?: t.toString()
             } finally {
@@ -216,7 +219,8 @@ class AppModel(
             try {
                 val id = accountId
                     ?: unconfiguredAccountId
-                    ?: veltaCore.addAccount().also { accountId = it }
+                    ?: veltaCore.addAccount()
+                accountId = id
                 when {
                     // DCACCOUNT and DCLOGIN both land here. addTransportFromQr
                     // handles both kinds, runs the full configure (probe +
@@ -401,7 +405,7 @@ class AppModel(
         var unconfigured: Long? = null
         for (id in ids) {
             val info = runCatching { veltaCore.accountInfo(id) }.getOrNull() ?: continue
-            if (info.isConfigured == true) {
+            if (info.configured) {
                 // The core's own selection wins (it persists across restarts);
                 // otherwise the first configured account.
                 if (configured == null || info.id == selectedId) configured = info
@@ -444,9 +448,8 @@ class AppModel(
             try {
                 val id = accountId
                     ?: unconfiguredAccountId
-                    ?: veltaCore.addAccount().also {
-                        accountId = it
-                    }
+                    ?: veltaCore.addAccount()
+                accountId = id
                 unconfiguredAccountId = null
                 veltaCore.addTransport(id, addr.trim(), password)
                 status = "configuring"
@@ -455,6 +458,7 @@ class AppModel(
                 accountAddr = veltaCore.accountInfo(id).addr
                 loadChats()
                 screen = Screen.ChatList
+                refreshRelayLine()
             } catch (t: Throwable) {
                 loginError = t.message ?: t.toString()
             } finally {
