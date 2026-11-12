@@ -5097,7 +5097,12 @@ export class ChatView {
     }
 
     try {
-      let picked = await invoke("plugin:dialog|open", { options: { multiple: kind === "image", filters } });
+      // pickerMode asks Android for plain image/* or video/* (every gallery
+      // handles that) instead of */* + EXTRA_MIME_TYPES; desktop ignores it.
+      const pickerMode = kind === "image" ? "image" : kind === "video" ? "video" : undefined;
+      diagnosticsSink.append("info", `picker open kind=${kind}`);
+      const pickStart = Date.now();
+      let picked = await invoke("plugin:dialog|open", { options: { multiple: kind === "image", filters, pickerMode } });
       if (!this._isCurrent(session)) return;
       const paths = (Array.isArray(picked) ? picked : picked ? [picked] : []).filter(Boolean);
       if (kind === "image" && paths.length > 1) {
@@ -5105,7 +5110,19 @@ export class ChatView {
         return;
       }
       picked = paths[0];
-      if (!picked) return;
+      if (!picked) {
+        // The dialog plugin turns every Android failure into "nothing
+        // picked" and drops the reason, so log it; an empty result this
+        // fast means the picker never showed, not that the user cancelled.
+        const ms = Date.now() - pickStart;
+        diagnosticsSink.append("warning", `picker returned nothing after ${ms} ms (kind=${kind})`);
+        if (ms < 1000) {
+          toast(kind === "image" ? t("Couldn't open the photo picker")
+            : kind === "video" ? t("Couldn't open the video picker")
+            : t("Couldn't open the file picker"), 4000, { danger: true });
+        }
+        return;
+      }
       // V-07/#65: fs reads are scope-gated — the user's pick itself is the
       // consent; add exactly that path to the fs runtime scope.
       if (!/^content:\/\//.test(picked)) {

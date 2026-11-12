@@ -1650,5 +1650,8 @@
   "Don't ask again": "Больше не спрашивать",
   "Failed: {err}": "Ошибка: {err}",
   "Copied {n} messages": "Скопировано: {n}",
-  "Sent {filename}": "Отправлено: {filename}"
+  "Sent {filename}": "Отправлено: {filename}",
+  "Couldn't open the photo picker": "Не удалось открыть выбор фото",
+  "Couldn't open the video picker": "Не удалось открыть выбор видео",
+  "Couldn't open the file picker": "Не удалось открыть выбор файлов"
 }

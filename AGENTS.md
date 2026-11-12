@@ -1283,6 +1283,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   paths, and `_sendSeparateImages` (the first image only) all use it.
   Adding a new send path MUST call `_takeQuote()` too, or replies get
   silently dropped (the image path did, pre-1.4.26).
+- **Attach picker diagnostics**: `_sendAttachment` passes `pickerMode`
+  `image`/`video` to `plugin:dialog|open` (Android then asks for plain
+  `image/*`/`video/*`; desktop ignores it). tauri-plugin-dialog turns every
+  Android picker failure into "nothing picked" and drops the reason, so the
+  call logs `picker open kind=` and, on an empty result, a warning with the
+  elapsed ms; under 1 s it also toasts "Couldn't open the … picker".
 - **Pending attachment strip** (post-1.4.31, #5): no send-preview modal.
   Picked/pasted media shows in `#media-preview` (strip above the composer,
   official-client pattern); the caption IS the composer input, focused on
