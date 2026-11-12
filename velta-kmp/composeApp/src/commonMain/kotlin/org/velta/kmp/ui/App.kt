@@ -38,7 +38,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -135,7 +139,7 @@ private fun AccountsScreen(model: AppModel) {
             TopAppBar(
                 title = { Text("Accounts") },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromAccounts() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
+                    TextButton(onClick = { model.backFromAccounts() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 },
                 actions = {
                     if (model.accountsLoading) CircularProgressIndicator(Modifier.size(20.dp))
@@ -643,7 +647,7 @@ private fun RelaysScreen(model: AppModel) {
             TopAppBar(
                 title = { Text("Relays") },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromRelays() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
+                    TextButton(onClick = { model.backFromRelays() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 },
                 actions = {
                     if (model.relaysLoading) CircularProgressIndicator(Modifier.size(20.dp))
@@ -825,7 +829,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = { model.backToChatList() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
+                TextButton(onClick = { model.backToChatList() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 Text(
                     chat.title,
                     modifier = Modifier.weight(1f),
@@ -833,7 +837,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 if (!chat.isGroup) {
-                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Icon(VeltaIcons.info, contentDescription = "Info") }
+                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Icon(VeltaIcons.info, contentDescription = "Info", modifier = Modifier.size(24.dp), tint = Velta.tokens.textDim) }
                 }
                 if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
@@ -945,7 +949,7 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
             TopAppBar(
                 title = { Text("Profile") },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromProfile() }) { Icon(VeltaIcons.arrowLeft, contentDescription = "Back") }
+                    TextButton(onClick = { model.backFromProfile() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 },
             )
         },
@@ -1152,29 +1156,79 @@ private fun Composer(model: AppModel) {
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        Row(verticalAlignment = Alignment.Bottom) {
-            TextButton(onClick = { model.attach() }) { Icon(VeltaIcons.attach, contentDescription = "Attach") }
-            OutlinedTextField(
-                value = model.composerText,
-                onValueChange = { model.composerText = it },
-                placeholder = { Text("Message") },
-                modifier = Modifier.weight(1f),
-                maxLines = 4,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    disabledContainerColor = Color.Transparent,
-                    focusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                ),
-            )
-            Spacer(Modifier.size(8.dp))
-            Button(
-                onClick = { model.send() },
-                enabled = !model.sending &&
-                    (model.composerText.isNotBlank() || model.pendingAttachment != null),
+        // Velta stable composer (app/index.html footer.composer): 48dp icon
+        // buttons, a 48dp-min 16dp-radius input wrap on bgSidebar, no Material
+        // chrome. Icons ride --ico-5 (26px); send is accentText when armed.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                IconButton(onClick = { model.attach() }, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        VeltaIcons.attach,
+                        contentDescription = "Attach",
+                        modifier = Modifier.size(26.dp),
+                        tint = Velta.tokens.textDim,
+                    )
+                }
+            }
+            Row(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .background(Velta.tokens.bgSidebar, RoundedCornerShape(16.dp))
+                    .border(1.dp, Velta.tokens.border, RoundedCornerShape(16.dp)),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (model.sending) Text("…") else Icon(VeltaIcons.send, contentDescription = "Send")
+                BasicTextField(
+                    value = model.composerText,
+                    onValueChange = { model.composerText = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 16.dp, end = 6.dp, top = 13.dp, bottom = 13.dp),
+                    textStyle = TextStyle(
+                        fontSize = 15.5.sp,
+                        lineHeight = (15.5f * 1.3f).sp,
+                        color = Velta.tokens.text,
+                    ),
+                    cursorBrush = SolidColor(Velta.tokens.accent),
+                    maxLines = 4,
+                    decorationBox = { inner ->
+                        Box {
+                            if (model.composerText.isEmpty()) {
+                                Text(
+                                    "Message",
+                                    style = TextStyle(
+                                        fontSize = 15.5.sp,
+                                        lineHeight = (15.5f * 1.3f).sp,
+                                        color = Velta.tokens.textDim,
+                                    ),
+                                )
+                            }
+                            inner()
+                        }
+                    },
+                )
+            }
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                IconButton(
+                    onClick = { model.send() },
+                    enabled = !model.sending &&
+                        (model.composerText.isNotBlank() || model.pendingAttachment != null),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        VeltaIcons.send,
+                        contentDescription = "Send",
+                        modifier = Modifier.size(26.dp),
+                        tint = if (model.sending || (model.composerText.isBlank() && model.pendingAttachment == null)) {
+                            Velta.tokens.textDim
+                        } else {
+                            Velta.tokens.accentText
+                        },
+                    )
+                }
             }
         }
     }

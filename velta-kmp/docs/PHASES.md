@@ -516,3 +516,16 @@ icon, ktlint/detekt, and N4 (release keystore, `org.velta` switchover).
 - RelaysScreen notice race fixed: relaysNotice clears on
   backFromRelays, not on refresh (openRelays' refresh was nulling the
   max-relays reason it was given).
+
+## 2026-11-12 — #321 step 3: composer + chat header to stable's structure
+
+The composer is Velta stable's footer.composer now: 48dp circular icon
+buttons (icons at --ico-5 = 26px), a 48dp-min 16dp-radius input wrap on
+bgSidebar with a 1dp border, a naked BasicTextField (15.5sp / 1.3 line
+height — the .msg-text ladder) with the textDim "Message" placeholder,
+and the send icon tinted accentText when armed, textDim otherwise. No
+Material chrome left in the composer. The chat header's back/info are
+chevronLeft/info at textDim per .chat-head. The sticker button (inside
+the wrap's right edge on the web) is skipped until a KMP sticker picker
+exists. GLASS DEFERRED by user decision: the header's refraction
+artifacts + rim line stay as-is for now (#321 step 5+ revisit).
