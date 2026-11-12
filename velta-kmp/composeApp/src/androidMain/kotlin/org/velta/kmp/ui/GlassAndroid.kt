@@ -133,7 +133,9 @@ internal actual fun GlassPlate(
                 if (Build.VERSION.SDK_INT < 33) null
                 else runCatching { RuntimeShader(GLASS_AGSL) }.getOrNull()
             }
-            val radiusPx = with(LocalDensity.current) { radius.toPx() }
+            val density = LocalDensity.current
+            val radiusPx = with(density) { radius.toPx() }
+            val maxShiftPx = with(density) { 14.dp.toPx() }
             val mix = if (plate.luminance() < 0.5f) 0.22f else 0.12f
             Box(
                 Modifier
@@ -151,10 +153,7 @@ internal actual fun GlassPlate(
                             // fixed small offset, not a fraction of the plate —
                             // a proportional one dragged crisp bubble edges from
                             // below the header into it as diagonal shards.
-                            shader.setFloatUniform(
-                                "strength",
-                                min(short * 0.30f, with(LocalDensity.current) { 14.dp.toPx() }),
-                            )
+                            shader.setFloatUniform("strength", min(short * 0.30f, maxShiftPx))
                             shader.setFloatUniform("blur", short * 0.045f)
                             shader.setFloatUniform("plateMix", mix)
                             shader.setFloatUniform("plate", plate.red, plate.green, plate.blue)
