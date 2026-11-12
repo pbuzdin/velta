@@ -44,9 +44,9 @@ a numbered version or move the tag to include it.
 
 - **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
-- **`velta-kmp/`** — **the native Android client** (Compose Multiplatform,
-  core in-process via the rpc-shim cdylib, #192). Android delivery track
-  after the Rust-UI flip (2026-11-12): P0–P5.1 shipped (messaging, QR
+- **`velta-kmp/`** — native client, **work in progress** (Compose Multiplatform,
+  core in-process via the rpc-shim cdylib, #192), installed side by side with
+  the Tauri app (`org.velta.kmp`). Back in active work since 2026-11-12: P0–P5.1 shipped (messaging, QR
   onboarding, relays, accounts, DB encryption, app lock, background sync).
   2026-11-12 additions: Prism person colors + fingerprint identity
   matrices (bit-identical to the PWA, pinned in PrismIdentityTest), the
@@ -59,9 +59,9 @@ a numbered version or move the tag to include it.
   `tools/gen-kmp-theme.mjs` (#318). Never hand-edit it; regenerate after a
   token change, or `tests/kmp-theme-tokens.test.mjs` fails.
 - **`rust-ui/preview/`** (branch `rust-ui-preview`) — a renderer/design
-  lab (Masonry + winit; skia/vello hybrid/gpu + glass compositing). The
-  2026-11-12 verdict made the Compose client the Android delivery track;
-  the lab keeps the renderer knowledge (vello/gpu deadlocks on Adreno,
+  lab and work-in-progress experiment (Masonry + winit; skia/vello
+  hybrid/gpu + glass compositing), not a successor to the web UI; it keeps
+  the renderer knowledge (vello/gpu deadlocks on Adreno,
   vello_hybrid draws no color emoji, skia met the set). Verdict: #314;
   write-up: velta.cc/news/rust-ui-take.html.
 
@@ -175,7 +175,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
-├── velta-kmp/            # the native Android client (Compose, #192) — delivery track
+├── velta-kmp/            # native client, work in progress (Compose, #192)
 ├── velta-app/            # Tauri v2 wrapper
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)

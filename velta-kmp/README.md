@@ -3,8 +3,10 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-12):** promoted to the Android delivery track (Rust-UI flip,
-#314 verdict) — design port started (Prism person colors + fingerprint
+**Status (2026-11-12):** back in active work, still a work in progress
+(#192); the Tauri app stays Velta's shipping Android client. Debug APKs are
+signed with the shared `composeApp/debug.keystore` and take the CI run number
+as versionCode, so each build installs over the previous one — design port started (Prism person colors + fingerprint
 identity matrix, web-parity vectors pinned in tests). Previous status:
 **2026-11-02:** P0–P3 complete, P4 functional slices done (12),
 P5 opened (release builds + size shipped) — the client onboards from
@@ -19,7 +21,7 @@ no-network e2e round-trips against the real core gate every push. See
 |---|---|---|
 | PWA (`../app`) | build-less web UI | flagship, unchanged |
 | Tauri shell (`../velta-app`) | wraps the PWA | unchanged until KMP parity |
-| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | **Android delivery track** (2026-11-12), issue #192 |
+| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | **work in progress** (back in work 2026-11-12), issue #192 |
 
 ## What works today
 

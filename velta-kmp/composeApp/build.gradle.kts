@@ -82,7 +82,9 @@ android {
         applicationId = "org.velta.kmp"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
+        // CI run number keeps each build newer than the last, so APKs
+        // upgrade in place instead of failing as a downgrade.
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
         versionName = "0.1.0"
         buildConfigField("String", "VAPID_KEY", quoted(veltaVapidKey))
     }
@@ -92,6 +94,15 @@ android {
     }
 
     signingConfigs {
+        // Shared debug key (committed, debug-only, password "android") so every
+        // CI and local debug APK has the same signature and installs over the
+        // previous one. Never use it for anything but test builds.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (hasReleaseKeystore) {
             create("release") {
                 storeFile = file(keystoreProps.getProperty("storeFile"))

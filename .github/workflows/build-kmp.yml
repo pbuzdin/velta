@@ -1,8 +1,8 @@
 name: Build KMP
 
 on:
-  # Unfrozen 2026-11-12: velta-kmp is the Android delivery track (#192,
-  # Rust-UI flip) — build on every master push that touches it.
+  # Unfrozen 2026-11-12: velta-kmp is back in active work (#192) — build
+  # on every master push that touches it.
   workflow_dispatch:
   push:
     branches: [master]

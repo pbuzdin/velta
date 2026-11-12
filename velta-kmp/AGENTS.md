@@ -4,9 +4,9 @@ Native Android + Desktop client (Kotlin Multiplatform + Compose Multiplatform).
 Tracking issue: **#192**. Phase status + honest gaps: **docs/PHASES.md**.
 Read this file before touching anything in this folder.
 
-**2026-11-12: this folder is the Android delivery track** (flip decision —
-the Rust UI preview is a lab, verdict in #314; public write-up
-velta.cc/news/rust-ui-take.html). Phase plan in #192: N1 design port
+**2026-11-12: KMP is back in active work, still a work in progress** (the
+Tauri app remains Velta's shipping Android client; the Rust UI preview is a
+separate work-in-progress experiment, #314). Phase plan in #192: N1 design port
 (Prism + identity matrix — shipped, see PrismIdentityTest), N2
 conversation notifications + RPC hardening, N3 AGSL glass, N4 release.
 
