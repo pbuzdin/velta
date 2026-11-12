@@ -14,6 +14,8 @@ import org.velta.kmp.ui.VeltaThemeMode
 import org.velta.kmp.ui.VeltaTokenSets
 import org.velta.kmp.ui.veltaColorScheme
 import org.velta.kmp.ui.veltaTokensFor
+import org.velta.kmp.ui.veltaTypography
+import androidx.compose.ui.text.lerp
 
 class VeltaThemeTest {
     @Test
@@ -41,5 +43,13 @@ class VeltaThemeTest {
         assertEquals(VeltaTokenSets.Light.bgBubbleOut, s.primaryContainer)
         assertEquals(VeltaTokenSets.Light.text, s.onBackground)
         assertEquals(VeltaTokenSets.Light.border, s.outline)
+    }
+
+    @Test
+    fun typographyStylesLerpWithoutUnitMismatch() {
+        // Text field labels lerp bodyLarge <-> bodySmall; Em vs Sp crashed on launch.
+        val t = veltaTypography()
+        lerp(t.bodyLarge, t.bodySmall, 0.5f)
+        lerp(t.bodyMedium, t.bodySmall, 0.5f)
     }
 }
