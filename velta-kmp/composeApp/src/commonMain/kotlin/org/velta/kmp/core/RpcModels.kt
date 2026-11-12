@@ -131,6 +131,8 @@ data class CoreQr(
     val contactId: Long? = null,
 ) {
     val isAccountInvite: Boolean get() = kind == "account"
+    /** DCLOGIN: an address (+password) sign-in to an existing relay account. */
+    val isLoginInvite: Boolean get() = kind == "login"
     val isSecureJoin: Boolean
         get() = kind == "askVerifyContact" || kind == "askVerifyGroup" || kind == "askJoinBroadcast"
 }
