@@ -52,6 +52,36 @@ class MarkdownTest {
     }
 
     @Test
+    fun bareLinksTakeTheTierRules() {
+        val s = markdownAnnotated("see github.com/u/r and main.js and example.com:8080/a", accent, bg, ink)
+        assertEquals("see github.com/u/r and main.js and example.com:8080/a", s.text)
+        assertTrue(s.getStringAnnotations("URL", 0, s.length).any { it.item == "https://github.com/u/r" }, "tier1 path links")
+        assertTrue(s.getStringAnnotations("URL", 0, s.length).any { it.item == "https://example.com:8080/a" }, "port+tail links tier1")
+        assertTrue(
+            s.getStringAnnotations("URL", 0, s.length).none { it.item.contains("main.js") },
+            "file names never link",
+        )
+    }
+
+    @Test
+    fun mentionsResolveMembers() {
+        val members = listOf(org.velta.kmp.ui.MentionMember(7, "Pavel", "A1B2"))
+        val s = markdownAnnotated("hey @Pavel check @Pavel (A1B2)", accent, bg, ink, members)
+        assertEquals("hey @Pavel check @Pavel (A1B2)", s.text)
+        val anns = s.getStringAnnotations("MENTION", 0, s.length)
+        assertEquals(2, anns.size, "both forms resolve")
+        assertTrue(anns.all { it.item == "7" })
+    }
+
+    @Test
+    fun inviteLinksGetInviteAnnotation() {
+        val url = "https://velta.cc/join/#" + "A".repeat(40)
+        val s = markdownAnnotated("join: $url", accent, bg, ink)
+        assertTrue(s.getStringAnnotations("INVITE", 0, s.length).any { it.item == url }, "invite annotated")
+        assertTrue(s.getStringAnnotations("URL", 0, s.length).none { it.item == url }, "not a plain URL")
+    }
+
+    @Test
     fun nonHttpsIsNeverALink() {
         val s = markdownAnnotated("ftp://x [x](javascript:alert(1))", accent, bg, ink)
         assertEquals(0, s.getUrlAnnotations("URL", "javascript:alert(1)").size)

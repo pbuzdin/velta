@@ -549,3 +549,17 @@ artifacts + rim line stay as-is for now (#321 step 5+ revisit).
   mentions, bare-link buttons, code-click-to-copy.
 - **Chat-list rows** — photo avatar (decodeImage of avatarPath, 48dp
   crop) over the Prism tile, timestamp, mute/pin icons, counter badge.
+
+## 2026-11-12 — step 4 completion: the skipped web behavior, ported
+
+The rest of the markdown pipeline, no longer skipped: bare-links.js
+(BareLinks.kt — TLD tier rules, boundaries, trimLinkEnd), mentions.js
+(Mentions.kt — coded @(Name A1B2) + bare @Name forms, members cached per
+chat via get_chat_contacts + fingerprints), code spans click-to-copy
+(CODE annotation → clipboard), invite links (parseInviteLink → INVITE
+annotation → the bubble renders the web's .invite-card; tapping routes
+to the Join flow), quote image thumbs + quote-tap-to-jump (scrolls when
+the quoted message is in the loaded window), and the sticker button +
+picker (misc_get_stickers packs, send_sticker). Tests pin bare-link
+tiers, mention resolution (both forms), invite annotation, and that
+non-https never links.

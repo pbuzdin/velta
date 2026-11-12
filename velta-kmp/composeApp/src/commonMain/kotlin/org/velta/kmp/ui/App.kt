@@ -26,7 +26,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -39,7 +43,13 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.Image
@@ -786,6 +796,15 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     LaunchedEffect(nearOlderEnd, model.hasMoreMessages) {
         if (nearOlderEnd && model.hasMoreMessages) model.loadOlderMessages()
     }
+    // Quote-tap jump (#321 step 4): scroll when the quoted message is in
+    // the loaded window; clear the request either way.
+    LaunchedEffect(model.pendingJumpToId) {
+        val wanted = model.pendingJumpToId ?: return@LaunchedEffect
+        val rows = chatRows(model.chatMessages)
+        val idx = rows.indexOfFirst { it is ChatRow.Message && it.message.id == wanted }
+        if (idx >= 0) listState.animateScrollToItem(idx)
+        model.pendingJumpToId = null
+    }
     LaunchedEffect(model.chatMessages.size) {
         val rows = chatRows(model.chatMessages)
         if (rows.isEmpty()) return@LaunchedEffect
@@ -839,6 +858,8 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     is ChatRow.Message -> MessageBubble(
                         message = row.message,
                         senderName = if (chat.isGroup) model.senderNames[row.message.fromId] else null,
+                        members = model.chatMembers[chat.chatId] ?: emptyList(),
+                        model = model,
                         onTap = { model.toggleMessageActions(row.message) },
                     )
                 }
@@ -1135,6 +1156,17 @@ private fun MessageActionBar(model: AppModel) {
 private fun Composer(model: AppModel) {
     val reply = model.replyTo
     val attachment = model.pendingAttachment
+    var showStickers by remember { mutableStateOf(false) }
+    if (showStickers) {
+        StickerPicker(
+            packs = model.stickerPacks,
+            onPick = { path ->
+                showStickers = false
+                model.sendSticker(path)
+            },
+            onDismiss = { showStickers = false },
+        )
+    }
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (reply != null) {
             Row(
@@ -1215,7 +1247,7 @@ private fun Composer(model: AppModel) {
                     onValueChange = { model.composerText = it },
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 16.dp, end = 6.dp, top = 13.dp, bottom = 13.dp),
+                        .padding(start = 16.dp, end = 0.dp, top = 13.dp, bottom = 13.dp),
                     textStyle = TextStyle(
                         fontSize = 15.5.sp,
                         lineHeight = (15.5f * 1.3f).sp,
@@ -1239,6 +1271,19 @@ private fun Composer(model: AppModel) {
                         }
                     },
                 )
+                // Sticker picker trigger (web #btn-sticker): inside the
+                // wrap's right edge, 34dp circle, textDim.
+                Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+                    IconButton(onClick = { model.loadStickers(); showStickers = !showStickers }, modifier = Modifier.size(34.dp)) {
+                        Icon(
+                            VeltaIcons.sticker,
+                            contentDescription = "Stickers",
+                            modifier = Modifier.size(22.dp),
+                            tint = Velta.tokens.textDim,
+                        )
+                    }
+                }
+                Spacer(Modifier.size(5.dp))
             }
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                 IconButton(
@@ -1263,11 +1308,128 @@ private fun Composer(model: AppModel) {
     }
 }
 
+/** Web .sticker-pop (ui.js): pack-named grid of sticker images; a tap sends. */
+@Composable
+private fun StickerPicker(
+    packs: Map<String, List<String>>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = Velta.tokens.bgSidebar,
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Velta.tokens.border),
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+        ) {
+            if (packs.isEmpty()) {
+                Text(
+                    "No sticker packs installed",
+                    modifier = Modifier.padding(16.dp),
+                    color = Velta.tokens.textDim,
+                    fontSize = 14.sp,
+                )
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    packs.forEach { (pack, stickers) ->
+                        item(key = pack) {
+                            Text(
+                                pack,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = Velta.tokens.text,
+                                modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 4.dp),
+                            )
+                        }
+                        item(key = pack + "#grid") {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(4),
+                                modifier = Modifier.heightIn(max = 200.dp),
+                            ) {
+                                items(stickers.size) { idx ->
+                                    val path = stickers[idx]
+                                    val bitmap = remember(path) { decodeImage(path) }
+                                    Box(
+                                        Modifier
+                                            .padding(6.dp)
+                                            .size(64.dp)
+                                            .clickable { onPick(path) },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (bitmap != null) {
+                                            Image(
+                                                bitmap,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(64.dp),
+                                                contentScale = ContentScale.Fit,
+                                            )
+                                        } else {
+                                            Text("?", color = Velta.tokens.textDim)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Web .invite-card (invites.js): the whole card is the join button. */
+@Composable
+private fun InviteCard(url: String, onJoin: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val bg = if (dark) Color(0x0FF4F4F4) else Color(0x0D101010)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 5.dp)
+            .background(bg, RoundedCornerShape(10.dp))
+            .border(1.dp, Velta.tokens.border, RoundedCornerShape(10.dp))
+            .clickable(onClick = onJoin),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+            Text(
+                "Join",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                lineHeight = (15f * 1.35f).sp,
+                color = Velta.tokens.text,
+            )
+            Text(
+                url,
+                fontSize = 13.sp,
+                color = Velta.tokens.textDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            VeltaIcons.chevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = Velta.tokens.textDim,
+        )
+        Spacer(Modifier.size(10.dp))
+    }
+}
+
 private val MEDIA_VIEWTYPES = setOf("Image", "Gif", "Sticker")
 
 @Composable
-private fun MessageBubble(message: MessageObject, senderName: String?, onTap: () -> Unit) {
+private fun MessageBubble(
+    message: MessageObject,
+    senderName: String?,
+    members: List<MentionMember>,
+    model: AppModel,
+    onTap: () -> Unit,
+) {
     val outgoing = message.fromId == 1L // ContactId.SELF
+    val clipboard = LocalClipboardManager.current
+    val uriHandler = LocalUriHandler.current
     // .bubble CSS: radius 14px, the tail corner drops to 6px on the sender
     // side; padding 7px 10px 6px; 1px shadow; tokens bgBubbleIn/Out.
     val bubbleShape = RoundedCornerShape(
@@ -1310,7 +1472,8 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                             .fillMaxWidth()
                             .height(IntrinsicSize.Min)
                             .padding(bottom = 5.dp)
-                            .background(quoteBg, RoundedCornerShape(6.dp)),
+                            .background(quoteBg, RoundedCornerShape(6.dp))
+                            .clickable { model.jumpToQuoted(quote.messageId) },
                     ) {
                         Box(
                             Modifier
@@ -1318,6 +1481,20 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                                 .fillMaxHeight()
                                 .background(Velta.tokens.accent),
                         )
+                        val quoteImage = quote.image?.takeIf { it.isNotBlank() }
+                            ?.let { path -> remember(path) { decodeImage(path) } }
+                        if (quoteImage != null) {
+                            Image(
+                                quoteImage,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
+                                    .height(44.dp)
+                                    .width(64.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                        }
                         Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                             if (!quote.authorDisplayName.isNullOrBlank()) {
                                 Text(
@@ -1358,16 +1535,45 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                     }
                 }
                     if (message.text.isNotBlank()) {
+                        val annotated = markdownAnnotated(
+                            message.text,
+                            accent = if (outgoing) quoteName else Velta.tokens.accent,
+                            codeBackground = quoteBg,
+                            textColor = Velta.tokens.text,
+                            members = members,
+                        )
+                        var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                         Text(
-                            markdownAnnotated(
-                                message.text,
-                                accent = if (outgoing) quoteName else Velta.tokens.accent,
-                                codeBackground = quoteBg,
-                                textColor = Velta.tokens.text,
-                            ),
+                            annotated,
                             fontSize = 15.5.sp,
                             lineHeight = (15.5f * 1.3f).sp,
+                            onTextLayout = { textLayout = it },
+                            modifier = Modifier.pointerInput(annotated) {
+                                detectTapGestures { offset ->
+                                    // Web semantics: code = click-to-copy,
+                                    // links open, invites route to Join.
+                                    val layout = textLayout ?: return@detectTapGestures
+                                    val pos = layout.getOffsetForPosition(offset)
+                                    for (a in annotated.getStringAnnotations(ANN_CODE, pos, pos)) {
+                                        clipboard.setText(AnnotatedString(a.item))
+                                        return@detectTapGestures
+                                    }
+                                    for (a in annotated.getStringAnnotations(ANN_INVITE, pos, pos)) {
+                                        model.openInviteLink(a.item)
+                                        return@detectTapGestures
+                                    }
+                                    for (a in annotated.getStringAnnotations(ANN_URL, pos, pos)) {
+                                        runCatching { uriHandler.openUri(a.item) }
+                                        return@detectTapGestures
+                                    }
+                                }
+                            },
                         )
+                        // Invite cards ride under the text like the web's
+                        // inviteCardHtml: one card per INVITE annotation.
+                        annotated.getStringAnnotations(ANN_INVITE, 0, annotated.length).forEach { a ->
+                            InviteCard(a.item) { model.openInviteLink(a.item) }
+                        }
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

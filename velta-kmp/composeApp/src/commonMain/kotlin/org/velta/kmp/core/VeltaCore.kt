@@ -253,6 +253,26 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call("get_connectivity", RpcClient.params(RpcClient.param(accountId)))
             .toString().trim('"').toInt()
 
+    /** Sticker packs (misc_get_stickers): pack name → sticker file paths. */
+    suspend fun getStickers(accountId: Long): Map<String, List<String>> {
+        val result = client.call("misc_get_stickers", RpcClient.params(RpcClient.param(accountId)))
+        val obj = result as? JsonObject ?: return emptyMap()
+        return obj.entries.associate { (pack, value) ->
+            pack to ((value as? JsonArray)?.mapNotNull {
+                (it as? kotlinx.serialization.json.JsonPrimitive)?.content
+            } ?: emptyList())
+        }
+    }
+
+    /** Core send_sticker — deprecated upstream but present and functional. */
+    suspend fun sendSticker(accountId: Long, chatId: Long, stickerPath: String) {
+        client.call(
+            "send_sticker",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(stickerPath)),
+            timeoutMs = null,
+        )
+    }
+
     suspend fun chatlistEntries(accountId: Long): List<Long> {
         val result = client.call(
             "get_chatlist_entries",

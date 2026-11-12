@@ -653,6 +653,7 @@ class AppModel(
             }
         }
         loadMessages(item.id)
+        loadChatMembers(item.id)
         refreshChats()
     }
 
@@ -978,6 +979,84 @@ class AppModel(
     fun startReply(message: MessageObject) {
         replyTo = message
         messageActions = null
+    }
+
+    // ---- Mentions: member list per chat (names + fingerprint codes) ----
+    var chatMembers by mutableStateOf<Map<Long, List<MentionMember>>>(emptyMap())
+        private set
+
+    /** Jump-to-message request (quote tap); consumed by the chat screen. */
+    var pendingJumpToId by mutableStateOf<Long?>(null)
+
+    /** Sticker packs for the composer picker (pack name → file paths). */
+    var stickerPacks by mutableStateOf<Map<String, List<String>>>(emptyMap())
+        private set
+
+    /** An invite link tapped inside a bubble — routed to the Join flow. */
+    fun openInviteLink(url: String) {
+        joinText = url
+        joinChecked = null
+        joinError = null
+        screen = Screen.Join
+        checkJoin()
+    }
+
+    /** Quote tap: jump when the quoted message is in the loaded window. */
+    fun jumpToQuoted(messageId: Long?) {
+        if (messageId != null && chatMessages.any { it.id == messageId }) {
+            pendingJumpToId = messageId
+        }
+    }
+
+    private fun loadChatMembers(chatId: Long) {
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            try {
+                val members = veltaCore.chatContactIds(id, chatId).mapNotNull { cid ->
+                    val c = runCatching { veltaCore.contact(id, cid) }.getOrNull() ?: return@mapNotNull null
+                    val name = c.displayName.ifBlank { c.name }.ifBlank { return@mapNotNull null }
+                    val fpr = runCatching {
+                        identityFingerprintFromEncrInfo(veltaCore.contactEncryptionInfo(id, cid) ?: "")
+                    }.getOrNull()
+                    MentionMember(cid, name, fpr?.take(4)?.uppercase() ?: "")
+                }
+                chatMembers = chatMembers + (chatId to members)
+            } catch (t: Throwable) {
+                println("velta-kmp: chat members for $chatId failed: $t")
+            }
+        }
+    }
+
+    /** Sticker packs, fetched once per session on first composer open. */
+    fun loadStickers() {
+        if (stickerPacks.isNotEmpty()) return
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            try {
+                stickerPacks = veltaCore.getStickers(id)
+            } catch (t: Throwable) {
+                println("velta-kmp: stickers failed: $t")
+            }
+        }
+    }
+
+    fun sendSticker(path: String) {
+        val veltaCore = core
+        val id = accountId
+        val chat = screen as? Screen.Chat ?: return
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            try {
+                veltaCore.sendSticker(id, chat.chatId, path)
+                loadMessages(chat.chatId, chat.isGroup)
+            } catch (t: Throwable) {
+                sendError = t.message ?: t.toString()
+            }
+        }
     }
 
     // ---- Chat paging (#223) ----

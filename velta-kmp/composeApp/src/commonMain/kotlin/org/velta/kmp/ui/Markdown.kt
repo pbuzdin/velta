@@ -9,22 +9,29 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.graphics.Color
 
 /**
- * Compose port of the web's markdown subset (app/js/markdown.js):
- * **bold**, __underline__, *italic* / _italic_, `code` spans,
- * [label](https://…) links + bare https URLs, #hashtags, and
- * "- "/"* " / "1." list lines. Escape-first on the web = build spans over
- * the RAW string here; only https URLs are treated as links.
+ * Compose port of the web's markdown pipeline (app/js/markdown.js +
+ * bare-links.js + mentions.js + invites.js): **bold**, __underline__,
+ * *italic* / _italic_, `code` spans (annotation CODE — click-to-copy),
+ * [label](https://…) links + bare scheme-less addresses (bare-links tiers),
+ * @mentions of chat members, #hashtags, velta invite links (annotation
+ * INVITE — the bubble renders the join card), and "- "/"* " / "1." list
+ * lines. Escape-first on the web = build spans over the RAW string here;
+ * only https URLs become links.
  */
+internal const val ANN_URL = "URL"
+internal const val ANN_CODE = "CODE"
+internal const val ANN_MENTION = "MENTION"
+internal const val ANN_INVITE = "INVITE"
+
 internal fun markdownAnnotated(
     text: String,
     accent: Color,
     codeBackground: Color,
     textColor: Color,
+    members: List<MentionMember> = emptyList(),
 ): AnnotatedString {
     if (text.isBlank()) return AnnotatedString(text)
     val builder = AnnotatedString.Builder()
-    // Line model: bullets and numbered items get a marker prefix; everything
-    // else keeps its line break (pre-wrap like the web's msg-text).
     val lines = text.split("\n")
     lines.forEachIndexed { index, rawLine ->
         if (index > 0) builder.append("\n")
@@ -33,13 +40,13 @@ internal fun markdownAnnotated(
             trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
                 builder.append(rawLine.take(rawLine.length - trimmed.length))
                 builder.append("•  ")
-                appendInline(builder, trimmed.drop(2), accent, codeBackground, textColor)
+                appendInline(builder, trimmed.drop(2), accent, codeBackground, textColor, members)
             }
             Regex("^\\d+[.)] ").containsMatchIn(trimmed) -> {
                 builder.append(rawLine.take(rawLine.length - trimmed.length))
-                appendInline(builder, trimmed, accent, codeBackground, textColor)
+                appendInline(builder, trimmed, accent, codeBackground, textColor, members)
             }
-            else -> appendInline(builder, rawLine, accent, codeBackground, textColor)
+            else -> appendInline(builder, rawLine, accent, codeBackground, textColor, members)
         }
     }
     return builder.toAnnotatedString()
@@ -48,14 +55,13 @@ internal fun markdownAnnotated(
 private const val URL_RE = "https://[\\p{L}\\p{N}._~:/?#\\[\\]@!$&'()*+,;=%-]+"
 private const val EM_RE = "(\\*\\*([^*\\n]+)\\*\\*)|(__([^_\\n]+)__)|(\\*([^*\\n]+)\\*)|(_([^_\\n]+)_)"
 
-/** Inline pass: nearest-marker dispatch — whichever construct starts first
- * wins, so the text before it still runs through the other passes. */
 private fun appendInline(
     builder: AnnotatedString.Builder,
     content: String,
     accent: Color,
     codeBackground: Color,
     textColor: Color,
+    members: List<MentionMember>,
 ) {
     var i = 0
     val urlRe = Regex(URL_RE)
@@ -68,11 +74,15 @@ private fun appendInline(
         val hash = content.indexOf("#", i).takeIf {
             it != null && it >= 0 && it + 1 < content.length && content[it + 1].isLetterOrDigit()
         }
+        val bare = findBareLinks(content.substring(i)).firstOrNull()?.let { it.copy(start = it.start + i, end = it.end + i) }
+        val mention = findMentions(content.substring(i), members).firstOrNull()?.let { it.copy(start = it.start + i, end = it.end + i) }
         val first = buildList {
             code?.let { add(it to "code") }
             link?.let { add(it to "link") }
             em?.let { add(it.range.first to "em") }
             url?.let { add(it.range.first to "url") }
+            bare?.let { add(it.start to "bare") }
+            mention?.let { add(it.start to "mention") }
             hash?.let { add(it to "hash") }
         }.minByOrNull { it.first }
         when (first?.second) {
@@ -80,8 +90,10 @@ private fun appendInline(
                 val open = code!!
                 val end = content.indexOf("`", open + 1)
                 appendEmphasis(builder, content.substring(i, open), accent, textColor)
+                builder.pushStringAnnotation(ANN_CODE, content.substring(open + 1, end))
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground))
                 builder.append(content.substring(open + 1, end))
+                builder.pop()
                 builder.pop()
                 i = end + 1
             }
@@ -93,14 +105,14 @@ private fun appendInline(
                 val urlText = if (endParen > 0) content.substring(openParen + 1, endParen) else ""
                 if (close >= 0 && urlText.startsWith("https://")) {
                     appendEmphasis(builder, content.substring(i, open), accent, textColor)
-                    builder.pushStringAnnotation("URL", urlText)
+                    val ann = if (parseInviteLink(urlText) != null) ANN_INVITE else ANN_URL
+                    builder.pushStringAnnotation(ann, urlText)
                     builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
                     builder.append(content.substring(open + 1, close))
                     builder.pop()
                     builder.pop()
                     i = endParen + 1
                 } else {
-                    // Not a link — keep the bracket literal and move on.
                     appendEmphasis(builder, content.substring(i, open + 1), accent, textColor)
                     i = open + 1
                 }
@@ -108,12 +120,33 @@ private fun appendInline(
             "url" -> {
                 val u = url!!
                 appendEmphasis(builder, content.substring(i, u.range.first), accent, textColor)
-                builder.pushStringAnnotation("URL", u.value)
+                val ann = if (parseInviteLink(u.value) != null) ANN_INVITE else ANN_URL
+                builder.pushStringAnnotation(ann, u.value)
                 builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
                 builder.append(u.value)
                 builder.pop()
                 builder.pop()
                 i = u.range.last + 1
+            }
+            "bare" -> {
+                val b = bare!!
+                appendEmphasis(builder, content.substring(i, b.start), accent, textColor)
+                builder.pushStringAnnotation(ANN_URL, b.url)
+                builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
+                builder.append(b.text)
+                builder.pop()
+                builder.pop()
+                i = b.end
+            }
+            "mention" -> {
+                val m = mention!!
+                appendEmphasis(builder, content.substring(i, m.start), accent, textColor)
+                builder.pushStringAnnotation(ANN_MENTION, m.member.id.toString())
+                builder.pushStyle(SpanStyle(color = accent, background = codeBackground, fontWeight = FontWeight.Medium))
+                builder.append(content.substring(m.start, m.end))
+                builder.pop()
+                builder.pop()
+                i = m.end
             }
             "hash" -> {
                 val h = hash!!
@@ -190,4 +223,29 @@ private fun appendEmphasis(
 private fun AnnotatedString.Builder.appendPlain(part: String) {
     if (part.isEmpty()) return
     append(part)
+}
+
+/**
+ * Port of invites.js parseInviteLink (host-list check relaxed to the
+ * fingerprint payload, which is the real validator): `openpgp4fpr:` passes
+ * through; an https URL with a 40-hex fingerprint in the fragment or query
+ * (or `?invite=<urlencoded>`) is a velta invite.
+ */
+internal fun parseInviteLink(raw: String): String? {
+    val s = raw.trim()
+    if (s.isEmpty()) return null
+    if (Regex("^openpgp4fpr:", RegexOption.IGNORE_CASE).containsMatchIn(s)) return s
+    if (!s.startsWith("https://")) return null
+    val form = run {
+        val fragment = s.substringAfter("#", "").removePrefix("/")
+        if (Regex("^([0-9A-Fa-f]{40})(?:[&#]|$)").containsMatchIn(fragment)) return@run fragment
+        val query = s.substringAfter("?", "").substringBefore("#")
+        if (query.startsWith("invite=")) {
+            val decoded = java.net.URLDecoder.decode(query.removePrefix("invite="), "UTF-8")
+                .replace(Regex("^https?://[^#\\s]*?[#?]", RegexOption.IGNORE_CASE), "")
+            decoded
+        } else query
+    }
+    val m = Regex("^([0-9A-Fa-f]{40})(?:[&#]([\\s\\S]*))?$").find(form) ?: return null
+    return s
 }
