@@ -64,8 +64,8 @@ touching it; it lists the Masonry and Android pitfalls and build steps.
   after the Rust-UI flip (2026-11-12): P0–P5.1 shipped (messaging, QR
   onboarding, relays, accounts, DB encryption, app lock, background sync);
   next = conversation notifications, RPC timeout/respawn, Prism/identity
-  port, AGSL glass. `build-kmp.yml` is `workflow_dispatch` only (no push
-  trigger yet).
+  port, AGSL glass. `build-kmp.yml` builds and tests on every master push
+  touching `velta-kmp/**`, and uploads the debug APK as an artifact.
 - **Standalone browser** — the wasm PWA dist (`scripts/build-pwa.mjs`) is a
   static site with the Chatmail core in a worker. Mail uses a WebSocket
   proxy on a chatmail relay; the PWA origin and the proxy host can differ
@@ -176,7 +176,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
-├── velta-kmp/            # frozen KMP experiment (#294); build-kmp.yml is manual-only
+├── velta-kmp/            # the native Android client (Compose, #192) — delivery track
 ├── velta-app/            # Tauri v2 wrapper
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)

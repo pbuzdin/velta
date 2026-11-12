@@ -1,5 +1,12 @@
 # Velta preview (Rust UI)
 
+**Status (2026-11-12): this is a lab, not the delivery track.** The Android
+app is the Kotlin/Compose client (`velta-kmp/`, #192) — the flip verdict
+lives in #314 and at velta.cc/news/rust-ui-take.html. This folder keeps the
+renderer experiments (skia/vello hybrid/gpu, glass compositing) and the
+design-port references (Prism, identity matrix — the web-parity vectors are
+pinned here and mirrored in the Compose client).
+
 An experimental, minimal Velta client written in Rust with
 [Masonry](https://github.com/linebender/xilem/tree/main/masonry) and winit.
 It runs the chat core in-process (no JSON-RPC). It does not replace the web UI
