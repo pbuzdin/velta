@@ -4,8 +4,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import org.velta.kmp.ui.markdownAnnotated
+import org.velta.kmp.ui.parseInviteLink
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** #321 step 4: the bubble markdown subset (port of app/js/markdown.js). */
@@ -75,10 +77,54 @@ class MarkdownTest {
 
     @Test
     fun inviteLinksGetInviteAnnotation() {
-        val url = "https://velta.cc/join/#" + "A".repeat(40)
-        val s = markdownAnnotated("join: $url", accent, bg, ink)
-        assertTrue(s.getStringAnnotations("INVITE", 0, s.length).any { it.item == url }, "invite annotated")
-        assertTrue(s.getStringAnnotations("URL", 0, s.length).none { it.item == url }, "not a plain URL")
+        val fp = "A".repeat(40)
+        val s = markdownAnnotated("join: https://velta.cc/join/#$fp", accent, bg, ink)
+        // The annotation carries the CANONICAL i.delta.chat link — the core
+        // only parses that scheme, mirrors are normalized before the join.
+        assertTrue(
+            s.getStringAnnotations("INVITE", 0, s.length).any { it.item == "https://i.delta.chat/#$fp" },
+            "invite annotated with the canonical link",
+        )
+        assertTrue(
+            s.getStringAnnotations("URL", 0, s.length).none { it.item.endsWith(fp) },
+            "not a plain URL",
+        )
+    }
+
+    @Test
+    fun inviteParseCanonicalizesAndValidates() {
+        val fp = "0123456789abcdef0123456789abcdef01234567"
+        // Native scheme passes through; junk fingerprints are rejected
+        // (invites.js requires 40-hex on BOTH forms).
+        assertEquals("openpgp4fpr:$fp", parseInviteLink("openpgp4fpr:$fp"))
+        assertNull(parseInviteLink("openpgp4fpr:junk"))
+        // Mirror hosts canonicalize onto i.delta.chat before the join.
+        assertEquals(
+            "https://i.delta.chat/#$fp&g=Chat+RU",
+            parseInviteLink("https://velta.cc/#$fp&g=Chat+RU"),
+        )
+        assertEquals("https://i.delta.chat/#$fp", parseInviteLink("HTTPS://i.gluek.info/#$fp"))
+        // 40-hex on a NON-invite host stays a plain link (git permalinks!).
+        assertNull(parseInviteLink("https://github.com/a/b/commit/$fp"))
+        // ?invite= unwrapping: percent-only decode ('+' stays literal, the
+        // core's qr.rs reads it as space at the param level).
+        assertEquals(
+            "https://i.delta.chat/#$fp&g=Chat+RU",
+            parseInviteLink(
+                "https://velta.cc/join/?invite=" +
+                    "https%3A%2F%2Fi.delta.chat%2F%23$fp%26g%3DChat%2BRU",
+            ),
+        )
+        // Malformed escapes don't crash — kept raw, no 40-hex match, null.
+        assertNull(parseInviteLink("https://velta.cc/join/?invite=%zz"))
+    }
+
+    @Test
+    fun mdLinkInvitesStayAnchors() {
+        val fp = "A".repeat(40)
+        val s = markdownAnnotated("[join](https://velta.cc/#$fp)", accent, bg, ink)
+        assertEquals(0, s.getStringAnnotations("INVITE", 0, s.length).size, "no card for md-links")
+        assertEquals(1, s.getStringAnnotations("URL", 0, s.length).size, "plain anchor instead")
     }
 
     @Test

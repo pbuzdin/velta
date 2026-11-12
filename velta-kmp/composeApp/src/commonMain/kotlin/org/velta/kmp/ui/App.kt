@@ -1563,7 +1563,14 @@ private fun MessageBubble(
                                         return@detectTapGestures
                                     }
                                     for (a in annotated.getStringAnnotations(ANN_URL, pos, pos)) {
-                                        runCatching { uriHandler.openUri(a.item) }
+                                        // bindInviteInterception: an anchor
+                                        // whose href parses as an invite
+                                        // joins instead of opening the
+                                        // browser (md-link invites stay
+                                        // anchors — web's invite-card rule).
+                                        val invite = parseInviteLink(a.item)
+                                        if (invite != null) model.openInviteLink(invite)
+                                        else runCatching { uriHandler.openUri(a.item) }
                                         return@detectTapGestures
                                     }
                                 }

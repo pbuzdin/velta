@@ -563,3 +563,34 @@ the quoted message is in the loaded window), and the sticker button +
 picker (misc_get_stickers packs, send_sticker). Tests pin bare-link
 tiers, mention resolution (both forms), invite annotation, and that
 non-https never links.
+
+## 2026-11-13 — step 4 fidelity fixes: invites.js semantics pinned
+
+The web-parity audit of the step-4 completion found three places where the
+invite port drifted from invites.js, now fixed and pinned by tests:
+
+- **Canonicalization before the join** — invites.js normalizes every https
+  invite onto `https://i.delta.chat/#<fp><payload>` because the core only
+  parses that scheme; the KMP port passed the raw typed URL, so mirror
+  links (velta.cc/#fp, i.gluek.info) rendered a card but could not join.
+  parseInviteLink now RETURNS the canonical link and openInviteLink/
+  markdown annotations carry it (AppModel, Markdown, App tap handler).
+- **40-hex on BOTH forms** — web rejects `openpgp4fpr:junk`; KMP accepted
+  it and routed it to Join. Now validated like invites.js:103.
+- **Safe percent-decode** — java.net.URLDecoder crashed the composition on
+  `?invite=%zz` and turned '+' into space (web decodeURIComponent does
+  neither); replaced with a faithful decodeUriComponent (invalid escapes
+  kept raw, '+' literal — the core's qr.rs reads '+' as space at the param
+  level). The builtin invite-host list (velta.cc, i.delta.chat,
+  i.deltachat.id, i.gluek.info) is restored: a 40-hex URL on another host
+  (a git commit permalink!) is a plain link, not an invite card.
+- **md-link invites stay anchors** — web markdown.js renders
+  [label](invite) as a plain anchor (cards are bare-URL-only); the bubble
+  tap handler intercepts invite hrefs (bindInviteInterception parity).
+
+Still dropped (tracked as issues, see #321): the user-registered
+"Invite link domains" registry, invite short links, velta://ws|proxy +
+relay /i/ chips, invite-card copy/share + parsed labels, the composer
+@-autocomplete picker, `> ` quote blocks and emphasis-nested markdown
+tokens, the sticker save flow, and fetch-then-jump beyond the loaded
+window.

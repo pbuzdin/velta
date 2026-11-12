@@ -103,10 +103,12 @@ private fun appendInline(
                 val openParen = if (close >= 0 && close + 1 < content.length && content[close + 1] == '(') close + 1 else -1
                 val endParen = if (openParen >= 0) content.indexOf(")", openParen + 1) else -1
                 val urlText = if (endParen > 0) content.substring(openParen + 1, endParen) else ""
-                if (close >= 0 && urlText.startsWith("https://")) {
+                if (close >= 0 && urlText.startsWith("https://", ignoreCase = true)) {
                     appendEmphasis(builder, content.substring(i, open), accent, textColor)
-                    val ann = if (parseInviteLink(urlText) != null) ANN_INVITE else ANN_URL
-                    builder.pushStringAnnotation(ann, urlText)
+                    // Web markdown.js renders [label](invite) as a plain
+                    // anchor — invite CARDS are bare-URL-only; the bubble's
+                    // tap handler intercepts invite hrefs for the join flow.
+                    builder.pushStringAnnotation(ANN_URL, urlText)
                     builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
                     builder.append(content.substring(open + 1, close))
                     builder.pop()
@@ -120,8 +122,14 @@ private fun appendInline(
             "url" -> {
                 val u = url!!
                 appendEmphasis(builder, content.substring(i, u.range.first), accent, textColor)
-                val ann = if (parseInviteLink(u.value) != null) ANN_INVITE else ANN_URL
-                builder.pushStringAnnotation(ann, u.value)
+                // Bare https invites get the card (inviteCardHtml), carrying
+                // the CANONICAL link so the join works from mirror hosts.
+                val canonical = parseInviteLink(u.value)
+                if (canonical != null) {
+                    builder.pushStringAnnotation(ANN_INVITE, canonical)
+                } else {
+                    builder.pushStringAnnotation(ANN_URL, u.value)
+                }
                 builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
                 builder.append(u.value)
                 builder.pop()
@@ -131,7 +139,14 @@ private fun appendInline(
             "bare" -> {
                 val b = bare!!
                 appendEmphasis(builder, content.substring(i, b.start), accent, textColor)
-                builder.pushStringAnnotation(ANN_URL, b.url)
+                // Scheme-less invites (i.delta.chat/#fp typed bare) ride the
+                // same card path as their https:// spelled-out form.
+                val canonical = parseInviteLink(b.url)
+                if (canonical != null) {
+                    builder.pushStringAnnotation(ANN_INVITE, canonical)
+                } else {
+                    builder.pushStringAnnotation(ANN_URL, b.url)
+                }
                 builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
                 builder.append(b.text)
                 builder.pop()
@@ -226,26 +241,83 @@ private fun AnnotatedString.Builder.appendPlain(part: String) {
 }
 
 /**
- * Port of invites.js parseInviteLink (host-list check relaxed to the
- * fingerprint payload, which is the real validator): `openpgp4fpr:` passes
- * through; an https URL with a 40-hex fingerprint in the fragment or query
- * (or `?invite=<urlencoded>`) is a velta invite.
+ * Port of invites.js parseInviteLink: `openpgp4fpr:` passes through (the
+ * core parses that scheme natively); an https URL on a known invite host
+ * with a 40-hex fingerprint in the fragment or query (or
+ * `?invite=<urlencoded>`) is a velta invite. Both forms require the final
+ * 40-hex fingerprint check. Returns the CANONICAL link the core accepts —
+ * `https://i.delta.chat/#<fp><payload>` for https forms, the raw scheme URL
+ * for openpgp4fpr — because the core only parses that scheme and mirror
+ * hosts are irrelevant to the join (app.js: "the core only parses that
+ * scheme"). The user-registered "Invite link domains" registry is not
+ * ported yet; the four builtins are.
  */
+private val INVITE_HOSTS = setOf("velta.cc", "i.delta.chat", "i.deltachat.id", "i.gluek.info")
+private val FP_40 = Regex("^[0-9A-Fa-f]{40}$")
+private val FP_40_FORM = Regex("^([0-9A-Fa-f]{40})(?:[&#]([\\s\\S]*))?$")
+
 internal fun parseInviteLink(raw: String): String? {
     val s = raw.trim()
     if (s.isEmpty()) return null
-    if (Regex("^openpgp4fpr:", RegexOption.IGNORE_CASE).containsMatchIn(s)) return s
-    if (!s.startsWith("https://")) return null
+    val scheme = Regex("^openpgp4fpr:", RegexOption.IGNORE_CASE).find(s)
+    if (scheme != null) {
+        val fp = s.substring(scheme.value.length).substringBefore("#")
+        if (!FP_40.matches(fp)) return null
+        return s
+    }
+    if (!s.startsWith("https://", ignoreCase = true)) return null
+    val host = s.substring("https://".length)
+        .substringBefore('/').substringBefore('?').substringBefore('#')
+        .lowercase()
+    if (host !in INVITE_HOSTS) return null
+    // The payload rides the fragment ("#fp") or the query string; an
+    // ?invite=<urlencoded> value is unwrapped first. The fragment wins when
+    // both would match.
     val form = run {
         val fragment = s.substringAfter("#", "").removePrefix("/")
         if (Regex("^([0-9A-Fa-f]{40})(?:[&#]|$)").containsMatchIn(fragment)) return@run fragment
         val query = s.substringAfter("?", "").substringBefore("#")
         if (query.startsWith("invite=")) {
-            val decoded = java.net.URLDecoder.decode(query.removePrefix("invite="), "UTF-8")
+            decodeUriComponent(query.removePrefix("invite="))
                 .replace(Regex("^https?://[^#\\s]*?[#?]", RegexOption.IGNORE_CASE), "")
-            decoded
         } else query
     }
-    val m = Regex("^([0-9A-Fa-f]{40})(?:[&#]([\\s\\S]*))?$").find(form) ?: return null
-    return s
+    val m = FP_40_FORM.find(form) ?: return null
+    val payload = m.groupValues[2]
+    return "https://i.delta.chat/#${m.groupValues[1]}${if (payload.isEmpty()) "" else "&$payload"}"
+}
+
+/**
+ * decodeURIComponent port (invites.js:92): %XX escapes decode, everything
+ * else — including '+' — stays literal (invites.js's own doc: '+' means
+ * space at the fragment-PARAM level, and the core's qr.rs handles that).
+ * Invalid escapes are kept raw, matching the web's try/catch that keeps the
+ * undecoded value; java.net.URLDecoder was both crashy (`%zz`) and wrong
+ * ('+' → space).
+ */
+private fun decodeUriComponent(s: String): String {
+    if ('%' !in s) return s
+    val out = StringBuilder()
+    val bytes = ArrayList<Byte>(s.length)
+    var i = 0
+    fun flush() {
+        if (bytes.isNotEmpty()) {
+            out.append(bytes.toByteArray().decodeToString())
+            bytes.clear()
+        }
+    }
+    while (i < s.length) {
+        val c = s[i]
+        val hex = if (c == '%' && i + 2 < s.length) s.substring(i + 1, i + 3).toIntOrNull(16) else null
+        if (hex != null) {
+            bytes.add(hex.toByte())
+            i += 3
+        } else {
+            flush()
+            out.append(c)
+            i += 1
+        }
+    }
+    flush()
+    return out.toString()
 }

@@ -994,7 +994,10 @@ class AppModel(
 
     /** An invite link tapped inside a bubble — routed to the Join flow. */
     fun openInviteLink(url: String) {
-        joinText = url
+        // invites.js: mirror links are normalized onto the canonical
+        // i.delta.chat form BEFORE check/secure-join — the core only parses
+        // that scheme.
+        joinText = parseInviteLink(url) ?: url
         joinChecked = null
         joinError = null
         screen = Screen.Join
