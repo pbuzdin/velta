@@ -71,9 +71,11 @@ the vendored core (handshake, add_account, empty chatlist); fake-transport
 tests incl. out-of-order correlation and error mapping; CI green.
 
 **Missing:**
-- `call()` has no timeout — a wedged core hangs that call forever (needs a
-  timeout + core-respawn story).
-- No reconnect/respawn when the sidecar dies: UI just goes stale.
+- `call()` bounds ordinary RPCs (60s, 180s for configure / join / fetch).
+  `get_next_event` stays a long-poll. A timeout or a dropped connection
+  respawns the desktop sidecar. On Android a timeout kills the process
+  (the in-process shim cannot be restarted beside a wedged one); a dropped
+  socket reconnects to the same port. A second `startCore` is refused.
 - Narrow RPC surface only — no contacts, QR, backup, config settings yet.
 - Desktop sidecar binaries aren't produced/attached by CI (P5 item).
 
@@ -375,8 +377,32 @@ track. Shipped:
 - **CI** — build-kmp.yml unfrozen: builds/tests on every master push
   touching velta-kmp/**, and uploads the debug APK as an artifact.
 
-**Missing / next (N2, N3):** background delivery of notifications still
-needs the relay-side UnifiedPush notifier; RPC `call()` has no timeout and
-no core respawn; shim lifecycle is start-only; Storage and
-Chats-in-common profile rows; AGSL glass on the composer/header;
-ktlint/detekt.
+**Missing / next (N4):** background delivery of notifications still needs
+the relay-side UnifiedPush notifier. Shim `stopCore` JNI is still open.
+Still open on the client: Storage and Chats-in-common profile rows,
+video/audio playback, the brand app icon, ktlint/detekt, and N4 (release
+keystore, versionCode, `org.velta` switchover).
+
+## 2026-11-12 — N2 RPC hardening, chat-list header, N3 glass
+
+- **RPC** — `call()` bounds ordinary RPCs (60s, 180s for configure / join /
+  QR transport / background fetch). `get_next_event` stays a long-poll. A
+  timeout or a dropped connection respawns the desktop sidecar. On Android
+  a timeout kills the process; a dropped socket reconnects to the same
+  port. A second `startCore` is refused.
+- **Resume** — a configured account calls `select_account` and
+  `start_io_for_all_accounts`. `get_account_info` is read from kind
+  `"Configured"`, not a missing `isConfigured` field.
+- **Identity colors** — `identityFingerprintFromEncrInfo` follows web
+  `parseFingerprint`: blank-line blocks first, then the 40-hex window
+  inside the peer block.
+- **Chat-list header** — logo, search, overflow menu, relay strip. The
+  mark is `v_logo.png` (Android `painterResource` rejects SVG). The strip
+  is one segment per transport, colored by account `get_connectivity`.
+- **N3 glass** — composer and both headers sample one backdrop layer.
+  API 33 is an AGSL Snell bevel (IOR 1.5, bevel 46% of the short side,
+  peak shift 18% of the short side), clipped to the plate. API 31 blurs.
+  Older APIs and desktop stay translucent. The header plate includes the
+  status-bar inset. The lens is off while a reply, attachment, or
+  message-action bar is showing. The composer sits on the keyboard:
+  `adjustNothing` plus one `ime` union `navigationBars` padding.

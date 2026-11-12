@@ -11,6 +11,8 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import org.velta.kmp.ui.groupedFpr
+import org.velta.kmp.ui.relayBarState
 import org.velta.kmp.ui.identityCells
 import org.velta.kmp.ui.identityContrastText
 import org.velta.kmp.ui.identityFingerprintFromEncrInfo
@@ -114,17 +116,38 @@ class PrismIdentityTest {
         assertNull(identityCells("nokey"))
     }
 
-    // blockFpr semantics on get_contact_encryption_info text (the "Profile
-    // key" blocks; first block wins).
+    // get_contact_encryption_info prints self AND the peer, blank-line
+    // separated, sorted by fingerprint. The peer's key is the tile.
     @Test
     fun identityFingerprintParsesEncrInfo() {
-        val info = "Pavel:\n0E69 2C68 1043 36C2 1009 3DD1 2D40 21C2 591A BED9\n"
-        assertEquals("0E692C68104336C210093DD12D4021C2591ABED9", identityFingerprintFromEncrInfo(info))
-        val two = "Me:\nAAAA BBBB CCCC DDDD EEEE FFFF 0000 1111 2222 3333\n" +
-            "Pavel:\n0E69 2C68 1043 36C2 1009 3DD1 2D40 21C2 591A BED9"
-        assertEquals("AAAABBBBCCCCDDDDEEEEFFFF0000111122223333", identityFingerprintFromEncrInfo(two))
+        val pavel = "0E69 2C68 1043 36C2 1009\n3DD1 2D40 21C2 591A BED9"
+        val pavelHex = "0E692C68104336C210093DD12D4021C2591ABED9"
+        val me = "AAAA BBBB CCCC DDDD EEEE\nFFFF 0000 1111 2222 3333"
+        val meHex = "AAAABBBBCCCCDDDDEEEEFFFF0000111122223333"
+        assertEquals(pavelHex, identityFingerprintFromEncrInfo("Pavel:\n$pavel\n"))
+        // Self key sorts first. English "Me" and a translated header.
+        val meFirst = "Fingerprints:\n\nMe:\n$me\n\nPavel:\n$pavel\n\nRelays:\np@relay.example"
+        assertEquals(pavelHex, identityFingerprintFromEncrInfo(meFirst))
+        val ichFirst = "Fingerprints:\n\nIch:\n$me\n\nPavel:\n$pavel"
+        assertEquals(pavelHex, identityFingerprintFromEncrInfo(ichFirst, contactName = "Pavel"))
+        // Peer key sorts first.
+        assertEquals(pavelHex, identityFingerprintFromEncrInfo("Fingerprints:\n\nPavel:\n$pavel\n\nMe:\n$me"))
+        // Core <= 2.65 still puts the address in the header.
+        val v265 = "Fingerprints:\n\nMe (me@mail.org):\n$me\n\nPavel (pavel@mail.org):\n$pavel"
+        assertEquals(pavelHex, identityFingerprintFromEncrInfo(v265, contactAddr = "pavel@mail.org"))
+        assertEquals(meHex, identityFingerprintFromEncrInfo(v265, contactAddr = "me@mail.org"))
         assertNull(identityFingerprintFromEncrInfo("no key here"))
         assertNull(identityFingerprintFromEncrInfo("short: 0E69 2C68"))
+    }
+
+    /** Core v4 keys are 40 hex; v6 keys are 64. Both are newline-every-20. */
+    @Test
+    fun groupedFprFormatsRealKeyLengths() {
+        assertEquals(
+            "0E69 2C68 1043 36C2 1009\n3DD1 2D40 21C2 591A BED9",
+            groupedFpr("0E692C68104336C210093DD12D4021C2591ABED9"),
+        )
+        assertEquals(4, groupedFpr("A".repeat(64)).lines().size)
     }
 
     @Test
@@ -134,5 +157,14 @@ class PrismIdentityTest {
         assertContentEquals(intArrayOf(255, 255, 255), identityMonoFill(intArrayOf(255, 255, 255)))
         assertContentEquals(intArrayOf(28, 28, 28), identityContrastText(intArrayOf(255, 255, 0))) // Yellow: dark text
         assertContentEquals(intArrayOf(244, 244, 244), identityContrastText(intArrayOf(0, 0, 128))) // Navy: light text
+    }
+
+    @Test
+    fun relayBarFollowsCoreConnectivity() {
+        assertEquals("connecting", relayBarState(null))
+        assertEquals("connecting", relayBarState(2000))
+        assertEquals("connecting", relayBarState(3000))
+        assertEquals("ok", relayBarState(4000))
+        assertEquals("down", relayBarState(1000))
     }
 }

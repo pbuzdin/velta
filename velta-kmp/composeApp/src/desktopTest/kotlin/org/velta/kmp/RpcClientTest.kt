@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -22,11 +23,13 @@ import kotlin.test.assertTrue
 class FakeRpcTransport : RpcTransport {
     val sent = CopyOnWriteArrayList<String>()
     private var onLine: ((String) -> Unit)? = null
+    private var onExit: (() -> Unit)? = null
     var closed = false
         private set
 
     override fun start(onLine: (String) -> Unit, onExit: () -> Unit) {
         this.onLine = onLine
+        this.onExit = onExit
     }
 
     override fun send(line: String) {
@@ -39,6 +42,11 @@ class FakeRpcTransport : RpcTransport {
 
     fun emit(line: String) {
         onLine?.invoke(line)
+    }
+
+    /** Sidecar or shim dropped the connection. */
+    fun exit() {
+        onExit?.invoke()
     }
 }
 
@@ -123,5 +131,43 @@ class RpcClientTest {
         client.close() // closing fails all pending calls
         assertFailsWith<IllegalStateException> { call.await() }
         assertTrue(transport.closed)
+    }
+
+    @Test
+    fun callTimesOutAndSignalsARestart() = runBlocking {
+        val transport = FakeRpcTransport()
+        var restart: Boolean? = null
+        val client = RpcClient(transport, callTimeoutMs = 200, onLost = { restart = it })
+        val exception = assertFailsWith<RpcException> { client.call("get_chatlist_entries") }
+        assertTrue(exception.message!!.contains("timed out"))
+        assertTrue(transport.closed)
+        assertEquals(true, restart)
+        client.close()
+    }
+
+    @Test
+    fun longPollIsNotBoundedByTheCallTimeout() = runBlocking {
+        val transport = FakeRpcTransport()
+        val client = RpcClient(transport, callTimeoutMs = 200)
+        val call = testScope().async { client.call("get_next_event") }
+        awaitRequest(transport)
+        delay(500)
+        assertTrue(call.isActive)
+        client.close()
+        val error = assertFailsWith<IllegalStateException> { call.await() }
+        assertTrue(error.message!!.contains("closed"))
+    }
+
+    @Test
+    fun transportExitFailsThePendingCallWithoutRestartingTheProcess() = runBlocking {
+        val transport = FakeRpcTransport()
+        var restart: Boolean? = null
+        val client = RpcClient(transport, onLost = { restart = it })
+        val call = testScope().async { client.call("get_next_event") }
+        awaitRequest(transport)
+        transport.exit()
+        assertFailsWith<IllegalStateException> { call.await() }
+        assertEquals(false, restart)
+        client.close()
     }
 }

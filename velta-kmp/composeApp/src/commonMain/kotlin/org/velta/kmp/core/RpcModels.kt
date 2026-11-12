@@ -13,8 +13,13 @@ data class Account(
     val id: Long = 0,
     val addr: String? = null,
     val displayName: String? = null,
+    /** "Configured" or "Unconfigured". This is what get_account_info sends. */
+    val kind: String? = null,
+    /** Fixture-only. The live core sends [kind], not this field. */
     val isConfigured: Boolean? = null,
-)
+) {
+    val configured: Boolean get() = kind == "Configured" || isConfigured == true
+}
 
 /** `ChatListItemFetchResult::ChatListItem` (tagged `kind`), error variants dropped. */
 @Serializable

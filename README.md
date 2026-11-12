@@ -1671,6 +1671,7 @@ by value with their integration notes — lives in
 ```
 .
 ├── app/                        # Velta web frontend (vanilla JS, no build)
+├── velta-kmp/                  # Compose Android + desktop client (#192)
 ├── velta-app/              # Tauri 2 wrapper for Windows + Android
 │   └── src-tauri/
 │       ├── Cargo.toml          # Rust crate + deltachat-jsonrpc dependency

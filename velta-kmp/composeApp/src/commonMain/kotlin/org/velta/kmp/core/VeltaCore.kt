@@ -3,6 +3,7 @@ package org.velta.kmp.core
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
@@ -121,7 +122,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
 
     // ---- Relay management (P4) — the Velta differentiator. ----
 
-    /** All accounts (id + addr + isConfigured) in one call — the switcher's data. */
+    /** All accounts in one call — the switcher's data. Configured is `kind`. */
     suspend fun allAccounts(): List<Account> {
         val result = client.call("get_all_accounts")
         return (result as? JsonArray)?.mapNotNull { element ->
@@ -139,6 +140,11 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
     suspend fun selectAccount(id: Long) {
         client.call("select_account", RpcClient.params(RpcClient.param(id)))
     }
+
+    /** Rough relay status for the chat-list strip. 1000 down, 2000 connecting, 4000 connected. */
+    suspend fun connectivity(accountId: Long): Int =
+        client.call("get_connectivity", RpcClient.params(RpcClient.param(accountId)))
+            .toString().trim('"').toInt()
 
     /**
      * All configured transports (relays) with their metadata merged in.
@@ -383,6 +389,12 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (t: Throwable) {
+                    // A dropped connection ends the loop; the model reconnects.
+                    // Anything else (a single bad event) waits, so a dead core
+                    // cannot tight-spin get_next_event.
+                    if (!client.isOpen) break
+                    println("velta-kmp: event loop: $t")
+                    delay(1_000)
                     continue
                 }
                 onEvent(event)

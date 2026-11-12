@@ -45,6 +45,8 @@ class SendFlowTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
                     """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
@@ -83,6 +85,8 @@ class SendFlowTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
                     """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
@@ -122,6 +126,8 @@ class SendFlowTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
                     """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
@@ -165,6 +171,8 @@ class SendFlowTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
                     """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
@@ -208,6 +216,8 @@ class SendFlowTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
                     """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
@@ -239,6 +249,8 @@ class SendFlowTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
                     """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",

@@ -72,6 +72,9 @@ class JoinTest {
                 throw t
             }
             awaitRequest(transport, "add_transport_from_qr")
+            // Reusing the leftover unconfigured id must stick, or the relays
+            // screen (and every other accountId reader) no-ops.
+            assertEquals(1L, model.accountId)
             val addLine = transport.requests.first { "\"add_transport_from_qr\"" in it }
             assertTrue(addLine.contains("[1,\"DCACCOUNT:https://relay.example/i/tok\"]"), "add params: $addLine")
             // The legacy configure() RPC must NOT be called: in core 2.69's
@@ -96,6 +99,8 @@ class JoinTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[]",
                 "check_qr" to """{"kind":"askVerifyGroup","grpname":"Test Group","contactId":7}""",
                 "secure_join" to "42",

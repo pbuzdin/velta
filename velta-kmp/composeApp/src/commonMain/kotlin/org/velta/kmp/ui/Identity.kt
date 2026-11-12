@@ -146,19 +146,53 @@ private fun identityColorForCell(
     return fallback ?: idx
 }
 
-/**
- * The peer's fingerprint from `get_contact_encryption_info` text (the
- * "Profile key" blocks — core writes the key as ten 4-hex groups per line).
- * Web `blockFpr`: collect ALL non-overlapping 5-group windows (a 10-group
- * line = exactly 2), join, strip to hex, need ≥40, cut at 40, uppercase.
- */
-fun identityFingerprintFromEncrInfo(text: String): String? {
-    val joined = Regex("(?:[0-9A-Fa-f]{4} ){4}[0-9A-Fa-f]{4}")
-        .findAll(text)
-        .joinToString("") { it.value }
+private val FPR_WINDOW = Regex("(?:[0-9A-Fa-f]{4} ){4}[0-9A-Fa-f]{4}")
+private val BLOCK_GAP = Regex("\n\\s*\n")
+private val BLOCK_ADDR = Regex("\\(([^()\\s]+@[^()\\s]+)\\)")
+private val NOT_ME = Regex("^\\s*(me|you)\\b", RegexOption.IGNORE_CASE)
+
+/** One fingerprint block: five 4-hex groups per window, joined, first 40 hex. */
+private fun blockFpr(block: String): String? {
+    val joined = FPR_WINDOW.findAll(block).joinToString("") { it.value }
     if (joined.isEmpty()) return null
     val hex = joined.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
     return if (hex.length >= 40) hex.take(40).uppercase() else null
+}
+
+private fun blockAddr(block: String): String =
+    BLOCK_ADDR.find(block)?.groupValues?.get(1)?.lowercase().orEmpty()
+
+/** Core writes the peer block as "<display name>:" (or "<name> (addr):"). */
+private fun headerIs(block: String, name: String): Boolean {
+    val line = block.trimStart().lineSequence().firstOrNull()?.trim().orEmpty()
+    return line.startsWith("$name:") || line.startsWith("$name (")
+}
+
+/**
+ * The peer's fingerprint from `get_contact_encryption_info`.
+ * Web `parseFingerprint`: blank-line blocks, the address when the header
+ * still has one, else the contact's display name (the other block is the
+ * translated "Me"), else skip an English Me/You header.
+ * ponytail: no self-key fetch; a contact literally named Me/You needs it.
+ */
+fun identityFingerprintFromEncrInfo(
+    text: String,
+    contactAddr: String? = null,
+    contactName: String? = null,
+): String? {
+    if (text.isBlank()) return null
+    val blocks = text.split(BLOCK_GAP).map { it to blockFpr(it) }.filter { it.second != null }
+    if (blocks.isEmpty()) return null
+    val want = contactAddr?.trim()?.lowercase().orEmpty()
+    if (want.isNotEmpty()) {
+        blocks.find { blockAddr(it.first) == want }?.second?.let { return it }
+    }
+    val name = contactName?.trim().orEmpty()
+    if (name.isNotEmpty()) {
+        blocks.find { headerIs(it.first, name) }?.second?.let { return it }
+    }
+    val notMe = blocks.find { !NOT_ME.containsMatchIn(it.first.trim()) }
+    return (notMe ?: blocks[0]).second
 }
 
 /**

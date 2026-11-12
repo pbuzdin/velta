@@ -1,5 +1,6 @@
 package org.velta.kmp.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,10 +11,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -23,10 +33,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,17 +53,31 @@ import org.velta.kmp.core.MessageObject
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import org.jetbrains.compose.resources.painterResource
+import org.velta.kmp.generated.resources.Res
+import org.velta.kmp.generated.resources.v_logo
 import kotlin.math.roundToInt
 
 /** P1 read-path UI: login, chat list, chat view. Bare bones by design (issue #192). */
@@ -118,7 +147,7 @@ private fun AccountsScreen(model: AppModel) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = account.isConfigured == true) {
+                        .clickable(enabled = account.configured) {
                             if (!current) model.switchAccount(account.id)
                         }
                         .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -126,10 +155,12 @@ private fun AccountsScreen(model: AppModel) {
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            account.addr ?: "Not set up",
+                            account.displayName?.takeIf { it.isNotBlank() }
+                                ?: account.addr?.takeIf { it.isNotBlank() }
+                                ?: if (account.configured) "Account ${account.id}" else "Not set up",
                             fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
                         )
-                        if (account.isConfigured != true) {
+                        if (!account.configured) {
                             Text(
                                 "not set up — sign in to configure",
                                 style = MaterialTheme.typography.labelSmall,
@@ -323,47 +354,175 @@ private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatListScreen(model: AppModel) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Velta")
-                        Text(
-                            listOfNotNull(model.accountAddr, "core ${model.coreVersion}").joinToString(" · "),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                actions = {
-                    if (model.chatsLoading) {
-                        CircularProgressIndicator(Modifier.size(20.dp))
-                        Spacer(Modifier.size(12.dp))
-                    }
-                    TextButton(onClick = { model.openRelays() }) { Text("⚡") }
-                    TextButton(onClick = { model.openAccounts() }) { Text("👤") }
-                    TextButton(onClick = { model.screen = AppModel.Screen.Join; model.joinChecked = null; model.joinError = null }) { Text("🎟") }
-                    TextButton(onClick = { model.refreshChats() }) { Text("Refresh") }
-                },
-            )
-        },
-    ) { inner ->
-        if (model.chats.isEmpty()) {
-            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val shown = if (query.isBlank()) model.chats else model.chats.filter { chat ->
+        val q = query.trim()
+        chat.name.contains(q, ignoreCase = true) ||
+            chat.summaryText1.contains(q, ignoreCase = true) ||
+            chat.summaryText2.contains(q, ignoreCase = true)
+    }
+    var headPx by remember { mutableIntStateOf(0) }
+    val headDp = with(LocalDensity.current) { headPx.toDp() }
+    GlassHost(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
+        content = {
+        if (shown.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(top = headDp), contentAlignment = Alignment.Center) {
                 Text(
-                    if (model.chatsLoading) "Loading…" else "No chats yet",
+                    when {
+                        model.chatsLoading -> "Loading…"
+                        query.isNotBlank() -> "No matches"
+                        else -> "No chats yet"
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
-            LazyColumn(Modifier.padding(inner)) {
-                items(model.chats, key = { it.id }) { item ->
+            LazyColumn(contentPadding = PaddingValues(top = headDp)) {
+                items(shown, key = { it.id }) { item ->
                     ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
                     HorizontalDivider()
                 }
             }
         }
+        },
+        overlay = { backdrop, host ->
+            GlassPlate(
+                backdrop,
+                host,
+                Modifier.fillMaxWidth().onSizeChanged { headPx = it.height },
+                radius = 0.dp,
+            ) {
+            Column(Modifier.fillMaxWidth()) {
+                Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+                Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
+                    Image(
+                        painterResource(Res.drawable.v_logo),
+                        contentDescription = null,
+                        modifier = Modifier.height(38.dp),
+                        contentScale = ContentScale.Fit,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box {
+                            IconButton(
+                                onClick = { menuOpen = true },
+                                modifier = Modifier.semantics { contentDescription = "Menu" },
+                            ) { MenuMark() }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Relays") },
+                                    onClick = { menuOpen = false; model.openRelays() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Accounts") },
+                                    onClick = { menuOpen = false; model.openAccounts() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Invite") },
+                                    onClick = {
+                                        menuOpen = false
+                                        model.joinChecked = null
+                                        model.joinError = null
+                                        model.screen = AppModel.Screen.Join
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Refresh") },
+                                    onClick = { menuOpen = false; model.refreshChats() },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (model.chatsLoading) {
+                            CircularProgressIndicator(Modifier.size(18.dp))
+                        }
+                        IconButton(
+                            onClick = {
+                                searching = !searching
+                                if (!searching) query = ""
+                            },
+                            modifier = Modifier.semantics { contentDescription = "Search chats" },
+                        ) { SearchMark() }
+                    }
+                }
+                RelayLine(model)
+                if (searching) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        singleLine = true,
+                        placeholder = { Text("Search chats") },
+                    )
+                }
+            }
+            }
+        },
+    )
+}
+
+/** One segment per relay, colored by the account connectivity. Tap opens the relays screen. */
+@Composable
+private fun RelayLine(model: AppModel) {
+    val color = when (relayBarState(model.relayConnectivity)) {
+        "ok" -> RELAY_OK
+        "down" -> RELAY_DOWN
+        else -> RELAY_WAIT
+    }
+    val count = model.relays.size.coerceAtLeast(1)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { model.openRelays() }
+            .padding(vertical = 10.dp)
+            .height(6.dp)
+            .semantics { contentDescription = "Relay status" },
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        repeat(count) {
+            Box(Modifier.weight(1f).fillMaxHeight().background(color))
+        }
+    }
+}
+
+/** Web renderRelayLine's account-wide color. 4000 connected, 2000–3999 connecting, below that down. */
+internal fun relayBarState(connectivity: Int?): String = when {
+    connectivity == null -> "connecting"
+    connectivity >= 4000 -> "ok"
+    connectivity >= 2000 -> "connecting"
+    else -> "down"
+}
+
+@Composable
+private fun MenuMark() {
+    val color = LocalContentColor.current
+    Canvas(Modifier.size(22.dp)) {
+        val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+        listOf(0.28f, 0.5f, 0.72f).forEach { y ->
+            drawLine(color, Offset(2.dp.toPx(), size.height * y), Offset(size.width - 2.dp.toPx(), size.height * y), stroke.width, stroke.cap)
+        }
+    }
+}
+
+@Composable
+private fun SearchMark() {
+    val color = LocalContentColor.current
+    Canvas(Modifier.size(22.dp)) {
+        val r = size.minDimension * 0.28f
+        val c = Offset(size.width * 0.42f, size.height * 0.42f)
+        drawCircle(color, r, c, style = Stroke(width = 2.dp.toPx()))
+        drawLine(
+            color,
+            Offset(c.x + r * 0.7f, c.y + r * 0.7f),
+            Offset(size.width * 0.82f, size.height * 0.82f),
+            strokeWidth = 2.dp.toPx(),
+            cap = StrokeCap.Round,
+        )
     }
 }
 
@@ -466,6 +625,9 @@ private sealed interface ChatRow {
 
 private val FLAG_ON = androidx.compose.ui.graphics.Color(0xFF2ECC71)
 private val FLAG_OFF = androidx.compose.ui.graphics.Color(0xFF9AA0A6)
+private val RELAY_OK = androidx.compose.ui.graphics.Color(0xFF2ECC71)
+private val RELAY_WAIT = androidx.compose.ui.graphics.Color(0xFFE6A23C)
+private val RELAY_DOWN = androidx.compose.ui.graphics.Color(0xFFE05252)
 
 /** P4 slice 2: relay cards — one card per configured transport (issue #192). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -579,34 +741,25 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         model.backToChatList()
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(chat.title) },
-                navigationIcon = {
-                    TextButton(onClick = { model.backToChatList() }) { Text("‹ Back") }
-                },
-                actions = {
-                    if (!chat.isGroup) {
-                        TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Text("ⓘ") }
-                    }
-                    if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
-                    Spacer(Modifier.size(12.dp))
-                },
-            )
-        },
-        bottomBar = {
-            Column {
-                MessageActionBar(model)
-                Composer(model)
-            }
-        },
-    ) { inner ->
+    var headPx by remember { mutableIntStateOf(0) }
+    var footPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val lens = model.replyTo == null && model.pendingAttachment == null && model.messageActions == null
+    GlassHost(
+        Modifier.fillMaxSize().windowInsetsPadding(
+            WindowInsets.ime.union(WindowInsets.navigationBars),
+        ),
+        content = {
         val rows = chatRows(model.chatMessages)
         LazyColumn(
-            modifier = Modifier.padding(inner).fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             state = listState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 12.dp),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = with(density) { headPx.toDp() } + 12.dp,
+                bottom = with(density) { footPx.toDp() } + 12.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(rows, key = { it.key }) { row ->
@@ -620,7 +773,56 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 }
             }
         }
-    }
+        },
+        overlay = { backdrop, host ->
+        GlassPlate(
+            backdrop,
+            host,
+            Modifier.fillMaxWidth().onSizeChanged { headPx = it.height },
+            radius = 0.dp,
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+            Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+            Row(
+                Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { model.backToChatList() }) { Text("‹ Back") }
+                Text(
+                    chat.title,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (!chat.isGroup) {
+                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Text("ⓘ") }
+                }
+                if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
+                Spacer(Modifier.size(8.dp))
+            }
+            }
+        }
+        GlassPlate(
+            backdrop,
+            host,
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .onSizeChanged { footPx = it.height }
+                .padding(
+                    if (lens) PaddingValues(start = 10.dp, end = 10.dp, bottom = 8.dp)
+                    else PaddingValues(0.dp),
+                ),
+            radius = if (lens) 22.dp else 0.dp,
+            lens = lens,
+        ) {
+            Column {
+                MessageActionBar(model)
+                Composer(model)
+            }
+        }
+        },
+    )
 }
 
 /** Group messages by local calendar date, inserting a header where the day changes. */
@@ -687,12 +889,11 @@ private fun humantimeSecs(secs: Int): String = when {
     else -> "$secs s"
 }
 
-/** "0E69 2C68 … 1009" / "3DD1 … BED9" — 5 groups of 4 per line. */
-private fun groupedFpr(fpr: String): String {
+/** "0E69 2C68 … 1009" / "3DD1 … BED9" — 5 groups of 4 per line.
+ *  v4 keys are 40 hex (2 lines), v6 keys are 64 (4 lines). */
+internal fun groupedFpr(fpr: String): String {
     val hex = fpr.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
-    return (0 until 10)
-        .map { i -> hex.slice(i * 20 until i * 20 + 20).chunked(4).joinToString(" ") }
-        .joinToString("\n")
+    return hex.chunked(20).joinToString("\n") { it.chunked(4).joinToString(" ") }
 }
 
 /** The contact sheet (web profile screen): identity tiles, contact data,
@@ -911,6 +1112,13 @@ private fun Composer(model: AppModel) {
                 placeholder = { Text("Message") },
                 modifier = Modifier.weight(1f),
                 maxLines = 4,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                ),
             )
             Spacer(Modifier.size(8.dp))
             Button(

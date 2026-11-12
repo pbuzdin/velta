@@ -61,11 +61,12 @@ touching it; it lists the Masonry and Android pitfalls and build steps.
   system WebView and the Delta Chat Rust core is linked in-process.
 - **`velta-kmp/`** — **the native Android client** (Compose Multiplatform,
   core in-process via the rpc-shim cdylib, #192). Android delivery track
-  after the Rust-UI flip (2026-11-12): P0–P5.1 shipped (messaging, QR
-  onboarding, relays, accounts, DB encryption, app lock, background sync);
-  next = conversation notifications, RPC timeout/respawn, Prism/identity
-  port, AGSL glass. `build-kmp.yml` builds and tests on every master push
-  touching `velta-kmp/**`, and uploads the debug APK as an artifact.
+  after the Rust-UI flip (2026-11-12). N1–N3 are in: Prism and the
+  fingerprint identity matrix, conversation notifications, RPC
+  timeout/respawn, the chat-list header, and AGSL glass on the composer
+  and header. Next is N4 (release signing and the `org.velta` switchover).
+  `build-kmp.yml` builds and tests on every master push touching
+  `velta-kmp/**`, and uploads the debug APK as an artifact.
 - **Standalone browser** — the wasm PWA dist (`scripts/build-pwa.mjs`) is a
   static site with the Chatmail core in a worker. Mail uses a WebSocket
   proxy on a chatmail relay; the PWA origin and the proxy host can differ

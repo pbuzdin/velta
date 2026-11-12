@@ -3,7 +3,10 @@ package org.velta.kmp.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.velta.kmp.core.ChatListItem
 import org.velta.kmp.core.Contact
@@ -94,6 +97,13 @@ class AppModel(
     // ---- Relay management (P4) ----
     var relays by mutableStateOf<List<org.velta.kmp.core.RelayCard>>(emptyList())
     var relaysLoading by mutableStateOf(false)
+
+    /** Account-wide connectivity (1000/2000/3000/4000). Null until the first read. */
+    var relayConnectivity by mutableStateOf<Int?>(null)
+        private set
+    private var relayLineBusy = false
+    private var relayLineArmed = false
+    private var relayLineMark = TimeSource.Monotonic.markNow()
         private set
 
     // ---- Account switcher (P4) ----
@@ -195,7 +205,8 @@ class AppModel(
             try {
                 val id = accountId
                     ?: unconfiguredAccountId
-                    ?: veltaCore.addAccount().also { accountId = it }
+                    ?: veltaCore.addAccount()
+                accountId = id
                 when {
                     // DCACCOUNT and DCLOGIN both land here. addTransportFromQr
                     // handles both kinds, runs the full configure (probe +
@@ -209,12 +220,14 @@ class AppModel(
                         accountAddr = veltaCore.accountInfo(id).addr
                         loadChats()
                         screen = Screen.ChatList
+                        refreshRelayLine()
                     }
                     qr.isSecureJoin -> {
                         veltaCore.startIoForAllAccounts()
                         veltaCore.secureJoin(id, raw)
                         loadChats()
                         screen = Screen.ChatList
+                        refreshRelayLine()
                     }
                     else -> joinError = "this QR is not an invite (kind: ${qr.kind})"
                 }
@@ -240,7 +253,12 @@ class AppModel(
 
     private var core: VeltaCore? = null
     private var transport: RpcTransport? = null
+    private var events: Job? = null
     private var connecting = false
+    private var recovering = false
+    private var connectGen = 0
+    /** DEK from the app-lock unlock path, reused when the core is respawned. */
+    private var sessionKey: String? = null
 
     /** The account the UI is currently rooted at (public read for the switcher). */
     var accountId: Long? = null
@@ -259,50 +277,91 @@ class AppModel(
      * locked — no core, no plaintext.
      */
     fun connect(keyOverride: String? = null) {
-        if (connected || connecting) return
+        if (keyOverride != null) sessionKey = keyOverride
+        launchConnect(keyOverride, force = false)
+    }
+
+    private fun launchConnect(keyOverride: String?, force: Boolean) {
+        if (!force && (connected || connecting)) return
         if (keyOverride == null && platform.isAppLocked()) {
             locked = true
             status = "locked"
             return
         }
+        val gen = ++connectGen
         connecting = true
         scope.launch {
-            status = "spawning core"
-            val dir = platform.accountsDir()
-            val spawned = if (keyOverride != null) {
-                platform.spawnRpcServerWithKey(dir, keyOverride)
-            } else {
-                platform.spawnRpcServer(dir)
-            }
-            if (spawned == null) {
-                status = platform.connectHint()
-                connecting = false
-                return@launch
-            }
-            transport = spawned
-            val client = RpcClient(spawned, log = { line -> println("velta-kmp: $line") })
-            val veltaCore = VeltaCore(client)
-            core = veltaCore
-
+            var spawnedCore: VeltaCore? = null
             try {
+                status = "spawning core"
+                val dir = platform.accountsDir()
+                val spawned = if (keyOverride != null) {
+                    platform.spawnRpcServerWithKey(dir, keyOverride)
+                } else {
+                    platform.spawnRpcServer(dir)
+                }
+                if (gen != connectGen) {
+                    spawned?.close()
+                    return@launch
+                }
+                if (spawned == null) {
+                    status = platform.connectHint()
+                    return@launch
+                }
+                transport = spawned
+                val client = RpcClient(
+                    spawned,
+                    log = { line -> println("velta-kmp: $line") },
+                    onLost = { restartProcess -> scope.launch { recover(restartProcess) } },
+                )
+                val veltaCore = VeltaCore(client)
+                spawnedCore = veltaCore
+                core = veltaCore
                 status = "handshake"
                 val info = veltaCore.systemInfo()
+                if (gen != connectGen) return@launch
                 coreVersion = (info["deltachat_core_version"]?.toString() ?: "?").trim('"')
                 connected = true
                 locked = false
 
-                veltaCore.startEventLoop(scope) { event ->
+                events = veltaCore.startEventLoop(scope) { event ->
                     handleEvent(event)
                 }
 
                 resumeSession(veltaCore)
                 println("velta-kmp: connect ok — core $coreVersion, ${modelAccountsSummary()}")
             } catch (t: Throwable) {
-                status = "connect failed: ${t.message}"
+                if (gen == connectGen) status = "connect failed: ${t.message}"
             } finally {
-                connecting = false
+                if (gen != connectGen) spawnedCore?.close()
+                else connecting = false
             }
         }
+    }
+
+    /**
+     * The core stopped answering. A dropped socket reconnects. A timed-out
+     * call on Android kills the process: the shim cannot be restarted
+     * beside the wedged one, and the sticky service brings a fresh core up.
+     */
+    private fun recover(restartProcess: Boolean) {
+        if (recovering) return
+        recovering = true
+        connected = false
+        events?.cancel()
+        events = null
+        if (restartProcess && platform.killProcessToRecover()) {
+            println("velta-kmp: core wedged, restarting process")
+            platform.abandonProcess()
+            return
+        }
+        println("velta-kmp: core connection lost, reconnecting")
+        core?.close()
+        core = null
+        transport = null
+        connecting = false
+        recovering = false
+        launchConnect(sessionKey, force = true)
     }
 
     private fun modelAccountsSummary(): String =
@@ -313,8 +372,9 @@ class AppModel(
 
     /**
      * P2 persistence: the core's accounts dir already holds every account.
-     * Resume the first configured one straight into the chat list; keep an
-     * unconfigured one around so a login retry doesn't create duplicates.
+     * Resume the selected configured account (else the first configured one)
+     * straight into the chat list; keep an unconfigured one around so a login
+     * retry doesn't create duplicates. select + start IO match rpc-core init.
      */
     private suspend fun resumeSession(veltaCore: VeltaCore) {
         status = "looking for accounts"
@@ -325,7 +385,7 @@ class AppModel(
         var unconfigured: Long? = null
         for (id in ids) {
             val info = runCatching { veltaCore.accountInfo(id) }.getOrNull() ?: continue
-            if (info.isConfigured == true) {
+            if (info.configured) {
                 // The core's own selection wins (it persists across restarts);
                 // otherwise the first configured account.
                 if (configured == null || info.id == selectedId) configured = info
@@ -340,10 +400,17 @@ class AppModel(
         if (account != null) {
             accountId = account.id
             accountAddr = account.addr
+            // Write the choice back (the fallback may not be the core's
+            // selected id) and arm mail. A failure must not hide the local list.
+            runCatching { veltaCore.selectAccount(account.id) }
+                .onFailure { println("velta-kmp: selectAccount on resume failed: $it") }
+            runCatching { veltaCore.startIoForAllAccounts() }
+                .onFailure { println("velta-kmp: startIo on resume failed: $it") }
             // Sequential on purpose: the chat list is loaded BEFORE the screen
             // switches, so resume never flashes an empty list.
             loadChats()
             screen = Screen.ChatList
+            refreshRelayLine()
             status = "resumed ${account.addr ?: ""}".trim()
         } else {
             status = "connected"
@@ -361,9 +428,8 @@ class AppModel(
             try {
                 val id = accountId
                     ?: unconfiguredAccountId
-                    ?: veltaCore.addAccount().also {
-                        accountId = it
-                    }
+                    ?: veltaCore.addAccount()
+                accountId = id
                 unconfiguredAccountId = null
                 veltaCore.addTransport(id, addr.trim(), password)
                 status = "configuring"
@@ -372,6 +438,7 @@ class AppModel(
                 accountAddr = veltaCore.accountInfo(id).addr
                 loadChats()
                 screen = Screen.ChatList
+                refreshRelayLine()
             } catch (t: Throwable) {
                 loginError = t.message ?: t.toString()
             } finally {
@@ -425,7 +492,7 @@ class AppModel(
             try {
                 val cid = veltaCore.chatContactIds(accountId, item.id).firstOrNull() ?: continue
                 val info = veltaCore.contactEncryptionInfo(accountId, cid) ?: continue
-                val fpr = identityFingerprintFromEncrInfo(info) ?: continue
+                val fpr = identityFingerprintFromEncrInfo(info, contactName = item.name) ?: continue
                 map[item.id] = fpr
             } catch (t: Throwable) {
                 println("velta-kmp: identity for chat ${item.id} failed: $t")
@@ -494,7 +561,11 @@ class AppModel(
                         lastSeen = c.lastSeen
                         blocked = c.isBlocked
                     }
-                    fingerprint = identityFingerprintFromEncrInfo(veltaCore.contactEncryptionInfo(id, cid) ?: "")
+                    fingerprint = identityFingerprintFromEncrInfo(
+                        veltaCore.contactEncryptionInfo(id, cid) ?: "",
+                        contactAddr = addr,
+                        contactName = contactName,
+                    )
                 }
             }
             profile = ProfileData(
@@ -606,6 +677,27 @@ class AppModel(
 
     fun backFromRelays() {
         screen = Screen.ChatList
+    }
+
+    /** Chat-list strip. Skips bursts: get_connectivity itself emits ConnectivityChanged. */
+    private fun refreshRelayLine() {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            if (relayLineBusy) return@launch
+            if (relayLineArmed && relayLineMark.elapsedNow() < 1500.milliseconds) return@launch
+            relayLineBusy = true
+            relayLineArmed = true
+            relayLineMark = TimeSource.Monotonic.markNow()
+            try {
+                relayConnectivity = runCatching { veltaCore.connectivity(id) }.getOrNull()
+                if (relays.isEmpty()) {
+                    relays = runCatching { veltaCore.relayCards(id) }.getOrDefault(emptyList())
+                }
+            } finally {
+                relayLineBusy = false
+            }
+        }
     }
 
     fun refreshRelays() {
@@ -896,6 +988,7 @@ class AppModel(
 
     private suspend fun handleEvent(event: CoreEvent) {
         when (event.kind) {
+            "ConnectivityChanged" -> refreshRelayLine()
             "ConfigureProgress" -> {
                 val comment = event.event?.get("comment")?.toString()?.trim('"')
                 if (!comment.isNullOrBlank()) loginProgress = comment

@@ -31,6 +31,8 @@ class LockedAppTest {
                 "get_all_account_ids" to "[1]",
                 "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"a@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[]",
             ),
         )

@@ -8,7 +8,8 @@ Read this file before touching anything in this folder.
 the Rust UI preview is a lab, verdict in #314; public write-up
 velta.cc/news/rust-ui-take.html). Phase plan in #192: N1 design port
 (Prism + identity matrix — shipped, see PrismIdentityTest), N2
-conversation notifications + RPC hardening, N3 AGSL glass, N4 release.
+conversation notifications + RPC timeout/respawn (shipped), N3 AGSL glass
+on the composer and header (shipped), N4 release signing still open.
 
 ## Layout
 
@@ -25,6 +26,12 @@ composeApp/src/
   desktopMain/   DesktopCorePlatform (sidecar spawn), Main (window + FileDialog),
                  MediaDesktop, PlatformBack actual
   desktopTest/   all tests (scripted transports + real-binary IT)
+  commonMain/composeResources/drawable/v_logo.png
+                 header mark. PNG only — Android painterResource throws on SVG.
+                 Delete a removed SVG in the WSL tree too; tar overlay keeps it.
+  ui/Glass.kt + GlassAndroid.kt + GlassDesktop.kt
+                 expect/actual lens. AGSL on API 33, blur on API 31, translucent
+                 below that and on desktop. Do not give the actuals the same file name.
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines on 127.0.0.1);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
@@ -142,16 +149,48 @@ BACK clears it; `pidof`/`ps` read empty during that transition; emulator
 `/tmp` does not survive between wsl.exe calls; Windows-side JDK is 26 —
 never run Gradle on the Windows side.
 
+## UI (header + N3 glass)
+
+- Chat-list header: centered logo, search (filters the loaded list by name
+  and the two summary lines), overflow menu (Relays, Accounts, Invite,
+  Refresh), then the relay strip. One segment per transport, all colored by
+  account `get_connectivity` (1000 down, 2000 connecting, 4000 connected).
+  No per-relay HTML.
+- One GraphicsLayer records the scrolling content. Header and composer are
+  overlay siblings that sample it. `rememberGraphicsLayer` lives in
+  `androidx.compose.ui.graphics` (CMP 1.9), not the `layer` package.
+  Backdrop boxes use `matchParentSize`. A `fillMaxSize` child expands the
+  plate over the list.
+- API 33 shader: rounded-slab Snell bevel, IOR 1.5, bevel 46% of the short
+  side, peak shift 18% of the short side, clipped to the plate. The header
+  plate includes the status-bar inset, so the lens runs under the status
+  icons. Composer radius is 22dp. The lens is off while a reply, attachment,
+  or message-action bar is showing.
+- `MainActivity` `windowSoftInputMode` is `adjustNothing`. The chat screen
+  pads the host once with `ime` union `navigationBars`. Do not add a second
+  IME padding, and do not switch to `adjustResize` without a phone check:
+  this edge-to-edge window does not shrink when the keyboard opens.
+
 ## Protocol facts (verified against vendored core 2.66)
 
 - `get_system_info` → map; version key is **`deltachat_core_version`**.
 - Responses carry `"jsonrpc":"2.0"`; errors are `{"id","error":{"code","message"}}`.
 - Events = **long-poll `get_next_event`** driven in a loop (BaseDeltaChat pattern).
 - Persistence = the accounts dir (`DC_ACCOUNTS_PATH`): `get_all_account_ids`,
-  `get_account_info(id).isConfigured`; **the core's selected account persists
-  across restarts** (`get_selected_account_id` / `select_account`) — resume
-  prefers it; `get_all_accounts` returns every Account in one call;
+  `get_account_info` kind `"Configured"` / `"Unconfigured"` (no `isConfigured`
+  on the wire; that field is fixture-only). The core's selected account
+  persists across restarts. Resume of a configured account calls
+  `select_account` and `start_io_for_all_accounts`, same as the web client's
+  init. An unconfigured-only account stays on Login and does not select or
+  start IO. `get_all_accounts` returns every Account in one call;
   `add_account` auto-selects the new account.
+- `RpcClient.call` bounds ordinary RPCs at 60s, and configure / secure_join /
+  add_transport_from_qr / background_fetch at 180s. `get_next_event` stays
+  an unbounded long-poll. A timeout is code -32001 and asks for a restart:
+  desktop spawns a new sidecar; Android kills the process, because the
+  in-process shim cannot be restarted beside a wedged one, and the sticky
+  service brings it back. A dropped Android socket reconnects to the same
+  port. A second `startCore` is refused.
 - Modern write path is draft-based:
   `misc_set_draft(accountId, chatId, text?, file?, filename?, quotedMessageId?, viewType?)`
   → `misc_send_draft(accountId, chatId)`; `get_draft`/`remove_draft` alongside.
@@ -224,9 +263,11 @@ truth. If a vector fails, suspect the port, never the vector: hashing
 must feed only the high UTF-16 surrogate for astral code points, and the
 identity used-color rule is NAME-based (Magenta and Fuchsia share an RGB
 but are distinct pool entries). Re-derive vectors with node when in doubt.
-- The blockFpr fingerprint parser joins ALL non-overlapping 5-group regex
-  windows BEFORE validating (a 10-group key line is exactly two windows;
-  per-window validation never sees 40 hex).
+- `identityFingerprintFromEncrInfo` is web `parseFingerprint`: split
+  `get_contact_encryption_info` on blank lines first (the text has the
+  self key AND the peer, sorted by fingerprint), then blockFpr joins the
+  5-group windows inside ONE block. Taking the first 40 hex of the whole
+  string paints the self key on the contact whenever it sorts first.
 
 ## Desktop run
 

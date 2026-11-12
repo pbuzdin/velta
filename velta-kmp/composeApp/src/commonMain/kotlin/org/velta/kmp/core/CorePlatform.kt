@@ -43,4 +43,13 @@ interface CorePlatform {
 
     /** Disable: DEK back into the plain wrap, bio wrap dropped. */
     fun disableAppLock(): Boolean = false
+
+    /**
+     * Android only. The shim is in-process and a second startCore would open
+     * the same database again, so a wedged core is cleared by killing the
+     * process. The sticky foreground service starts it back up.
+     */
+    fun killProcessToRecover(): Boolean = false
+
+    fun abandonProcess() {}
 }

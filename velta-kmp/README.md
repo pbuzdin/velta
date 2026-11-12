@@ -3,17 +3,15 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-12):** promoted to the Android delivery track (Rust-UI flip,
-#314 verdict) — design port started (Prism person colors + fingerprint
-identity matrix, web-parity vectors pinned in tests). Previous status:
-**2026-11-02:** P0–P3 complete, P4 functional slices done (12),
-P5 opened (release builds + size shipped) — the client onboards from
-invites or QR scans, manages relays, switches accounts, sends with
-attachments/quotes/reactions, renders media, encrypts its database at
-rest (Keystore custody), locks behind biometric/device-credential, keeps
-syncing in the background, and wears the Velta brand. 24 tests + two
-no-network e2e round-trips against the real core gate every push. See
-[docs/PHASES.md](docs/PHASES.md) for the per-phase ledger and what's left.
+**Status (2026-11-12):** Android delivery track (Rust-UI flip, #314, #192).
+N1 (Prism + fingerprint identity matrix), N2 (conversation notifications
+and RPC timeout/respawn), and N3 (glass on the composer and header) are
+in. N4 release signing is still open. The client onboards from invites or
+QR scans, manages relays, switches accounts, sends with
+attachments/quotes/reactions, renders images, encrypts its database at
+rest, locks behind biometric/device-credential, and keeps syncing in the
+background. 38 desktop tests gate the push, plus a real-binary check when
+`VELTA_KMP_RPC_SERVER` is set. See [docs/PHASES.md](docs/PHASES.md).
 
 | Surface | Codebase | Status |
 |---|---|---|
@@ -54,6 +52,10 @@ no-network e2e round-trips against the real core gate every push. See
 - **Look** — `VeltaTheme` lifted from the PWA tokens, system dark/light;
   Prism person colors and fingerprint identity matrices are
   bit-identical to the PWA (vectors pinned in `PrismIdentityTest`).
+  The chat list header has the logo, search, and a relay-status strip.
+  The composer and the headers are glass on Android 13+ (a blur on
+  Android 12, a translucent plate otherwise). The header glass continues
+  under the status icons.
 
 ## Layout
 
