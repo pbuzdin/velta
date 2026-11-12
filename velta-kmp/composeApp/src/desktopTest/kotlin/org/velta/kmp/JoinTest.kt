@@ -36,6 +36,8 @@ class JoinTest {
                 "get_chatlist_entries" to "[]",
                 "check_qr" to """{"kind":"account","domain":"relay.example"}""",
                 "add_account" to "9",
+                "list_transports" to "[]",
+                "get_server_metadata" to "{}",
                 "add_transport_from_qr" to "null",
                 "start_io_for_all_accounts" to "null",
             ),
@@ -83,6 +85,109 @@ class JoinTest {
                 transport.requests.none { "\"configure\"" in it },
                 "legacy configure() must not be called",
             )
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** A broken-flow retry must REPLACE the same-domain transport instead of
+     * stacking duplicates up to the core's per-account relay cap (vivo d13). */
+    @Test
+    fun repeatJoinReplacesSameDomainTransport() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.69.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
+                "get_account_info" to """{"id":1,"isConfigured":false}""",
+                "get_chatlist_entries" to "[]",
+                "check_qr" to """{"kind":"account","domain":"relay.example"}""",
+                "add_account" to "9",
+                "list_transports" to """[{"addr":"relay.example","imapServer":"relay.example","smtpServer":"relay.example"}]""",
+                "get_server_metadata" to "{}",
+                "delete_transport" to "null",
+                "add_transport_from_qr" to "null",
+                "start_io_for_all_accounts" to "null",
+            ),
+        )
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-join-replace-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
+        }
+        val scope = testScope()
+        val model = AppModel(platform, scope)
+        try {
+            model.connect()
+            withTimeout(10_000) {
+                while (model.status != "connected") yield()
+            }
+            model.screen = AppModel.Screen.Join
+            model.joinText = "DCACCOUNT:https://relay.example/i/tok"
+            model.checkJoin()
+            withTimeout(10_000) {
+                while (model.joinChecked == null) yield()
+            }
+            model.join()
+            withTimeout(10_000) {
+                while (model.screen != AppModel.Screen.ChatList) yield()
+            }
+            awaitRequest(transport, "add_transport_from_qr")
+            val addIdx = transport.requests.indexOfFirst { "\"add_transport_from_qr\"" in it }
+            val deleteIdx = transport.requests.indexOfFirst { "\"delete_transport\"" in it }
+            assertTrue(deleteIdx >= 0, "same-domain transport must be deleted first; reqs=${transport.requests}")
+            assertTrue(
+                deleteIdx < addIdx,
+                "delete must precede the re-add; reqs=${transport.requests.joinToString(" | ")}",
+            )
+            val deleteLine = transport.requests.first { "\"delete_transport\"" in it }
+            assertTrue(deleteLine.contains("[1,\"relay.example\"]"), "delete params: $deleteLine")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** The relay cap is not a dead end: the error routes to the Relays screen
+     * with the reason attached, where a slot can be freed. */
+    @Test
+    fun maxRelaysErrorRoutesToRelaysScreen() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.69.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
+                "get_account_info" to """{"id":1,"isConfigured":false}""",
+                "get_chatlist_entries" to "[]",
+                "check_qr" to """{"kind":"account","domain":"relay.example"}""",
+                "add_account" to "9",
+                "list_transports" to "[]",
+                "get_server_metadata" to "{}",
+                "add_transport_from_qr" to "ERROR:You have reached the maximum number of relays (5)",
+                "start_io_for_all_accounts" to "null",
+            ),
+        )
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-join-cap-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
+        }
+        val scope = testScope()
+        val model = AppModel(platform, scope)
+        try {
+            model.connect()
+            withTimeout(10_000) {
+                while (model.status != "connected") yield()
+            }
+            model.screen = AppModel.Screen.Join
+            model.joinText = "DCACCOUNT:https://relay.example/i/tok"
+            model.checkJoin()
+            withTimeout(10_000) {
+                while (model.joinChecked == null) yield()
+            }
+            model.join()
+            withTimeout(10_000) {
+                while (model.screen != AppModel.Screen.Relays) yield()
+            }
+            assertTrue(model.joinError!!.contains("maximum number of relays"), "joinError: ${model.joinError}")
+            assertTrue(model.relaysNotice!!.contains("maximum number of relays"), "notice: ${model.relaysNotice}")
         } finally {
             scope.cancel()
         }

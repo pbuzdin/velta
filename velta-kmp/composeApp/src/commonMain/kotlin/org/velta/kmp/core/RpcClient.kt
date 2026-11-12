@@ -38,6 +38,7 @@ class RpcException(val method: String, val code: Int, message: String) :
 class RpcClient(
     private val transport: RpcTransport,
     private val log: (String) -> Unit = {},
+    private val onDead: () -> Unit = {},
     readerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) : AutoCloseable {
 
@@ -51,6 +52,13 @@ class RpcClient(
     private val lock = Mutex()
     private var nextId = 1
     private val pending = HashMap<Int, CompletableDeferred<JsonElement>>()
+
+    /** Set (with [lock] held) once the transport exit was observed: the core is gone. */
+    private var dead = false
+
+    /** Deliberate [close] — the reader must not report a death we caused ourselves. */
+    @Volatile
+    private var closedByUs = false
 
     private val _pushes = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val pushes: SharedFlow<String> = _pushes
@@ -67,6 +75,11 @@ class RpcClient(
             for (line in incoming) {
                 handleLine(line)
             }
+            // Transport exited (core died / stream closed): fail everything in
+            // flight instead of leaving callers hanging on a dead connection.
+            lock.withLock { dead = true }
+            failAll("rpc connection closed")
+            if (!closedByUs) onDead()
         }
     }
 
@@ -75,6 +88,7 @@ class RpcClient(
         val deferred: CompletableDeferred<JsonElement>
         val id: Int
         lock.withLock {
+            check(!dead) { "rpc connection closed" }
             id = nextId++
             deferred = CompletableDeferred()
             pending[id] = deferred
@@ -94,6 +108,7 @@ class RpcClient(
     }
 
     override fun close() {
+        closedByUs = true
         failAll("rpc client closed")
         transport.close()
         incoming.close()

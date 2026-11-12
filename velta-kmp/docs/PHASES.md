@@ -389,3 +389,34 @@ needs the relay-side UnifiedPush notifier; RPC `call()` has no timeout and
 no core respawn; shim lifecycle is start-only; Storage and
 Chats-in-common profile rows; AGSL glass on the composer/header;
 ktlint/detekt.
+
+## 2026-11-12 — N2 slice 2: connection hardening + join repair (#316)
+
+The audit's must-fix bugs and the vivo max-relays fallout, in one pass:
+
+- **Dead core no longer hangs the UI** — when the transport exits, RpcClient
+  fails every in-flight call, marks itself dead (new calls throw fast), and
+  fires `onDead`; the deliberate `close()` path does NOT count as a death.
+  The event loop stops after 5 consecutive failures instead of hot-spinning.
+- **No more double-spawn split-brain** — `RpcShim.startCoreOnce` caches the
+  shim's loopback port per process (the shim is a long-lived accept-loop
+  server, so the port stays valid for reconnects); `connect()` tears a
+  failed handshake down (client close, core/transport released) before a
+  retry, and `onCoreDead` drops the UI to "core connection lost" + one
+  self-heal reconnect after 2 s.
+- **Reload coalescing** — MsgsChanged/IncomingMsg/MsgsNoticed/MsgDelivered
+  bursts mark chats dirty and flush ONE list/chat reload 200 ms later
+  (scope is Dispatchers.Default, so the dirty set is lock-guarded).
+- **Join replaces, not stacks** — an account/login invite first deletes an
+  existing same-domain transport, so broken-flow retries can no longer pile
+  duplicates up to the core's per-account cap.
+- **Max-relays routes to the Relays screen** — the error attaches as
+  `relaysNotice` (red line on top) and opens the relay manager, where a
+  slot can be freed; previously a dead end.
+- **Tests** — transport-death (pending fails, post-death calls throw,
+  onDead fires, close doesn't false-fire), repeat-join replaces
+  (delete before add), max-relays routing (Relays screen + notice);
+  ScriptedRpcTransport gained `ERROR:` results for error responses.
+
+**Still open in N2**: RPC `call()` has no timeout (a wedged-but-alive core),
+paging for big chats (#223), shim stop/teardown, relay-side UnifiedPush.

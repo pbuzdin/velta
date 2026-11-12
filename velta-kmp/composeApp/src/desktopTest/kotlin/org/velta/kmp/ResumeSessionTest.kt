@@ -21,7 +21,8 @@ import kotlin.test.assertTrue
 /**
  * Answers every request from a static method→result script; methods without
  * an entry (e.g. get_next_event) simply never get a response, like a real
- * long-poll. Records all requests for assertions.
+ * long-poll. A result starting with "ERROR:" is answered as a JSON-RPC error
+ * with that message instead. Records all requests for assertions.
  */
 class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTransport {
     val requests = CopyOnWriteArrayList<String>()
@@ -38,8 +39,14 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
         val obj = Json.parseToJsonElement(line).jsonObject
         val id = obj["id"]!!.jsonPrimitive.content
         val method = obj["method"]!!.jsonPrimitive.content
-        val result = script[method] ?: return
-        onLine?.invoke("""{"id":$id,"result":$result}""")
+        val scripted = script[method] ?: return
+        if (scripted.startsWith("ERROR:")) {
+            onLine?.invoke(
+                """{"id":$id,"error":{"code":-1,"message":"${scripted.removePrefix("ERROR:")}"}}""",
+            )
+        } else {
+            onLine?.invoke("""{"id":$id,"result":$scripted}""")
+        }
     }
 
     override fun close() {

@@ -24,4 +24,22 @@ object RpcShim {
      * run keyless (core patch #20 reads VELTA_DB_KEY; empty = upstream).
      */
     external fun startCore(accountsDir: String, dbKey: String): Int
+
+    /** Port of the shim started in this process; 0 = none yet. */
+    @Volatile
+    private var runningPort = 0
+
+    /**
+     * One shim per process: each JNI startCore call spawns a NEW Accounts
+     * manager + core on the same accounts dir, so a second call (retry after
+     * a dropped connection) would run two cores on one database. The shim is
+     * a long-lived accept-loop server — a dropped client socket does NOT end
+     * it — so the first port stays valid for reconnects. The DEK never
+     * changes within a process lifetime, so it is ignored on reuse.
+     */
+    fun startCoreOnce(accountsDir: String, dbKey: String): Int = synchronized(this) {
+        if (runningPort > 0) return runningPort
+        runningPort = startCore(accountsDir, dbKey)
+        runningPort
+    }
 }

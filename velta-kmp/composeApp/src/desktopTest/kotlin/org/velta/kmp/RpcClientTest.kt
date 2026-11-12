@@ -4,8 +4,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -22,11 +24,13 @@ import kotlin.test.assertTrue
 class FakeRpcTransport : RpcTransport {
     val sent = CopyOnWriteArrayList<String>()
     private var onLine: ((String) -> Unit)? = null
+    private var onExit: (() -> Unit)? = null
     var closed = false
         private set
 
     override fun start(onLine: (String) -> Unit, onExit: () -> Unit) {
         this.onLine = onLine
+        this.onExit = onExit
     }
 
     override fun send(line: String) {
@@ -39,6 +43,11 @@ class FakeRpcTransport : RpcTransport {
 
     fun emit(line: String) {
         onLine?.invoke(line)
+    }
+
+    /** Simulates the core dying: no response, just the exit callback. */
+    fun exit() {
+        onExit?.invoke()
     }
 }
 
@@ -123,5 +132,32 @@ class RpcClientTest {
         client.close() // closing fails all pending calls
         assertFailsWith<IllegalStateException> { call.await() }
         assertTrue(transport.closed)
+    }
+
+    @Test
+    fun transportDeathFailsPendingBlocksNewCallsAndFiresOnDead() = runBlocking {
+        val transport = FakeRpcTransport()
+        var died = false
+        val client = RpcClient(transport, onDead = { died = true })
+        val pendingCall = testScope().async { client.call("get_next_event") }
+        awaitRequest(transport)
+        transport.exit() // core dies mid-call, no response ever arrives
+        // The in-flight call must fail instead of hanging forever…
+        assertFailsWith<IllegalStateException> { pendingCall.await() }
+        withTimeout(5000) { while (!died) yield() }
+        // …and every call after the death must fail fast, not queue up.
+        val postMortem = testScope().async { client.call("get_system_info") }
+        assertFailsWith<IllegalStateException> { postMortem.await() }
+        client.close()
+    }
+
+    @Test
+    fun deliberateCloseDoesNotFireOnDead() = runBlocking {
+        val transport = FakeRpcTransport()
+        var died = false
+        val client = RpcClient(transport, onDead = { died = true })
+        client.close()
+        delay(500) // grace period for a wrongful onDead to surface
+        assertTrue(!died, "close() must not report the death we caused ourselves")
     }
 }

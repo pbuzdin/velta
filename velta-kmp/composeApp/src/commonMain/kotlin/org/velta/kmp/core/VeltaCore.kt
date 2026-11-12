@@ -374,17 +374,28 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
     /**
      * Drives `get_next_event` in a loop and forwards events to [onEvent].
      * This is the same pattern the JS `BaseDeltaChat` client uses.
+     *
+     * Consecutive failures end the loop: once the client is dead its calls
+     * throw instantly, and retrying forever would just hot-spin a CPU core.
+     * A live-but-flaky core recovers — healthy events reset the counter.
      */
     fun startEventLoop(scope: CoroutineScope, onEvent: suspend (CoreEvent) -> Unit): Job =
         scope.launch {
+            var failures = 0
             while (isActive) {
                 val event = try {
                     nextEvent()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (t: Throwable) {
+                    failures++
+                    if (failures >= 5) {
+                        println("velta-kmp: event loop stopping after $failures consecutive failures: $t")
+                        break
+                    }
                     continue
                 }
+                failures = 0
                 onEvent(event)
             }
         }

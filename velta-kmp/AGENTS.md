@@ -158,6 +158,23 @@ never run Gradle on the Windows side.
   The core dedups attachment files into its blobdir itself
   (`set_file_and_deduplicate`) — never copy blobs client-side.
 - `send_reaction(accountId, messageId, [emoji])` (re-send toggles off).
+- Connection lifecycle (N2): a transport exit makes `RpcClient` fail all
+  in-flight calls, mark itself dead (post-death `call()` throws instantly)
+  and fire `onDead` — but a deliberate `close()` never counts as death.
+  `AppModel.onCoreDead` drops the UI to "core connection lost" and retries
+  once after 2 s. `RpcShim.startCoreOnce` returns the CACHED loopback port:
+  each JNI `startCore` would spawn a second core on the same accounts dir,
+  while the shim itself is a long-lived accept-loop server that survives
+  client disconnects — the port stays valid for reconnects.
+- Message-event bursts are coalesced: `MsgsChanged`/`IncomingMsg`/
+  `MsgsNoticed`/`MsgDelivered` mark chats dirty and flush ONE list/chat
+  reload 200 ms after the burst started (the model scope is
+  Dispatchers.Default → the dirty set is lock-guarded).
+- `add_transport_from_qr` on a domain that already has a transport: the
+  join flow DELETES the existing same-domain transport first — retries
+  must replace, not stack (the core caps transports per account and
+  stacked duplicates once bricked onboarding with "maximum number of
+  relays (5)"). That error routes to the Relays screen (`relaysNotice`).
 - Invites: `check_qr(accountId, qr)` parses OFFLINE — kind-tagged oneOf
   ("text" for garbage, "account"+domain for `DCACCOUNT:` invites,
   "askVerifyContact/Group/Broadcast" for secure-join); `secure_join` needs io;
@@ -212,7 +229,11 @@ guards it).
 - `ScriptedRpcTransport` (method → result JSON) for client/facade tests; a
   method missing from the script never answers = realistic long-poll. When a
   poll times out, check SCRIPT COVERAGE first — a missing entry hangs the
-  call silently. Dump requests/status on timeout (DIAG pattern).
+  call silently. Dump requests/status on timeout (DIAG pattern). A result
+  starting with `ERROR:` is answered as a JSON-RPC error with that message.
+- `FakeRpcTransport` (RpcClientTest) can simulate a core death via
+  `exit()` — fires the transport's onExit with no responses; assert
+  in-flight calls fail, post-death calls throw, `onDead` fired.
 - Fixture JSON must match the WIRE, not the Rust struct names: probed truth
   is `kind:"message"` (lowercase) vs `kind:"ChatListItem"` (PascalCase) —
   reading serde attributes instead of probing shipped a silent drop-everything

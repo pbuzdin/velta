@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.velta.kmp.core.ChatListItem
 import org.velta.kmp.core.Contact
@@ -94,6 +96,11 @@ class AppModel(
     // ---- Relay management (P4) ----
     var relays by mutableStateOf<List<org.velta.kmp.core.RelayCard>>(emptyList())
     var relaysLoading by mutableStateOf(false)
+        private set
+
+    /** One-line reason shown at the top of the Relays screen (e.g. the
+     * relay-cap error that routed the user here); cleared on next refresh. */
+    var relaysNotice by mutableStateOf<String?>(null)
         private set
 
     // ---- Account switcher (P4) ----
@@ -204,6 +211,15 @@ class AppModel(
                     // addr/mail_pw configs the QR flow never sets and fails
                     // with "missing email address" (core 2.69 multi-transport).
                     qr.isAccountInvite || qr.isLoginInvite -> {
+                        // A retry after a half-broken flow must REPLACE the
+                        // same-domain transport, not stack another one —
+                        // duplicates piled up to the core's per-account cap
+                        // ("maximum number of relays (5)") on the vivo.
+                        qr.domain?.let { domain ->
+                            veltaCore.relayCards(id)
+                                .firstOrNull { it.addr.contains(domain) }
+                                ?.let { existing -> veltaCore.deleteTransport(id, existing.addr) }
+                        }
                         veltaCore.addTransportFromQr(id, raw)
                         veltaCore.startIoForAllAccounts()
                         accountAddr = veltaCore.accountInfo(id).addr
@@ -219,7 +235,14 @@ class AppModel(
                     else -> joinError = "this QR is not an invite (kind: ${qr.kind})"
                 }
             } catch (t: Throwable) {
-                joinError = t.message ?: t.toString()
+                val message = t.message ?: t.toString()
+                joinError = message
+                // The relay cap is not a dead end: send the user to the relay
+                // manager where a slot can be freed, with the reason attached.
+                if (message.contains("maximum number of relays", ignoreCase = true)) {
+                    relaysNotice = message
+                    openRelays()
+                }
             } finally {
                 joinBusy = false
             }
@@ -280,7 +303,11 @@ class AppModel(
                 return@launch
             }
             transport = spawned
-            val client = RpcClient(spawned, log = { line -> println("velta-kmp: $line") })
+            val client = RpcClient(
+                spawned,
+                log = { line -> println("velta-kmp: $line") },
+                onDead = { onCoreDead() },
+            )
             val veltaCore = VeltaCore(client)
             core = veltaCore
 
@@ -299,9 +326,30 @@ class AppModel(
                 println("velta-kmp: connect ok — core $coreVersion, ${modelAccountsSummary()}")
             } catch (t: Throwable) {
                 status = "connect failed: ${t.message}"
+                // Drop the half-built connection so a retry starts clean; on
+                // Android the shim itself survives (port cached) and the retry
+                // just opens a new socket to it.
+                client.close()
+                core = null
+                transport = null
             } finally {
                 connecting = false
             }
+        }
+    }
+
+    /** The RPC connection died on its own (core gone, socket closed): release
+     * the UI so the app degrades visibly, then try one self-heal reconnect. */
+    private fun onCoreDead() {
+        if (!connected) return
+        connected = false
+        core = null
+        transport = null
+        status = "core connection lost"
+        println("velta-kmp: core connection lost — reconnecting")
+        scope.launch {
+            delay(2000)
+            connect()
         }
     }
 
@@ -614,6 +662,7 @@ class AppModel(
         if (veltaCore == null || id == null) return
         scope.launch {
             relaysLoading = true
+            relaysNotice = null
             try {
                 relays = veltaCore.relayCards(id)
             } catch (t: Throwable) {
@@ -894,6 +943,43 @@ class AppModel(
         senderNames = names
     }
 
+    // ---- Reload coalescing ----
+    // Message events arrive in bursts (sync fetches several messages at once);
+    // reloading the full list / chat per event is the #294 shape. Mark dirty
+    // instead and flush once, 200 ms after the last burst started.
+    private val reloadLock = Any()
+    private val dirtyChatIds = HashSet<Long>()
+    private var dirtyAllChats = false
+    private var reloadJob: Job? = null
+
+    private fun scheduleChatReload(chatId: Long?) {
+        synchronized(reloadLock) {
+            if (chatId == null) dirtyAllChats = true else dirtyChatIds += chatId
+            if (reloadJob == null) {
+                reloadJob = scope.launch { flushReloads() }
+            }
+        }
+    }
+
+    private suspend fun flushReloads() {
+        delay(200)
+        val (ids, all) = synchronized(reloadLock) {
+            val snapshot = dirtyChatIds.toSet()
+            dirtyChatIds.clear()
+            val allChats = dirtyAllChats
+            dirtyAllChats = false
+            reloadJob = null
+            snapshot to allChats
+        }
+        when (val current = screen) {
+            is Screen.Chat -> if (all || current.chatId in ids) {
+                loadMessages(current.chatId, current.isGroup)
+            }
+            Screen.ChatList -> if (all || ids.isNotEmpty()) loadChats()
+            else -> {}
+        }
+    }
+
     private suspend fun handleEvent(event: CoreEvent) {
         when (event.kind) {
             "ConfigureProgress" -> {
@@ -902,15 +988,7 @@ class AppModel(
             }
             "MsgsChanged", "IncomingMsg", "MsgsNoticed", "MsgDelivered" -> {
                 val chatId = event.chatId()
-                when (val current = screen) {
-                    is Screen.Chat -> {
-                        if (current.chatId == chatId) {
-                            loadMessages(current.chatId, current.isGroup)
-                        }
-                    }
-                    Screen.ChatList -> refreshChats()
-                    else -> {}
-                }
+                scheduleChatReload(chatId)
                 if (event.kind == "IncomingMsg" && chatId != null) {
                     notifyIncoming(chatId, event)
                 }

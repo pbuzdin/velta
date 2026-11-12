@@ -485,26 +485,36 @@ private fun RelaysScreen(model: AppModel) {
             )
         },
     ) { inner ->
-        if (model.relays.isEmpty()) {
-            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(Modifier.padding(inner)) {
+            model.relaysNotice?.let { notice ->
                 Text(
-                    if (model.relaysLoading) "Loading…" else "No relays yet",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    notice,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
-        } else {
-            LazyColumn(Modifier.padding(inner)) {
-                items(model.relays, key = { it.addr }) { card ->
-                    RelayCardItem(card) { model.removeRelay(card.addr) }
-                    HorizontalDivider()
-                }
-                item {
+            if (model.relays.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "C calls · I iroh · P push · D instant delivery — grey means the relay does not advertise it (or it is not known yet)",
-                        style = MaterialTheme.typography.labelSmall,
+                        if (model.relaysLoading) "Loading…" else "No relays yet",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp),
                     )
+                }
+            } else {
+                LazyColumn {
+                    items(model.relays, key = { it.addr }) { card ->
+                        RelayCardItem(card) { model.removeRelay(card.addr) }
+                        HorizontalDivider()
+                    }
+                    item {
+                        Text(
+                            "C calls · I iroh · P push · D instant delivery — grey means the relay does not advertise it (or it is not known yet)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
                 }
             }
         }
