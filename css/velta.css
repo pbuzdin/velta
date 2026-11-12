@@ -58,7 +58,9 @@
   --field-pill-bg: var(--accent-fg);
   --field-pill-ink: var(--accent);
   /* the five type roles: display (h1), heading (h2), lead, body, small */
+  --size-body: 1rem;
   --size-lead: 1.25rem;
+  --size-small: 0.875rem;
   --measure: 72rem;
   --header: 4rem;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -385,267 +387,144 @@ main > section h2 {
   line-height: 1.55;
 }
 
-/* --- #product: the ring and the chord — one row, three states --- */
-.paths {
+/* --- #product: the two routes — a ledger --- */
+.ledger {
   display: grid;
-  grid-template-columns: minmax(7rem, 1fr) minmax(0, 42rem) 1fr;
-  gap: 4.5rem 3rem;
-  margin-top: 4rem;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 3rem 3.5rem;
+  margin-top: 3.5rem;
 }
-.paths-state {
-  grid-column: 1;
-  margin: 0.35rem 0 0;
+.route { border-top: 2px solid var(--fg); padding-top: 1.1rem; }
+.route h3 { margin: 0; font-size: 1.55rem; }
+.route .sub {
+  margin: 0.2rem 0 0;
   color: var(--muted);
-  font-size: var(--size-lead);
-  text-align: right;
-  text-wrap: balance;
-}
-.paths .copy { grid-column: 2; }
-/* the live copy's rail word follows the chosen route */
-#paths-state { transition: opacity 0.2s ease; }
-#paths-state.swap { opacity: 0; }
-
-/* --- interface fragments (data-ui): the product's own conventions apply.
-   Inside: small radii and 1px control borders are the app's, not the page's. */
-.copy .msg {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 1.1rem 1.25rem;
-  border-radius: 14px;
-  background: var(--surface);
-}
-.copy .bubble {
-  margin: 0;
-  padding: 0.6rem 0.9rem;
-  border-radius: 14px 14px 14px 4px;
-  background: var(--bubble);
-  color: var(--fg);
-  max-width: 34ch;
-  font-size: var(--size-body);
-}
-.copy .ticks {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--size-small);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-.copy .file {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.7rem 0.9rem;
-  border-radius: 10px;
-  background: var(--surface-2);
-}
-.copy .file-name { margin: 0; font-weight: 500; }
-.copy .file-size {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--size-small);
-  font-variant-numeric: tabular-nums;
-}
-.copy .route-pick {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0.75rem 0 0;
-  padding: 0;
-  border: 0;
-}
-.copy .route-pick label {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2.75rem;
-  padding: 0 0.9rem;
-  border: 1px solid var(--line); /* taste-skill-ignore: outlined-box - control inside a data-ui fragment */
-  border-radius: 10px;
-  background: var(--bg);
-  cursor: pointer;
-  font-size: var(--size-small);
-}
-.copy .route-pick label:has(input:checked) {
-  border-color: var(--accent);
-  color: var(--accent);
+  font-size: 0.6875rem;
   font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.copy .route-pick input { accent-color: var(--accent); margin: 0 0.4rem 0 0; }
-.copy .room { display: flex; align-items: center; gap: 0.75rem; }
-.copy .room img { width: 2rem; height: 2rem; padding: 0.3rem; border-radius: 8px; background: var(--surface-2); }
-.copy .room-name { margin: 0; font-weight: 500; }
-.copy .room-note { margin: 0; color: var(--muted); font-size: var(--size-small); }
-.copy .why {
-  margin: 1.1rem 0 0;
-  max-width: 46ch;
-  font-size: var(--size-body);
-  color: var(--fg);
-  line-height: 1.55;
-}
-.copy .why strong { color: var(--fg); }
-/* hidden states only under html.js — without JS both route texts show */
-.js .copy .why.is-relay { display: none; }
-.js .copy.is-relay .why.is-beam { display: none; }
-.js .copy.is-relay .why.is-relay { display: block; }
-
-/* --- #features: pinned field + capability blocks + inventory rows --- */
-#features .split {
+.route dl { margin: 1.1rem 0 0; }
+.route dl > div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
-  gap: 4rem;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 0.2rem 1.4rem;
+  padding-block: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+.route dt {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-top: 0.2rem;
+}
+.route dd { margin: 0; line-height: 1.5; }
+
+/* --- #features: numbered blocks with provenance + a sticky real shot --- */
+.feat {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 3rem 3.5rem;
+  margin-top: 3.5rem;
   align-items: start;
 }
-#features .field {
-  position: sticky;
-  top: var(--header);
-  height: calc(100svh - var(--header));
+.blocks { border-top: 1px solid var(--line); }
+.block {
   display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--surface);
+  grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+  gap: 0.25rem 1.25rem;
+  padding-block: 1.6rem;
+  border-bottom: 1px solid var(--line);
 }
-#features .lens {
-  margin: 0;
-  width: min(30rem, 80vw);
-  max-height: 80svh;
-  overflow: clip;
-  border-radius: 14px;
-}
-#features .lens img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-}
-/* the crop follows the block being read: translate then scale, both
-   computed so the named point of the screenshot lands mid-lens */
-#features .lens.lens-react img { transform: translate(-48%, 48%) scale(2.1); }
-#features .lens.lens-tools img { transform: translate(3%, -8%) scale(1.6); }
-#features .lens.lens-apps img { transform: translate(26%, -75%) scale(2.1); }
-#features .blocks { padding-block: 2rem; }
-#features .blocks h2 { max-width: none; }
-.blocks-note {
-  display: inline-block;
-  margin-top: 0.75rem;
-  color: var(--link);
-}
-#features .block { margin-top: 20svh; }
-#features .block h3 { margin: 0; font-size: var(--size-lead); }
-#features .block p { margin: 0.6rem 0 0; color: var(--fg); line-height: 1.55; }
-#features .inventory { margin-top: 7rem; }
-#features .rows {
-  margin: 3rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-#features .rows li {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.35rem 2rem;
-  align-items: baseline;
-  padding-block: 1.1rem;
-}
-/* the mark rides inline with its name, so every row shares one left edge */
-#features .rows h3 img {
-  width: 1.5rem;
-  height: 1.5rem;
-  margin-right: 0.55rem;
-  vertical-align: -0.25em;
-}
-#features .rows h3 { margin: 0; font-size: var(--size-lead); }
-#features .rows li p {
-  grid-column: 1 / -1;
-  margin: 0;
-  max-width: 58ch;
-  color: var(--fg);
-  line-height: 1.5;
-}
-#features .rows .row-value {
-  grid-row: 1;
-  grid-column: 2;
+.block .no {
   color: var(--muted);
-  font-size: var(--size-small);
-  text-align: right;
-}
-
-/* --- #privacy: the board — filled tiles, one accent lead tile --- */
-.board {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.board li {
-  padding: 1.75rem;
-  background: var(--surface);
-}
-.board li.board-lead {
-  grid-column: span 2;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1rem;
-  background: var(--field-bg);
-  color: var(--field-ink);
-}
-.board-lead h2 { margin: 0; color: inherit; }
-.board li.board-lead p { color: inherit; opacity: 0.92; }
-.board-lead p { margin: 0; max-width: 34rem; line-height: 1.55; }
-/* .board li.board-lead outranks the (0,1,4) :is(main, main.page) pill rule;
-   the pill inverts per scheme via the field tokens */
-.board li.board-lead p > strong > a {
-  background: var(--field-pill-bg);
-  color: var(--field-pill-ink);
-}
-.board li.board-lead p > strong > a:hover { background: var(--fg); }
-@media (prefers-color-scheme: dark) {
-  .board li.board-lead p > strong > a:hover { background: var(--accent-hover); }
-}
-.board li h3 { margin: 0; font-size: var(--size-lead); }
-.board li p { margin: 0.6rem 0 0; color: var(--fg); line-height: 1.5; }
-.board-note { margin: 1.5rem 0 0; color: var(--muted); font-size: var(--size-small); }
-
-/* --- #platforms: name / notes / action rows --- */
-.shells { margin-top: 3rem; display: grid; gap: 3rem; }
-.shell {
-  display: grid;
-  grid-template-columns: minmax(8rem, 1fr) minmax(0, 40rem) auto;
-  gap: 0.5rem 3rem;
-  align-items: start;
-}
-.shell h3 { margin: 0; font-size: var(--size-lead); }
-.shell-size {
-  grid-column: 1;
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--size-small);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  padding-top: 0.5rem;
   font-variant-numeric: tabular-nums;
 }
-.shell ul {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  margin: 0;
-  padding-left: 1.1rem;
-  color: var(--fg);
+.block h3 { margin: 0; font-size: 1.35rem; }
+.block .tag {
+  grid-row: 1;
+  grid-column: 3;
+  justify-self: end;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-top: 0.5rem;
+  white-space: nowrap;
 }
-.shell li { margin: 0.3rem 0; line-height: 1.5; }
-.shell-get { grid-column: 3; grid-row: 1; margin: 0; }
-.shell details {
-  grid-column: 2;
-  margin-top: 0.75rem;
-  border-radius: 10px;
-  background: var(--surface-2);
-  padding: 0.75rem 1rem;
-}
-.shell summary { cursor: pointer; font-weight: 500; min-height: 2.75rem; display: flex; align-items: center; }
-.shell code { color: var(--fg); }
-.shell details[open] summary { margin-bottom: 0.5rem; }
+.block p { grid-column: 2; margin: 0.45rem 0 0; color: var(--muted); max-width: 52ch; }
+.sidefig { grid-column: 2; position: sticky; top: calc(var(--header) + 1rem); margin: 0; }
+.sidefig img { display: block; width: 100%; height: auto; border-radius: 18px; border: 1px solid var(--line); } /* taste-skill-ignore: outlined-box - frame for a real device shot */
+.sidefig figcaption { margin: 0.7rem 0.2rem 0; color: var(--muted); font-size: 0.8125rem; }
 
-/* --- #download: the accent band, the page's one full-colour field --- */
-#download {
+/* --- inventory: the additions as a ruled index (shared .row language) --- */
+.inventory { margin-top: 7rem; }
+.idx { margin-top: 3rem; }
+.grp {
+  margin: 2.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.idx .grp:first-child { margin-top: 0; }
+.row {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+  gap: 0.2rem 1.5rem;
+  align-items: baseline;
+  padding-block: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+.row .no {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+.row h3 { margin: 0; font-size: 1.3rem; display: flex; align-items: center; gap: 0.6rem; }
+.row h3 img { width: 1.3rem; height: 1.3rem; flex: none; }
+.row p { grid-column: 2; margin: 0.35rem 0 0; color: var(--muted); max-width: 56ch; }
+.row p code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.row .val {
+  grid-row: 1;
+  grid-column: 3;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* --- #privacy: the promises as ruled rows (rows share .row) --- */
+.priv-note {
+  margin: 2.4rem 0 0;
+  max-width: 52ch;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.2rem;
+}
+
+/* --- #platforms: the band — the page's one full-colour field.
+   #download stays as an anchor target inside it (header pill, hero link) --- */
+#platforms {
   width: 100%;
   max-width: none;
   margin-inline: 0;
@@ -654,34 +533,37 @@ main > section h2 {
   background: var(--field-bg);
   color: var(--field-ink);
 }
-#download h2 { margin: 0; color: inherit; max-width: none; }
-#download .lead { color: inherit; opacity: 0.85; }
-.dl-version { margin: 1.5rem 0 0; font-size: var(--size-body); }
+#platforms h2 { margin: 0; color: inherit; max-width: none; }
+#platforms .lead { color: inherit; opacity: 0.85; }
+#platforms a { color: inherit; }
+#platforms a[href^="http"]:not([href*="velta.cc"])::after { color: inherit; opacity: 0.65; }
+#platforms :focus-visible { outline-color: var(--field-ink); }
+.dl-version { margin: 1.5rem 0 0; font-size: 0.9375rem; }
 .dl-version a { color: inherit; font-weight: 500; }
-#download a { color: inherit; }
-#download a[href^="http"]:not([href*="velta.cc"])::after { color: inherit; opacity: 0.65; }
-#download :focus-visible { outline-color: var(--field-ink); }
-.dl-rows {
-  margin: 3rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-.dl-rows li + li { margin-top: 0.25rem; }
-.dl-rows a {
+.brows { margin-top: 2rem; }
+.brow {
   display: grid;
-  grid-template-columns: 9rem 1fr auto;
+  grid-template-columns: 9rem minmax(0, 1fr) auto;
   gap: 0.5rem 1.5rem;
   align-items: center;
-  min-height: 3.5rem;
-  padding-block: 0.75rem;
-  text-decoration: none;
-  border-radius: 10px;
+  padding-block: 1.15rem;
+  border-top: 1px solid color-mix(in srgb, var(--field-ink) 22%, transparent);
 }
-.dl-rows strong { font-size: var(--size-lead); }
-/* the action is a real pill — the page's one button shape — so the row
-   reads as clickable at rest, not only under the hand */
-.dl-rows a span:first-of-type {
-  justify-self: start;
+/* the first row keeps the version line's air as its separator — no doubled
+   rule (same lesson as the 10-25 #help fix) */
+.brow:first-child { border-top: 0; }
+.brow h3 { margin: 0; font-size: 1.4rem; }
+.brow .meta {
+  color: inherit;
+  opacity: 0.75;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.brow .act { grid-row: 1; grid-column: 3; justify-self: end; }
+.pill {
   display: inline-flex;
   align-items: center;
   min-height: 2.75rem;
@@ -690,23 +572,42 @@ main > section h2 {
   background: var(--field-pill-bg);
   color: var(--field-pill-ink);
   font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
 }
-.dl-rows a:hover span:first-of-type,
-.dl-rows a:focus-visible span:first-of-type { background: var(--fg); }
+.pill:hover,
+.pill:focus-visible { background: var(--fg); }
 @media (prefers-color-scheme: dark) {
-  .dl-rows a:hover span:first-of-type,
-  .dl-rows a:focus-visible span:first-of-type { background: var(--accent-hover); }
+  .pill:hover,
+  .pill:focus-visible { background: var(--accent-hover); }
 }
-.dl-rows a span:last-child {
+/* the ↗ marker is suppressed inside the band: the pill already names the
+   action and the grid would strand the glyph */
+#platforms .pill::after { content: none; }
+.bnote { grid-column: 1 / -1; margin-top: 0.25rem; }
+.brow:has(.bnote[open]) { padding-bottom: 1.15rem; }
+.bnote summary {
+  cursor: pointer;
   color: inherit;
-  opacity: 0.75;
-  font-size: var(--size-small);
-  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
 }
-/* the ↗ marker is suppressed here: inside a grid it becomes a stray item,
-   and the pill already names the action */
-#download .dl-rows a::after { content: none; }
-#download > div > p:last-child { margin: 2.5rem 0 0; font-size: var(--size-body); }
+.bnote[open] summary { margin-bottom: 0.4rem; }
+.bnote ul { margin: 0.2rem 0 0.4rem; padding-left: 1.1rem; font-size: 0.875rem; line-height: 1.5; opacity: 0.9; }
+.bnote li { margin: 0.25rem 0; }
+.bnote code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: color-mix(in srgb, var(--field-ink) 14%, transparent);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.band-more { margin: 2rem 0 0; font-size: 0.9375rem; }
+.band-more a { color: inherit; }
 
 /* --- #notes: two-ended news rows; the date sits on the title line --- */
 #notes > div:first-child {
@@ -719,7 +620,8 @@ main > section h2 {
 /* shared by the home #notes mirror and the news index — both lists carry
    class="news-list"; the home cards are JS-cloned from the index */
 .news-list { list-style: none; margin: 3rem 0 0; padding: 0; }
-.news-list li + li { margin-top: 2.25rem; }
+.news-list li { border-top: 1px solid var(--line); padding-block: 1.5rem; } /* taste-skill-ignore: hairline - the ruled-index row rhythm, all pages */
+.news-list li + li { margin-top: 0; }
 /* ul+li: `main.page a` (404, posts) outranks a bare .news-list a and
    turned whole items blue there — titles stay ink, like home and /news */
 ul.news-list li a span { display: contents; }
@@ -757,12 +659,10 @@ ul.news-list li p:not(.news-meta) {
   color: var(--muted);
   line-height: 1.5;
 }
-/* 404/posts: `main.page ul/li` indented the list and spaced its items */
+/* 404/posts: `main.page ul/li` indented the list and spaced its items;
+   the rhythm now lives in the row padding, so only the indent is reset */
 main.page ul.news-list { padding-left: 0; }
 main.page ul.news-list li { margin: 0; }
-/* the neutralizer above outranks `.news-list li + li` (0,1,3 vs 0,1,2) and
-   flattened the item rhythm on the 404 — restore it at equal specificity */
-main.page ul.news-list li + li { margin-top: 2.25rem; }
 /* news pagination (/news/ "Older news" + archive pages /news/page-N/):
    pages numbered from the oldest post; links only go to older pages */
 .news-pager { margin: 2rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; font-size: var(--size-body); }
@@ -783,15 +683,16 @@ main.page .news-pager ol.news-pages li { margin: 0; }
   gap: 4rem;
   align-items: start;
 }
-#help ul { margin: 0; padding: 0; list-style: none; }
-#help li + li { margin-top: 2.5rem; }
+#help ul { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); } /* taste-skill-ignore: hairline - ruled-index frame */
+#help li { padding-block: 1.3rem; border-bottom: 1px solid var(--line); } /* taste-skill-ignore: hairline - ruled-index row */
+#help li + li { margin-top: 0; }
 #help h3 { margin: 0; font-size: var(--size-lead); }
 #help p { margin: 0.6rem 0 0; color: var(--fg); line-height: 1.55; max-width: 56ch; }
 
 /* --- #support: the ask left, the tiers right --- */
 #support {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
   gap: 4rem;
   align-items: start;
 }
@@ -800,12 +701,15 @@ main.page .news-pager ol.news-pages li { margin: 0; }
 #support dl { margin: 1.5rem 0 0; }
 #support dl > div {
   display: grid;
-  grid-template-columns: 3.5rem 1fr;
-  gap: 0.25rem 1rem;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 0.25rem 1.4rem;
   align-items: baseline;
-  padding: 0.75rem 0;
+  padding-block: 1.1rem;
+  border-top: 1px solid var(--line); /* taste-skill-ignore: hairline - ruled-index row */
 }
-#support dt { font-weight: 500; font-variant-numeric: tabular-nums; font-size: var(--size-lead); }
+/* the head row above already separates — no doubled rule on the first tier */
+#support dl > div:first-child { border-top: 0; padding-top: 0; }
+#support dt { font-family: var(--display); font-weight: 500; font-variant-numeric: tabular-nums; font-size: 1.5rem; }
 #support dd { margin: 0; color: var(--muted); font-size: var(--size-small); line-height: 1.5; }
 #support > div:last-child > p:last-child { margin: 1.5rem 0 0; color: var(--muted); font-size: var(--size-small); }
 
@@ -885,34 +789,14 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   #hero { grid-template-columns: 1fr; padding-block: 2.5rem 4rem; }
   #hero .shot { width: min(34rem, 112%); margin-inline: -6%; }
   #hero dl { grid-template-columns: 1fr 1fr; }
-  /* the demo stacks; each rail word leads its copy */
-  .paths { grid-template-columns: 1fr; gap: 3.5rem; }
-  .paths-state { grid-column: 1; text-align: left; margin: 0; }
-  .paths .copy { grid-column: 1; }
-  /* pinned field on top; the blocks are a raised sheet with the page
-     ground, so text always carries its own background over the field */
-  #features .split { grid-template-columns: 1fr; gap: 0; }
-  #features .field { top: var(--header); height: 44svh; }
-  #features .lens { width: min(26rem, 82vw); max-height: 38svh; }
-  #features .blocks {
-    position: relative;
-    z-index: 1;
-    margin-top: -1.5rem;
-    border-radius: 14px 14px 0 0;
-    background: var(--bg);
-    padding: 3rem 0 0;
-  }
-  #features .block { margin-top: 16svh; }
-  .board { grid-template-columns: 1fr 1fr; }
-  .shells { gap: 2.5rem; }
-  .shell { grid-template-columns: 1fr; gap: 0.25rem; }
-  .shell ul { grid-column: 1; grid-row: auto; }
-  .shell-get { grid-column: 1; grid-row: auto; margin-top: 0.75rem; }
-  .shell details { grid-column: 1; }
-  .dl-rows a { grid-template-columns: 1fr auto; }
-  .dl-rows a strong { grid-row: 1; grid-column: 1; }
-  .dl-rows a span:last-child { grid-row: 1; grid-column: 2; }
-  .dl-rows a span:first-of-type { grid-row: 2; grid-column: 1; min-height: 2.75rem; }
+  /* the ledger stacks; each route keeps its heavy top rule */
+  .ledger { grid-template-columns: 1fr; }
+  .feat { grid-template-columns: 1fr; gap: 2.5rem; }
+  .sidefig { grid-column: 1; position: static; max-width: 24rem; }
+  .brow { grid-template-columns: 1fr auto; }
+  .brow h3 { grid-row: 1; grid-column: 1; }
+  .brow .meta { grid-row: 1; grid-column: 2; text-align: right; }
+  .brow .act { grid-row: 2; grid-column: 1; justify-self: start; }
   /* footer link groups side by side on mobile; the brand block spans both */
   footer > div { grid-template-columns: 1fr 1fr; }
   footer > div > div:first-child { grid-column: 1 / -1; }
@@ -925,12 +809,11 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   body > header > a[href="/#download"] span:last-child { display: none; }
   main > section { padding-block: 4.5rem; }
   #hero .shot { width: 128%; margin-inline: -14%; }
-  .copy .route-pick { flex-wrap: wrap; }
-  .board { grid-template-columns: 1fr; }
-  .board li.board-lead { grid-column: 1; }
+  .block { grid-template-columns: 2.2rem minmax(0, 1fr) auto; }
+  .row { grid-template-columns: 2.2rem minmax(0, 1fr); }
+  .row .val { grid-row: 2; grid-column: 2; justify-self: start; white-space: normal; }
   #help, #support { grid-template-columns: 1fr; gap: 2.5rem; }
-  .news-list a, footer > p, #features .rows li { grid-template-columns: 1fr; }
-  #features .rows .row-value { grid-row: 2; grid-column: 1; text-align: left; }
+  .news-list a, footer > p { grid-template-columns: 1fr; }
   /* the meta line drops under the title, before the summary */
   ul.news-list li p.news-meta { grid-row: 2; grid-column: 1; text-align: left; white-space: normal; }
   footer > p { flex-direction: column; }
@@ -967,9 +850,8 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   }
   /* feedback under the hand */
   .js :is(main) p > strong > a:active { transform: scale(0.98); }
-  .js .dl-rows a { transition: transform 0.25s var(--ease); }
-  .js .dl-rows a:hover { transform: translateX(0.3rem); }
-  .js .copy .route-pick label { transition: border-color 0.15s ease, background-color 0.15s ease; }
+  .js .pill { transition: transform 0.25s var(--ease); }
+  .js .brow:hover .pill { transform: translateX(0.3rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {

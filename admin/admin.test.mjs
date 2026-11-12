@@ -129,7 +129,7 @@ check("title preserved", out.includes("<title>About — Velta</title>"));
 check("desc preserved", out.includes("About Velta — one web frontend"));
 check("mainClass preserved", out.includes('<main id="content" class="page">'));
 check("body between markers", out.includes(`${START}\n<p class="kicker">Project</p>\n<h1>About</h1>`));
-check("footer present", out.includes("Independent client. Delta Chat and Chatmail are upstream projects."));
+check("footer present", out.includes("Independent client. Not affiliated with the Delta Chat project."));
 check("site.js present", out.includes('<script src="/js/site.js?v=3"></script>'));
 
 // News page: active key lands on the News link.

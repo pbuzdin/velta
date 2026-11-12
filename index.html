@@ -9,7 +9,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script>document.documentElement.classList.add("js")</script>
-  <link rel="stylesheet" href="/css/velta.css?v=22">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
   <script type="speculationrules">
 {
   "prerender": [{
@@ -83,211 +83,276 @@
 
 <section id="product">
   <h2>The ring and the chord.</h2>
-  <p class="lead">Velta does not run a messaging server and does not sell the directory. You bring a chatmail address, and the app is the client. Most messages take the ring: encrypted mail through relays you choose. Files take the chord: straight across. Choose a route below and see what each one means.</p>
-  <div class="paths">
-    <p class="paths-state" aria-hidden="true">The ring</p>
-    <div class="copy" data-ui>
-      <div class="msg">
-        <p class="bubble">hey! did you see the new chatmail relay release?</p>
-        <p class="ticks" aria-hidden="true">08:49 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m2 13 4 4L14 7"/><path d="m11 15 2 2L22 7"/></svg></p>
-      </div>
-      <p class="why"><strong>The ring.</strong> Chat travels as encrypted mail through chatmail relays you choose. Keep more than one, mark one as primary, fail over when it drops. The relay stores ciphertext and sees timing and size, never the words. Plain email is dropped on arrival, so there is no spam either.</p>
+  <p class="lead">Velta does not run a messaging server and does not sell the directory. You bring a chatmail address, and the app is the client. Chat rides the ring. Files take the chord.</p>
+  <div class="ledger">
+    <div class="route">
+      <h3>The ring</h3>
+      <p class="sub">Every message</p>
+      <dl>
+        <div><dt>Carries</dt><dd>Every chat message, as encrypted mail through chatmail relays you choose.</dd></div>
+        <div><dt>Who can read it</dt><dd>No one in the middle. The relay sees timing and size — never the words.</dd></div>
+        <div><dt>When a relay drops</dt><dd>Another relay on the profile takes over. Failover is built in.</dd></div>
+        <div><dt>Spam</dt><dd>None. Plain email is dropped on arrival.</dd></div>
+      </dl>
     </div>
-    <p class="paths-state" id="paths-state" aria-hidden="true">The chord</p>
-    <div class="copy is-live" data-ui>
-      <div class="msg">
-        <div class="file">
-          <p class="file-name">trail-photos.zip</p>
-          <p class="file-size">182 MB</p>
-        </div>
-        <fieldset class="route-pick">
-          <legend class="sr">Send trail-photos.zip</legend>
-          <label><input type="radio" name="route" value="beam" checked> Beam direct</label>
-          <label><input type="radio" name="route" value="relay"> By relay</label>
-        </fieldset>
-      </div>
-      <div class="route-out" aria-live="polite">
-        <p class="why is-beam"><strong>The chord.</strong> Velta Beam moves the file peer to peer to the people already in the chat: a progress line for every receiver until the checksum matches. No relay in between, and no extra copy sitting on a server.</p>
-        <p class="why is-relay"><strong>The ring.</strong> The file goes as one encrypted mail. The relay stores ciphertext and sees timing and size — never the words.</p>
-      </div>
-    </div>
-    <p class="paths-state" aria-hidden="true">The chord</p>
-    <div class="copy" data-ui>
-      <div class="msg">
-        <div class="room">
-          <img src="/loop-logo.svg" alt="" width="28" height="28">
-          <div>
-            <p class="room-name">Weekend Crew</p>
-            <p class="room-note">Local room · same network</p>
-          </div>
-        </div>
-      </div>
-      <p class="why"><strong>The chord, local.</strong> Velta Loop is a serverless room on the same network, over iroh QUIC. Up to five devices, 256 MB in a pair, 32 MB in a group. Beta.</p>
+    <div class="route">
+      <h3>The chord</h3>
+      <p class="sub">Every file</p>
+      <dl>
+        <div><dt>Carries</dt><dd>Files, peer to peer. Beam goes device to device; Loop runs on the local network.</dd></div>
+        <div><dt>Who can read it</dt><dd>No one — there is no relay in between and no copy on a server.</dd></div>
+        <div><dt>Progress</dt><dd>A line per receiver, until every checksum matches.</dd></div>
+        <div><dt>Beta limits</dt><dd>Loop: up to five devices, 256 MB in a pair, 32 MB in a group.</dd></div>
+      </dl>
     </div>
   </div>
 </section>
 
 <section id="features">
-  <div class="split">
-    <div class="field">
-      <figure class="lens">
-        <img id="lens-img" src="/hero-desktop.webp" alt="The Velta chat, cropped to the part the text describes." width="874" height="886" loading="lazy">
-      </figure>
-    </div>
+  <h2>What a chat gives you.</h2>
+  <p class="lead">Velta is a client on the Delta Chat core — the code the protocol comes from. Some of what follows is the core’s doing; some Velta built on top. The tags say which.</p>
+  <div class="feat">
     <div class="blocks">
-      <h2>Built on Delta Chat.</h2>
-      <a class="blocks-note" href="/news/two-paths.html">Read the longer note</a>
-      <div class="block" data-lens="lens-full">
+      <div class="block">
+        <span class="no">01</span>
         <h3>Encrypted end to end</h3>
-        <p>OpenPGP, handled by the Delta Chat core, the client the protocol comes from. Velta has no master key and does not keep yours.</p>
+        <span class="tag">core</span>
+        <p>OpenPGP, handled by the core. Velta has no master key and does not keep yours.</p>
       </div>
-      <div class="block" data-lens="lens-react">
+      <div class="block">
+        <span class="no">02</span>
         <h3>Reactions, threads, mentions</h3>
-        <p>React to any message, reply in threads with reply counts, and @mention someone in a way that cuts through mutes.</p>
+        <span class="tag">Velta</span>
+        <p>React to any message, reply in threads with reply counts, and @mention someone in a way that cuts through mutes. Built in the client, on top of the core.</p>
       </div>
-      <div class="block" data-lens="lens-tools">
+      <div class="block">
+        <span class="no">03</span>
         <h3>The everyday tools</h3>
-        <p>Full-history search, pins that sync, edits to your own text, read ticks, and messages scheduled with Send later for the exact minute they should land.</p>
+        <span class="tag">core + Velta</span>
+        <p>Full-history search, pins that sync, edits to your own text, stickers, read ticks, and Send later for the exact minute a message should land.</p>
       </div>
-      <div class="block" data-lens="lens-apps">
+      <div class="block">
+        <span class="no">04</span>
         <h3>Apps in a message</h3>
-        <p>Small web apps run inside the chat as a card. Their pages are drawn in a sandboxed frame that does not share the app’s origin.</p>
+        <span class="tag">core</span>
+        <p>Small web apps run inside the chat as a card, drawn in a sandboxed frame that does not share the app’s origin.</p>
       </div>
     </div>
+    <figure class="sidefig">
+      <img src="/hero-phone.webp" alt="Velta on Android: the Weekend Crew group chat with prism sender colors, voice messages, a file card and delivery ticks." loading="lazy" width="689" height="1024">
+      <figcaption>The interface itself — the real app, not a promise.</figcaption>
+    </figure>
   </div>
   <div class="inventory">
     <h2>What Velta adds.</h2>
-    <ul class="rows">
-      <li>
-        <h3><img src="/beam-logo.svg" alt="" width="20" height="20">Velta Beam</h3>
+    <div class="idx">
+      <p class="grp">Velta originals</p>
+      <div class="row">
+        <span class="no">01</span>
+        <h3><img src="/beam-logo.svg" alt="" loading="lazy">Velta Beam</h3>
+        <span class="val">no relay in between</span>
         <p>A file goes peer to peer to the people in the chat; you see each receiver until the checksum matches.</p>
-        <span class="row-value">no relay in between</span>
-      </li>
-      <li>
-        <h3><img src="/loop-logo.svg" alt="" width="20" height="20">Velta Loop</h3>
-        <p>A serverless local room on the same network, over iroh QUIC. Up to five devices.</p>
-        <span class="row-value">beta · 256 MB in a pair</span>
-      </li>
-      <li>
-        <h3>Relays you pick</h3>
-        <p>More than one chatmail relay on a profile; one is primary, another takes over if it drops. Signed invite links bring someone in through <a href="/join/">/join</a>.</p>
-        <span class="row-value">failover included</span>
-      </li>
-      <li>
-        <h3><img src="/prism-logo.svg" alt="" width="20" height="20">Velta Prism</h3>
+      </div>
+      <div class="row">
+        <span class="no">02</span>
+        <h3>Large files</h3>
+        <span class="val">up to 1 GB · key stays in the link</span>
+        <p>On desktop, the attach menu encrypts a file on your device and uploads it to a Lufi or Cryptex server. The key rides in the link’s <code>#</code> part — the server never sees it — and recipients without Velta download it in any browser.</p>
+      </div>
+      <div class="row">
+        <span class="no">03</span>
+        <h3><img src="/loop-logo.svg" alt="" loading="lazy">Velta Loop</h3>
+        <span class="val">beta · five devices</span>
+        <p>A serverless local room on the same network, over iroh QUIC. Text queues while a peer is offline and flushes on reconnect.</p>
+      </div>
+      <div class="row">
+        <span class="no">04</span>
+        <h3><img src="/prism-logo.svg" alt="" loading="lazy">Velta Prism</h3>
+        <span class="val">one color per person</span>
         <p>Every person gets their own color, everywhere: chats, groups, calls. Recognize who is who without photos.</p>
-        <span class="row-value">one color per person</span>
-      </li>
-      <li>
-        <h3><img src="/circle-logo.svg" alt="" width="20" height="20">Velta Circle</h3>
-        <p>Group audio calls for up to six people. The call posts as a card in the encrypted chat, so nothing rings.</p>
-        <span class="row-value">six on a call</span>
-      </li>
-      <li>
+      </div>
+      <div class="row">
+        <span class="no">05</span>
+        <h3><img src="/circle-logo.svg" alt="" loading="lazy">Velta Circle</h3>
+        <span class="val">six on a call</span>
+        <p>Group audio calls, posted as a card in the encrypted chat so nothing rings. Audio flows between participants and the relay’s TURN servers only — nobody sees your IP address.</p>
+      </div>
+      <p class="grp">Built with the core</p>
+      <div class="row">
+        <span class="no">06</span>
+        <h3>Relays you pick</h3>
+        <span class="val">failover included</span>
+        <p>More than one chatmail relay on a profile; one is primary, another takes over when it drops. Signup can autopick the fastest relay. Signed invites bring someone in through <a href="/join/">/join</a>.</p>
+      </div>
+      <div class="row">
+        <span class="no">07</span>
         <h3>Audio and video calls</h3>
+        <span class="val">beta · one to one</span>
         <p>One to one, beta, end-to-end encrypted like everything else. A call rings only while the app is open; a backgrounded app shows it as missed. Groups call with Velta Circle.</p>
-        <span class="row-value">beta · one to one</span>
-      </li>
-      <li>
+      </div>
+      <div class="row">
+        <span class="no">08</span>
         <h3>Locked when you walk away</h3>
+        <span class="val">encrypted at rest</span>
         <p>The database and attachments are encrypted at rest, a capability Velta added to the core itself. A PIN or your fingerprint locks the app; identity backups stay end-to-end encrypted.</p>
-        <span class="row-value">encrypted at rest</span>
-      </li>
-      <li>
+      </div>
+      <div class="row">
+        <span class="no">09</span>
         <h3>Quiet by default</h3>
+        <span class="val">trackers stripped</span>
         <p>Disappearing messages, tracking parameters stripped from links, HTML mail drawn in a sandboxed frame.</p>
-        <span class="row-value">trackers stripped</span>
-      </li>
-      <li>
+      </div>
+      <div class="row">
+        <span class="no">10</span>
         <h3>Profiles you can leave with</h3>
-        <p>Add, export, transfer, delete. The identity is an email address. The same address chats with anyone on the official Delta Chat apps, and moves in or out of Velta at any time.</p>
-        <span class="row-value">export any time</span>
-      </li>
-    </ul>
+        <span class="val">export any time</span>
+        <p>Add, export, transfer, delete — a second device joins with one QR scan. The same address chats with anyone on the official Delta Chat apps, and moves in or out of Velta at any time.</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <section id="privacy">
-  <ol class="board">
-    <li class="board-lead">
-      <h2>Nothing phones home.</h2>
-      <p>The promises below are properties of the build, not a policy you have to trust a dashboard to enforce. The source is public, and the frontend ships as plain ES modules: no build pipeline between what you read and what your browser runs.</p>
-      <p><strong><a href="https://github.com/pbuzdin/velta">View the source</a></strong></p>
-    </li>
-    <li><h3>No telemetry</h3><p>No analytics, no crash reports, no account of yours on a Velta server.</p></li>
-    <li><h3>Your mailbox, not ours</h3><p>Chatmail relays hold ciphertext. Velta does not operate them and cannot read the mail.</p></li>
-    <li><h3>The app loads itself</h3><p>A strict content security policy. Pages inside a message do not share the app’s origin.</p></li>
-    <li><h3>Links stay clean</h3><p>Previews can be off, sent as a picture, or loaded on the device. Tracking parameters are stripped.</p></li>
-    <li><h3>Proxy is opt-in</h3><p>Android can route mail through a SOCKS5 proxy on a blocked network. It stays off until you enable it.</p></li>
-    <li><h3>You can leave</h3><p>Export the profile. Delete it. The license is GPL-3.0, so the client can be forked.</p></li>
-  </ol>
-  <p class="board-note">This website measures its own visits cookielessly, in aggregate. The app has no telemetry and never phones home.</p>
+  <h2>Nothing phones home.</h2>
+  <p class="lead">The promises below are properties of the build, not a policy you have to trust a dashboard to enforce. The source is public, and the frontend ships as plain ES modules: no build pipeline between what you read and what your browser runs.</p>
+  <p><strong><a href="https://github.com/pbuzdin/velta">View the source</a></strong></p>
+  <div class="idx">
+    <div class="row">
+      <span class="no">01</span>
+      <h3>No telemetry</h3>
+      <p>No analytics, no crash reports, no account of yours on a Velta server — and no update check either.</p>
+    </div>
+    <div class="row">
+      <span class="no">02</span>
+      <h3>Your mailbox, not ours</h3>
+      <p>Chatmail relays hold ciphertext. Velta does not operate them and cannot read the mail.</p>
+    </div>
+    <div class="row">
+      <span class="no">03</span>
+      <h3>The app loads itself</h3>
+      <p>A strict content security policy. Pages inside a message do not share the app’s origin.</p>
+    </div>
+    <div class="row">
+      <span class="no">04</span>
+      <h3>Nothing loads from strangers</h3>
+      <p>Attachments and link previews from unaccepted contact requests wait for your tap — the default on every install, not a setting to find. Tracking parameters are stripped from links.</p>
+    </div>
+    <div class="row">
+      <span class="no">05</span>
+      <h3>Proxy is opt-in</h3>
+      <p>Android can route mail through a SOCKS5 proxy on a blocked network. It stays off until you enable it.</p>
+    </div>
+    <div class="row">
+      <span class="no">06</span>
+      <h3>You can leave</h3>
+      <p>Export the profile. Delete it. The license is GPL-3.0, so the client can be forked.</p>
+    </div>
+  </div>
+  <p class="priv-note">This website measures its own visits cookielessly, in aggregate. The app has no telemetry and never phones home.</p>
 </section>
 
-<section id="platforms">
-  <h2>One web interface. Four shells.</h2>
-  <p class="lead">Windows, macOS, and Android wrap the same frontend with Tauri. The browser build is that frontend with a WebAssembly core. You are not learning a different app on each desk.</p>
-  <div class="shells">
-    <div class="shell">
-      <h3>Android</h3>
-      <p class="shell-size">~49 MB · arm64</p>
-      <ul>
-        <li>Needs an arm64 phone.</li>
-        <li>The chat core runs inside the app, with a foreground service so sync continues after you leave.</li>
-        <li>Push notifications through UnifiedPush, with no Google services in the loop.</li>
-        <li>Optional SOCKS5 proxy when a network blocks mail. Off until you turn it on.</li>
-      </ul>
-      <p class="shell-get"><strong><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk">Download APK</a></strong></p>
+<section id="inside">
+  <h2>Inside the build.</h2>
+  <p class="lead">For the people who ask how it holds together — the engineering facts.</p>
+  <div class="idx">
+    <div class="row">
+      <span class="no">01</span>
+      <h3>One contract</h3>
+      <span class="val">the same in every shell</span>
+      <p>The UI talks to the core over JSON-RPC — the same contract on Windows, macOS, Android, and in the browser build. No shell has its own private API.</p>
     </div>
-    <div class="shell">
-      <h3>Windows</h3>
-      <p class="shell-size">~15 MB · x64</p>
-      <ul>
-        <li>x64 installer. The core ships beside the app.</li>
-        <li>One-click updates when a newer build is published.</li>
-        <li>Invite links can open through the velta:// scheme.</li>
-      </ul>
-      <p class="shell-get"><strong><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe">Download installer</a></strong></p>
+    <div class="row">
+      <span class="no">02</span>
+      <h3>A carried core</h3>
+      <span class="val">2.69.0 · 200 patches</span>
+      <p>The Delta Chat core ships vendored and carried: 200 quilt patches across 37 files add relay controls, admin groups, encryption at rest, reply threads, and stall fixes — applied and verified on every build. <a href="https://github.com/pbuzdin/velta/blob/master/VENDORISSUES.MD">What each patch does</a>.</p>
     </div>
-    <div class="shell">
-      <h3>macOS</h3>
-      <p class="shell-size">~41 MB · universal test build</p>
-      <ul>
-        <li>Apple Silicon and Intel, macOS 10.15 or newer.</li>
-        <li>Ad-hoc signed, not notarized. The first open needs an extra approval.</li>
-        <li>One-click updates, same as Windows.</li>
-      </ul>
-      <details>
-        <summary>First launch on macOS</summary>
-        <p>Drag Velta into Applications. Then clear quarantine once in Terminal: <code>xattr -dr com.apple.quarantine /Applications/Velta.app</code>. Or open it, fail once, and choose Open Anyway under System Settings → Privacy &amp; Security.</p>
-      </details>
-      <p class="shell-get"><strong><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg">Download DMG</a></strong></p>
+    <div class="row">
+      <span class="no">03</span>
+      <h3>Speed under load</h3>
+      <span class="val">freezes &lt; 50 ms</span>
+      <p>Incoming messages batch per frame, notification and chat-list work coalesces, gestures share one delegated listener. On a busy account the longest UI freeze went from about 600 ms to under 50 ms.</p>
     </div>
-    <div class="shell">
-      <h3>Browser</h3>
-      <p class="shell-size">Self-hosted PWA</p>
-      <ul>
-        <li>The same interface, with the core compiled to WebAssembly.</li>
-        <li>You host the static site. Mail goes out through a relay’s WebSocket proxy.</li>
-        <li>A refresh keeps the signed-in profile. A crash can drop the last few seconds.</li>
-      </ul>
-      <p class="shell-get"><strong><a href="https://github.com/pbuzdin/velta/blob/master/docs/pwa-self-host.md">Hosting notes</a></strong></p>
+    <div class="row">
+      <span class="no">04</span>
+      <h3>Built for chat switching</h3>
+      <span class="val">media: immutable</span>
+      <p>Rendered rows survive chat switches, off-screen media releases its decoder, and media is served immutable — the same blob name always means the same bytes.</p>
     </div>
   </div>
 </section>
 
-<section id="download">
-  <div>
+<section id="platforms">
+  <div id="download">
     <h2>Get Velta.</h2>
-    <p class="lead">Always the current build. Older versions, signatures, and the update manifest live on the releases page.</p>
+    <p class="lead">The same frontend everywhere: Android, Windows, macOS, and Linux wrap it with Tauri; the browser runs it on a WebAssembly core. You are not learning a different app on each desk.</p>
     <p class="dl-version">Latest release: <a href="https://github.com/pbuzdin/velta/releases/latest" data-latest-version>v1.5.5</a></p>
-    <ul class="dl-rows">
-      <li><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk"><strong>Android</strong><span>Download APK</span><span>arm64</span></a></li>
-      <li><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe"><strong>Windows</strong><span>Download installer</span><span>x64</span></a></li>
-      <li><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg"><strong>macOS</strong><span>Download DMG</span><span>universal</span></a></li>
-      <li><a href="https://github.com/pbuzdin/velta/blob/master/docs/pwa-self-host.md"><strong>Browser</strong><span>Hosting notes</span><span>docs</span></a></li>
-    </ul>
-    <p><a href="https://github.com/pbuzdin/velta/releases">All releases and release notes</a></p>
+    <div class="brows">
+      <div class="brow">
+        <h3>Android</h3>
+        <span class="meta">arm64 · ~49 MB</span>
+        <span class="act"><a class="pill" href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk">Download APK</a></span>
+        <details class="bnote">
+          <summary>Phone details</summary>
+          <ul>
+            <li>The chat core runs inside the app, with a foreground service so sync continues after you leave.</li>
+            <li>Push notifications through UnifiedPush, with no Google services in the loop.</li>
+            <li>Optional SOCKS5 proxy when a network blocks mail. Off until you turn it on.</li>
+          </ul>
+        </details>
+      </div>
+      <div class="brow">
+        <h3>Windows</h3>
+        <span class="meta">x64 · ~15 MB</span>
+        <span class="act"><a class="pill" href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe">Download installer</a></span>
+        <details class="bnote">
+          <summary>Desktop details</summary>
+          <ul>
+            <li>The core ships beside the app.</li>
+            <li>One-click updates when a newer build is published.</li>
+            <li>Invite links can open through the <code>velta://</code> scheme.</li>
+          </ul>
+        </details>
+      </div>
+      <div class="brow">
+        <h3>macOS</h3>
+        <span class="meta">universal · ~41 MB</span>
+        <span class="act"><a class="pill" href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg">Download DMG</a></span>
+        <details class="bnote">
+          <summary>First launch on macOS</summary>
+          <ul>
+            <li>Apple Silicon and Intel, macOS 10.15 or newer.</li>
+            <li>Ad-hoc signed, not notarized: clear quarantine once — <code>xattr -dr com.apple.quarantine /Applications/Velta.app</code> — or use Open Anyway under System Settings.</li>
+            <li>One-click updates, same as Windows.</li>
+          </ul>
+        </details>
+      </div>
+      <div class="brow">
+        <h3>Linux</h3>
+        <span class="meta">deb · AppImage · Arch</span>
+        <span class="act"><a class="pill" href="https://github.com/pbuzdin/velta/releases/latest">Get from releases</a></span>
+        <details class="bnote">
+          <summary>Linux details</summary>
+          <ul>
+            <li>glibc 2.36 or newer — Debian 12, Ubuntu 23.04, Arch.</li>
+            <li>Linux does not self-update yet.</li>
+          </ul>
+        </details>
+      </div>
+      <div class="brow">
+        <h3>Browser</h3>
+        <span class="meta">self-hosted PWA</span>
+        <span class="act"><a class="pill" href="https://github.com/pbuzdin/velta/blob/master/docs/pwa-self-host.md">Hosting notes</a></span>
+        <details class="bnote">
+          <summary>PWA details</summary>
+          <ul>
+            <li>The same interface, with the core compiled to WebAssembly. You host the static site; mail goes out through a relay’s WebSocket proxy.</li>
+            <li>A refresh keeps the signed-in profile. A crash can drop the last few seconds.</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+    <p class="band-more"><a href="https://github.com/pbuzdin/velta/releases">All releases, signatures, and release notes</a></p>
   </div>
 </section>
 
@@ -315,7 +380,7 @@
     </li>
     <li>
       <h3>Translation</h3>
-      <p>Bring the interface to your language. French and Russian are collected in open feedback threads (<a href="https://github.com/pbuzdin/velta/issues/173">français</a>, <a href="https://github.com/pbuzdin/velta/issues/172">русский</a>) where rough strings get reported. A new language starts with <a href="https://github.com/pbuzdin/velta/issues">an issue</a>, so the workflow and the glossary get set up once, properly.</p>
+      <p>Bring the interface to your language. French and Russian ship complete; the open threads (<a href="https://github.com/pbuzdin/velta/issues/173">français</a>, <a href="https://github.com/pbuzdin/velta/issues/172">русский</a>) collect rough strings. A new language starts with an issue, so the workflow and the glossary get set up once, properly.</p>
     </li>
     <li>
       <h3>Code</h3>
@@ -381,8 +446,8 @@
       </ul>
     </div>
   </div>
-  <p><span>Independent client, built on the Delta Chat core</span><span>Site visits measured cookielessly; the app never phones home</span></p>
+  <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
 </footer>
-  <script defer src="/js/site.js?v=8"></script>
+  <script defer src="/js/site.js?v=9"></script>
 </body>
 </html>
