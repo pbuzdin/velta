@@ -55,6 +55,9 @@ a numbered version or move the tag to include it.
   notification delivery (relay-side UnifiedPush), RPC timeout/respawn,
   AGSL glass. `build-kmp.yml` builds and tests on every master push
   touching `velta-kmp/**`, and uploads the debug APK as an artifact.
+  Theme: `ui/VeltaTokens.kt` is generated from `app/css/main.css` by
+  `tools/gen-kmp-theme.mjs` (#318). Never hand-edit it; regenerate after a
+  token change, or `tests/kmp-theme-tokens.test.mjs` fails.
 - **`rust-ui/preview/`** (branch `rust-ui-preview`) — a renderer/design
   lab (Masonry + winit; skia/vello hybrid/gpu + glass compositing). The
   2026-11-12 verdict made the Compose client the Android delivery track;

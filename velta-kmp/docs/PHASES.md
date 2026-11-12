@@ -179,6 +179,16 @@ outgoing bubble `#2b5278`; light bg `#f4f4f4`, accent `#3390ec`, out-bubble
 `#e1f0fb`. Follows the system setting; verified on the emulator in BOTH
 modes via screenshots.
 
+**Slice 1b — generated theme (#318):** the hand-copied palette above had
+drifted (light chat ground and incoming bubble swapped, dark chat
+`#0f0f14` instead of `--bg-chat #0b0b10`, dark text `#e8eaf0` instead of
+`#f2f2f5`, dark outline brutal's `#45434f`). `tools/gen-kmp-theme.mjs` now
+generates `ui/VeltaTokens.kt` from main.css for dark, light, brutal and
+AMOLED; `tests/kmp-theme-tokens.test.mjs` fails when it's stale. Bubbles,
+chat ground, meta ink and read ticks use the tokens; message text is
+15.5sp / 1.36. Next: icons as ImageVectors, Velta header/bar/composer,
+custom bubbles and rows, appearance settings, en/ru/fr.
+
 **Slice 2 — relay cards (shipped):** ⚡ entry on the chat list → Relays
 screen with one card per configured transport: address, capability flags
 **C**alls (TURN) / **I**roh / **P**ush / **D** instant-delivery (green =

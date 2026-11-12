@@ -601,6 +601,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 Composer(model)
             }
         },
+        containerColor = Velta.tokens.bgChat,
     ) { inner ->
         val rows = chatRows(model.chatMessages)
         LazyColumn(
@@ -929,6 +930,8 @@ private val MEDIA_VIEWTYPES = setOf("Image", "Gif", "Sticker")
 @Composable
 private fun MessageBubble(message: MessageObject, senderName: String?, onTap: () -> Unit) {
     val outgoing = message.fromId == 1L // ContactId.SELF
+    val t = Velta.tokens
+    val meta = if (outgoing) t.textMetaOut else t.textMetaIn
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
@@ -938,17 +941,14 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                 Text(
                     senderName,
                     style = MaterialTheme.typography.labelSmall,
-                    color = prismSenderColor(senderName, MaterialTheme.colorScheme.surfaceVariant),
+                    color = prismSenderColor(senderName, t.bgChat),
                     modifier = Modifier.padding(start = 12.dp, bottom = 1.dp),
                 )
             }
             Surface(
-                color = if (outgoing) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-                shape = RoundedCornerShape(14.dp),
+                color = if (outgoing) t.bgBubbleOut else t.bgBubbleIn,
+                contentColor = if (outgoing) t.textOut else t.text,
+                shape = veltaBubbleShape(t, outgoing),
                 modifier = Modifier
                     .widthIn(max = 420.dp)
                     .heightIn(min = 20.dp)
@@ -962,11 +962,11 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                     Text(
                         "${viewTypeGlyph(message.viewType)} ${message.viewType}",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = meta,
                     )
                 }
                     if (message.text.isNotBlank()) {
-                        Text(message.text, style = MaterialTheme.typography.bodyMedium)
+                        Text(message.text, style = MaterialTheme.typography.bodyLarge)
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -975,7 +975,7 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                         Text(
                             formatTimestamp(message.timestamp),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = meta,
                         )
                         if (outgoing) {
                             stateGlyph(message.state)?.let { glyph ->
@@ -983,7 +983,7 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                                 Text(
                                     glyph,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (message.state == 28) t.ticksRead else meta, // 28 = read
                                 )
                             }
                         }
