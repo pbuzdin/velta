@@ -60,7 +60,7 @@ fun App(model: AppModel) {
                 LockScreen(model)
             } else {
                 when (val current = model.screen) {
-                    AppModel.Screen.Login -> LoginScreen(model)
+                    AppModel.Screen.Login -> JoinScreen(model, welcome = true)
                     AppModel.Screen.ChatList -> ChatListScreen(model)
                     AppModel.Screen.Relays -> RelaysScreen(model)
                     AppModel.Screen.Accounts -> AccountsScreen(model)
@@ -91,85 +91,6 @@ private fun LockScreen(model: AppModel) {
         )
         Spacer(Modifier.size(24.dp))
         Button(onClick = { model.requestUnlock?.invoke() }) { Text("Unlock") }
-    }
-}
-
-@Composable
-private fun LoginScreen(model: AppModel) {
-    var addr by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("Velta", style = MaterialTheme.typography.displaySmall)
-        Text(
-            "KMP client · core ${model.coreVersion} · ${model.status}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.size(32.dp))
-
-        OutlinedTextField(
-            value = addr,
-            onValueChange = { addr = it },
-            label = { Text("Address") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.size(12.dp))
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.size(16.dp))
-
-        Button(
-            onClick = { model.login(addr.trim(), password) },
-            enabled = model.connected && !model.loginBusy && addr.isNotBlank() && password.isNotBlank(),
-        ) {
-            Text(if (model.loginBusy) "Configuring…" else "Sign in")
-        }
-        model.loginProgress?.let {
-            Spacer(Modifier.size(8.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall)
-        }
-        model.loginError?.let {
-            Spacer(Modifier.size(8.dp))
-            Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        if (!model.connected) {
-            Spacer(Modifier.size(16.dp))
-            Text(
-                model.status,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.size(24.dp))
-        Text(
-            "P1 bridge demo — use a throwaway account",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        TextButton(onClick = {
-            model.joinText = ""
-            model.joinChecked = null
-            model.joinError = null
-            model.screen = AppModel.Screen.Join
-        }) { Text("Have an invite code? Join with it →") }
     }
 }
 
@@ -299,26 +220,48 @@ private fun BatteryRow(model: AppModel) {
     }
 }
 
-/** P4: invite/join — paste a QR payload (relay invite or secure-join). */
+/** P4: invite/join — paste or scan a QR payload (relay invite, relay
+ * sign-in, or secure-join). With `welcome` it doubles as the first-run
+ * onboarding screen (no account yet — nothing to close). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun JoinScreen(model: AppModel) {
+private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
     val checked = model.joinChecked
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Join") },
+                title = { Text(if (welcome) "Welcome to Velta" else "Join") },
                 navigationIcon = {
-                    TextButton(onClick = { model.closeJoin() }) { Text("✕") }
+                    if (!welcome) {
+                        TextButton(onClick = { model.closeJoin() }) { Text("✕") }
+                    }
                 },
             )
         },
     ) { inner ->
         Column(
             modifier = Modifier.padding(inner).fillMaxSize().padding(24.dp),
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = if (welcome) Arrangement.Top else Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (welcome) {
+                Spacer(Modifier.size(24.dp))
+                Text("Velta", style = MaterialTheme.typography.displaySmall)
+                Text(
+                    "KMP client · core ${model.coreVersion} · ${model.status}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(24.dp))
+                Text(
+                    "Paste a relay invite (DCACCOUNT:…), a relay sign-in code " +
+                        "(DCLOGIN:…), or a secure-join invite — or scan one.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.size(24.dp))
+            }
             OutlinedTextField(
                 value = model.joinText,
                 onValueChange = {
@@ -347,17 +290,26 @@ private fun JoinScreen(model: AppModel) {
                 Spacer(Modifier.size(16.dp))
                 val summary = when {
                     checked.isAccountInvite -> "Relay invite for ${checked.domain ?: "?"} — sets up this app for that relay"
+                    checked.isLoginInvite -> "Sign-in code for ${checked.domain ?: "?"} — sets up this app with that account"
                     checked.isSecureJoin -> "Secure-join invite${checked.grpname?.let { " — $it" } ?: ""}"
                     checked.kind == "text" -> "Not a Delta Chat QR — just text"
                     else -> "QR of kind “${checked.kind}” — not supported here yet"
                 }
                 Text(summary, textAlign = TextAlign.Center)
-                if (checked.isAccountInvite || checked.isSecureJoin) {
+                if (checked.isAccountInvite || checked.isLoginInvite || checked.isSecureJoin) {
                     Spacer(Modifier.size(16.dp))
                     Button(
                         onClick = { model.join() },
                         enabled = !model.joinBusy,
-                    ) { Text(if (checked.isAccountInvite) "Set up relay" else "Join") }
+                    ) {
+                        Text(
+                            when {
+                                checked.isAccountInvite -> "Set up relay"
+                                checked.isLoginInvite -> "Sign in"
+                                else -> "Join"
+                            },
+                        )
+                    }
                 }
             }
             if (model.joinBusy) {

@@ -197,7 +197,9 @@ class AppModel(
                     ?: unconfiguredAccountId
                     ?: veltaCore.addAccount().also { accountId = it }
                 when {
-                    qr.isAccountInvite -> {
+                    // DCACCOUNT and DCLOGIN both land here: addTransportFromQr
+                    // accepts both (the lab's relay_for did the same).
+                    qr.isAccountInvite || qr.isLoginInvite -> {
                         veltaCore.addTransportFromQr(id, raw)
                         status = "configuring"
                         veltaCore.configure(id)
