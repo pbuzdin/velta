@@ -38,6 +38,7 @@ class AppModel(
         data object Relays : Screen
         data object Accounts : Screen
         data object Join : Screen
+        data object Settings : Screen
         data class Chat(val chatId: Long, val title: String, val isGroup: Boolean) : Screen
         data class Profile(val chatId: Long, val title: String) : Screen
     }
@@ -1009,6 +1010,64 @@ class AppModel(
         if (messageId != null && chatMessages.any { it.id == messageId }) {
             pendingJumpToId = messageId
         }
+    }
+
+    // ---- Appearance + language (#321 step 5). The web keeps these in
+    // localStorage (dw-theme / velta-amoled / velta-accent / velta-lang);
+    // KMP stores the SAME keys via the platform prefs seam. AMOLED is a
+    // flag layered on dark (app.js applyTheme), never its own theme value.
+    var themeChoice by mutableStateOf(
+        when (platform.pref("dw-theme")) {
+            "dark" -> VeltaThemeChoice.Dark
+            "light" -> VeltaThemeChoice.Light
+            "brutal" -> VeltaThemeChoice.Brutal
+            else -> VeltaThemeChoice.Auto
+        },
+    )
+        private set
+    var amoled by mutableStateOf(platform.pref("velta-amoled") == "1")
+        private set
+    var accentHex by mutableStateOf(Accent.normHex(platform.pref("velta-accent")))
+        private set
+    var lang by mutableStateOf(platform.pref("velta-lang")?.takeIf { it in L.LANGS.map { it.first } } ?: "en")
+        private set
+
+    init {
+        // The web applies the stored language before first paint (i18n.js);
+        // the model construction is the KMP equivalent hook.
+        L.lang = lang
+    }
+
+    fun onSetTheme(c: VeltaThemeChoice) {
+        themeChoice = c
+        platform.setPref("dw-theme", c.name.lowercase())
+    }
+
+    fun onSetAmoled(on: Boolean) {
+        amoled = on
+        platform.setPref("velta-amoled", if (on) "1" else null)
+    }
+
+    /** Web write(): null (stock accent) removes the key. */
+    fun onSetAccent(hex: String?) {
+        accentHex = Accent.normHex(hex)
+        platform.setPref("velta-accent", accentHex)
+    }
+
+    /** Web setLang: "en" is stored by REMOVING the key (i18n.js:30). */
+    fun onSetLang(l: String) {
+        if (l !in L.LANGS.map { it.first }) return
+        lang = l
+        L.lang = l
+        platform.setPref("velta-lang", if (l == "en") null else l)
+    }
+
+    fun openSettings() {
+        screen = Screen.Settings
+    }
+
+    fun backFromSettings() {
+        screen = Screen.ChatList
     }
 
     private fun loadChatMembers(chatId: Long) {

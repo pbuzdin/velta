@@ -594,3 +594,39 @@ relay /i/ chips, invite-card copy/share + parsed labels, the composer
 @-autocomplete picker, `> ` quote blocks and emphasis-nested markdown
 tokens, the sticker save flow, and fetch-then-jump beyond the loaded
 window.
+
+## 2026-11-13 — #321 step 5: appearance settings + en/ru/fr strings
+
+The web drawer's Settings section, as a screen (chat-list ⋮ menu →
+Settings): Theme radios (Auto/Dark/Light/Brutal), the "Pure black
+(AMOLED)" flag shown only while the effective theme is dark (app.js
+applyTheme — AMOLED layers on dark, never its own value;
+veltaEffectiveMode() pins that), accent presets + custom hex with the
+FULL chat-appearance.js WCAG derivation ported (Accent.kt: luminance/
+contrast/HSL math, soft-ink range, tintStable mention-chip convergence;
+every derived pair >= 4.5:1, ticks 3:1, accent text 4.6:1 — pinned by
+tests), and the language radios with NATIVE names (i18n.js LANGS).
+
+- **Strings** — the English string IS the key (i18n.js:41-47);
+  tools/gen-kmp-strings.mjs reads the REAL app/locales/{ru,fr}.json and
+  emits LangRu.kt/LangFr.kt filtered to this client's 39 L.t("…") call
+  sites; tests/kmp-strings.test.mjs fails CI on staleness AND on any used
+  key missing from a pack. 39/39 keys covered by both packs. Keys with no
+  web equivalent (App lock, Battery optimization, Refresh, …) stay English
+  by the same rule the web uses for untranslated text.
+- **Persistence** — SAME localStorage keys (dw-theme / velta-amoled /
+  velta-accent / velta-lang) through the CorePlatform pref seam
+  (SharedPreferences on Android, java.util.prefs on desktop); "en" and the
+  stock accent store by REMOVING the key, like the web.
+- **Deliberate deviations (documented, not silent):** the web reloads to
+  switch language (DOM strings stamped at parse) — KMP applies live via
+  compose state, so the reload hint became "Untranslated text stays in
+  English."; the chat-appearance extras (message text size, bubble
+  corners, hyphenation, stickers-in-attach, liquid-glass toggle,
+  interface scale) are OUT of #321 step 5's checkbox text and tracked as a
+  follow-up issue.
+
+Tests: SettingsTest pins effective-mode AMOLED layering, normHex rules,
+the full derived-contrast guarantees on the dark palette, brutal
+BRUTAL_KEYS restraint, prefs round-trip through a NEW model, and the
+translation fallback chain.

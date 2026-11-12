@@ -24,6 +24,10 @@ import androidx.compose.ui.unit.sp
  */
 enum class VeltaThemeMode { System, Dark, Light, Brutal, Amoled }
 
+/** The settings-facing choice (web dw-theme values: auto/dark/light/brutal).
+ * AMOLED is a separate flag, not a choice — see [veltaEffectiveMode]. */
+enum class VeltaThemeChoice { Auto, Dark, Light, Brutal }
+
 fun veltaTokensFor(mode: VeltaThemeMode, systemDark: Boolean): VeltaTokens = when (mode) {
     VeltaThemeMode.System -> if (systemDark) VeltaTokenSets.Dark else VeltaTokenSets.Light
     VeltaThemeMode.Dark -> VeltaTokenSets.Dark
@@ -114,11 +118,35 @@ fun veltaBubbleShape(t: VeltaTokens, outgoing: Boolean): RoundedCornerShape {
 }
 
 /**
- * System light/dark by default; brutal and AMOLED via [mode] (no settings UI yet).
+ * The web's theme model (app.js applyTheme): a choice of auto/dark/light/
+ * brutal PLUS the "Pure black (AMOLED)" flag, which layers on dark only —
+ * never its own theme value. Auto resolves to the system scheme.
+ */
+fun veltaEffectiveMode(choice: VeltaThemeChoice, amoled: Boolean, systemDark: Boolean): VeltaThemeMode {
+    val base = when (choice) {
+        VeltaThemeChoice.Auto -> if (systemDark) VeltaThemeMode.Dark else VeltaThemeMode.Light
+        VeltaThemeChoice.Dark -> VeltaThemeMode.Dark
+        VeltaThemeChoice.Light -> VeltaThemeMode.Light
+        VeltaThemeChoice.Brutal -> VeltaThemeMode.Brutal
+    }
+    return if (amoled && base == VeltaThemeMode.Dark) VeltaThemeMode.Amoled else base
+}
+
+/**
+ * System light/dark by default; theme choice + AMOLED flag + custom accent
+ * via [mode]/[accentHex] (#321 step 5 settings). A valid [accentHex] swaps
+ * in the Accent.derive() token set (WCAG-checked, web chat-appearance.js).
  */
 @Composable
-fun VeltaTheme(mode: VeltaThemeMode = VeltaThemeMode.System, content: @Composable () -> Unit) {
-    val tokens = veltaTokensFor(mode, isSystemInDarkTheme())
+fun VeltaTheme(
+    mode: VeltaThemeMode = VeltaThemeMode.System,
+    accentHex: String? = null,
+    content: @Composable () -> Unit,
+) {
+    var tokens = veltaTokensFor(mode, isSystemInDarkTheme())
+    if (accentHex != null) {
+        tokens = Accent.derive(tokens, accentHex, brutal = mode == VeltaThemeMode.Brutal)
+    }
     CompositionLocalProvider(LocalVeltaTokens provides tokens) {
         MaterialTheme(
             colorScheme = veltaColorScheme(tokens),

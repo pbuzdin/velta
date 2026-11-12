@@ -34,10 +34,14 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -104,7 +108,11 @@ import kotlin.math.roundToInt
 /** P1 read-path UI: login, chat list, chat view. Bare bones by design (issue #192). */
 @Composable
 fun App(model: AppModel) {
-    VeltaTheme {
+    val systemDark = isSystemInDarkTheme()
+    VeltaTheme(
+        mode = veltaEffectiveMode(model.themeChoice, model.amoled, systemDark),
+        accentHex = model.accentHex,
+    ) {
         Surface(modifier = Modifier.fillMaxSize()) {
             if (model.locked) {
                 LockScreen(model)
@@ -113,6 +121,7 @@ fun App(model: AppModel) {
                     AppModel.Screen.Login -> JoinScreen(model, welcome = true)
                     AppModel.Screen.ChatList -> ChatListScreen(model)
                     AppModel.Screen.Relays -> RelaysScreen(model)
+                    AppModel.Screen.Settings -> SettingsScreen(model)
                     AppModel.Screen.Accounts -> AccountsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Chat -> ChatScreen(model, current)
@@ -140,7 +149,7 @@ private fun LockScreen(model: AppModel) {
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.size(24.dp))
-        Button(onClick = { model.requestUnlock?.invoke() }) { Text("Unlock") }
+        Button(onClick = { model.requestUnlock?.invoke() }) { Text(L.t("Unlock")) }
     }
 }
 
@@ -151,9 +160,9 @@ private fun AccountsScreen(model: AppModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Accounts") },
+                title = { Text(L.t("Accounts")) },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromAccounts() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
+                    TextButton(onClick = { model.backFromAccounts() }) { Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 },
                 actions = {
                     if (model.accountsLoading) CircularProgressIndicator(Modifier.size(20.dp))
@@ -203,7 +212,7 @@ private fun AccountsScreen(model: AppModel) {
                 TextButton(
                     onClick = { model.addAccountFromSwitcher() },
                     modifier = Modifier.padding(16.dp),
-                ) { Icon(VeltaIcons.plus, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Add account") }
+                ) { Icon(VeltaIcons.plus, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text(L.t("Add account")) }
             }
             item {
                 BatteryRow(model)
@@ -284,10 +293,10 @@ private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (welcome) "Welcome to Velta" else "Join") },
+                title = { Text(if (welcome) L.t("Welcome to Velta") else L.t("Join")) },
                 navigationIcon = {
                     if (!welcome) {
-                        TextButton(onClick = { model.closeJoin() }) { Icon(VeltaIcons.close, contentDescription = "Close") }
+                        TextButton(onClick = { model.closeJoin() }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
                     }
                 },
             )
@@ -360,7 +369,7 @@ private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
                             when {
                                 checked.isAccountInvite -> "Set up relay"
                                 checked.isLoginInvite -> "Sign in"
-                                else -> "Join"
+                                else -> L.t("Join")
                             },
                         )
                     }
@@ -395,7 +404,7 @@ private fun ChatListScreen(model: AppModel) {
             Box(Modifier.fillMaxSize().padding(top = headDp), contentAlignment = Alignment.Center) {
                 Text(
                     when {
-                        model.chatsLoading -> "Loading…"
+                        model.chatsLoading -> L.t("Loading…")
                         query.isNotBlank() -> "No matches"
                         else -> "No chats yet"
                     },
@@ -434,15 +443,19 @@ private fun ChatListScreen(model: AppModel) {
                         Box {
                             IconButton(
                                 onClick = { menuOpen = true },
-                                modifier = Modifier.semantics { contentDescription = "Menu" },
+                                modifier = Modifier.semantics { contentDescription = L.t("Menu") },
                             ) { MenuMark() }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Relays") },
+                                    text = { Text(L.t("Settings")) },
+                                    onClick = { menuOpen = false; model.openSettings() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(L.t("Relays")) },
                                     onClick = { menuOpen = false; model.openRelays() },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Accounts") },
+                                    text = { Text(L.t("Accounts")) },
                                     onClick = { menuOpen = false; model.openAccounts() },
                                 )
                                 DropdownMenuItem(
@@ -469,7 +482,7 @@ private fun ChatListScreen(model: AppModel) {
                                 searching = !searching
                                 if (!searching) query = ""
                             },
-                            modifier = Modifier.semantics { contentDescription = "Search chats" },
+                            modifier = Modifier.semantics { contentDescription = L.t("Search chats") },
                         ) { SearchMark() }
                     }
                 }
@@ -480,7 +493,7 @@ private fun ChatListScreen(model: AppModel) {
                         onValueChange = { query = it },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                         singleLine = true,
-                        placeholder = { Text("Search chats") },
+                        placeholder = { Text(L.t("Search chats")) },
                     )
                 }
             }
@@ -628,10 +641,10 @@ private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () ->
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (item.isMuted) {
-                    Icon(VeltaIcons.mute, contentDescription = "Muted", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(VeltaIcons.mute, contentDescription = L.t("Muted"), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (item.isPinned) {
-                    Icon(VeltaIcons.pin, contentDescription = "Pinned", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(VeltaIcons.pin, contentDescription = L.t("Pinned"), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (item.freshMessageCounter > 0) {
                     Badge { Text(item.freshMessageCounter.toString()) }
@@ -677,6 +690,136 @@ private val RELAY_OK = androidx.compose.ui.graphics.Color(0xFF2ECC71)
 private val RELAY_WAIT = androidx.compose.ui.graphics.Color(0xFFE6A23C)
 private val RELAY_DOWN = androidx.compose.ui.graphics.Color(0xFFE05252)
 
+/** #321 step 5: the web drawer's Settings section as a screen — theme
+ * (auto/dark/light/brutal radios), the "Pure black (AMOLED)" flag (dark
+ * only, app.js applyTheme), the accent presets + custom hex
+ * (chat-appearance.js), and the language (native names, i18n.js LANGS).
+ * Unlike the web everything applies live — no reload. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsScreen(model: AppModel) {
+    val systemDark = isSystemInDarkTheme()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(L.t("Settings")) },
+                navigationIcon = {
+                    TextButton(onClick = { model.backFromSettings() }) {
+                        Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim)
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Column(
+            Modifier
+                .padding(inner)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            SettingsSection(L.t("Theme"))
+            VeltaThemeChoice.entries.forEach { c ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { model.onSetTheme(c) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = model.themeChoice == c, onClick = { model.onSetTheme(c) })
+                    Text(
+                        when (c) {
+                            VeltaThemeChoice.Auto -> L.t("Auto")
+                            VeltaThemeChoice.Dark -> L.t("Dark")
+                            VeltaThemeChoice.Light -> L.t("Light")
+                            VeltaThemeChoice.Brutal -> L.t("Brutal")
+                        },
+                    )
+                }
+            }
+            // The web shows the AMOLED switch only while the effective theme
+            // is dark (ui.js:1406); visible-in-light would silently do nothing.
+            if (veltaEffectiveMode(model.themeChoice, amoled = false, systemDark = systemDark) == VeltaThemeMode.Dark) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { model.onSetAmoled(!model.amoled) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = model.amoled, onCheckedChange = { model.onSetAmoled(it) })
+                    Text(L.t("Pure black (AMOLED)"))
+                }
+            }
+            SettingsSection(L.t("Accent color"))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Accent.PRESETS.forEach { preset ->
+                    val selected = model.accentHex == preset
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(preset?.let { Accent.toColor(it) } ?: Velta.tokens.accent)
+                            .border(
+                                if (selected) 2.dp else 1.dp,
+                                if (selected) Velta.tokens.text else Velta.tokens.border,
+                                CircleShape,
+                            )
+                            .clickable { model.onSetAccent(preset) },
+                    )
+                }
+            }
+            var custom by remember { mutableStateOf(model.accentHex ?: "") }
+            OutlinedTextField(
+                value = custom,
+                onValueChange = { v ->
+                    custom = v
+                    // Web <input type=color> applies on every change; the
+                    // normHex gate only lets valid #rgb/#rrggbb through.
+                    Accent.normHex(v)?.let { model.onSetAccent(it) }
+                },
+                label = { Text("#1fa69a") },
+                singleLine = true,
+                isError = custom.isNotBlank() && Accent.normHex(custom) == null,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+            SettingsSection(L.t("Language"))
+            L.LANGS.forEach { (code, nativeName) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { model.onSetLang(code) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = model.lang == code, onClick = { model.onSetLang(code) })
+                    Text(nativeName)
+                }
+            }
+            Text(
+                "Untranslated text stays in English.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = Velta.tokens.textDim,
+        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+    )
+}
+
 /** P4 slice 2: relay cards — one card per configured transport (issue #192). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -684,9 +827,9 @@ private fun RelaysScreen(model: AppModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Relays") },
+                title = { Text(L.t("Relays")) },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromRelays() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
+                    TextButton(onClick = { model.backFromRelays() }) { Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 },
                 actions = {
                     if (model.relaysLoading) CircularProgressIndicator(Modifier.size(20.dp))
@@ -707,7 +850,7 @@ private fun RelaysScreen(model: AppModel) {
             if (model.relays.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        if (model.relaysLoading) "Loading…" else "No relays yet",
+                        if (model.relaysLoading) L.t("Loading…") else "No relays yet",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -763,7 +906,7 @@ private fun RelayCardItem(card: org.velta.kmp.core.RelayCard, onRemove: () -> Un
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onRemove) {
-                Text("Remove", color = MaterialTheme.colorScheme.error)
+                Text(L.t("Remove"), color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -879,7 +1022,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = { model.backToChatList() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
+                TextButton(onClick = { model.backToChatList() }) { Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 Text(
                     chat.title,
                     modifier = Modifier.weight(1f),
@@ -887,7 +1030,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 if (!chat.isGroup) {
-                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Icon(VeltaIcons.info, contentDescription = "Info", modifier = Modifier.size(24.dp), tint = Velta.tokens.textDim) }
+                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Icon(VeltaIcons.info, contentDescription = L.t("Info"), modifier = Modifier.size(24.dp), tint = Velta.tokens.textDim) }
                 }
                 if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
@@ -972,7 +1115,7 @@ private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "
 
 /** "1 week" / "5 min" / "45 s" — the disappearing-timer value. */
 private fun humantimeSecs(secs: Int): String = when {
-    secs <= 0 -> "Off"
+    secs <= 0 -> L.t("Off")
     secs % 86400 == 0 -> "${secs / 86400} day${if (secs / 86400 > 1) "s" else ""}"
     secs % 3600 == 0 -> "${secs / 3600} hour${if (secs / 3600 > 1) "s" else ""}"
     secs % 60 == 0 -> "${secs / 60} min"
@@ -997,9 +1140,9 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Profile") },
+                title = { Text(L.t("Profile")) },
                 navigationIcon = {
-                    TextButton(onClick = { model.backFromProfile() }) { Icon(VeltaIcons.chevronLeft, contentDescription = "Back", modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
+                    TextButton(onClick = { model.backFromProfile() }) { Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 },
             )
         },
@@ -1076,11 +1219,11 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
             }
             Spacer(Modifier.size(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { model.backFromProfile() }) { Text("Send message") }
+                TextButton(onClick = { model.backFromProfile() }) { Text(L.t("Send message")) }
                 if (p.contactId != null) {
                     TextButton(onClick = { model.toggleBlockPeer() }) {
                         Text(
-                            if (p.blocked) "Unblock" else "Block",
+                            if (p.blocked) L.t("Unblock") else L.t("Block"),
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
@@ -1103,10 +1246,10 @@ private fun profileRows(p: AppModel.ProfileData) {
         add("Videos" to p.videos.toString())
         add("Audio" to p.audio.toString())
         add("Files" to p.files.toString())
-        if (p.addr.isNotEmpty()) add("Address" to p.addr)
-        p.fingerprint?.let { add("Profile key" to groupedFpr(it)) }
-        add("Last seen" to relativeLastSeen(p.lastSeenSeconds))
-        add("Notifications" to if (p.muted) "Off" else "On")
+        if (p.addr.isNotEmpty()) add(L.t("Address") to p.addr)
+        p.fingerprint?.let { add(L.t("Profile key") to groupedFpr(it)) }
+        add(L.t("Last seen") to relativeLastSeen(p.lastSeenSeconds))
+        add(L.t("Notifications") to if (p.muted) L.t("Off") else L.t("On"))
         add("Disappearing messages" to humantimeSecs(p.ephemeralSecs))
     }
     rows.forEach { (k, v) ->
@@ -1147,8 +1290,8 @@ private fun MessageActionBar(model: AppModel) {
             TextButton(onClick = { model.react(message, emoji) }) { Text(emoji) }
         }
         Spacer(Modifier.weight(1f))
-        TextButton(onClick = { model.startReply(message) }) { Icon(VeltaIcons.reply, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Reply") }
-        TextButton(onClick = { model.toggleMessageActions(message) }) { Icon(VeltaIcons.close, contentDescription = "Close") }
+        TextButton(onClick = { model.startReply(message) }) { Icon(VeltaIcons.reply, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text(L.t("Reply")) }
+        TextButton(onClick = { model.toggleMessageActions(message) }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
     }
 }
 
@@ -1185,7 +1328,7 @@ private fun Composer(model: AppModel) {
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
-                TextButton(onClick = { model.replyTo = null }) { Icon(VeltaIcons.close, contentDescription = "Close") }
+                TextButton(onClick = { model.replyTo = null }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
             }
         }
         if (attachment != null) {
@@ -1207,7 +1350,7 @@ private fun Composer(model: AppModel) {
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
-                TextButton(onClick = { model.pendingAttachment = null }) { Icon(VeltaIcons.close, contentDescription = "Close") }
+                TextButton(onClick = { model.pendingAttachment = null }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
             }
         }
         model.sendError?.let {
@@ -1228,7 +1371,7 @@ private fun Composer(model: AppModel) {
                 IconButton(onClick = { model.attach() }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         VeltaIcons.attach,
-                        contentDescription = "Attach",
+                        contentDescription = L.t("Attach"),
                         modifier = Modifier.size(26.dp),
                         tint = Velta.tokens.textDim,
                     )
@@ -1259,7 +1402,7 @@ private fun Composer(model: AppModel) {
                         Box {
                             if (model.composerText.isEmpty()) {
                                 Text(
-                                    "Message",
+                                    L.t("Message"),
                                     style = TextStyle(
                                         fontSize = 15.5.sp,
                                         lineHeight = (15.5f * 1.3f).sp,
@@ -1277,7 +1420,7 @@ private fun Composer(model: AppModel) {
                     IconButton(onClick = { model.loadStickers(); showStickers = !showStickers }, modifier = Modifier.size(34.dp)) {
                         Icon(
                             VeltaIcons.sticker,
-                            contentDescription = "Stickers",
+                            contentDescription = L.t("Stickers"),
                             modifier = Modifier.size(22.dp),
                             tint = Velta.tokens.textDim,
                         )
@@ -1294,7 +1437,7 @@ private fun Composer(model: AppModel) {
                 ) {
                     Icon(
                         VeltaIcons.send,
-                        contentDescription = "Send",
+                        contentDescription = L.t("Send"),
                         modifier = Modifier.size(26.dp),
                         tint = if (model.sending || (model.composerText.isBlank() && model.pendingAttachment == null)) {
                             Velta.tokens.textDim
@@ -1393,7 +1536,7 @@ private fun InviteCard(url: String, onJoin: () -> Unit) {
     ) {
         Column(Modifier.weight(1f).padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
             Text(
-                "Join",
+                L.t("Join"),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
                 lineHeight = (15f * 1.35f).sp,

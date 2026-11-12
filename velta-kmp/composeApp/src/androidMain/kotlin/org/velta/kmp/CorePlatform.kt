@@ -20,6 +20,17 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
     override fun accountsDir(): String =
         File(context.filesDir, "accounts").apply { mkdirs() }.absolutePath
 
+    // App-level settings (#321 step 5): SharedPreferences mirrors the web's
+    // localStorage keys (dw-theme, velta-amoled, velta-accent, velta-lang).
+    override fun pref(key: String): String? =
+        context.getSharedPreferences("velta_prefs", Context.MODE_PRIVATE).getString(key, null)
+
+    override fun setPref(key: String, value: String?) {
+        context.getSharedPreferences("velta_prefs", Context.MODE_PRIVATE).edit().apply {
+            if (value == null) remove(key) else putString(key, value)
+        }.apply()
+    }
+
     override fun spawnRpcServer(accountsDir: String): RpcTransport? {
         if (!RpcShim.available) {
             println("velta-kmp: rpc shim not packaged — build native/rpc-shim for this ABI (see README)")

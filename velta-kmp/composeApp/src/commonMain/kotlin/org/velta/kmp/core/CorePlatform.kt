@@ -50,4 +50,13 @@ interface CorePlatform {
 
     /** Disable: DEK back into the plain wrap, bio wrap dropped. */
     fun disableAppLock(): Boolean = false
+
+    /**
+     * App-level settings storage (#321 step 5). The web keeps these in
+     * localStorage (dw-theme, velta-amoled, velta-accent, velta-lang); KMP
+     * maps the same keys onto each platform's key-value store. A null
+     * [value] removes the key (the web "unset = default" convention).
+     */
+    fun pref(key: String): String? = null
+    fun setPref(key: String, value: String?) {}
 }
