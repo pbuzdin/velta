@@ -4,12 +4,16 @@ Native Android + Desktop client (Kotlin Multiplatform + Compose Multiplatform).
 Tracking issue: **#192**. Phase status + honest gaps: **docs/PHASES.md**.
 Read this file before touching anything in this folder.
 
-**2026-11-12: KMP is back in active work, still a work in progress** (the
-Tauri app remains Velta's shipping Android client; the Rust UI preview is a
-separate work-in-progress experiment, #314). Phase plan in #192: N1 design port
+**2026-11-13: the #321 visual shell is COMPLETE — all five steps shipped
+and audited against the code** (theme tokens, web-parity icons, stable
+composer/header, bubbles/quote/markdown/list rows, appearance settings +
+en/ru/fr strings). KMP is the Android delivery track; the Tauri app
+remains Velta's shipping Android client; the Rust UI preview is a
+separate experiment (#314). Phase plan in #192: N1 design port
 (Prism + identity matrix — shipped, see PrismIdentityTest), N2
 conversation notifications + RPC timeout/respawn (shipped), N3 AGSL glass
 on the composer and header (shipped), N4 release signing still open.
+Fidelity follow-ups live in #323–#329.
 
 ## Layout
 
@@ -32,6 +36,28 @@ composeApp/src/
   ui/Glass.kt + GlassAndroid.kt + GlassDesktop.kt
                  expect/actual lens. AGSL on API 33, blur on API 31, translucent
                  below that and on desktop. Do not give the actuals the same file name.
+  ui/VeltaTokens.kt + ui/VeltaIcons.kt
+                 GENERATED (tools/gen-kmp-theme.mjs from app/css/main.css;
+                 tools/gen-kmp-icons.mjs evals the REAL app/js/icons.js) —
+                 never hand-edit; staleness tests fail CI
+                 (tests/kmp-theme-tokens.test.mjs, tests/kmp-icons.test.mjs).
+  ui/LangRu.kt + ui/LangFr.kt
+                 GENERATED string packs (tools/gen-kmp-strings.mjs from the
+                 REAL app/locales/{ru,fr}.json), filtered to this client's
+                 L.t("…") call sites; tests/kmp-strings.test.mjs fails CI on
+                 staleness AND on any used key missing from a pack.
+  ui/L10n.kt     L.t(): the English string IS the key (i18n.js rule) — a
+                 missing pack value falls back to English. Only wrap strings
+                 that exist as keys in BOTH web packs; everything else stays
+                 an English literal (the sticker empty-state, #326).
+  ui/Accent.kt   port of app/js/chat-appearance.js: WCAG 2.x derivation of a
+                 custom accent (soft-ink HSL search, tintStable, alpha-
+                 composited surfaces — bgReply/bgHover composite over their
+                 real backdrops before contrast math).
+  ui/BareLinks.kt + ui/Mentions.kt
+                 1:1 ports of app/js/bare-links.js / mentions.js.
+  ui/Markdown.kt markdown subset + parseInviteLink (canonical i.delta.chat
+                 link; 40-hex on BOTH forms; safe percent-decode).
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines on 127.0.0.1);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
@@ -155,13 +181,38 @@ BACK clears it; `pidof`/`ps` read empty during that transition; emulator
 `/tmp` does not survive between wsl.exe calls; Windows-side JDK is 26 —
 never run Gradle on the Windows side.
 
-## UI (header + N3 glass)
+## UI (#321 visual shell + N3 glass)
 
-- Chat-list header: centered logo, search (filters the loaded list by name
-  and the two summary lines), overflow menu (Relays, Accounts, Invite,
-  Refresh), then the relay strip. One segment per transport, all colored by
-  account `get_connectivity` (1000 down, 2000 connecting, 4000 connected).
-  No per-relay HTML.
+- Chat-list header: centered logo + search ONLY (filters the loaded list
+  by name and the two summary lines), then the relay strip. One segment
+  per transport, all colored by account `get_connectivity` (1000 down,
+  2000 connecting, 4000 connected). No per-relay HTML.
+- Chat-list bottom action bar (`ListBar`, .list-bar port): solid
+  bgSidebar + 1dp top border, IN-FLOW (not glass), stretch 46dp buttons,
+  icons at --ico-4 = 22dp. Partial (#329): Chats (active tab: accent ink
+  + 2px inset bottom accent line) + Menu (DropdownMenu: Settings, Relays,
+  Accounts, Invite, Refresh). Contacts/Calls/QR/New-chat land with their
+  views.
+- Settings screen (#321 step 5): theme radios (Auto/Dark/Light/Brutal) +
+  "Pure black (AMOLED)" flag shown only while the effective theme is dark
+  (AMOLED layers on dark — `veltaEffectiveMode` pins app.js applyTheme),
+  accent presets + custom #hex through `Accent.derive` (WCAG-checked),
+  language radios (en/fr/ru, native names) applying LIVE (no reload —
+  compose state, not stamped DOM). Persisted via the `CorePlatform.pref`
+  seam under the web's OWN localStorage keys (`dw-theme`, `velta-amoled`,
+  `velta-accent`, `velta-lang`): SharedPreferences on Android,
+  java.util.prefs on desktop; "en" and the stock accent store by REMOVING
+  the key (web convention).
+- Composer = web footer.composer (48dp icon buttons at 26dp icons,
+  48dp-min 16dp-radius input wrap on bgSidebar + 1dp border, naked
+  BasicTextField 15.5sp/1.3, armed-send tint). Attach menu (web
+  chat-view.js): Photo / Video / Camera (FileProvider capture) / File
+  (SAF mime pre-filter) / Stickers. Bubbles = .bubble CSS (radius 14,
+  6dp sender-side tail, 7/10/6 padding, bgBubbleIn/Out); quote block =
+  .msg-quote (2.5dp accent bar, single-line ellipsis, tap scrolls when
+  the quoted message is in the loaded window — fetch-then-jump is #327).
+  Markdown = Markdown.kt + BareLinks.kt + Mentions.kt (invites →
+  .invite-card → Join flow; code spans click-to-copy).
 - One GraphicsLayer records the scrolling content. Header and composer are
   overlay siblings that sample it. `rememberGraphicsLayer` lives in
   `androidx.compose.ui.graphics` (CMP 1.9), not the `layer` package.
@@ -190,13 +241,15 @@ never run Gradle on the Windows side.
   init. An unconfigured-only account stays on Login and does not select or
   start IO. `get_all_accounts` returns every Account in one call;
   `add_account` auto-selects the new account.
-- `RpcClient.call` bounds ordinary RPCs at 60s, and configure / secure_join /
-  add_transport_from_qr / background_fetch at 180s. `get_next_event` stays
-  an unbounded long-poll. A timeout is code -32001 and asks for a restart:
-  desktop spawns a new sidecar; Android kills the process, because the
-  in-process shim cannot be restarted beside a wedged one, and the sticky
-  service brings it back. A dropped Android socket reconnects to the same
-  port. A second `startCore` is refused.
+- `RpcClient.call` bounds ordinary RPCs at 30s by default
+  (`RpcException(method, code -2)` names the METHOD, not `id=N`);
+  long-running calls opt out with `timeoutMs = null`: `get_next_event`
+  (unbounded long-poll), `add_transport_from_qr`, `add_transport`,
+  `delete_transport`, `configure`, `secure_join`, `background_fetch`.
+  The shim IS restartable in-process (`startCoreOnce`/`stopCoreOnce`):
+  on a dead client the model drops to "core connection lost" and
+  reconnects to the cached port — no process kill. A second `startCore`
+  is refused (cached-port singleton).
 - Modern write path is draft-based:
   `misc_set_draft(accountId, chatId, text?, file?, filename?, quotedMessageId?, viewType?)`
   → `misc_send_draft(accountId, chatId)`; `get_draft`/`remove_draft` alongside.
@@ -215,15 +268,25 @@ never run Gradle on the Windows side.
   `MsgsNoticed`/`MsgDelivered` mark chats dirty and flush ONE list/chat
   reload 200 ms after the burst started (the model scope is
   Dispatchers.Default → the dirty set is lock-guarded).
-- `add_transport_from_qr` on a domain that already has a transport: the
-  join flow DELETES the existing same-domain transport first — retries
-  must replace, not stack (the core caps transports per account and
-  stacked duplicates once bricked onboarding with "maximum number of
-  relays (5)"). That error routes to the Relays screen (`relaysNotice`).
+- `add_transport_from_qr` on a domain that ALREADY has a transport: the
+  join flow SKIPS entirely (no delete, no add — straight to the chat
+  list; the strip re-colors as confirmation). The earlier delete-then-
+  re-add design could kill a working account's only transport if the
+  add failed. The core caps transports per account; a "maximum number
+  of relays (5)" error routes to the Relays screen (`relaysNotice`).
 - Invites: `check_qr(accountId, qr)` parses OFFLINE — kind-tagged oneOf
   ("text" for garbage, "account"+domain for `DCACCOUNT:` invites,
   "askVerifyContact/Group/Broadcast" for secure-join); `secure_join` needs io;
-  `add_transport_from_qr` onboards relays.
+  `add_transport_from_qr` onboards relays. In-message invite LINKS go
+  through `parseInviteLink` first (invites.js port): it returns the
+  CANONICAL `https://i.delta.chat/#<fp><payload>` — the core only parses
+  that scheme, so mirror hosts (velta.cc, i.gluek.info) MUST be
+  normalized before check/secure-join, and both forms require the final
+  40-hex fingerprint. Percent-decoding is percent-ONLY ('+' stays
+  literal; java.net.URLDecoder is both crashy on `%zz` and wrong).
+  md-link `[label](invite)` renders a plain anchor (cards are
+  bare-URL-only, web markdown.js); the bubble tap handler intercepts
+  invite hrefs (bindInviteInterception parity).
 - Relays: `list_transports` → Vec<EnteredLoginParam> (sending transport
   first, quilt #11), `get_server_metadata` → map addr→metadata (quilt #15),
   `delete_transport(addr)`. ⚠️ `set_transport_enabled` does NOT exist yet
@@ -295,6 +358,25 @@ but are distinct pool entries). Re-derive vectors with node when in doubt.
   self key AND the peer, sorted by fingerprint), then blockFpr joins the
   5-group windows inside ONE block. Taking the first 40 hex of the whole
   string paints the self key on the contact whenever it sorts first.
+- Generated-file tests are the CI gate for four generators
+  (`VELTA_GEN_NO_WRITE=1` re-run vs the committed file): theme tokens,
+  icons, string packs. The strings generator ALSO asserts every used
+  `L.t` key exists in BOTH web packs — a key missing there is a porting
+  bug (wrong casing), not a test failure to relax. ⚠️ when scanning for
+  call sites, strip whole-line `//` comments FIRST — the generated
+  files' own headers mention `L.t("…")` and would feed themselves back
+  in as a "used key".
+- Delegated-property `var x by mutableStateOf` + an explicit `fun setX`
+  in the same class = JVM signature clash — name the API like the web
+  handlers (`onSetTheme`/`onSetAmoled`/`onSetAccent`/`onSetLang`).
+- `Color(red:, green:, blue:, alpha:)` takes Float, not Double; a
+  positional arg after a named one is a compile error; `Velta.tokens`
+  is a @Composable getter — hoist it to a local val before any
+  drawBehind/drawing lambda.
+- SettingsTest pins the appearance guarantees: `veltaEffectiveMode`
+  AMOLED layering, `Accent.derive` contrast floors (4.5 / 7 / 4.6,
+  ticks 3) on real token sets, brutal BRUTAL_KEYS restraint, prefs
+  round-trip through a NEW model, and the L.t fallback chain.
 
 ## Desktop run
 

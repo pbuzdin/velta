@@ -3,10 +3,15 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-12):** Android delivery track (Rust-UI flip, #314, #192).
+**Status (2026-11-13):** Android delivery track (Rust-UI flip, #314, #192).
 N1 (Prism + fingerprint identity matrix), N2 (conversation notifications,
 RPC timeout/recovery, shim teardown, chat paging), and N3 (glass on the
-composer and header) are in. N4 release signing is still open. The client
+composer and header) are in, and the **#321 visual shell is complete —
+all five steps shipped and audited against the code**: theme tokens from
+main.css, 96 web-parity vector icons, the stable composer + header,
+bubbles/quote/markdown/list rows, appearance settings + en/ru/fr
+strings, the attach menu (photo/video/camera/file/stickers), and the
+chat-list bottom action bar. N4 release signing is still open. The client
 onboards from invites or QR scans, manages relays, switches accounts,
 sends with attachments/quotes/reactions, renders images, encrypts its
 database at rest, locks behind biometric/device-credential, and keeps
@@ -21,7 +26,7 @@ for the per-phase ledger and what's left.
 |---|---|---|
 | PWA (`../app`) | build-less web UI | flagship, unchanged |
 | Tauri shell (`../velta-app`) | wraps the PWA | unchanged until KMP parity |
-| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | **work in progress** (back in work 2026-11-12), issue #192 |
+| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | **work in progress** (Android delivery track), issue #192 |
 
 ## What works today
 
@@ -32,16 +37,27 @@ for the per-phase ledger and what's left.
   flags and relay-provided details; remove.
 - **Accounts** — 👤 switcher; the core's selected account persists across
   restarts (probed), so the choice survives with zero local storage.
-- **Messaging** — chat list (badges, pins), chat view (day separators, sender
-  names in groups, media), composer with drafts, quotes, attachments, quick
-  reactions, delivery-state glyphs (⏳/⚠️/✓/✓✓).
+- **Messaging** — chat list (badges, pins, photo avatars over Prism
+  tiles) with the bottom action bar (Chats + Menu), chat view (day
+  separators, sender names in groups, media, quote blocks with
+  tap-to-jump, markdown: bold/italic/underline/code-click-to-copy,
+  links, bare links, @mentions, hashtags, invite cards that route to
+  the Join flow), composer with drafts, the attach menu (Photo / Video /
+  Camera / File / Stickers — camera capture via FileProvider), quick
+  reactions, sticker picker, and delivery-state glyphs.
+- **Settings** — appearance: theme (Auto/Dark/Light/Brutal), the
+  "Pure black (AMOLED)" flag, custom accent color (WCAG-checked
+  derivation, 8 presets + custom hex), and language (English /
+  Français / Русский, applied live). Settings persist per platform
+  under the same keys the web app uses.
 - **Security** — database encryption at rest (Keystore-wrapped DEK →
   `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext);
   optional app lock (🔒 biometric/device-credential — locked = the core
   never starts, nothing decrypts). Port of #178, with two Tauri-side
   keystore bugs (undersized wrap blob, StrongBox fallback) fixed here.
-- **Persistence** — resume straight into the chat list on every start; the
-  core's accounts dir is the only storage.
+- **Persistence** — resume straight into the chat list on every start;
+  the core's accounts dir holds the data, app-level settings ride the
+  platform prefs (SharedPreferences / java.util.prefs).
 - **Background** — a dataSync foreground service holds the process (screen
   off); after a process kill the sticky service rebuilds the core
   headlessly (`am crash` verified); UnifiedPush receiver wired (relay-side
@@ -55,31 +71,38 @@ for the per-phase ledger and what's left.
   notifier.)
 - **Look** — `VeltaTheme` built from tokens generated from Velta
   stable's `app/css/main.css` (#318): dark, light, brutal and AMOLED,
-  system dark/light by default; Prism person colors and fingerprint identity matrices are
+  selectable in Settings; Prism person colors and fingerprint identity matrices are
   bit-identical to the PWA (vectors pinned in `PrismIdentityTest`).
-  The chat list header has the logo, search, and a relay-status strip.
-  The composer and the headers are glass on Android 13+ (a blur on
-  Android 12, a translucent plate otherwise). The header glass continues
-  under the status icons.
+  The chat list header has the logo, search, and a relay-status strip,
+  with the bottom action bar (Chats / Menu) under the list. All 96
+  chrome icons are web-parity vectors generated from `icons.js` — no
+  emoji buttons. The composer and the headers are glass on Android 13+
+  (a blur on Android 12, a translucent plate otherwise). The header
+  glass continues under the status icons.
 
-## Theme tokens (#318)
+## Theme, icons, and strings — all generated from the web source
 
-`composeApp/src/commonMain/kotlin/org/velta/kmp/ui/VeltaTokens.kt` is
-generated — never hand-edit it. After changing a token in
-`app/css/main.css`, run from the repo root:
+Three generators keep the KMP client in the web's family; each has a
+staleness test that fails CI when the committed file drifts:
 
 ```sh
-node tools/gen-kmp-theme.mjs
+node tools/gen-kmp-theme.mjs     # ui/VeltaTokens.kt   <- app/css/main.css
+node tools/gen-kmp-icons.mjs     # ui/VeltaIcons.kt    <- app/js/icons.js (eval'd, no hand copies)
+node tools/gen-kmp-strings.mjs   # ui/LangRu.kt, LangFr.kt <- app/locales/*.json
 ```
 
-`tests/kmp-theme-tokens.test.mjs` (part of `node --test 'tests/**/*.test.mjs'`)
-fails when the file is stale. `Theme.kt` maps the tokens onto Material3
-(`ColorScheme`, `Typography`, `Shapes`); tokens Material has no slot for
-(bubbles, meta ink, read ticks, quote names, chat ground…) come from
-`Velta.tokens` (`LocalVeltaTokens`). `VeltaTheme(mode)` takes
-`VeltaThemeMode.System` (default), `Dark`, `Light`, `Brutal` or `Amoled`;
-there's no settings UI for it yet. `color-mix()` tokens (hover/pressed,
-call screen) aren't generated.
+`tests/kmp-theme-tokens.test.mjs`, `tests/kmp-icons.test.mjs` and
+`tests/kmp-strings.test.mjs` (part of `node --test 'tests/**/*.test.mjs'`)
+fail when a generated file is stale; the strings test also fails when an
+`L.t("…")` call site has no key in BOTH web packs (the English string IS
+the key, per `app/js/i18n.js`; untranslated text stays English).
+`Theme.kt` maps the tokens onto Material3 (`ColorScheme`, `Typography`,
+`Shapes`); tokens Material has no slot for (bubbles, meta ink, read
+ticks, quote names, chat ground…) come from `Velta.tokens`
+(`LocalVeltaTokens`). The theme mode + AMOLED flag + custom accent
+(WCAG-derived in `Accent.kt`, port of `chat-appearance.js`) are picked
+in Settings; `color-mix()` tokens (hover/pressed, call screen) aren't
+generated.
 
 ## Layout
 

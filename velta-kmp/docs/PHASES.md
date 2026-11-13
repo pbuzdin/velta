@@ -1,16 +1,40 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-02 after P5 slice 1. Every phase lists
-what SHIPPED, how it was VERIFIED, and what is still MISSING — no "done"
-without the gaps next to it.
+Tracking issue #192. Updated 2026-11-13 after the #321 visual-shell
+completion and audit. Every phase lists what SHIPPED, how it was
+VERIFIED, and what is still MISSING — no "done" without the gaps next to
+it.
 
 ## Remaining work at a glance
 
 **Done since the last roadmap (all shipped, see per-phase sections):**
-UnifiedPush receiver (slice 8), encryption at rest + 2 Tauri keystore bugs
-found (slice 9), battery-allowance row (10), app lock — biometric /
-device-credential (11), QR-camera scanner (12), release builds + size —
-debug 135→69 MB, release 57 MB (P5 slice 1).
+UnifiedPush receiver (8), encryption at rest (9), battery-allowance row
+(10), app lock (11), QR-camera scanner (12), release builds + size (P5
+slice 1), N1 Prism + identity matrix, N2 conversation notifications +
+RPC timeout/recovery + shim teardown + chat paging, N3 glass, and the
+**#321 visual shell, ALL FIVE STEPS** (2026-11-13, verified against the
+code by audit): theme tokens from main.css, 96 web-parity vector icons,
+stable composer + header, bubbles/quote/markdown/list rows (+ the
+markdown-pipeline completion: bare links, mentions, invite cards,
+click-to-copy, quote thumbs, sticker picker, attach menu with camera
+capture), appearance settings + en/ru/fr strings, and the chat-list
+bottom action bar (#329 partial: Chats + Menu). Invite handling was
+corrected to invites.js semantics (canonical i.delta.chat links, 40-hex
+on both forms, safe percent-decode).
+
+**#321 fidelity follow-ups (filed, open):**
+- #323 mention @-autocomplete picker + mentionsMe notify gate.
+- #324 invite surface: short links, relay chips, domain registry, card
+  copy/share.
+- #325 markdown: `> ` quote blocks, hashtag rules, trimLinkEnd, nested
+  emphasis, `+` bullets, list grouping.
+- #326 sticker save flow, quote attachment on sticker sends, visibility
+  rules.
+- #327 quote-tap fetch-then-jump beyond the loaded window.
+- #328 chat-appearance extras: text size, bubble corners, hyphenation,
+  stickers-in-attach, glass toggle.
+- #329 chat-list bottom bar remainder: Contacts, Calls, QR, New chat
+  (with their views).
 
 **P4 leftovers (small):**
 1. Video/audio playback in bubbles (images already render).
@@ -29,7 +53,7 @@ PLAN-UNIFIEDPUSH.MD items 1–3 (notifier keypair swap, ntfy, maildir hook).
 
 **Standing (human-only):**
 - The P3 live gate — a throwaway-account login, 7-step checklist below;
-  the 🎟 invite-paste / 📷 scan paths make it a copy-paste job.
+  the 🎟 invite-paste / 📷 scan paths make it a copy-paste job (#221).
 - #178 on-device re-verification for the TAURI shell.
 
 | Phase | State | Commit | CI |
@@ -38,8 +62,9 @@ PLAN-UNIFIEDPUSH.MD items 1–3 (notifier keypair swap, ntfy, maildir hook).
 | P1a Core bridge (desktop) | ✅ done | `2ee90088` | green |
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
-| P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
+| P3 Write paths | ✅ code complete — live gate pending (#221) | `fd2a405c` + quote-restore | green |
 | P4 Velta layer | 🚧 slices 1-12 done | — | — |
+| UI visual shell (#321) | ✅ all 5 steps done + audited | `f98f8808`..`3dfadecd` | green |
 | P5 Release track | 🚧 slice 1 done (release builds + size) | — | — |
 
 ---
