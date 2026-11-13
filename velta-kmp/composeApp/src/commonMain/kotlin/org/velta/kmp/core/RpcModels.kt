@@ -31,6 +31,14 @@ data class ChatListItem(
     val color: String? = null,
     val summaryText1: String = "",
     val summaryText2: String = "",
+    /** Last message's state number (web summaryStatus: 18-28 = outgoing). */
+    val summaryStatus: Int = 0,
+    /** JsonrpcChatType variant name ("Single"/"Group"/"Mailinglist"/"OutBroadcast"/"InBroadcast"). */
+    val chatType: String? = null,
+    /** The dm contact of a 1:1 chat (web dmChatContact) — known-contacts + bots. */
+    val dmChatContact: Long? = null,
+    /** MessageViewtype of the last message (web lastMessageType) — preview emoji prefixes. */
+    val lastMessageType: String? = null,
     val lastUpdated: Long? = null,
     val freshMessageCounter: Int = 0,
     val isContactRequest: Boolean = false,
@@ -95,6 +103,8 @@ data class Contact(
     val profileImage: String? = null,
     val lastSeen: Long = 0,
     val isBlocked: Boolean = false,
+    /** Core sends camelCase isBot on every ContactObject (web _mapContact). */
+    val isBot: Boolean = false,
 )
 
 /** Chat draft (camelCase) — text + optional quote; file fields not used yet. */

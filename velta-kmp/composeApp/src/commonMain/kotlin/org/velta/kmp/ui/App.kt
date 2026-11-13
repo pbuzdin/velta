@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +41,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -57,6 +60,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.Image
@@ -92,6 +96,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
@@ -126,7 +131,6 @@ fun App(model: AppModel) {
                     AppModel.Screen.Relays -> RelaysScreen(model)
                     AppModel.Screen.Settings -> SettingsScreen(model)
                     AppModel.Screen.Accounts -> AccountsScreen(model)
-                    AppModel.Screen.Settings -> SettingsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Chat -> ChatScreen(model, current)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
@@ -403,40 +407,35 @@ private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatListScreen(model: AppModel) {
-    var searching by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    val shown = if (query.isBlank()) model.chats else model.chats.filter { chat ->
-        val q = query.trim()
-        chat.name.contains(q, ignoreCase = true) ||
-            chat.summaryText1.contains(q, ignoreCase = true) ||
-            chat.summaryText2.contains(q, ignoreCase = true)
+    // The contact picker takes over the screen (web pickContactModal).
+    if (model.contactPick != null) {
+        PickContactsScreen(model)
+        return
     }
+    var searchTab by remember { mutableStateOf("search") }
     var headPx by remember { mutableIntStateOf(0) }
     val headDp = with(LocalDensity.current) { headPx.toDp() }
+    // Android back inside a side view returns to the chats list first.
+    PlatformBackHandler(enabled = model.listView != "chats") {
+        model.toggleListView("chats")
+    }
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
         content = {
         Column(Modifier.fillMaxSize()) {
-        if (shown.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth().padding(top = headDp), contentAlignment = Alignment.Center) {
-                Text(
-                    when {
-                        model.chatsLoading -> L.t("Loading…")
-                        query.isNotBlank() -> "No matches"
-                        else -> "No chats yet"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Spacer(Modifier.height(headDp))
+            when (model.listView) {
+                "contacts" -> ContactsView(model)
+                "calls" -> CallsView(model)
+                "qr" -> QrView(model)
+                "new" -> NewChatView(model)
+                "search" -> SearchView(model, searchTab) { searchTab = it }
+                else -> ChatsView(model, onArchived = {
+                    searchTab = "archived"
+                    model.toggleListView("search")
+                })
             }
-        } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(top = headDp)) {
-                items(shown, key = { it.id }) { item ->
-                    ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
-                    HorizontalDivider()
-                }
-            }
-        }
-        ListBar(model)
+            ListBar(model)
         }
         },
         overlay = { backdrop, host ->
@@ -467,26 +466,720 @@ private fun ChatListScreen(model: AppModel) {
                             CircularProgressIndicator(Modifier.size(18.dp))
                         }
                         IconButton(
-                            onClick = {
-                                searching = !searching
-                                if (!searching) query = ""
-                            },
+                            onClick = { model.toggleListView(if (model.listView == "search") "chats" else "search") },
                             modifier = Modifier.semantics { contentDescription = L.t("Search chats") },
-                        ) { SearchMark() }
+                        ) {
+                            if (model.listView == "search") {
+                                Icon(VeltaIcons.close, contentDescription = L.t("Close"), modifier = Modifier.size(22.dp), tint = Velta.tokens.text)
+                            } else {
+                                SearchMark()
+                            }
+                        }
                     }
                 }
                 RelayLine(model)
-                if (searching) {
+            }
+            }
+        },
+    )
+    GroupNameDialog(model)
+    ChannelDialog(model)
+}
+
+/** The chats view: #57 category chips, sync strip, rows, archived link. */
+@Composable
+private fun ChatsView(model: AppModel, onArchived: () -> Unit) {
+    LaunchedEffect(model.chatCategory, model.accountId) { model.ensureContactBots() }
+    Column(Modifier.fillMaxSize()) {
+        CategoryChips(model)
+        // Web renderSyncBar: the first-fetch strip — chats view, nothing real
+        // in the list yet, core still working (connectivity < 4000).
+        val connectivity = model.relayConnectivity
+        if (model.chats.isEmpty() && connectivity != null && connectivity < 4000) {
+            Text(
+                L.t(if (connectivity >= 3000) "Updating…" else "Fetching messages…"),
+                fontSize = 12.5.sp,
+                color = Velta.tokens.textDim,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+        val shown = model.chatsFor(model.chatCategory)
+        val showArchivedLink = model.chatCategory == "all" && model.archivedChats.isNotEmpty()
+        if (shown.isEmpty() && showArchivedLink) {
+            // Web 2430: no chats but archived exist → the archived link alone.
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                ArchivedLinkRow(model.archivedChats.size, onArchived)
+            }
+        } else if (shown.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(
+                    when {
+                        model.chatsLoading -> L.t("Loading…")
+                        model.chatCategory != "all" -> L.t("No chats in this category")
+                        else -> L.t("No chats yet — start a new one")
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                items(shown, key = { it.id }) { item ->
+                    ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
+                    HorizontalDivider()
+                }
+                if (showArchivedLink) {
+                    item(key = "archived-link") {
+                        ArchivedLinkRow(model.archivedChats.size, onArchived)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** #57 chip bar (web .chat-cats, index.html:47-55): equal-flex pills,
+ * active = accent bg + on-accent ink, idle = bg-hover + dim ink. */
+@Composable
+private fun CategoryChips(model: AppModel) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        AppModel.CHAT_CATEGORIES.forEach { cat ->
+            val active = model.chatCategory == cat
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(if (active) Velta.tokens.accent else Velta.tokens.bgHover)
+                    .clickable { model.onSetChatCategory(cat) }
+                    .padding(horizontal = 2.dp, vertical = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    L.t(
+                        when (cat) {
+                            "all" -> "All"
+                            "unread" -> "Unread"
+                            "people" -> "People"
+                            "groups" -> "Groups"
+                            "channels" -> "Channels"
+                            "bots" -> "Bots"
+                            else -> "System"
+                        },
+                    ),
+                    fontSize = 11.5.sp,
+                    lineHeight = 11.5.sp,
+                    color = if (active) Velta.tokens.onAccent else Velta.tokens.textDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArchivedLinkRow(count: Int, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(48.dp), contentAlignment = Alignment.Center) {
+            Icon(VeltaIcons.archive, contentDescription = null, modifier = Modifier.size(22.dp), tint = Velta.tokens.textDim)
+        }
+        Spacer(Modifier.size(10.dp))
+        Text(L.t("Archived chats ({n})").replace("{n}", count.toString()), fontSize = 14.sp, color = Velta.tokens.textDim)
+    }
+}
+
+/** Side view frame (web sideViewShell): title + sub + rows below the head. */
+@Composable
+private fun SideViewShell(title: String, subtitle: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
+        Text(
+            title,
+            fontSize = 15.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Velta.tokens.text,
+            modifier = Modifier.padding(start = 6.dp, top = 4.dp),
+        )
+        if (subtitle.isNotBlank()) {
+            Text(
+                subtitle,
+                fontSize = 12.5.sp,
+                color = Velta.tokens.textDim,
+                modifier = Modifier.padding(start = 6.dp, bottom = 10.dp),
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+private fun SideViewEmpty(text: String) {
+    Text(
+        text,
+        fontSize = 13.5.sp,
+        color = Velta.tokens.textDim,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp, horizontal = 6.dp),
+    )
+}
+
+/** Contacts view (web renderContactsView): get_contacts rows; tap opens the chat. */
+@Composable
+private fun ContactsView(model: AppModel) {
+    Column(Modifier.fillMaxSize()) {
+        SideViewShell(L.t("Contacts"), L.t("Tap a contact to open the chat")) {
+            KnownToggleRow(model)
+            val shown = if (model.knownContactsOnly) {
+                val known = model.knownContactIds()
+                model.contacts.filter { it.id in known }
+            } else {
+                model.contacts
+            }
+            if (shown.isEmpty()) {
+                SideViewEmpty(
+                    if (model.contacts.isNotEmpty()) {
+                        L.t("No known contacts yet — untick “Show only known contacts” above to see everyone.")
+                    } else {
+                        L.t("No contacts yet")
+                    },
+                )
+            } else {
+                LazyColumn(Modifier.weight(1f)) {
+                    items(shown, key = { it.id }) { contact ->
+                        ContactRow(contact) { model.openContactChat(contact) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KnownToggleRow(model: AppModel) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { model.onSetKnownContactsOnly(!model.knownContactsOnly) }
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = model.knownContactsOnly, onCheckedChange = { model.onSetKnownContactsOnly(it) })
+        Text(L.t("Show only known contacts"), fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun ContactRow(contact: org.velta.kmp.core.Contact, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AvatarTile(
+            name = contact.displayName.ifBlank { contact.name.ifBlank { contact.address } },
+            colorHex = contact.color,
+            kind = null,
+            size = 42.dp,
+            avatarPath = contact.profileImage,
+        )
+        Spacer(Modifier.size(10.dp))
+        Text(
+            contact.displayName.ifBlank { contact.name.ifBlank { contact.address } },
+            fontSize = 15.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Velta.tokens.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Calls view (web renderCallsView): the LOCAL ended-call log. */
+@Composable
+private fun CallsView(model: AppModel) {
+    Column(Modifier.fillMaxSize()) {
+        SideViewShell(L.t("Calls"), L.t("Calls you ended on this device (kept locally — the core stores no call log)")) {
+            if (model.callLog.isEmpty()) {
+                SideViewEmpty(L.t("No calls yet"))
+            } else {
+                LazyColumn(Modifier.weight(1f)) {
+                    items(model.callLog, key = { "${it.chatId}-${it.ts}" }) { entry ->
+                        val chat = model.chats.firstOrNull { it.id == entry.chatId }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    model.toggleListView("chats")
+                                    model.openChatById(entry.chatId)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier.size(42.dp).background(Velta.tokens.bgHover, RoundedCornerShape(percent = 50)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(VeltaIcons.phone, contentDescription = null, modifier = Modifier.size(20.dp), tint = Velta.tokens.textDim)
+                            }
+                            Spacer(Modifier.size(10.dp))
+                            Text(
+                                chat?.name ?: L.t("Unknown chat"),
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Velta.tokens.text,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(timeAgo(entry.ts), fontSize = 12.sp, color = Velta.tokens.textDim)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** "Your QR code" (web renderQrView): the self invite as a locally encoded
+ * matrix (the core SVG card is a web presentation) + link + copy/share. */
+@Composable
+private fun QrView(model: AppModel) {
+    LaunchedEffect(Unit) { model.loadInviteQr() }
+    var tab by remember { mutableStateOf("mine") }
+    val scanAvailable = model.requestQrScan != null
+    Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
+        SideViewShell(
+            L.t("Your QR code"),
+            L.t(
+                if (tab == "scan") "Point the camera at someone's QR code to start a chat or join a group"
+                else "Others scan this to reach you with verified encryption",
+            ),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                if (scanAvailable) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        listOf("mine" to "My code", "scan" to "Scan a QR code").forEach { (key, label) ->
+                            val active = tab == key
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(percent = 50))
+                                    .background(if (active) Velta.tokens.accent else Velta.tokens.bgHover)
+                                    .clickable { tab = key }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    L.t(label),
+                                    fontSize = 11.5.sp,
+                                    color = if (active) Velta.tokens.onAccent else Velta.tokens.textDim,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (tab == "scan" && scanAvailable) {
+                    Text(
+                        L.t("Point the camera at someone's QR code to start a chat or join a group"),
+                        fontSize = 13.5.sp,
+                        color = Velta.tokens.textDim,
+                        modifier = Modifier.padding(vertical = 18.dp),
+                    )
+                    Button(onClick = { model.requestQrScan?.invoke() }) {
+                        Icon(VeltaIcons.camera, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text(L.t("Scan a QR code"))
+                    }
+                } else {
+                    when {
+                        model.inviteLoading -> SideViewEmpty(L.t("Generating QR code…"))
+                        model.inviteError != null -> SideViewEmpty("${L.t("Couldn't create the invite:")} ${model.inviteError}")
+                        model.inviteLink != null -> {
+                            val qr = remember(model.inviteLink) {
+                                runCatching { QrEncode.encode(model.inviteLink!!) }.getOrNull()
+                            }
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .padding(vertical = 4.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Canvas(Modifier.fillMaxSize()) {
+                                    drawRect(androidx.compose.ui.graphics.Color.White)
+                                    if (qr != null) {
+                                        val n = qr.size + 8 // white quiet zone of 4 modules
+                                        val cell = size.width / n
+                                        for (y in 0 until qr.size) for (x in 0 until qr.size) {
+                                            if (qr[x, y]) {
+                                                drawRect(
+                                                    androidx.compose.ui.graphics.Color.Black,
+                                                    topLeft = Offset((x + 4) * cell, (y + 4) * cell),
+                                                    size = androidx.compose.ui.geometry.Size(cell, cell),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Text(
+                                model.inviteLink.orEmpty(),
+                                fontSize = 12.5.sp,
+                                color = Velta.tokens.accent,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Velta.tokens.bgHover, RoundedCornerShape(8.dp))
+                                    .padding(10.dp),
+                            )
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                            ) {
+                                val clipboard = LocalClipboardManager.current
+                                TextButton(onClick = { clipboard.setText(AnnotatedString(model.inviteLink.orEmpty())) }) {
+                                    Icon(VeltaIcons.copy, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.size(6.dp))
+                                    Text(L.t("Copy a link"))
+                                }
+                                if (model.shareText != null) {
+                                    TextButton(onClick = { model.shareText?.invoke(model.inviteLink.orEmpty()) }) {
+                                        Icon(VeltaIcons.share, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.size(6.dp))
+                                        Text(L.t("Share a link"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Search screen (web renderSearchView): live name filter + the Archived tab. */
+@Composable
+private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
+    LaunchedEffect(tab) { if (tab == "archived") model.loadArchivedChats() }
+    var query by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize()) {
+        SideViewShell("", "") {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    val archivedLabel = L.t("Archived") +
+                        (model.archivedChats.takeIf { it.isNotEmpty() }?.let { " (${it.size})" } ?: "")
+                    listOf("search" to L.t("Search"), "archived" to archivedLabel).forEach { (key, label) ->
+                        val active = tab == key
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(percent = 50))
+                                .background(if (active) Velta.tokens.accent else Velta.tokens.bgHover)
+                                .clickable { onTab(key) }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(label, fontSize = 11.5.sp, color = if (active) Velta.tokens.onAccent else Velta.tokens.textDim)
+                        }
+                    }
+                }
+                if (tab == "archived") {
+                    if (model.archivedChats.isEmpty()) {
+                        SideViewEmpty(L.t("No archived chats"))
+                    } else {
+                        LazyColumn(Modifier.weight(1f)) {
+                            items(model.archivedChats, key = { it.id }) { item ->
+                                ContactLikeChatRow(item) { model.openChatById(item.id) }
+                            }
+                        }
+                    }
+                } else {
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                         singleLine = true,
-                        placeholder = { Text(L.t("Search chats")) },
+                        placeholder = { Text(L.t("Search chats…")) },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
                     )
+                    val q = query.trim().lowercase()
+                    when {
+                        q.length < 2 -> SideViewEmpty(L.t("Type to search chats."))
+                        else -> {
+                            val hits = model.chats.filter { it.name.lowercase().contains(q) }.take(30)
+                            if (hits.isEmpty()) {
+                                SideViewEmpty(L.t("No chats found."))
+                            } else {
+                                LazyColumn(Modifier.weight(1f)) {
+                                    items(hits, key = { it.id }) { item ->
+                                        SideOptionRow(item.name) { model.openChat(item) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/** Archived-tab row: avatar + name + last-message sub (web renderArchivedTab). */
+@Composable
+private fun ContactLikeChatRow(item: ChatListItem, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AvatarTile(
+            name = item.name,
+            colorHex = item.color,
+            kind = chatKindOf(item),
+            size = 42.dp,
+            identityFpr = null,
+            avatarPath = item.avatarPath,
+        )
+        Spacer(Modifier.size(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(item.name, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, color = Velta.tokens.text, maxLines = 1)
+            val preview = listPreview(item)
+            if (preview.isNotBlank()) {
+                Text(preview, fontSize = 12.5.sp, color = Velta.tokens.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        }
+    }
+}
+
+@Composable
+private fun SideOptionRow(label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = Velta.tokens.text, modifier = Modifier.weight(1f))
+        Icon(VeltaIcons.chevronRight, contentDescription = null, modifier = Modifier.size(20.dp), tint = Velta.tokens.textDim)
+    }
+}
+
+/** "Start something" (web renderNewChatView + newChatOptions, in order). */
+@Composable
+private fun NewChatView(model: AppModel) {
+    Column(Modifier.fillMaxSize()) {
+        SideViewShell(L.t("Start something"), L.t("Pick what to create")) {
+            LazyColumn(Modifier.weight(1f)) {
+                item {
+                    SideOptionRow(L.t("New chat")) {
+                        model.toggleListView("chats")
+                        model.startNewChatFlow()
+                    }
+                }
+                item {
+                    SideOptionRow(L.t("New group")) {
+                        model.toggleListView("chats")
+                        model.startNewGroupFlow()
+                    }
+                }
+                item {
+                    SideOptionRow(L.t("New channel")) {
+                        model.toggleListView("chats")
+                        model.startNewChannelFlow()
+                    }
+                }
+                // Web's "New local group (no relay)" is P2P-gated; KMP has no
+                // P2P flag, so the option never shows (web: p2pEnabled()).
+                item {
+                    SideOptionRow(L.t("Join chat via invite link")) {
+                        model.toggleListView("chats")
+                        model.openJoinFromNewChat()
+                    }
+                }
+                item {
+                    SideOptionRow(L.t("Add a relay to this account")) {
+                        model.toggleListView("chats")
+                        model.openJoinFromNewChat()
+                    }
+                }
+                item {
+                    SideOptionRow(L.t("Add account via invite link")) {
+                        model.toggleListView("chats")
+                        model.addAccountFromSwitcher()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Contact picker screen (web pickContactModal): single tap = pick; multi
+ * toggles a selection confirmed with Add. */
+@Composable
+private fun PickContactsScreen(model: AppModel) {
+    val request = model.contactPick ?: return
+    val selected = remember { mutableStateOf(setOf<Long>()) }
+    LaunchedEffect(Unit) { model.refreshContacts() }
+    PlatformBackHandler { model.cancelContactPick() }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(horizontal = 8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { model.cancelContactPick() }) {
+                Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim)
+            }
+            Text(L.t(request.titleKey), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (request.multi) {
+                TextButton(
+                    onClick = { model.onContactsPicked(model.contacts.filter { it.id in selected.value }) },
+                    enabled = selected.value.isNotEmpty(),
+                ) { Text(L.t("Add")) }
+            }
+        }
+        KnownToggleRow(model)
+        val known = model.knownContactIds()
+        val shown = if (model.knownContactsOnly) model.contacts.filter { it.id in known } else model.contacts
+        if (shown.isEmpty()) {
+            SideViewEmpty(L.t("Nobody here yet — untick “Show only known contacts” to see everyone."))
+        } else {
+            LazyColumn(Modifier.weight(1f)) {
+                items(shown, key = { it.id }) { contact ->
+                    val picked = contact.id in selected.value
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(if (picked) Velta.tokens.selectionBg else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(10.dp))
+                            .clickable {
+                                if (request.multi) {
+                                    selected.value = if (picked) selected.value - contact.id else selected.value + contact.id
+                                } else {
+                                    model.onContactsPicked(listOf(contact))
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        AvatarTile(
+                            name = contact.displayName.ifBlank { contact.name.ifBlank { contact.address } },
+                            colorHex = contact.color,
+                            kind = null,
+                            size = 42.dp,
+                            avatarPath = contact.profileImage,
+                        )
+                        Spacer(Modifier.size(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                contact.displayName.ifBlank { contact.name.ifBlank { contact.address } },
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Velta.tokens.text,
+                                maxLines = 1,
+                            )
+                            if (contact.address.isNotBlank()) {
+                                Text(contact.address, fontSize = 12.5.sp, color = Velta.tokens.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (picked) {
+                            Icon(VeltaIcons.tick1, contentDescription = null, modifier = Modifier.size(18.dp), tint = Velta.tokens.accent)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Group name dialog (web askGroupName + #177 admin-group switch). */
+@Composable
+private fun GroupNameDialog(model: AppModel) {
+    if (!model.showGroupNameDialog) return
+    var name by remember { mutableStateOf(L.t("New group")) }
+    var admin by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { model.showGroupNameDialog = false },
+        title = { Text(L.t("New group")) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    label = { Text(L.t("Group name")) },
+                )
+                Row(
+                    Modifier.clickable { admin = !admin }.padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = admin, onCheckedChange = { admin = it })
+                    Column {
+                        Text(L.t("Admin group"))
+                        Text(
+                            L.t("Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat."),
+                            fontSize = 11.5.sp,
+                            color = Velta.tokens.textDim,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { model.createGroup(name.trim().ifBlank { L.t("New group") }, admin) }) {
+                Text(L.t("Create group"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { model.showGroupNameDialog = false }) { Text(L.t("Cancel")) }
+        },
+    )
+}
+
+/** Channel name dialog (web askText → createChat channel → create_broadcast). */
+@Composable
+private fun ChannelDialog(model: AppModel) {
+    if (!model.showChannelDialog) return
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { model.showChannelDialog = false },
+        title = { Text(L.t("New channel")) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = { Text(L.t("New channel")) },
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { model.createChannel(name.trim().ifBlank { L.t("New channel") }) }) {
+                Text(L.t("Create channel"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { model.showChannelDialog = false }) { Text(L.t("Cancel")) }
         },
     )
 }
@@ -526,11 +1219,10 @@ internal fun relayBarState(connectivity: Int?): String = when {
 /**
  * The web sidebar's bottom action bar (.list-bar, index.html:60-79, #329):
  * solid bgSidebar + 1dp top border, stretch-aligned 46dp buttons (icons at
- * --ico-4 = 22dp), gap 6, padding 8/10/10. PARTIAL port — only the buttons
- * whose targets exist: Chats (the only view, rendered per .bar-btn.active:
- * accent ink + 2px inset bottom accent line, top corners squared) and Menu
- * (the drawer trigger; the KMP items ride a DropdownMenu). Contacts /
- * Calls / QR / New chat land with their views.
+ * --ico-4 = 22dp), gap 6, padding 8/10/10. Chats/Contacts/Calls/QR toggle
+ * their side views (web setListView: the active button gets accent ink +
+ * 2dp inset bottom accent line, top corners squared); "+" is the accent
+ * square (.bar-accent, #109: never a tab); Menu rides the DropdownMenu.
  */
 @Composable
 private fun ListBar(model: AppModel) {
@@ -541,22 +1233,20 @@ private fun ListBar(model: AppModel) {
             Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val accent = Velta.tokens.accent
+            BarViewButton(VeltaIcons.chats, L.t("Chats"), "chats", model)
+            BarViewButton(VeltaIcons.contacts, L.t("Contacts"), "contacts", model)
+            BarViewButton(VeltaIcons.phone, L.t("Calls"), "calls", model)
+            BarViewButton(VeltaIcons.qr, L.t("QR code"), "qr", model)
             Box(
                 Modifier
                     .weight(1f)
                     .height(46.dp)
-                    .drawBehind {
-                        drawLine(
-                            accent,
-                            Offset(0f, size.height - 1.dp.toPx()),
-                            Offset(size.width, size.height - 1.dp.toPx()),
-                            strokeWidth = 2.dp.toPx(),
-                        )
-                    },
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Velta.tokens.accent)
+                    .clickable { model.toggleListView(if (model.listView == "new") "chats" else "new") },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(VeltaIcons.chats, contentDescription = L.t("Chats"), modifier = Modifier.size(22.dp), tint = Velta.tokens.accent)
+                Icon(VeltaIcons.plus, contentDescription = L.t("New chat"), modifier = Modifier.size(22.dp), tint = Velta.tokens.onAccent)
             }
             Box(Modifier.weight(1f)) {
                 Box(
@@ -601,6 +1291,39 @@ private fun ListBar(model: AppModel) {
     }
 }
 
+/** One .bar-btn: the active view gets accent ink + the inset bottom accent line. */
+@Composable
+private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: String, model: AppModel) {
+    val active = model.listView == view
+    val accent = Velta.tokens.accent
+    Box(
+        Modifier
+            .weight(1f)
+            .height(46.dp)
+            .clip(
+                if (active) {
+                    RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+                } else {
+                    RoundedCornerShape(8.dp)
+                },
+            )
+            .clickable { model.toggleListView(view) }
+            .drawBehind {
+                if (active) {
+                    drawLine(
+                        accent,
+                        Offset(0f, size.height - 1.dp.toPx()),
+                        Offset(size.width, size.height - 1.dp.toPx()),
+                        strokeWidth = 2.dp.toPx(),
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp), tint = if (active) Velta.tokens.accent else Velta.tokens.text)
+    }
+}
+
 @Composable
 private fun SearchMark() {
     val color = LocalContentColor.current
@@ -618,95 +1341,213 @@ private fun SearchMark() {
     }
 }
 
+/** Web <velta-avatar> (components.js): 22%-radius rounded square; special
+ * kinds (saved/device) wear the 135° gradient tile + a 55% white icon;
+ * 1:1 peers with a key wear the fingerprint identity matrix (web avatar.js);
+ * photos decode over the tile; everything else a color/Prism initials tile. */
+@Composable
+private fun AvatarTile(
+    name: String,
+    colorHex: String?,
+    kind: String?,
+    size: androidx.compose.ui.unit.Dp,
+    identityFpr: String? = null,
+    avatarPath: String? = null,
+) {
+    val special = kind == "saved" || kind == "device"
+    val cells = if (!special && kind == "single") identityFpr?.let { identityCells(it) } else null
+    val photo = avatarPath?.takeIf { it.isNotBlank() }
+    val photoBitmap = photo?.let { path -> remember(path) { decodeImage(path) } }
+    val tileColor = colorHex?.takeIf { it.startsWith("#") }?.let { runCatching { Accent.toColor(it) }.getOrNull() }
+        ?: prismTileColor(name)
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.22f))
+            .background(
+                when {
+                    special -> androidx.compose.ui.graphics.Color.Transparent
+                    photoBitmap != null || cells != null -> androidx.compose.ui.graphics.Color.Transparent
+                    else -> tileColor
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (special) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(listOf(Color(0xFF5AA2E6), Color(0xFF8774E1))),
+                    ),
+            )
+            Icon(
+                if (kind == "saved") VeltaIcons.avatarStar else VeltaIcons.device,
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.55f),
+                tint = androidx.compose.ui.graphics.Color.White,
+            )
+        } else if (photoBitmap != null) {
+            Image(
+                photoBitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else if (cells != null) {
+            Column(Modifier.fillMaxSize()) {
+                listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
+                    Row(Modifier.weight(1f)) {
+                        range.forEach { i ->
+                            val (_, rgb) = cells[i]
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(
+                                        color = androidx.compose.ui.graphics.Color(
+                                            rgb[0], rgb[1], rgb[2],
+                                        ),
+                                    ),
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Text(prismInitials(name), fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
 @Composable
 private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 1:1 peers with a key wear the fingerprint identity matrix (web
-        // avatar.js); a chat photo (avatarPath) the decoded image; everything
-        // else the Prism initials tile.
-        val cells = identityFpr?.let { identityCells(it) }
-        val photo = item.avatarPath?.takeIf { it.isNotBlank() }
-        val photoBitmap = photo?.let { path -> remember(path) { decodeImage(path) } }
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(if (cells != null) 10.dp else 24.dp))
-                .background(
-                    color = if (cells == null && photoBitmap == null) prismTileColor(item.name)
-                    else androidx.compose.ui.graphics.Color.Transparent,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (photoBitmap != null) {
-                Image(
-                    photoBitmap,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else if (cells != null) {
-                Column(Modifier.fillMaxSize()) {
-                    listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
-                        Row(Modifier.weight(1f)) {
-                            range.forEach { i ->
-                                val (_, rgb) = cells[i]
-                                Box(
-                                    Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .background(
-                                            color = androidx.compose.ui.graphics.Color(
-                                                rgb[0], rgb[1], rgb[2],
-                                            ),
-                                        ),
-                                )
-                            }
-                        }
-                    }
-                }
-            } else {
-                Text(prismInitials(item.name), fontWeight = FontWeight.Bold)
-            }
-        }
-        Spacer(Modifier.size(12.dp))
+        AvatarTile(
+            name = item.name,
+            colorHex = item.color,
+            kind = chatKindOf(item),
+            size = 48.dp,
+            identityFpr = identityFpr,
+            avatarPath = item.avatarPath,
+        )
+        Spacer(Modifier.size(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.name, fontWeight = FontWeight.SemiBold)
-            val summary = listOf(item.summaryText1, item.summaryText2)
-                .filter { it.isNotBlank() }
-                .joinToString(" ")
-            if (summary.isNotBlank()) {
+            // ci-top: name + list stamp (web formatListTime).
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    item.name,
+                    fontSize = 15.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Velta.tokens.text,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    item.lastUpdated?.let { formatListTime(it) } ?: "",
+                    fontSize = 12.sp,
+                    color = Velta.tokens.textDim,
                 )
             }
-        }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                item.lastUpdated?.let { formatTimestamp(it) } ?: "",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.size(2.dp))
+            // ci-bottom: ticks + preview + the right slot (unread > pin > mute).
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (item.isMuted) {
-                    Icon(VeltaIcons.mute, contentDescription = L.t("Muted"), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                val state = summaryStateOf(item.summaryStatus)
+                if (state != "received") {
+                    val glyph = when (state) {
+                        "pending" -> VeltaIcons.clock
+                        "failed" -> VeltaIcons.warn
+                        "delivered" -> VeltaIcons.tick1
+                        else -> VeltaIcons.tick2
+                    }
+                    Icon(
+                        glyph,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = when (state) {
+                            "failed" -> Velta.tokens.danger
+                            "read" -> Velta.tokens.ticksRead
+                            else -> Velta.tokens.textDim
+                        },
+                    )
                 }
-                if (item.isPinned) {
-                    Icon(VeltaIcons.pin, contentDescription = L.t("Pinned"), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (item.freshMessageCounter > 0) {
-                    Badge { Text(item.freshMessageCounter.toString()) }
+                RowPreview(item)
+                when {
+                    item.freshMessageCounter > 0 -> UnreadBadge(item.freshMessageCounter, item.isMuted)
+                    item.isPinned -> Icon(VeltaIcons.pin, contentDescription = L.t("Pinned"), modifier = Modifier.size(16.dp), tint = Velta.tokens.textDim)
+                    item.isMuted -> Icon(VeltaIcons.mute, contentDescription = L.t("Muted"), modifier = Modifier.size(16.dp), tint = Velta.tokens.textDim)
                 }
             }
         }
+    }
+}
+
+/** Web ci-last preview precedence (components.js render): Draft: red,
+ * deaddrop "Contact request:" red, else the mapped summary. */
+@Composable
+private fun RowScope.RowPreview(item: ChatListItem) {
+    val kind = chatKindOf(item)
+    val preview = listPreview(item)
+    val text = when {
+        kind == "deaddrop" -> preview.ifBlank { L.t("tap to accept") }
+        item.summaryText1 == "Draft:" -> item.summaryText2
+        else -> preview
+    }
+    if (text.isBlank()) return
+    val annotated = when {
+        kind == "deaddrop" -> AnnotatedString.Builder().apply {
+            pushStyle(SpanStyle(color = Velta.tokens.danger, fontWeight = FontWeight.SemiBold))
+            append("${L.t("Contact request:")} ")
+            pop()
+            append(text)
+        }.toAnnotatedString()
+        item.summaryText1 == "Draft:" -> AnnotatedString.Builder().apply {
+            pushStyle(SpanStyle(color = Velta.tokens.danger, fontWeight = FontWeight.SemiBold))
+            // Web renders the core's untranslated "Draft:" prefix (components.js).
+            append("Draft: ")
+            pop()
+            append(text)
+        }.toAnnotatedString()
+        else -> AnnotatedString(text)
+    }
+    Text(
+        annotated,
+        fontSize = 14.sp,
+        color = Velta.tokens.textDim,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f),
+    )
+}
+
+/** Web .ci-badge: accent-2 pill, 23dp min square, muted = grey variant. */
+@Composable
+private fun UnreadBadge(count: Int, muted: Boolean) {
+    Box(
+        Modifier
+            .background(
+                if (muted) Velta.tokens.textDim else Velta.tokens.accent2,
+                RoundedCornerShape(12.dp),
+            )
+            .widthIn(min = 23.dp)
+            .height(23.dp)
+            .padding(horizontal = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (count > 999) "999+" else count.toString(),
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Velta.tokens.onBadge,
+        )
     }
 }
 

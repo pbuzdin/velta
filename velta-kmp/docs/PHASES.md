@@ -11,7 +11,7 @@ it.
 UnifiedPush receiver (8), encryption at rest (9), battery-allowance row
 (10), app lock (11), QR-camera scanner (12), release builds + size (P5
 slice 1), N1 Prism + identity matrix, N2 conversation notifications +
-RPC timeout/recovery + shim teardown + chat paging, N3 glass, and the
+RPC timeout/recovery + shim teardown + chat paging, N3 glass, the
 **#321 visual shell, ALL FIVE STEPS** (2026-11-13, verified against the
 code by audit): theme tokens from main.css, 96 web-parity vector icons,
 stable composer + header, bubbles/quote/markdown/list rows (+ the
@@ -20,7 +20,10 @@ click-to-copy, quote thumbs, sticker picker, attach menu with camera
 capture), appearance settings + en/ru/fr strings, and the chat-list
 bottom action bar (#329 partial: Chats + Menu). Invite handling was
 corrected to invites.js semantics (canonical i.delta.chat links, 40-hex
-on both forms, safe percent-decode).
+on both forms, safe percent-decode). **2026-11-14: the main screen now
+matches web stable end to end — #57 category chips + the full #329 bar
+with Contacts / Calls / QR / Search / Start-something side views (see
+the 2026-11-14 entry).**
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate.
@@ -33,8 +36,8 @@ on both forms, safe percent-decode).
 - #327 quote-tap fetch-then-jump beyond the loaded window.
 - #328 chat-appearance extras: text size, bubble corners, hyphenation,
   stickers-in-attach, glass toggle.
-- #329 chat-list bottom bar remainder: Contacts, Calls, QR, New chat
-  (with their views).
+- #329 CLOSED 2026-11-14 — the full bar + Contacts / Calls / QR /
+  New-chat side views shipped (see the 2026-11-14 ledger entry).
 
 **P4 leftovers (small):**
 1. Video/audio playback in bubbles (images already render).
@@ -686,3 +689,75 @@ buttons, icons at --ico-4 (22dp), gap 6, padding 8/10/10. The header's ⋮
 moved into the bar (the web sidebar-head carries only logo + search —
 MenuMark dropped; the header now matches index.html:41-45). Contacts /
 Calls / QR / New chat land with their views (#329 stays open for them).
+
+## 2026-11-14 — main screen = web stable: #57 chips + #329 complete
+
+User ask: "I want Velta KMP main screen look like our Velta Tauri stable
+version" (two screenshots: stable vs KMP). Ported the whole main screen
+against the web source, faithful per the standing rule.
+
+**SHIPPED**
+- **#57 category chips** (`CategoryChips`, `ui/ChatCategory.kt`): All /
+  Unread / People / Groups / Channels / Bots / System, equal-flex pills
+  under the relay strip. `chatKindOf`/`chatCategoryOf` port rpc-core.js
+  (chatType drives group/channel; saved/device/deaddrop → system; single
+  → bots via ContactObject.isBot / people). Unread = filter, not bucket.
+  Selection persists under `velta-chat-category` (web key); bot flags
+  ride ONE lazy `get_contacts` (web ensureContactBots; failure keeps old
+  flags). Model fields added: `chatType`, `summaryStatus`,
+  `lastMessageType`, `dmChatContact`, `Contact.isBot`.
+- **#329 bottom bar COMPLETE** (`ListBar`): all six buttons —
+  Chats/Contacts/Calls/QR toggle side views (`toggleListView`, web
+  setListView toggle semantics; active = accent ink + 2dp inset underline,
+  squared top corners), "+" = .bar-accent square → Start-something view,
+  Menu = dropdown. Android back inside a side view returns to chats
+  (`PlatformBackHandler` grew an `enabled` param).
+- **Side views** (in place of the list, web sideViewShell): Contacts
+  (rows + `velta-known-contacts-only` toggle, tap →
+  `create_chat_by_contact_id`), Calls (LOCAL `velta-call-log` capped 30,
+  fed by the core `CallEnded` event; rows = phone tile + chat name +
+  timeAgo), Your QR code (`get_chat_securejoin_qr_code_svg` → link text
+  → **`ui/QrEncode.kt`** = port of app/js/qr-encode.js (Nayuki, optimal
+  segmentation) → Canvas matrix + copy/share (ACTION_SEND via injected
+  `shareText`); Scan tab reuses ScanActivity, hidden on desktop), Search
+  (live name filter min 2 chars first 30 + Archived tab =
+  `get_chatlist_entries` listFlags=1) and the "Archived chats (N)"
+  list-end link row. Sync strip "Fetching messages…/Updating…" ported
+  (renderSyncBar rules).
+- **Start something + creation flows** (web newChatOptions): contact
+  picker screen (single/multi, selection highlight), group = multi-pick +
+  name dialog + Admin-group switch → `create_group_chat` /
+  `create_group_with_admin` + `add_contact_to_chat` loop, channel =
+  `create_broadcast`. New wrappers in VeltaCore: `contacts`,
+  `createChatByContactId`, `createBroadcast`, `createGroupChat`,
+  `createGroupWithAdmin`, `addContactToChat`, `inviteQr`,
+  `chatlistEntries(listFlags)`.
+- **Row restyle** (`ChatListRow` + `AvatarTile`): web .chat-item anatomy —
+  22%-radius tiles (identity matrix / saved+device gradient with
+  avatarStar+device icons / photos / Prism+contact-color initials),
+  ci-top name+formatListTime, ci-bottom ticks-from-summaryStatus + preview
+  (media emoji prefixes; red "Draft:" untranslated + red "Contact
+  request:"), right slot unread>pin>mute, accent-2 badge pill w/ muted
+  variant, 999+ cap. i18n regenerated (88 keys × 2 packs); kmp-strings
+  gate green.
+
+**VERIFIED**: WSL gate green (desktopTest + assembleDebug + assembleRelease
+arm64); new tests `ChatCategoryTest` (kind/category/state/preview vectors)
+and `QrEncodeTest` (ZXing round-trips incl. astral payload — rasterized at
+8 px/module, HybridBinarizer cannot read 37 px symbols). The Kotlin matrix
+diffed BIT-IDENTICAL against the real `app/js/qr-encode.js` output.
+
+**MISSING / deviations (named, not silent)**: per-relay strip state
+colors (KMP RelayLine stays account-wide), typing-indicator previews
+(KMP has no typing events), drawer config toggles for bar buttons/chips
+(all always visible), the core QR SVG's card/logo decoration (KMP draws a
+plain matrix), P2P "New local group" option (no P2P flag in KMP).
+
+**PORT-BUG POSTMORTEM (qr-encode.js → Kotlin)**: three bugs cost a debug
+cycle — rsMul masked inside the loop (JS masks only on return; `z >>> 7`
+reads different bits), the zigzag loop must MUTATE `right` at the timing
+column (6→5, next pair is (3,2) not (4,3)), and byte-mode `numChars`
+counts bytes not UTF-16 units. Diagnosis recipe that worked: dump the
+reference matrix via node (the real js module), dump the Kotlin matrix
+via a throwaway test, diff rows; decode-side failures were the test's own
+raster (scale to 8 px/module).

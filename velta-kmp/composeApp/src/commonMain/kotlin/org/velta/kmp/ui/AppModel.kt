@@ -30,6 +30,9 @@ class AppModel(
     companion object {
         /** Messages fetched per page in the chat view (#223). */
         const val MESSAGE_PAGE_SIZE = 200
+
+        /** #57 chip bar (web index.html:48-54, in order). */
+        val CHAT_CATEGORIES = listOf("all", "unread", "people", "groups", "channels", "bots", "system")
     }
 
     sealed interface Screen {
@@ -61,6 +64,285 @@ class AppModel(
     var chats by mutableStateOf<List<ChatListItem>>(emptyList())
     var chatsLoading by mutableStateOf(false)
         private set
+
+    // ---- Main-screen side views (#329): the web list-bar renders
+    // chats/contacts/calls/qr/new IN PLACE of the chat list; setListView
+    // toggles (tapping the active view returns to chats). Search opens from
+    // the head button and rides the same mechanism (web listView).
+    var listView by mutableStateOf("chats")
+
+    /** #57 category bar — persisted under the web's localStorage key. */
+    var chatCategory by mutableStateOf(
+        platform.pref("velta-chat-category")?.takeIf { it in CHAT_CATEGORIES } ?: "all",
+    )
+        private set
+
+    fun onSetChatCategory(cat: String) {
+        if (cat !in CHAT_CATEGORIES) return
+        chatCategory = cat
+        platform.setPref("velta-chat-category", if (cat == "all") null else cat)
+    }
+
+    fun toggleListView(view: String) {
+        // Web setListView: tapping the active view returns to chats.
+        listView = if (listView == view) "chats" else view
+        if (listView == "contacts") refreshContacts()
+        if (listView == "calls") loadCallLog()
+        if (listView == "qr") inviteLink = null // fresh visit re-fetches the code
+    }
+
+    /** Chats behind the active chip (web visibleChats). */
+    fun chatsFor(category: String): List<ChatListItem> = when (category) {
+        "all" -> chats
+        "unread" -> chats.filter { chatIsUnread(it) }
+        else -> chats.filter { chatCategoryOf(it, ::chatIsBot) == category }
+    }
+
+    /** Bots per contact id — one lazy get_contacts on first People/Bots use
+     * (web ensureContactBots); a failed fetch keeps the previous flags. */
+    var contactBots by mutableStateOf<Map<Long, Boolean>?>(null)
+        private set
+    var contactBotsError by mutableStateOf<String?>(null)
+        private set
+    private var contactBotsAcct: Long? = null
+
+    private fun chatIsBot(contactId: Long): Boolean =
+        contactBotsAcct == accountId && contactBots?.get(contactId) == true
+
+    fun ensureContactBots() {
+        if ((chatCategory == "people" || chatCategory == "bots") &&
+            (contactBots == null || contactBotsAcct != accountId)
+        ) {
+            refreshContacts()
+        }
+    }
+
+    // ---- Contacts view ----
+    var contacts by mutableStateOf<List<Contact>>(emptyList())
+        private set
+    var contactsLoading by mutableStateOf(false)
+        private set
+
+    fun refreshContacts() {
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            contactsLoading = true
+            try {
+                val list = veltaCore.contacts(id)
+                contacts = list
+                // The same call carries the bot flags for the category bar.
+                contactBots = list.associate { it.id to it.isBot }
+                contactBotsAcct = id
+                contactBotsError = null
+            } catch (t: Throwable) {
+                // A failed get_contacts must NOT become "no bots".
+                if (contactBots == null || contactBotsAcct != id) contactBotsError = t.message ?: t.toString()
+                println("velta-kmp: contacts failed: $t")
+            } finally {
+                contactsLoading = false
+            }
+        }
+    }
+
+    /** Contacts the user actually has a 1:1 chat with (web knownContactIds). */
+    fun knownContactIds(): Set<Long> =
+        chats.mapNotNull { if (chatKindOf(it) == "single") it.dmChatContact else null }.toSet()
+
+    /** "Show only known contacts" toggle (web velta-known-contacts-only, default on). */
+    var knownContactsOnly by mutableStateOf(platform.pref("velta-known-contacts-only") != "0")
+
+    fun onSetKnownContactsOnly(on: Boolean) {
+        knownContactsOnly = on
+        platform.setPref("velta-known-contacts-only", if (on) null else "0")
+    }
+
+    /** Tap a contact → create/open the 1:1 chat (web contacts view row). */
+    fun openContactChat(contact: Contact) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                val chatId = veltaCore.createChatByContactId(id, contact.id)
+                loadChats()
+                chats.firstOrNull { it.id == chatId }?.let { openChat(it) }
+            } catch (t: Throwable) {
+                println("velta-kmp: open contact chat failed: $t")
+            }
+        }
+    }
+
+    // ---- Calls view: a LOCAL log (the core stores no call log — web
+    // velta-call-log, capped 30), fed by the core's CallEnded event.
+    @kotlinx.serialization.Serializable
+    data class CallLogEntry(val chatId: Long, val ts: Long)
+
+    var callLog by mutableStateOf<List<CallLogEntry>>(emptyList())
+        private set
+
+    private fun loadCallLog() {
+        val raw = platform.pref("velta-call-log") ?: run { callLog = emptyList(); return }
+        callLog = runCatching {
+            kotlinx.serialization.json.Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(CallLogEntry.serializer()), raw)
+        }.getOrDefault(emptyList())
+    }
+
+    private fun recordCallEnded(chatId: Long) {
+        if (chatId <= 0L) return
+        val log = mutableListOf(CallLogEntry(chatId, wallClockSeconds()))
+        log.addAll(callLog.filterNot { it.chatId == chatId })
+        callLog = log.take(30)
+        platform.setPref("velta-call-log", kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(CallLogEntry.serializer()), callLog))
+    }
+
+    // ---- QR view ("Your QR code"): the core's self invite; the code text IS
+    // the canonical invite link. The SVG is discarded — KMP draws its own
+    // matrix from the QrEncode port (web reencodes the core SVG too).
+    var inviteLink by mutableStateOf<String?>(null)
+        private set
+    var inviteLoading by mutableStateOf(false)
+        private set
+    var inviteError by mutableStateOf<String?>(null)
+
+    fun loadInviteQr() {
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null || inviteLoading) return
+        scope.launch {
+            inviteLoading = true
+            inviteError = null
+            try {
+                inviteLink = veltaCore.inviteQr(id).first.ifBlank { null }
+            } catch (t: Throwable) {
+                inviteError = t.message ?: t.toString()
+            } finally {
+                inviteLoading = false
+            }
+        }
+    }
+
+    /** Platform-injected share (Android ACTION_SEND); null = no Share button (web canShareLink). */
+    var shareText: ((String) -> Unit)? = null
+
+    // ---- Archived (the search view's tab + the list-end link row). ----
+    var archivedChats by mutableStateOf<List<ChatListItem>>(emptyList())
+        private set
+
+    fun loadArchivedChats() {
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            try {
+                // DC_GCL_ARCHIVED_ONLY = 0x01 (web getChatListIds archived:true).
+                val ids = veltaCore.chatlistEntries(id, listFlags = 1)
+                archivedChats = veltaCore.chatlistItems(id, ids)
+                    .sortedWith(compareByDescending<ChatListItem> { it.isPinned }.thenByDescending { it.lastUpdated ?: 0L })
+            } catch (t: Throwable) {
+                println("velta-kmp: archived chats failed: $t")
+            }
+        }
+    }
+
+    /** Opens a chat by id (calls/archived rows carry only the chatId). */
+    fun openChatById(chatId: Long) {
+        (chats.firstOrNull { it.id == chatId } ?: archivedChats.firstOrNull { it.id == chatId })
+            ?.let { openChat(it) }
+    }
+
+    // ---- "Start something" flows (web newChatOptions): each action first
+    // returns to the chats view; the created chat opens once the list lands.
+
+    /** Contact picker request — rendered as a screen (web pickContactModal). */
+    data class ContactPickRequest(val titleKey: String, val multi: Boolean)
+    var contactPick by mutableStateOf<ContactPickRequest?>(null)
+        private set
+
+    /** The flow the open picker belongs to: "chat" (single-pick) or "group" (multi-pick). */
+    private var pendingPickFlow: String? = null
+
+    /** Group members awaiting the name dialog (web pick → askGroupName). */
+    var pickedMembers by mutableStateOf<List<Contact>>(emptyList())
+        private set
+
+    fun startNewChatFlow() {
+        pendingPickFlow = "chat"
+        contactPick = ContactPickRequest("New chat", multi = false)
+    }
+
+    fun startNewGroupFlow() {
+        pendingPickFlow = "group"
+        contactPick = ContactPickRequest("Add group members", multi = true)
+    }
+
+    fun startNewChannelFlow() {
+        pendingPickFlow = "channel"
+    }
+
+    fun onContactsPicked(picked: List<Contact>) {
+        contactPick = null
+        when (pendingPickFlow) {
+            "chat" -> picked.firstOrNull()?.let { openContactChat(it) }
+            "group" -> if (picked.isNotEmpty()) {
+                pickedMembers = picked
+                showGroupNameDialog = true
+            }
+        }
+        pendingPickFlow = null
+    }
+
+    fun cancelContactPick() {
+        contactPick = null
+        pendingPickFlow = null
+    }
+
+    /** Group-name dialog visible (after a multi-pick). */
+    var showGroupNameDialog by mutableStateOf(false)
+
+    /** Channel-name dialog visible. */
+    var showChannelDialog by mutableStateOf(false)
+
+    fun createGroup(name: String, admin: Boolean) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val members = pickedMembers
+        showGroupNameDialog = false
+        pickedMembers = emptyList()
+        scope.launch {
+            try {
+                val chatId = if (admin) veltaCore.createGroupWithAdmin(id, name) else veltaCore.createGroupChat(id, name)
+                members.forEach { veltaCore.addContactToChat(id, chatId, it.id) }
+                loadChats()
+                chats.firstOrNull { it.id == chatId }?.let { openChat(it) }
+            } catch (t: Throwable) {
+                println("velta-kmp: create group failed: $t")
+            }
+        }
+    }
+
+    fun createChannel(name: String) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        showChannelDialog = false
+        scope.launch {
+            try {
+                val chatId = veltaCore.createBroadcast(id, name)
+                loadChats()
+                chats.firstOrNull { it.id == chatId }?.let { openChat(it) }
+            } catch (t: Throwable) {
+                println("velta-kmp: create channel failed: $t")
+            }
+        }
+    }
+
+    /** "Join chat via invite link" / "Add a relay to this account" — both
+     * ride the Join screen (paste/scan DCACCOUNT / secure-join). */
+    fun openJoinFromNewChat() {
+        joinChecked = null
+        joinError = null
+        screen = Screen.Join
+    }
 
     /** Platform hook (Android): posts a conversation notification. Null on
      * desktop. */
@@ -507,6 +789,8 @@ class AppModel(
                 pendingOpenChatId = null
             }
             scope.launch { loadIdentities(id, items) }
+            // Archived count for the list-end link row (web getChatListIds archived:true).
+            loadArchivedChats()
         } catch (t: Throwable) {
             println("velta-kmp: refreshChats failed: $t")
         } finally {
@@ -1264,6 +1548,7 @@ class AppModel(
                     notifyIncoming(chatId, event)
                 }
             }
+            "CallEnded" -> event.chatId()?.let { recordCallEnded(it) }
         }
     }
 

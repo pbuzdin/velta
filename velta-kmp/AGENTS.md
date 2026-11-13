@@ -183,16 +183,70 @@ never run Gradle on the Windows side.
 
 ## UI (#321 visual shell + N3 glass)
 
-- Chat-list header: centered logo + search ONLY (filters the loaded list
-  by name and the two summary lines), then the relay strip. One segment
-  per transport, all colored by account `get_connectivity` (1000 down,
-  2000 connecting, 4000 connected). No per-relay HTML.
-- Chat-list bottom action bar (`ListBar`, .list-bar port): solid
-  bgSidebar + 1dp top border, IN-FLOW (not glass), stretch 46dp buttons,
-  icons at --ico-4 = 22dp. Partial (#329): Chats (active tab: accent ink
-  + 2px inset bottom accent line) + Menu (DropdownMenu: Settings, Relays,
-  Accounts, Invite, Refresh). Contacts/Calls/QR/New-chat land with their
-  views.
+- Chat-list header: centered logo + search ONLY (toggles the Search side
+  view — the icon swaps to close while it is open, web syncHeaderButtons),
+  then the relay strip. One segment per transport, all colored by account
+  `get_connectivity` (1000 down, 2000 connecting, 4000 connected). No
+  per-relay HTML.
+- Chat-list bottom action bar (`ListBar`, .list-bar port, #329 COMPLETE):
+  solid bgSidebar + 1dp top border, IN-FLOW (not glass), stretch 46dp
+  buttons, icons at --ico-4 = 22dp. Chats/Contacts/Calls/QR toggle side
+  views via `AppModel.toggleListView` (web setListView: tapping the
+  active view returns to chats; active = accent ink + 2dp inset bottom
+  accent line, top corners squared); "+" = the .bar-accent square (accent
+  bg, radius 8 — #109: never a tab) opening the New-chat view; Menu rides
+  the DropdownMenu (Settings, Relays, Accounts, Invite, Refresh). Android
+  back inside a side view returns to chats (`PlatformBackHandler(enabled)`)
+  — the expect/actual grew an `enabled` parameter for this.
+- Category chips (#57, web .chat-cats, `CategoryChips`): All / Unread /
+  People / Groups / Channels / Bots / System, equal-flex pills (11.5sp,
+  active accent bg + onAccent ink). `chatCategoryOf` lives in
+  `ChatCategory.kt` (pure, vector-tested): self-talk/device/deaddrop →
+  system, Group → groups, Mailinglist/Broadcast → channels, single → bots
+  (ContactObject.isBot) or people. Unread is a filter across the kind
+  buckets, not a bucket. Selection persists under the web's
+  `velta-chat-category` key; bot flags come from ONE lazy `get_contacts`
+  call (web ensureContactBots) — a failed fetch keeps the old flags.
+- Main-screen side views (rendered IN PLACE of the list, web setListView):
+  Contacts (`get_contacts` rows + the `velta-known-contacts-only` toggle,
+  default on; tap → create_chat_by_contact_id → open), Calls (LOCAL log
+  under `velta-call-log`, capped 30, fed by the core `CallEnded` event —
+  the core stores no call log), Your QR code (`get_chat_securejoin_qr_code_svg`
+  → the code text IS the canonical invite link; drawn by the `QrEncode.kt`
+  port of qr-encode.js, NOT the core SVG — the web's card/logo decoration
+  is skipped; Copy via clipboard, Share via the injected `shareText` seam
+  (ACTION_SEND on Android), Scan tab reuses ScanActivity, desktop hides
+  it), Search (live name filter, min 2 chars, first 30 + the Archived tab
+  = `get_chatlist_entries` with listFlags=1, DC_GCL_ARCHIVED_ONLY), and
+  New chat ("Start something", web newChatOptions order — new chat
+  (single-pick), new group (multi-pick + name dialog + Admin group switch
+  → create_group_chat / create_group_with_admin + add_contact_to_chat),
+  new channel (create_broadcast), join invite / add relay / add account →
+  Join screen. The P2P-only "New local group" never shows — KMP has no
+  P2P flag). Row previews ride `listPreview` (media emoji prefixes from
+  `lastMessageType`); the "Draft:" prefix renders red UNTRANSLATED (the
+  core owns that string; the web hardcodes it too — only "Contact
+  request:" is an L.t key).
+- Chat-list rows = the web .chat-item anatomy: 48dp avatar tile at 22%
+  radius (`AvatarTile` — identity matrix for key-holding 1:1 peers,
+  saved/device 135° #5aa2e6→#8774e1 gradient tiles with avatarStar/device
+  icons at 55%, photos decoded over the tile, contact-color/Prism
+  initials otherwise), 15.5sp/600 name + 12sp formatListTime stamp (today
+  HH:MM, Yesterday, weekday < 7d, "MMM d", with year), ticks from
+  summaryStatus (18-28 = outgoing: clock/warn-red/tick1/tick2-read) before
+  a 14sp dim preview, right slot priority unread > pin > mute, badge =
+  accent-2 pill (min 23dp, 12.5sp/600, "999+" cap; grey textDim variant
+  when muted).
+- Settings screen (#321 step 5): theme radios (Auto/Dark/Light/Brutal) +
+  "Pure black (AMOLED)" flag shown only while the effective theme is dark
+  (AMOLED layers on dark — `veltaEffectiveMode` pins app.js applyTheme),
+  accent presets + custom #hex through `Accent.derive` (WCAG-checked),
+  language radios (en/fr/ru, native names) applying LIVE (no reload —
+  compose state, not stamped DOM). Persisted via the `CorePlatform.pref`
+  seam under the web's OWN localStorage keys (`dw-theme`, `velta-amoled`,
+  `velta-accent`, `velta-lang`): SharedPreferences on Android,
+  java.util.prefs on desktop; "en" and the stock accent store by REMOVING
+  the key (web convention).
 - Settings screen (#321 step 5): theme radios (Auto/Dark/Light/Brutal) +
   "Pure black (AMOLED)" flag shown only while the effective theme is dark
   (AMOLED layers on dark — `veltaEffectiveMode` pins app.js applyTheme),
@@ -230,6 +284,19 @@ never run Gradle on the Windows side.
 
 ## Protocol facts (verified against vendored core 2.66)
 
+- Chat-list wire extras decoded since #329: `ChatListItem.chat_type`
+  (PascalCase "Single"/"Group"/"Mailinglist"/"OutBroadcast"/"InBroadcast"),
+  `summary_status` (18-28 = outgoing), `last_message_type` (media preview
+  prefixes), `dm_chat_contact` (known-contacts + bots). `ContactObject`
+  carries camelCase `isBot`. `get_chatlist_entries` listFlags=1 is
+  DC_GCL_ARCHIVED_ONLY (constants.rs:53 — the web passes 1 for its
+  Archived tab). `get_chat_securejoin_qr_code_svg(acct, chatId|null)`
+  returns `[code, svg]` — the code IS the canonical invite link.
+- Creation RPCs (web rpc-core createChat): single = `create_chat_by_contact_id`,
+  group = `create_group_chat(acct, name, false)` + `add_contact_to_chat`
+  loop, admin group = `create_group_with_admin` (#177/quilt #19), channel
+  = `create_broadcast(acct, name)`. The core's `CallEnded{msg_id, chat_id}`
+  event feeds the local call log.
 - `get_system_info` → map; version key is **`deltachat_core_version`**.
 - Responses carry `"jsonrpc":"2.0"`; errors are `{"id","error":{"code","message"}}`.
 - Events = **long-poll `get_next_event`** driven in a loop (BaseDeltaChat pattern).
@@ -327,6 +394,18 @@ guards it).
 
 ## Test conventions
 
+- The QrEncode round-trip test rasterizes at 8 px per module: ZXing's
+  HybridBinarizer cannot binarize a 37-px synthetic symbol (the plain
+  QRCodeWriter test passes only because it renders 256 px). If a new QR
+  test fails with NotFoundException, scale the raster first.
+- Porting arithmetic from the JS files: three bugs cost a debug cycle in
+  the qr-encode.js port — (1) `rsMul` masks `z & 0xff` only ON RETURN
+  (masking inside the loop feeds `z >>> 7` different bits), (2) the
+  zigzag loop MUTATES `right` at the timing column (`right = 6 → 5`, then
+  `-2` lands on 3, not 4 — a local `val r = if (right == 6)...` shifts
+  every later column pair), (3) byte-mode `numChars` counts BYTES, not
+  UTF-16 units (an astral char is 1 char but 4 numChars). Diff against
+  the real `app/js/qr-encode.js` via node before re-deriving by eye.
 - `runBlocking`, never `runTest`, for anything touching real threads/processes
   (virtual time fires timeouts while real IO waits).
 - Calls under test go in a **SupervisorJob scope** — a plain `async` child

@@ -51,6 +51,69 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
             ).toString(),
         )
 
+    /** All contacts (web getContacts → get_contacts(acct, 0, null)); lenient per element. */
+    suspend fun contacts(accountId: Long): List<Contact> {
+        val result = client.call(
+            "get_contacts",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(0), RpcClient.nullParam()),
+        )
+        return (result as? JsonArray)?.mapNotNull { element ->
+            runCatching { client.json.decodeFromString(Contact.serializer(), element.toString()) }
+                .onFailure { println("velta-kmp: contact decode failed: $it") }
+                .getOrNull()
+        } ?: emptyList()
+    }
+
+    // ---- Chat creation (web rpc-core createChat) ----
+
+    /** 1:1 chat with a contact — creates it if it doesn't exist yet. */
+    suspend fun createChatByContactId(accountId: Long, contactId: Long): Long =
+        client.call(
+            "create_chat_by_contact_id",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(contactId)),
+        ).toString().toLong()
+
+    /** Outgoing broadcast channel; recipients join later via the invite QR. */
+    suspend fun createBroadcast(accountId: Long, name: String): Long =
+        client.call(
+            "create_broadcast",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(name)),
+        ).toString().toLong()
+
+    suspend fun createGroupChat(accountId: Long, name: String): Long =
+        client.call(
+            "create_group_chat",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(name), RpcClient.param(false)),
+        ).toString().toLong()
+
+    /** #177 (quilt #19): group id = our fingerprint + random; only we manage members. */
+    suspend fun createGroupWithAdmin(accountId: Long, name: String): Long =
+        client.call(
+            "create_group_with_admin",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(name)),
+        ).toString().toLong()
+
+    suspend fun addContactToChat(accountId: Long, chatId: Long, contactId: Long) {
+        client.call(
+            "add_contact_to_chat",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(contactId)),
+        )
+    }
+
+    /** The self/group invite: [code, svg] — the code IS the canonical invite link. */
+    suspend fun inviteQr(accountId: Long, chatId: Long? = null): Pair<String, String> {
+        val result = client.call(
+            "get_chat_securejoin_qr_code_svg",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                if (chatId != null) RpcClient.param(chatId) else RpcClient.nullParam(),
+            ),
+        )
+        val arr = result as? JsonArray ?: return "" to ""
+        fun s(i: Int) = (arr.getOrNull(i) as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+        return s(0) to s(1)
+    }
+
     suspend fun marknoticedChat(accountId: Long, chatId: Long) {
         client.call(
             "marknoticed_chat",
@@ -273,12 +336,12 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
-    suspend fun chatlistEntries(accountId: Long): List<Long> {
+    suspend fun chatlistEntries(accountId: Long, listFlags: Int? = null): List<Long> {
         val result = client.call(
             "get_chatlist_entries",
             RpcClient.params(
                 RpcClient.param(accountId),
-                RpcClient.nullParam(),
+                if (listFlags != null) RpcClient.param(listFlags) else RpcClient.nullParam(),
                 RpcClient.nullParam(),
                 RpcClient.nullParam(),
             ),

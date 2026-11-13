@@ -37,14 +37,23 @@ for the per-phase ledger and what's left.
   flags and relay-provided details; remove.
 - **Accounts** — 👤 switcher; the core's selected account persists across
   restarts (probed), so the choice survives with zero local storage.
-- **Messaging** — chat list (badges, pins, photo avatars over Prism
-  tiles) with the bottom action bar (Chats + Menu), chat view (day
-  separators, sender names in groups, media, quote blocks with
+- **Messaging** — chat list with the #57 category chips (All / Unread /
+  People / Groups / Channels / Bots / System, persisted selection, lazy
+  bot flags), the full #329 bottom action bar and the side views it
+  toggles: Contacts (`get_contacts` + "Show only known contacts"), Calls
+  (local ended-call log), Your QR code (self invite, locally encoded
+  matrix via the QrEncode port + copy/share), Search (live filter +
+  Archived tab), and Start something (new chat / group / channel with
+  real create flows, join invite, add relay, add account); chat view
+  (day separators, sender names in groups, media, quote blocks with
   tap-to-jump, markdown: bold/italic/underline/code-click-to-copy,
   links, bare links, @mentions, hashtags, invite cards that route to
   the Join flow), composer with drafts, the attach menu (Photo / Video /
   Camera / File / Stickers — camera capture via FileProvider), quick
-  reactions, sticker picker, and delivery-state glyphs.
+  reactions, sticker picker, and delivery-state glyphs. Chat rows carry
+  the web anatomy: 22%-radius avatar tiles (identity matrix, saved/device
+  gradient tiles, photos), list-time stamps, draft/request red previews,
+  outgoing ticks, accent-2 unread badge pills (grey when muted).
 - **Settings** — appearance: theme (Auto/Dark/Light/Brutal), the
   "Pure black (AMOLED)" flag, custom accent color (WCAG-checked
   derivation, 8 presets + custom hex), and language (English /
@@ -108,7 +117,8 @@ generated.
 
 ```
 composeApp/src/
-  commonMain/    Compose UI + AppModel + VeltaCore facade (PURE Kotlin — no java.*)
+  commonMain/    Compose UI + AppModel + VeltaCore facade (PURE Kotlin — no java.*);
+                 ChatCategory.kt (#57 buckets) + QrEncode.kt (Nayuki port)
   jvmCommon/     shared JVM: process/socket transports, java.time formatters
   androidMain/   MainActivity (FragmentActivity), AppHolder, foreground service,
                  push receiver, VeltaKeystore/VeltaLock, scan/ (QR camera),

@@ -135,6 +135,14 @@ class MainActivity : FragmentActivity() {
             )
         }
         model.requestQrScan = { startQrScan() }
+        // QR view "Share a link" (web shareLink → ACTION_SEND chooser).
+        model.shareText = { text ->
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            startActivity(Intent.createChooser(send, null))
+        }
         model.batteryCheck = {
             val pm = getSystemService(android.os.PowerManager::class.java)
             pm?.isIgnoringBatteryOptimizations(packageName)
