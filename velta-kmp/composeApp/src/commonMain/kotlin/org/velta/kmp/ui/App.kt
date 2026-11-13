@@ -89,6 +89,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -402,7 +403,6 @@ private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatListScreen(model: AppModel) {
-    var menuOpen by remember { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     val shown = if (query.isBlank()) model.chats else model.chats.filter { chat ->
@@ -416,8 +416,9 @@ private fun ChatListScreen(model: AppModel) {
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
         content = {
+        Column(Modifier.fillMaxSize()) {
         if (shown.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(top = headDp), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).fillMaxWidth().padding(top = headDp), contentAlignment = Alignment.Center) {
                 Text(
                     when {
                         model.chatsLoading -> L.t("Loading…")
@@ -428,12 +429,14 @@ private fun ChatListScreen(model: AppModel) {
                 )
             }
         } else {
-            LazyColumn(contentPadding = PaddingValues(top = headDp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(top = headDp)) {
                 items(shown, key = { it.id }) { item ->
                     ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
                     HorizontalDivider()
                 }
             }
+        }
+        ListBar(model)
         }
         },
         overlay = { backdrop, host ->
@@ -456,39 +459,9 @@ private fun ChatListScreen(model: AppModel) {
                         Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box {
-                            IconButton(
-                                onClick = { menuOpen = true },
-                                modifier = Modifier.semantics { contentDescription = L.t("Menu") },
-                            ) { MenuMark() }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(L.t("Settings")) },
-                                    onClick = { menuOpen = false; model.openSettings() },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(L.t("Relays")) },
-                                    onClick = { menuOpen = false; model.openRelays() },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(L.t("Accounts")) },
-                                    onClick = { menuOpen = false; model.openAccounts() },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Invite") },
-                                    onClick = {
-                                        menuOpen = false
-                                        model.joinChecked = null
-                                        model.joinError = null
-                                        model.screen = AppModel.Screen.Join
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Refresh") },
-                                    onClick = { menuOpen = false; model.refreshChats() },
-                                )
-                            }
-                        }
+                        // No menu button here: the web sidebar-head carries
+                        // only the logo + search — the Menu lives in the
+                        // list-bar at the bottom (index.html:77).
                         Spacer(Modifier.weight(1f))
                         if (model.chatsLoading) {
                             CircularProgressIndicator(Modifier.size(18.dp))
@@ -550,13 +523,80 @@ internal fun relayBarState(connectivity: Int?): String = when {
     else -> "down"
 }
 
+/**
+ * The web sidebar's bottom action bar (.list-bar, index.html:60-79, #329):
+ * solid bgSidebar + 1dp top border, stretch-aligned 46dp buttons (icons at
+ * --ico-4 = 22dp), gap 6, padding 8/10/10. PARTIAL port — only the buttons
+ * whose targets exist: Chats (the only view, rendered per .bar-btn.active:
+ * accent ink + 2px inset bottom accent line, top corners squared) and Menu
+ * (the drawer trigger; the KMP items ride a DropdownMenu). Contacts /
+ * Calls / QR / New chat land with their views.
+ */
 @Composable
-private fun MenuMark() {
-    val color = LocalContentColor.current
-    Canvas(Modifier.size(22.dp)) {
-        val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-        listOf(0.28f, 0.5f, 0.72f).forEach { y ->
-            drawLine(color, Offset(2.dp.toPx(), size.height * y), Offset(size.width - 2.dp.toPx(), size.height * y), stroke.width, stroke.cap)
+private fun ListBar(model: AppModel) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().background(Velta.tokens.bgSidebar)) {
+        HorizontalDivider(color = Velta.tokens.border)
+        Row(
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val accent = Velta.tokens.accent
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .drawBehind {
+                        drawLine(
+                            accent,
+                            Offset(0f, size.height - 1.dp.toPx()),
+                            Offset(size.width, size.height - 1.dp.toPx()),
+                            strokeWidth = 2.dp.toPx(),
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(VeltaIcons.chats, contentDescription = L.t("Chats"), modifier = Modifier.size(22.dp), tint = Velta.tokens.accent)
+            }
+            Box(Modifier.weight(1f)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { menuOpen = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(VeltaIcons.menu, contentDescription = L.t("Menu"), modifier = Modifier.size(22.dp), tint = Velta.tokens.text)
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(L.t("Settings")) },
+                        onClick = { menuOpen = false; model.openSettings() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(L.t("Relays")) },
+                        onClick = { menuOpen = false; model.openRelays() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(L.t("Accounts")) },
+                        onClick = { menuOpen = false; model.openAccounts() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Invite") },
+                        onClick = {
+                            menuOpen = false
+                            model.joinChecked = null
+                            model.joinError = null
+                            model.screen = AppModel.Screen.Join
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Refresh") },
+                        onClick = { menuOpen = false; model.refreshChats() },
+                    )
+                }
+            }
         }
     }
 }

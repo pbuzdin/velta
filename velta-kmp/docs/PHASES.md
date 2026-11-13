@@ -648,3 +648,16 @@ translation fallback chain.
   keys the KMP references, from app/locales/*.json; staleness test
   tests/kmp-locales.test.mjs. Visible static strings swapped
   (attach menu, composer placeholder, settings, join card).
+
+## 2026-11-13 — #329 partial: the chat-list bottom action bar (ListBar)
+
+The web sidebar's `.list-bar` (index.html:60-79), shipped with only the
+buttons whose targets exist: Chats (the only view — rendered per
+.bar-btn.active: accent ink + 2px inset bottom accent line) and Menu (the
+drawer trigger; the KMP items — Settings/Relays/Accounts/Invite/Refresh —
+ride a DropdownMenu). Bar anatomy = the CSS: solid bgSidebar + 1dp top
+border (in-flow, NOT glass — the web bar is solid), stretch-aligned 46dp
+buttons, icons at --ico-4 (22dp), gap 6, padding 8/10/10. The header's ⋮
+moved into the bar (the web sidebar-head carries only logo + search —
+MenuMark dropped; the header now matches index.html:41-45). Contacts /
+Calls / QR / New chat land with their views (#329 stays open for them).

@@ -16,6 +16,7 @@ internal object LangFr {
         "Block" to "Bloquer",
         "Brutal" to "Brutal",
         "Camera" to "Appareil photo",
+        "Chats" to "Discussions",
         "Close" to "Fermer",
         "Dark" to "Sombre",
         "File" to "Fichier",

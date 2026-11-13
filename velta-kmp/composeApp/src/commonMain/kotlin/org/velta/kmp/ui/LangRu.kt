@@ -16,6 +16,7 @@ internal object LangRu {
         "Block" to "Заблокировать",
         "Brutal" to "Brutal",
         "Camera" to "Камера",
+        "Chats" to "Чаты",
         "Close" to "Закрыть",
         "Dark" to "Тёмная",
         "File" to "Файл",
