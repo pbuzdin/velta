@@ -93,6 +93,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -103,6 +104,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -1890,11 +1892,14 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 top = with(density) { headPx.toDp() } + 12.dp,
                 bottom = with(density) { footPx.toDp() } + 12.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(rows, key = { it.key }) { row ->
                 when (row) {
                     is ChatRow.Header -> DayHeader(row.text)
+                    // Web .service-msg: system/info messages are mono pills,
+                    // not bubbles.
+                    is ChatRow.Message if row.message.isInfo -> ServiceMessage(row.message)
                     is ChatRow.Message -> MessageBubble(
                         message = row.message,
                         senderName = if (chat.isGroup) model.senderNames[row.message.fromId] else null,
@@ -1974,17 +1979,41 @@ private fun chatRows(messages: List<MessageObject>): List<ChatRow> {
 
 @Composable
 private fun DayHeader(text: String) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    val tokens = Velta.tokens
+    // Web .day-chip: 13px on #1c1c22 (dark) / #f4f4f4 (light), 14px radius,
+    // 12px above / 6px below (the 4dp list gap adds the rest).
+    Box(
+        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(
             text,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            color = if (tokens.isDark) Color(0xFFD7D7DE) else Color(0xFF5D636E),
             modifier = Modifier
+                .shadow(if (tokens.isDark) 0.dp else 2.dp, RoundedCornerShape(14.dp))
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    RoundedCornerShape(10.dp),
+                    if (tokens.isDark) Color(0xFF1C1C22) else Color(0xFFF4F4F4),
+                    RoundedCornerShape(14.dp),
                 )
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/** Web .service-msg: monospace system message pill, centered — not a bubble. */
+@Composable
+private fun ServiceMessage(message: MessageObject) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 3.dp), contentAlignment = Alignment.Center) {
+        Text(
+            message.text,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.5.sp,
+            lineHeight = (12.5f * 1.5f).sp,
+            color = Color(0xFFD7D7DE),
+            modifier = Modifier
+                .background(Color(0x47101016), RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 4.dp),
         )
     }
 }
@@ -2529,123 +2558,149 @@ private fun MessageBubble(
     val outgoing = message.fromId == 1L // ContactId.SELF
     val clipboard = LocalClipboardManager.current
     val uriHandler = LocalUriHandler.current
+    val tokens = Velta.tokens
     // .bubble CSS: radius 14px, the tail corner drops to 6px on the sender
-    // side; padding 7px 10px 6px; 1px shadow; tokens bgBubbleIn/Out.
+    // side; padding 7px 10px 6px; 1px shadow; tokens bgBubbleIn/Out. Stickers
+    // strip the fill entirely (.bubble.sticker: transparent, no shadow, no
+    // padding, image capped at 175px).
+    val sticker = message.viewType == "Sticker" && message.file != null
     val bubbleShape = RoundedCornerShape(
-        topStart = 14.dp,
-        topEnd = 14.dp,
-        bottomStart = if (outgoing) 14.dp else 6.dp,
-        bottomEnd = if (outgoing) 6.dp else 14.dp,
+        topStart = tokens.radiusBubble,
+        topEnd = tokens.radiusBubble,
+        bottomStart = if (outgoing) tokens.radiusBubble else tokens.radiusTail,
+        bottomEnd = if (outgoing) tokens.radiusTail else tokens.radiusBubble,
     )
-    val dark = isSystemInDarkTheme()
-    val quoteText = if (outgoing) Color(0xFFCFE0F2) else if (dark) Color(0xFF9AA3B5) else Color(0xFF4D5A68)
-    val quoteName = if (outgoing) Color(0xFFD9E9FA) else Velta.tokens.accent
-    val quoteBg = if (dark) Color(0x0FF4F4F4) else Color(0x0D101010)
+    val quoteText = if (outgoing) Color(0xFFCFE0F2) else if (tokens.isDark) Color(0xFF9AA3B5) else Color(0xFF4D5A68)
+    val quoteName = if (outgoing) tokens.quoteNameOut else tokens.quoteName
+    val quoteBg = tokens.bgReply
+    // Web .msg-meta: 11.5px in --text-meta-in/--text-meta-out; ticks read
+    // --ticks-read, failures --danger, everything else rides the meta color.
+    val metaColor = if (outgoing) tokens.textMetaOut else tokens.textMetaIn
+    // Web .bubble max-width: min(480px, 90%). The 42px group avatar rides
+    // bottom-aligned on the same 90% row (calc(90% - 50px) effectively).
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(0.9f),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
+        verticalAlignment = if (!outgoing && senderName != null) Alignment.Bottom else Alignment.Top,
     ) {
+        if (!outgoing && senderName != null) {
+            MessageAvatar(senderName)
+            Spacer(Modifier.size(8.dp))
+        }
         Column(horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start) {
-            if (!outgoing && senderName != null) {
-                Text(
-                    senderName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = prismSenderColor(senderName, MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.padding(start = 12.dp, bottom = 1.dp),
-                )
-            }
             Surface(
-                color = if (outgoing) Velta.tokens.bgBubbleOut else Velta.tokens.bgBubbleIn,
+                color = when {
+                    sticker -> Color.Transparent
+                    outgoing -> tokens.bgBubbleOut
+                    else -> tokens.bgBubbleIn
+                },
                 shape = bubbleShape,
-                shadowElevation = 1.dp,
+                shadowElevation = if (sticker) 0.dp else 1.dp,
                 modifier = Modifier
-                    .widthIn(max = 420.dp)
+                    .widthIn(max = 480.dp)
                     .heightIn(min = 20.dp)
                     .clickable(onClick = onTap),
             ) {
-            Column(Modifier.padding(start = 10.dp, end = 10.dp, top = 7.dp, bottom = 6.dp)) {
-                // .msg-quote: 2.5dp accent bar, 6dp radius, name + one line.
-                message.quote?.let { quote ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(IntrinsicSize.Min)
-                            .padding(bottom = 5.dp)
-                            .background(quoteBg, RoundedCornerShape(6.dp))
-                            .clickable { model.jumpToQuoted(quote.messageId) },
-                    ) {
-                        Box(
-                            Modifier
-                                .width(2.5.dp)
-                                .fillMaxHeight()
-                                .background(Velta.tokens.accent),
+                Column(
+                    Modifier.padding(
+                        if (sticker) PaddingValues(0.dp)
+                        else PaddingValues(start = 10.dp, end = 10.dp, top = 7.dp, bottom = 6.dp),
+                    ),
+                ) {
+                    if (!outgoing && senderName != null) {
+                        // Web .msg-sender: 13.5px, semibold, person color —
+                        // lives INSIDE the bubble (stickers included; the
+                        // transparent bubble lets it float).
+                        Text(
+                            senderName,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = prismSenderColor(senderName, tokens.bgBubbleIn),
+                            modifier = Modifier.padding(bottom = 2.dp),
                         )
-                        val quoteImage = quote.image?.takeIf { it.isNotBlank() }
-                            ?.let { path -> remember(path) { decodeImage(path) } }
-                        if (quoteImage != null) {
-                            Image(
-                                quoteImage,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
-                                    .height(44.dp)
-                                    .width(64.dp)
-                                    .clip(RoundedCornerShape(4.dp)),
-                                contentScale = ContentScale.Crop,
+                    }
+                    // .msg-quote: 2.5dp accent bar, quote radius, name + one line.
+                    message.quote?.let { quote ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                                .padding(bottom = 5.dp)
+                                .background(quoteBg, RoundedCornerShape(tokens.radiusQuote))
+                                .clickable { model.jumpToQuoted(quote.messageId) },
+                        ) {
+                            Box(
+                                Modifier
+                                    .width(2.5.dp)
+                                    .fillMaxHeight()
+                                    .background(tokens.accent),
                             )
-                        }
-                        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                            if (!quote.authorDisplayName.isNullOrBlank()) {
-                                Text(
-                                    quote.authorDisplayName,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.5.sp,
-                                    color = quoteName,
-                                    maxLines = 1,
+                            val quoteImage = quote.image?.takeIf { it.isNotBlank() }
+                                ?.let { path -> remember(path) { decodeImage(path) } }
+                            if (quoteImage != null) {
+                                Image(
+                                    quoteImage,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
+                                        .height(44.dp)
+                                        .width(64.dp)
+                                        .clip(RoundedCornerShape(4.dp)),
+                                    contentScale = ContentScale.Crop,
                                 )
                             }
-                            Text(
-                                quote.text.orEmpty(),
-                                fontSize = 13.5.sp,
-                                color = quoteText,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                if (!quote.authorDisplayName.isNullOrBlank()) {
+                                    Text(
+                                        quote.authorDisplayName,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.5.sp,
+                                        color = quoteName,
+                                        maxLines = 1,
+                                    )
+                                }
+                                Text(
+                                    quote.text.orEmpty(),
+                                    fontSize = 13.5.sp,
+                                    color = quoteText,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
-                }
-                val mediaShown = message.viewType in MEDIA_VIEWTYPES && message.file != null
-                if (mediaShown) {
-                    MediaFromDisk(message.file!!)
-                } else if (message.viewType != "Text") {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            viewTypeIcon(message.viewType),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    val mediaShown = message.viewType in MEDIA_VIEWTYPES && message.file != null
+                    if (mediaShown) {
+                        MediaFromDisk(
+                            message.file!!,
+                            message.dimensionsWidth,
+                            message.dimensionsHeight,
+                            sticker = message.viewType == "Sticker",
+                            modifier = if (message.viewType == "Sticker") Modifier else Modifier.mediaBleed(),
                         )
-                        Spacer(Modifier.size(6.dp))
-                        Text(
-                            message.viewType,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    } else when (message.viewType) {
+                        // Web .msg-video: #101010 band with a play button and
+                        // size/duration chips. No playback engine yet (P4).
+                        "Video" -> VideoCard(message, tokens)
+                        // Web .msg-voice/.msg-audio: play circle + meta. Static.
+                        "Audio", "Voice" -> AudioCard(message, tokens)
+                        // Web .msg-file: 44px accent circle + name + size.
+                        "File", "Webxdc" -> FileCard(message, tokens)
+                        else -> {}
                     }
-                }
                     if (message.text.isNotBlank()) {
                         val annotated = markdownAnnotated(
                             message.text,
-                            accent = if (outgoing) quoteName else Velta.tokens.accent,
+                            accent = if (outgoing) quoteName else tokens.accent,
                             codeBackground = quoteBg,
-                            textColor = Velta.tokens.text,
+                            textColor = tokens.text,
                             members = members,
                         )
                         var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                         Text(
                             annotated,
                             fontSize = 15.5.sp,
-                            lineHeight = (15.5f * 1.3f).sp,
+                            lineHeight = (15.5f * VeltaType.msgLineHeight).sp,
                             onTextLayout = { textLayout = it },
                             modifier = Modifier.pointerInput(annotated) {
                                 detectTapGestures { offset ->
@@ -2683,43 +2738,50 @@ private fun MessageBubble(
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.align(Alignment.End),
+                        modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
                     ) {
                         Text(
                             formatTimestamp(message.timestamp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = VeltaType.msgMetaSize,
+                            color = metaColor,
                         )
                         if (outgoing) {
                             stateIcon(message.state)?.let { glyph ->
-                                Spacer(Modifier.size(4.dp))
+                                Spacer(Modifier.size(3.dp))
                                 Icon(
                                     glyph,
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = when (message.state) {
+                                        28 -> tokens.ticksRead
+                                        24 -> tokens.danger
+                                        else -> metaColor
+                                    },
                                 )
                             }
                         }
                     }
-                }
-            }
-            // Reaction summary under the bubble: emoji + count.
-            val reactions = reactionSummary(message.reactions)
-            if (reactions.isNotEmpty()) {
-                Spacer(Modifier.size(2.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    reactions.forEach { (emoji, count) ->
-                        Text(
-                            if (count > 1) "$emoji $count" else emoji,
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier
-                                .background(
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    RoundedCornerShape(10.dp),
+                    // Web .msg-reactions: inside the bubble, bgReply chips,
+                    // the own reaction gets the accent border.
+                    val reactions = reactionChips(message.reactions)
+                    if (reactions.isNotEmpty() && !sticker) {
+                        Spacer(Modifier.size(2.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            reactions.forEach { chip ->
+                                Text(
+                                    if (chip.count > 1) "${chip.emoji} ${chip.count}" else chip.emoji,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier
+                                        .background(tokens.bgReply, RoundedCornerShape(12.dp))
+                                        .border(
+                                            1.dp,
+                                            if (chip.mine) tokens.accent else tokens.border,
+                                            RoundedCornerShape(12.dp),
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
+                            }
+                        }
                     }
                 }
             }
@@ -2727,12 +2789,175 @@ private fun MessageBubble(
     }
 }
 
-/** Aggregate the core's `Reactions` object into emoji → count pairs. */
-private fun reactionSummary(reactions: kotlinx.serialization.json.JsonElement?): List<Pair<String, Int>> {
+/** Web <velta-avatar size="42">: Prism tile, 22% radius, initials. */
+@Composable
+private fun MessageAvatar(name: String) {
+    Box(
+        Modifier
+            .size(42.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(prismTileColor(name)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            prismInitials(name),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFFF4F4F4),
+        )
+    }
+}
+
+/** Web .velta-video-size/.velta-video-dur chip: 12px on rgba(11,11,16,.86). */
+@Composable
+private fun MediaChip(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        fontSize = 12.sp,
+        lineHeight = 12.sp,
+        color = Color(0xFFF2F2F5),
+        modifier = modifier
+            .background(Color(0xDB0B0B10), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+    )
+}
+
+/** Web .msg-video fallback band: #101010, 54px play circle, size chip
+ *  top-left + duration chip bottom-right. Static — no playback engine yet. */
+@Composable
+private fun VideoCard(message: MessageObject, tokens: VeltaTokens) {
+    Box(
+        Modifier
+            .mediaBleed()
+            .widthIn(min = 200.dp)
+            .height(260.dp)
+            .clip(RoundedCornerShape(tokens.radiusMedia))
+            .background(Color(0xFF101010)),
+    ) {
+        Box(
+            Modifier
+                .size(54.dp)
+                .align(Alignment.Center)
+                .background(Color(0x8C0B0B10), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                VeltaIcons.playFilled,
+                contentDescription = null,
+                modifier = Modifier.size(26.dp),
+                tint = Color(0xFFF2F2F5),
+            )
+        }
+        message.fileBytes?.takeIf { it > 0 }?.let { bytes ->
+            MediaChip(formatBytes(bytes), Modifier.align(Alignment.TopStart).padding(8.dp))
+        }
+        message.duration?.takeIf { it > 0 }?.let { ms ->
+            MediaChip(formatDuration(ms), Modifier.align(Alignment.BottomEnd).padding(8.dp))
+        }
+    }
+}
+
+/** Web .msg-voice/.msg-audio: 42px play circle + name/duration. Static card. */
+@Composable
+private fun AudioCard(message: MessageObject, tokens: VeltaTokens) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.widthIn(min = 220.dp),
+    ) {
+        Box(
+            Modifier.size(42.dp).background(tokens.accent, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                VeltaIcons.playFilled,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = tokens.onAccent,
+            )
+        }
+        Column {
+            Text(
+                message.fileName
+                    ?: if (message.viewType == "Voice") L.t("Voice message") else L.t("Audio"),
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = tokens.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val meta = message.duration?.takeIf { it > 0 }?.let { formatDuration(it) } ?: message.viewType
+            Text(meta, fontSize = 12.5.sp, color = tokens.textDim)
+        }
+    }
+}
+
+/** Web .msg-file: 44px accent circle icon + name 14.5px/500 + size 12.5px. */
+@Composable
+private fun FileCard(message: MessageObject, tokens: VeltaTokens) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.widthIn(min = 210.dp),
+    ) {
+        Box(
+            Modifier.size(44.dp).background(tokens.accent, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                viewTypeIcon(message.viewType),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = tokens.onAccent,
+            )
+        }
+        Column(Modifier.weight(1f, fill = false)) {
+            Text(
+                message.fileName ?: message.viewType,
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = tokens.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            message.fileBytes?.takeIf { it > 0 }?.let { bytes ->
+                Text(formatBytes(bytes), fontSize = 12.5.sp, color = tokens.textDim)
+            }
+        }
+    }
+}
+
+/** "1.5 MB" / "320 KB" — the web's formatBytes (BINARY units). */
+private fun formatBytes(bytes: Long): String {
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1 -> "${(mb * 10).roundToInt() / 10.0} MB"
+        kb >= 1 -> "${kb.roundToInt()} KB"
+        else -> "$bytes B"
+    }
+}
+
+/** "1:23" — the web's m:ss duration chip (wire duration is ms). */
+private fun formatDuration(ms: Long): String {
+    val total = (ms / 1000).coerceAtLeast(0)
+    return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
+}
+
+private data class ReactionChip(val emoji: String, val count: Int, val mine: Boolean)
+
+/** Aggregate the core's `Reactions` object (`contactsByReaction`: emoji →
+ *  contact list); `mine` flags rows where SELF (contact id 1) reacted. */
+private fun reactionChips(reactions: kotlinx.serialization.json.JsonElement?): List<ReactionChip> {
     val byReaction = (reactions as? kotlinx.serialization.json.JsonObject)
         ?.get("contactsByReaction") as? kotlinx.serialization.json.JsonObject
         ?: return emptyList()
     return byReaction.map { (emoji, contacts) ->
-        emoji to ((contacts as? kotlinx.serialization.json.JsonArray)?.size ?: 0)
+        val list = contacts as? kotlinx.serialization.json.JsonArray
+        ReactionChip(
+            emoji,
+            list?.size ?: 0,
+            list?.any { (it as? kotlinx.serialization.json.JsonPrimitive)?.content == "1" } == true,
+        )
     }
 }

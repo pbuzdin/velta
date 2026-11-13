@@ -76,6 +76,13 @@ data class MessageObject(
     val quote: MessageQuote? = null,
     val file: String? = null,
     val fileName: String? = null,
+    /** Attachment byte count (wire `fileBytes`) — the web renders it as the size chip. */
+    val fileBytes: Long? = null,
+    /** Media duration in ms (wire `duration`) — video/voice cards show it as m:ss. */
+    val duration: Long? = null,
+    /** Core-reported image pixel size (0 when unknown) — reserves the box before decode. */
+    val dimensionsWidth: Int? = null,
+    val dimensionsHeight: Int? = null,
     val error: String? = null,
 )
 
