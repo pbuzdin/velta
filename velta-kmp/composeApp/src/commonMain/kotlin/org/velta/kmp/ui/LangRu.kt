@@ -15,8 +15,10 @@ internal object LangRu {
         "Back" to "Назад",
         "Block" to "Заблокировать",
         "Brutal" to "Brutal",
+        "Camera" to "Камера",
         "Close" to "Закрыть",
         "Dark" to "Тёмная",
+        "File" to "Файл",
         "Info" to "Сведения",
         "Join" to "Войти",
         "Language" to "Язык",
@@ -29,6 +31,7 @@ internal object LangRu {
         "Notifications" to "Уведомления",
         "Off" to "Выкл",
         "On" to "Вкл",
+        "Photo" to "Фото",
         "Pinned" to "Закреплён",
         "Profile" to "Профиль",
         "Profile key" to "Ключ профиля",
@@ -44,6 +47,7 @@ internal object LangRu {
         "Theme" to "Тема",
         "Unblock" to "Разблокировать",
         "Unlock" to "Разблокировать",
+        "Video" to "Видео",
         "Welcome to Velta" to "Добро пожаловать в Velta",
     )
 }

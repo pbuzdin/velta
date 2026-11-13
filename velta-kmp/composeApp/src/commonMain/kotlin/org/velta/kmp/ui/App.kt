@@ -1542,7 +1542,7 @@ private fun StickerPicker(
         ) {
             if (packs.isEmpty()) {
                 Text(
-                    L.t("No sticker packs installed"),
+                    "No sticker packs installed",
                     modifier = Modifier.padding(16.dp),
                     color = Velta.tokens.textDim,
                     fontSize = 14.sp,

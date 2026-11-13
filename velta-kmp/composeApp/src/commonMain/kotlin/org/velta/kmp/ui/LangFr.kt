@@ -15,8 +15,10 @@ internal object LangFr {
         "Back" to "Retour",
         "Block" to "Bloquer",
         "Brutal" to "Brutal",
+        "Camera" to "Appareil photo",
         "Close" to "Fermer",
         "Dark" to "Sombre",
+        "File" to "Fichier",
         "Info" to "Infos",
         "Join" to "Rejoindre",
         "Language" to "Langue",
@@ -29,6 +31,7 @@ internal object LangFr {
         "Notifications" to "Notifications",
         "Off" to "Désactivé",
         "On" to "Activé",
+        "Photo" to "Photo",
         "Pinned" to "Épinglé",
         "Profile" to "Profil",
         "Profile key" to "Clé du profil",
@@ -44,6 +47,7 @@ internal object LangFr {
         "Theme" to "Thème",
         "Unblock" to "Débloquer",
         "Unlock" to "Déverrouiller",
+        "Video" to "Vidéo",
         "Welcome to Velta" to "Bienvenue dans Velta",
     )
 }

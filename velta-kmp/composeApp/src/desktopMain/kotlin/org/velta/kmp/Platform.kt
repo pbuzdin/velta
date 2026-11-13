@@ -11,10 +11,20 @@ import java.io.File
  */
 class DesktopCorePlatform : CorePlatform {
 
+    private val prefs = java.util.prefs.Preferences.userNodeForPackage(DesktopCorePlatform::class.java)
+
     override fun accountsDir(): String =
         File(System.getProperty("user.home"), ".velta-kmp/accounts")
             .apply { mkdirs() }
             .absolutePath
+
+    // App-level settings (#321 step 5): java.util.prefs mirrors the web's
+    // localStorage keys (dw-theme, velta-amoled, velta-accent, velta-lang).
+    override fun pref(key: String): String? = prefs.get(key, null)
+
+    override fun setPref(key: String, value: String?) {
+        if (value == null) prefs.remove(key) else prefs.put(key, value)
+    }
 
     override fun spawnRpcServer(accountsDir: String): RpcTransport? {
         val isWindows = System.getProperty("os.name").lowercase().contains("windows")
