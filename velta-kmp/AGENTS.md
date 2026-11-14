@@ -469,7 +469,16 @@ never run Gradle on the Windows side.
   (`getOrCreateDek` returns null); the DEK lives in an auth-window wrap
   (`dbkey.bio`, 30 s Keystore validity after a prompt); unlock = prompt →
   `unlockDek` inside the window → `spawnRpcServerWithKey(dir, dek)`.
-  PIN/Argon2id fallback deferred.
+  PIN/Argon2id fallback deferred. #334 step 4: the prompt's authenticators
+  come from `LockPolicy.authenticators(sdk)` and never accept less than the
+  key (STRONG | DEVICE_CREDENTIAL; API 28-29 STRONG + Cancel button) — the
+  old BIOMETRIC_WEAK prompt passed face unlock that the key then refused.
+  Failures go to `AppModel.lockError` (lock screen + lock row). Auto-lock =
+  stable's "Lock when hidden" (`velta-autolock-mins`, 0/1/5/15, default
+  off), wall-clock timestamp on stop, compared on start; `lockNow` saves
+  the draft, stops the core and clears list/message state. The sync
+  service is `remoteMessaging` like stable's CoreService (dataSync has the
+  Android 15 6 h/day cap); `onTimeout` stops it cleanly as a guard.
 - IncomingMsg events carry `chat_id`/`msg_id` (snake case on the wire —
   AppModel probes both casings); notifications post per chat
   (notification id = chatId.toInt()) on the `messages` channel, skipped

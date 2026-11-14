@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Keep the core syncing while the screen is off (P4 slice 6). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Battery-saver exemptions keep the sync service alive on OEM ROMs
          (P4 slice 10); the system dialog lets the user decide. -->
@@ -44,7 +44,7 @@
         <service
             android:name=".core.VeltaForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="remoteMessaging" />
 
         <service
             android:name=".push.VeltaPushService"

@@ -523,6 +523,70 @@ class AppModel(
     var appLockOn by mutableStateOf(false)
         private set
 
+    /** Last app-lock failure, shown on the lock screen and the lock row
+     * (#334: failures used to go to println only). */
+    var lockError by mutableStateOf<String?>(null)
+
+    /** Stable's "Lock when hidden" (web key velta-autolock-mins; 0 = off). */
+    var autoLockMins by mutableStateOf(
+        platform.pref("velta-autolock-mins")?.toIntOrNull()?.takeIf { it in LockPolicy.AUTOLOCK_CHOICES } ?: 0,
+    )
+        private set
+
+    /** Wall clock for the auto-lock (wall time: the monotonic clock stops
+     * in deep sleep, exactly when the phone sits in a pocket). */
+    internal var clockMillis: () -> Long = { wallClockSeconds() * 1000L }
+
+    private var hiddenAtMillis: Long? = null
+
+    fun onSetAutoLock(mins: Int) {
+        if (mins !in LockPolicy.AUTOLOCK_CHOICES) return
+        autoLockMins = mins
+        platform.setPref("velta-autolock-mins", if (mins == 0) null else mins.toString())
+    }
+
+    /** The platform prompt or keystore step failed; null clears. */
+    fun onLockError(message: String?) {
+        lockError = message
+    }
+
+    /**
+     * Lock now (auto-lock): save the open chat's draft, stop the core —
+     * the databases close and the DEK leaves memory with it — and show the
+     * lock screen. Unlock runs the normal keyed connect.
+     */
+    fun lockNow() {
+        if (locked || !platform.isAppLockOn()) return
+        locked = true
+        status = "locked"
+        val chat = screen as? Screen.Chat
+        val veltaCore = core
+        val id = accountId
+        val text = composerText
+        val quote = replyTo?.id
+        val attachment = pendingAttachment
+        scope.launch {
+            if (chat != null && veltaCore != null && id != null && (text.isNotBlank() || attachment != null)) {
+                runCatching {
+                    veltaCore.setDraft(id, chat.chatId, text, quote, file = attachment?.first, filename = attachment?.second)
+                }
+            }
+            shutdownCore()
+            // No plaintext left on screen state behind the lock.
+            chats = emptyList()
+            chatMessages = emptyList()
+            archivedChats = emptyList()
+            composerText = ""
+            replyTo = null
+            pendingAttachment = null
+            messageActions = null
+            profile = null
+            screen = Screen.ChatList
+            locked = true
+            status = "locked"
+        }
+    }
+
     /** Platform-injected: run the biometric/credential prompt; on success hand over. */
     var requestUnlock: (() -> Unit)? = null
     var requestAppLockEnable: (() -> Unit)? = null
@@ -748,7 +812,7 @@ class AppModel(
     /** The RPC connection died on its own (core gone, socket closed): release
      * the UI so the app degrades visibly, then try one self-heal reconnect. */
     private fun onCoreDead() {
-        if (!connected) return
+        if (!connected || locked) return // locked = deliberate stop
         connected = false
         core = null
         transport = null
@@ -1386,20 +1450,20 @@ class AppModel(
     /** Unlock button pressed: the platform runs the prompt, then hands the DEK. */
     fun onAppUnlocked(dekHex: String) {
         locked = false
+        lockError = null
         connect(dekHex)
     }
 
     /** The user opted in on the Accounts screen (prompt already succeeded). */
     fun onAppLockEnabled() {
         appLockOn = platform.enableAppLock()
-        if (!appLockOn) {
-            // Roll forward on the next unlock — nothing user-visible broke.
-            println("velta-kmp: app lock enable failed")
-        }
+        lockError = if (appLockOn) null else L.t("Couldn't turn on the app lock")
     }
 
     fun onAppLockDisabled() {
-        appLockOn = platform.disableAppLock()
+        val ok = platform.disableAppLock()
+        appLockOn = platform.isAppLockOn()
+        lockError = if (ok) null else L.t("Couldn't turn off the app lock")
     }
 
     fun refreshAppLockState() {
@@ -1839,7 +1903,17 @@ class AppModel(
      * the visible rows get marked seen and its notification goes away. */
     fun onAppForeground(visible: Boolean) {
         appInForeground = visible
-        if (!visible) return
+        if (!visible) {
+            hiddenAtMillis = if (!locked && autoLockMins > 0 && platform.isAppLockOn()) clockMillis() else null
+            return
+        }
+        val hiddenAt = hiddenAtMillis
+        hiddenAtMillis = null
+        if (LockPolicy.shouldAutoLock(hiddenAt, clockMillis(), autoLockMins)) {
+            lockNow()
+            return
+        }
+        if (locked) return
         val current = screen as? Screen.Chat ?: return
         accountId?.let { notifier?.cancel(it, current.chatId) }
         loadMessages(current.chatId, current.isGroup)
