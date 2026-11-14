@@ -148,7 +148,7 @@ fun App(model: AppModel) {
                 LockScreen(model)
             } else {
                 when (val current = model.screen) {
-                    AppModel.Screen.Login -> JoinScreen(model, welcome = true)
+                    AppModel.Screen.Login -> WelcomeScreen(model)
                     AppModel.Screen.ChatList -> ChatListScreen(model)
                     AppModel.Screen.Relays -> RelaysScreen(model)
                     AppModel.Screen.Settings -> SettingsScreen(model)
@@ -158,6 +158,7 @@ fun App(model: AppModel) {
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
                 }
             }
+            CreatedNotice(model)
         }
     }
 }
@@ -375,47 +376,27 @@ private fun BatteryRow(model: AppModel) {
 }
 
 /** P4: invite/join — paste or scan a QR payload (relay invite, relay
- * sign-in, or secure-join). With `welcome` it doubles as the first-run
- * onboarding screen (no account yet — nothing to close). */
+ * sign-in, or secure-join) once an account exists. First run is the
+ * welcome splash (Welcome.kt, #334). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun JoinScreen(model: AppModel, welcome: Boolean = false) {
+private fun JoinScreen(model: AppModel) {
     val checked = model.joinChecked
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (welcome) L.t("Welcome to Velta") else L.t("Join")) },
+                title = { Text(L.t("Join")) },
                 navigationIcon = {
-                    if (!welcome) {
-                        TextButton(onClick = { model.closeJoin() }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
-                    }
+                    TextButton(onClick = { model.closeJoin() }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
                 },
             )
         },
     ) { inner ->
         Column(
             modifier = Modifier.padding(inner).fillMaxSize().padding(24.dp),
-            verticalArrangement = if (welcome) Arrangement.Top else Arrangement.Center,
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (welcome) {
-                Spacer(Modifier.size(24.dp))
-                Text("Velta", style = MaterialTheme.typography.displaySmall)
-                Text(
-                    "KMP client · core ${model.coreVersion} · ${model.status}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.size(24.dp))
-                Text(
-                    "Paste a relay invite (DCACCOUNT:…), a relay sign-in code " +
-                        "(DCLOGIN:…), or a secure-join invite — or scan one.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.size(24.dp))
-            }
             OutlinedTextField(
                 value = model.joinText,
                 onValueChange = {

@@ -73,6 +73,28 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** Welcome splash "Restore from a backup…": stage the picked tar in
+     * the cache (gzip PWA exports unpacked, stable prep_backup). */
+    private val pickBackup = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            val staged = File(cacheDir, "backup-${System.currentTimeMillis()}.tar")
+            contentResolver.openInputStream(uri)?.use { raw ->
+                val input = java.io.BufferedInputStream(raw)
+                input.mark(2)
+                val gzip = input.read() == 0x1f && input.read() == 0x8b
+                input.reset()
+                val src = if (gzip) java.util.zip.GZIPInputStream(input) else input
+                staged.outputStream().use { output -> src.copyTo(output) }
+            } ?: throw java.io.IOException("no stream")
+            model.onBackupPicked(staged.absolutePath)
+        } catch (t: Throwable) {
+            model.onBackupPicked(null, t.message ?: t.toString())
+        }
+    }
+
     /**
      * Invite-QR scan. No ActivityResult here: FragmentActivity's legacy
      * startActivityForResult path rejects the registry-generated request
@@ -157,6 +179,7 @@ class MainActivity : FragmentActivity() {
             )
         }
         model.requestQrScan = { startQrScan() }
+        model.backupPicker = { pickBackup.launch(arrayOf("application/x-tar", "application/gzip", "application/octet-stream", "*/*")) }
         // QR view "Share a link" (web shareLink → ACTION_SEND chooser).
         model.shareText = { text ->
             val send = Intent(Intent.ACTION_SEND).apply {
@@ -197,6 +220,7 @@ class MainActivity : FragmentActivity() {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         consumeChatIntent(intent)
+        consumeLinkIntent(intent)
         setContent {
             App(model)
             LaunchedEffect(Unit) { model.connect() }
@@ -207,6 +231,17 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         consumeChatIntent(intent)
+        consumeLinkIntent(intent)
+    }
+
+    /** Invite / chatmail-code links (manifest VIEW filters): same path as
+     * a scanned QR — welcome splash or Join screen; parked until the core
+     * is up on a cold start. */
+    private fun consumeLinkIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val link = intent.dataString ?: return
+        intent.data = null
+        model.onQrScanned(link)
     }
 
     /** A notification tap carries the account + chat; the model switches

@@ -57,6 +57,9 @@ interface CorePlatform {
      * maps the same keys onto each platform's key-value store. A null
      * [value] removes the key (the web "unset = default" convention).
      */
+    /** App version name for the welcome splash version line. */
+    fun appVersion(): String = "dev"
+
     fun pref(key: String): String? = null
     fun setPref(key: String, value: String?) {}
 }

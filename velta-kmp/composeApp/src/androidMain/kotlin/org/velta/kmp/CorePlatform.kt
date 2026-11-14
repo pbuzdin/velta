@@ -17,6 +17,9 @@ import java.io.File
  */
 class AndroidCorePlatform(private val context: Context) : CorePlatform {
 
+    override fun appVersion(): String =
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
+
     override fun accountsDir(): String =
         File(context.filesDir, "accounts").apply { mkdirs() }.absolutePath
 
