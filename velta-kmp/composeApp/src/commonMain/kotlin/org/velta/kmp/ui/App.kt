@@ -69,7 +69,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -429,6 +433,15 @@ private fun ChatListScreen(model: AppModel) {
     var searchTab by remember { mutableStateOf("search") }
     var headPx by remember { mutableIntStateOf(0) }
     val headDp = with(LocalDensity.current) { headPx.toDp() }
+    // Web pull-open (app.js:1446): pulling down at the top of the chats list
+    // reveals the relay detail chips; they hide themselves after 4 seconds.
+    var relayDetailShown by remember { mutableStateOf(false) }
+    LaunchedEffect(relayDetailShown) {
+        if (relayDetailShown) {
+            kotlinx.coroutines.delay(4000)
+            relayDetailShown = false
+        }
+    }
     // Android back inside a side view returns to the chats list first.
     PlatformBackHandler(enabled = model.listView != "chats") {
         model.toggleListView("chats")
@@ -447,7 +460,7 @@ private fun ChatListScreen(model: AppModel) {
                     "qr" -> QrView(model)
                     "new" -> NewChatView(model)
                     "search" -> SearchView(model, searchTab) { searchTab = it }
-                    else -> ChatsView(model, onArchived = {
+                    else -> ChatsView(model, onPullTop = { relayDetailShown = true }, onArchived = {
                         searchTab = "archived"
                         model.toggleListView("chats")
                     })
@@ -495,7 +508,7 @@ private fun ChatListScreen(model: AppModel) {
                         }
                     }
                 }
-                RelayLine(model)
+                RelayZone(model, detailShown = relayDetailShown)
             }
             }
         },
@@ -504,9 +517,11 @@ private fun ChatListScreen(model: AppModel) {
     ChannelDialog(model)
 }
 
-/** The chats view: #57 category chips, sync strip, rows, archived link. */
+/** The chats view: #57 category chips, sync strip, rows, archived link.
+ *  [onPullTop] fires on a pull-down gesture while the list sits at the very
+ *  top (web pull-open: reveals the relay detail chips). */
 @Composable
-private fun ChatsView(model: AppModel, onArchived: () -> Unit) {
+private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> Unit) {
     LaunchedEffect(model.chatCategory, model.accountId) { model.ensureContactBots() }
     Column(Modifier.fillMaxSize()) {
         CategoryChips(model)
@@ -540,7 +555,36 @@ private fun ChatsView(model: AppModel, onArchived: () -> Unit) {
                 )
             }
         } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            val listState = rememberLazyListState()
+            LazyColumn(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            // Only a pull from the absolute top counts (web
+                            // touchstart gate: scrollTop <= 0).
+                            if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+                                // Ride out the gesture without acting.
+                                while (awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }) { /* draining */ }
+                                return@awaitEachGesture
+                            }
+                            var pulled = 0f
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.changes.none { it.pressed }) break
+                                // Raw delta: the list's overscroll consumes the
+                                // change, the pull gesture must still measure it.
+                                pulled += event.changes.maxOf { it.positionChangeIgnoreConsumed().y }
+                                if (pulled > 32.dp.toPx()) {
+                                    onPullTop()
+                                    break
+                                }
+                            }
+                        }
+                    },
+            ) {
                 items(shown, key = { it.id }) { item ->
                     ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
                     HorizontalDivider()
@@ -1261,57 +1305,68 @@ private fun ChannelDialog(model: AppModel) {
     }
 }
 
-/** One segment per relay with its OWN state color (web renderRelayLine +
- * parseConnectivityHtml + #76 probe downgrade). Empty parse → a single
- * combined segment colored by the account connectivity. The sending relay's
- * segment runs the data-sending dashes (web .relay-dashes). Tap opens the
- * relays screen. */
+/** The relay zone (web .relay-zone, main.css:289): 10dp padding above and
+ *  below the 6dp meter. One equal segment per relay with its OWN state color
+ *  (web renderRelayLine + parseConnectivityHtml + #76 probe downgrade);
+ *  empty parse → a single combined segment from the account connectivity.
+ *  The sending relay's segment runs the data-sending dashes. The 6dp meter
+ *  itself is the ONLY tappable part (opens the Relays screen; a KMP
+ *  affordance — the web line is role="status"): the padding bands are not
+ *  in the touch target, they used to overlap the category chips below and
+ *  steal their taps.
+ *  [detailShown] overlays the web's .relay-detail chips (mobile pull-open,
+ *  app.js:1446) — one chip per segment (see [RelayDetailRow]). */
 @Composable
-private fun RelayLine(model: AppModel) {
+private fun RelayZone(model: AppModel, detailShown: Boolean) {
     val accountColor = relayColorFor(relayBarState(model.relayConnectivity))
     val segments = model.relaySegments
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable { model.openRelays() }
-            .padding(vertical = 10.dp)
-            .height(6.dp)
-            .semantics { contentDescription = "Relay status" },
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (segments.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxHeight().background(accountColor))
-        } else {
-            val shift = rememberInfiniteTransition(label = "relay-dashes").animateFloat(
-                initialValue = 0f,
-                targetValue = 12f,
-                animationSpec = infiniteRepeatable(
-                    tween(450, easing = LinearEasing),
-                ),
-                label = "relay-dash-offset",
-            )
-            segments.forEach { seg ->
-                val color = relayColorFor(seg.state)
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .drawBehind {
-                            if (seg.isSendRelay && model.sending) {
-                                // data-sending: dashes of currentColor marching rightward.
-                                val w = size.width / 12f
-                                var x = -(shift.value / 12f) * (w * 2)
-                                while (x < size.width) {
-                                    drawRect(color, topLeft = Offset(x, 0f), size = androidx.compose.ui.geometry.Size(w, size.height))
-                                    x += w * 2
-                                }
-                            } else {
-                                drawRect(color)
-                            }
-                        }
-                        .semantics { contentDescription = seg.title },
+    Box(Modifier.fillMaxWidth().height(26.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .align(Alignment.Center)
+                .clickable { model.openRelays() }
+                .semantics { contentDescription = "Relay status" },
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (segments.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxHeight().background(accountColor))
+            } else {
+                val shift = rememberInfiniteTransition(label = "relay-dashes").animateFloat(
+                    initialValue = 0f,
+                    targetValue = 12f,
+                    animationSpec = infiniteRepeatable(
+                        tween(450, easing = LinearEasing),
+                    ),
+                    label = "relay-dash-offset",
                 )
+                segments.forEach { seg ->
+                    val color = relayColorFor(seg.state)
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .drawBehind {
+                                if (seg.isSendRelay && model.sending) {
+                                    // data-sending: dashes of currentColor marching rightward.
+                                    val w = size.width / 12f
+                                    var x = -(shift.value / 12f) * (w * 2)
+                                    while (x < size.width) {
+                                        drawRect(color, topLeft = Offset(x, 0f), size = androidx.compose.ui.geometry.Size(w, size.height))
+                                        x += w * 2
+                                    }
+                                } else {
+                                    drawRect(color)
+                                }
+                            }
+                            .semantics { contentDescription = seg.title },
+                    )
+                }
             }
+        }
+        if (detailShown) {
+            RelayDetailRow(model, Modifier.matchParentSize())
         }
     }
 }
@@ -1323,6 +1378,83 @@ private fun relayColorFor(state: String): Color = when (state) {
     "offline" -> Color(0xFF9AA0A6)
     "local" -> Color(0xFF4C8DFF)
     else -> RELAY_WAIT // connecting / unreachable / delayed
+}
+
+/** Web .relay-detail-chip (main.css:305): one pill per strip segment —
+ *  masked domain + the segment title, the sending relay marked with an
+ *  envelope colored by its own segment state. The web appends the quota
+ *  percent when its parse has one; the KMP's segment titles already carry
+ *  the state text, so the title rides as the suffix (web's no-quota
+ *  fallback path, app.js:1401). */
+@Composable
+private fun RelayDetailRow(model: AppModel, modifier: Modifier) {
+    val segments = model.relaySegments
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (segments.isEmpty()) {
+            RelayDetailChip(null, "", relayBarState(model.relayConnectivity), false, Modifier.weight(1f))
+        } else {
+            segments.forEach { seg ->
+                RelayDetailChip(seg.domain, seg.title, seg.state, seg.isSendRelay, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelayDetailChip(
+    domain: String?,
+    title: String,
+    state: String,
+    isSend: Boolean,
+    modifier: Modifier,
+) {
+    Box(
+        modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(999.dp))
+            .background(Velta.tokens.bgSidebar)
+            .border(
+                1.dp,
+                when (state) {
+                    "down" -> RELAY_DOWN
+                    "unreachable", "offline" -> RELAY_WAIT
+                    else -> Velta.tokens.border
+                },
+                RoundedCornerShape(999.dp),
+            )
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (isSend) {
+                // The sending relay: static envelope (web .relay-detail-send),
+                // colored by the segment's own state.
+                Icon(
+                    VeltaIcons.relaySend,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = relayColorFor(state),
+                )
+            }
+            Text(
+                maskRelayDomain(domain) + if (title.isNotBlank()) " · $title" else "",
+                fontSize = 11.sp,
+                lineHeight = 11.sp,
+                color = Velta.tokens.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Web maskRelayDomain (app.js:1266): "d13*.dev" — first 3 chars, a star,
+ *  then ONLY the last dot label; "cha*.uk" for two-label hosts. */
+internal fun maskRelayDomain(domain: String?): String {
+    val d = domain ?: ""
+    val i = d.lastIndexOf('.')
+    if (i <= 0) return if (d.isNotEmpty()) d.take(3) + "*" else "relay"
+    return d.take(3) + "*." + d.substring(i + 1)
 }
 
 /** Web renderRelayLine's account-wide color. 4000 connected, 2000–3999 connecting, below that down. */
