@@ -161,12 +161,15 @@ Phase status and honest gaps: **[docs/PHASES.md](docs/PHASES.md)**.
 
 Requires JDK 21 (and the Android SDK for the Android target). Release
 signing reads `keystore.properties` (gitignored) when present and falls
-back to the debug key otherwise — sizes: debug ≈ 69 MB, release ≈ 57 MB
-universal (size-tuned LTO shim + R8). CI:
+back to the debug key otherwise. ABI splits only (no universal APK):
+the arm64 debug APK is ≈ 41 MB, of which ≈ 26 MB is the stripped core
+shim (no debug or symbol sections; CI checks this). CI:
 `.github/workflows/build-kmp.yml` builds both targets and runs the tests
 on every push touching this dir (or `core/`); the `shim` job builds the
 Android core `.so` on every run, the APK job bundles it and refuses to
-upload an APK without it, and `shim-test` runs the shim's `cargo test`.
+upload an APK without it (artifacts: `velta-kmp-arm64-apk` for phones,
+`velta-kmp-x86_64-apk` for emulators), and `shim-test` runs the shim's
+`cargo test`.
 
 ## Run the desktop demo
 

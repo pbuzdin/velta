@@ -60,7 +60,8 @@ a numbered version or move the tag to include it.
   `build-kmp.yml` builds and tests on every master push touching
   `velta-kmp/**` or `core/**`: the `shim` job builds the core `.so` for
   arm64-v8a + x86_64, the `build` job bundles it into jniLibs, fails if
-  any split APK lacks it, and uploads all split APKs (`velta-kmp-debug-apk`)
+  any split APK lacks it, and uploads the phone APK as `velta-kmp-arm64-apk` and the emulator one as
+  `velta-kmp-x86_64-apk` (no universal APK)
   (#334). Three
   generators keep the client in the web's family — `ui/VeltaTokens.kt`
   (from `app/css/main.css`), `ui/VeltaIcons.kt` (from `app/js/icons.js`),
