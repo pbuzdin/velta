@@ -1,9 +1,9 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-13 after the #321 visual-shell
-completion and audit. Every phase lists what SHIPPED, how it was
-VERIFIED, and what is still MISSING — no "done" without the gaps next to
-it.
+Tracking issue #192. Updated 2026-11-14 after the review-fix round,
+touch-gesture port, and chat-header port. Every phase lists what SHIPPED,
+how it was VERIFIED, and what is still MISSING — no "done" without the
+gaps next to it.
 
 ## Remaining work at a glance
 
@@ -831,6 +831,45 @@ slice (issue #330), started after this commit.
 
 **MISSING (named)**: #102 "delayed" amber state rides a send-failure event
 feed KMP doesn't have yet (the branch is coded in the web port; KMP's
-sending-dashes key off the composer's sending flag); relay-detail chips row
-(web hidden by default, hover/pull-down reveal) not ported; caption/footer
-branding deviation on the QR card noted above.
+sending-dashes key off the composer's sending flag); caption/footer
+branding deviation on the QR card noted above. ~~relay-detail chips row
+not ported~~ — SHIPPED 2026-11-14 (see the gesture/header entry below).
+
+**2026-11-14 — review-fix round, gestures, and the chat header (d149c3ce,
+6227d862, 44c76aa4, 122a3b87, 48be46fb, ff5cc63b, d164c6d3, 32d21bf8; all
+CI-green; phone-verified on the vivo):**
+
+- **Bubble design port** (web = spec, main.css + chat-view.js): width
+  min(480dp, 90%), 42dp group avatars + 13.5sp sender names inside the
+  bubble, 11.5sp meta with textMetaIn/Out + tick tints, sticker
+  transparency, media bleed (`mediaBleed`) + 320/450 caps + radiusMedia +
+  dims-reserved placeholders, video/audio/file cards with size/duration
+  chips (`MessageObject` fileBytes/duration/dimensions), isInfo mono
+  pills, .day-chip restyle, reactions inside the bubble (accent border on
+  the own reaction), 4dp gap. MediaMetaParseTest pins the wire fields.
+- **Review fixes**: chat-list stamps (ChatListItem.lastUpdated is
+  MILLIS — the "+58838" bug; af46d1d4 call-site fix + FormatTimeTest),
+  side-view type ladder (search hits = full chat-item rows 15.5/14,
+  archived subs 12 per .archived-sub), WCAG sweep (light out-quote text
+  was 1.05:1 → #4d5a68 per main.css:912; light service pill 1.56:1 →
+  white-80% + #464b55 per :855; brutal out-quote #3d3410 per :3393;
+  LocalVeltaThemeMode exposes the resolved mode), doubled 📷 previews
+  (core summary.rs embeds the emoji — pass-through, ChatCategoryTest
+  pins), menu Refresh item dropped (web has none; reloads are
+  event-driven).
+- **Relay zone**: meter-only tap target (padding-before-clickable — the
+  invisible bands ate category chips' taps), pull-open detail chips
+  (masked domains via maskRelayDomain + envelope on the sending relay),
+  gestures on the ChatsView container so they survive empty categories.
+- **Touch gestures** (web thresholds, `touchGesturesEnabled`
+  android-on/desktop-off): category swipe (48px, 1.4× axis ratio, one
+  step per gesture), bubble reply swipe (12dp engage / 48dp commit /
+  64dp clamp, live offset, haptic), history back swipe (−12dp engage /
+  −min(72dp, 28%) commit, live pane follow). Web slide animations
+  skipped (noted deviation).
+- **Chat header** = velta-chat-head: 42dp avatar, 16px/600 name, status
+  line ({n} members / {n} subscribers / your personal space / local
+  device messages / bot / last seen {when}) via AppModel.chatHead (sync
+  list-item data + async fullChat/contact), info zone + menu dots open
+  the Profile for ALL chats. Still missing vs web: typing indicator
+  (#332), online flag (no KMP contact field), in-chat search.

@@ -53,7 +53,12 @@ for the per-phase ledger and what's left.
   reactions, sticker picker, and delivery-state glyphs. Chat rows carry
   the web anatomy: 22%-radius avatar tiles (identity matrix, saved/device
   gradient tiles, photos), list-time stamps, draft/request red previews,
-  outgoing ticks, accent-2 unread badge pills (grey when muted).
+  outgoing ticks, accent-2 unread badge pills (grey when muted). Media
+  previews pass the core's own emoji through (no doubled 📷). **Touch
+  gestures**: swipe the chat list left/right to step through the category
+  chips, swipe a bubble right to reply (haptic at the commit line), swipe
+  the history left to go back — thresholds ported from the web's touch
+  handlers, touch form factors only.
 - **Settings** — appearance: theme (Auto/Dark/Light/Brutal), the
   "Pure black (AMOLED)" flag, custom accent color (WCAG-checked
   derivation, 8 presets + custom hex), and language (English /
@@ -82,8 +87,17 @@ for the per-phase ledger and what's left.
   stable's `app/css/main.css` (#318): dark, light, brutal and AMOLED,
   selectable in Settings; Prism person colors and fingerprint identity matrices are
   bit-identical to the PWA (vectors pinned in `PrismIdentityTest`).
-  The chat list header has the logo, search, and a relay-status strip,
-  with the bottom action bar (Chats / Menu) under the list. All 96
+  The chat list header has the logo, search, and a relay-status strip —
+  one segment per relay in its own state color, with a pull-down detail
+  bar (masked relay domains + the sending relay's envelope) and the
+  bottom action bar (Chats / Menu) under the list. Bubbles carry the
+  Tauri design: sender-side tail corner, in-bubble timestamps with
+  per-side meta colors and read-tick blue, media bleeding through the
+  padding, video/file/audio cards with size + duration chips, in-bubble
+  reaction pills, mono service messages, and the .day-chip separators.
+  The chat header is the web's velta-chat-head: 42dp avatar, name, and a
+  status line (member count / last seen / bot), with the chat menu dots
+  for every chat. All 96
   chrome icons are web-parity vectors generated from `icons.js` — no
   emoji buttons. The composer and the headers are glass on Android 13+
   (a blur on Android 12, a translucent plate otherwise). The header

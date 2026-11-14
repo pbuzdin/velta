@@ -185,9 +185,18 @@ never run Gradle on the Windows side.
 
 - Chat-list header: centered logo + search ONLY (toggles the Search side
   view — the icon swaps to close while it is open, web syncHeaderButtons),
-  then the relay strip. One segment per transport, all colored by account
-  `get_connectivity` (1000 down, 2000 connecting, 4000 connected). No
-  per-relay HTML.
+  then the relay strip. One segment per transport with its OWN state color
+  (web parseConnectivityHtml port — see `ui/RelayStates.kt`; empty parse =
+  the single account-connectivity segment). **The 6dp meter is the only
+  tappable part** (opens Relays): the zone's 10dp padding bands are visual
+  spacing, NOT hit area — padding before clickable, or the bands swallow
+  the category chips' taps below. Pull-down >32dp while the list sits at
+  the very top overlays the web's `.relay-detail` chips for 4s (web
+  pull-open): one pill per segment — `maskRelayDomain` ("d13*.dev" — first
+  3 chars + star + last dot label) + segment title, the send relay marked
+  with an envelope in its own state color. Both list gestures ride the
+  ChatsView CONTAINER, not the LazyColumn — empty categories render the
+  empty-state Box instead of a list and the gestures must survive.
 - Chat-list bottom action bar (`ListBar`, .list-bar port, #329 COMPLETE):
   solid bgSidebar + 1dp top border, IN-FLOW (not glass), stretch 46dp
   buttons, icons at --ico-4 = 22dp. Chats/Contacts/Calls/QR toggle side
@@ -195,7 +204,8 @@ never run Gradle on the Windows side.
   active view returns to chats; active = accent ink + 2dp inset bottom
   accent line, top corners squared); "+" = the .bar-accent square (accent
   bg, radius 8 — #109: never a tab) opening the New-chat view; Menu rides
-  the DropdownMenu (Settings, Relays, Accounts, Invite, Refresh). Android
+  the DropdownMenu (Settings, Relays, Accounts, Invite — NO Refresh item:
+  the web menu has none and list reloads are event-driven). Android
   back inside a side view returns to chats (`PlatformBackHandler(enabled)`)
   — the expect/actual grew an `enabled` parameter for this.
 - Category chips (#57, web .chat-cats, `CategoryChips`): All / Unread /
@@ -207,6 +217,12 @@ never run Gradle on the Windows side.
   buckets, not a bucket. Selection persists under the web's
   `velta-chat-category` key; bot flags come from ONE lazy `get_contacts`
   call (web ensureContactBots) — a failed fetch keeps the old flags.
+  **Swipe gesture**: a horizontal drag on the chats list steps one chip per
+  gesture, left = next / right = previous (`swipeCategoryStep`, pure fn in
+  ChatCategory.kt — 48px threshold, horizontal must dominate vertical by
+  1.4×, the web's own axis ratio; shallower drags are scrolls and pass
+  through). Works on empty categories too — the detector rides the
+  container, not the list.
 - Main-screen side views (rendered IN PLACE of the list, web setListView):
   Contacts (`get_contacts` rows + the `velta-known-contacts-only` toggle,
   default on; tap → create_chat_by_contact_id → open), Calls (LOCAL log
@@ -223,10 +239,13 @@ never run Gradle on the Windows side.
   → create_group_chat / create_group_with_admin + add_contact_to_chat),
   new channel (create_broadcast), join invite / add relay / add account →
   Join screen. The P2P-only "New local group" never shows — KMP has no
-  P2P flag). Row previews ride `listPreview` (media emoji prefixes from
-  `lastMessageType`); the "Draft:" prefix renders red UNTRANSLATED (the
-  core owns that string; the web hardcodes it too — only "Contact
-  request:" is an L.t key).
+  P2P flag). Row previews ride `listPreview` and for media types pass
+  `summaryText2` through UNCHANGED — the core's summary already embeds
+  the type emoji (`summary.rs get_summary_text_ext`, add_type_emoji:
+  "📷 help", "🎥 Video", "📎 file – text"; re-prefixing showed one
+  received photo as "📷 📷 caption"); the "Draft:" prefix renders red
+  UNTRANSLATED (the core owns that string; the web hardcodes it too —
+  only "Contact request:" is an L.t key).
 - Chat-list rows = the web .chat-item anatomy: 48dp avatar tile at 22%
   radius (`AvatarTile` — identity matrix for key-holding 1:1 peers, a
   single contact's PHOTO sits ON the matrix (inset 19.17%, 2.5% padding,
@@ -277,11 +296,53 @@ never run Gradle on the Windows side.
   BasicTextField 15.5sp/1.3, armed-send tint). Attach menu (web
   chat-view.js): Photo / Video / Camera (FileProvider capture) / File
   (SAF mime pre-filter) / Stickers. Bubbles = .bubble CSS (radius 14,
-  6dp sender-side tail, 7/10/6 padding, bgBubbleIn/Out); quote block =
-  .msg-quote (2.5dp accent bar, single-line ellipsis, tap scrolls when
-  the quoted message is in the loaded window — fetch-then-jump is #327).
+  6dp sender-side tail, 7/10/6 padding, bgBubbleIn/Out, width
+  min(480dp, 90%), 2dp shadow, 4dp list gap): group incoming = 42dp
+  `MessageAvatar` (Prism tile) + 13.5sp/600 sender name INSIDE the bubble
+  (web .msg-sender is a bubble child, stickers keep it); meta row =
+  11.5sp `msgMetaSize` in textMetaIn/Out, tick tints 28→ticksRead /
+  24→danger; stickers = transparent bubble, no shadow/padding, 175dp cap;
+  media bleeds 5dp past the padding (`mediaBleed` layout modifier —
+  measure +10dp headroom, report child − 2×bleed, place −bleed), 320/450
+  caps + radiusMedia clip + dims-reserved placeholder; video/audio/file
+  cards carry size + duration chips from the wire (`MessageObject`
+  fileBytes/duration/dimensionsWidth/Height); reactions live INSIDE the
+  bubble as bgReply chips (accent border on the own reaction); isInfo
+  messages render as .service-msg mono pills, day chips as .day-chip.
+  Quote block = .msg-quote (2.5dp accent bar, single-line ellipsis, tap
+  scrolls when the quoted message is in the loaded window —
+  fetch-then-jump is #327); quote text inks are theme-keyed per web
+  main.css 907-912/3393 (light = #4d5a68 both sides, brutal out =
+  #3d3410 — LocalVeltaThemeMode exposes the resolved mode).
   Markdown = Markdown.kt + BareLinks.kt + Mentions.kt (invites →
   .invite-card → Join flow; code spans click-to-copy).
+- **Chat screen gestures** (`touchGesturesEnabled` expect/actual in
+  ui/PlatformBack.kt — Android on, desktop off, the web _mobileGestures
+  coarse-pointer gate): ① category swipe (above); ② bubble reply swipe —
+  drag a bubble right, engages 12dp, live-follows to 64dp via
+  graphicsLayer, haptic tick at the 48dp commit line (re-armed below),
+  release commits `startReply`; consumes changes once engaged (locks the
+  list scroll = web preventDefault); ③ history back swipe — drag the
+  list left, the whole LazyColumn live-follows, commit at
+  −min(72dp, 28% width) → backToChatList. List-level detectors run on
+  PointerEventPass.Initial with `positionChangeIgnoreConsumed()` (the
+  list's scroll/overscroll consumes deltas; measure pre-consumption);
+  the bubble detector runs Main pass and gates reply-vs-back by
+  DIRECTION. The web's .16s/.18s slide animations are skipped (commit
+  switches screens, cancel snaps).
+- **Chat header** = web velta-chat-head: 42dp AvatarTile (identity
+  matrix / photo / Prism tile by chat kind), 16px/600 name, status line
+  (`chatHeadStatus`: "your personal space" / "local device messages" /
+  "{n} members" / "{n} subscribers" / "bot" / "last seen {when}" via
+  relativeLastSeen — no typing indicator (#332) and no online flag: the
+  KMP contact model has no online field). Data rides `AppModel.chatHead`
+  (ChatHead): set synchronously from the ChatListItem on open (color,
+  avatar, identity fingerprint, bot flag), then memberCount (fullChat
+  contactIds) and lastSeen (contact fetch) land async. The whole info
+  zone opens the Profile screen; the right-edge button is the web's
+  chat-menu dots (dotsVertical) for ALL chats — groups had no header
+  entry point before. Call buttons stay hidden (no calls in KMP) and
+  search-in-chat ships no dead button (no KMP in-chat search yet).
 - One GraphicsLayer records the scrolling content. Header and composer are
   overlay siblings that sample it. `rememberGraphicsLayer` lives in
   `androidx.compose.ui.graphics` (CMP 1.9), not the `layer` package.
@@ -396,7 +457,16 @@ never run Gradle on the Windows side.
 - Message timestamps on the RPC surface are unix SECONDS, not millis —
 formatTimestamp/formatDateHeader must use Instant.ofEpochSecond (reading
 them as millis rendered every day header as Jan 1970; TimestampTest
-guards it).
+guards it). ⚠️ THE ONE EXCEPTION: `ChatListItem.lastUpdated` is
+MILLISECONDS on the wire (web rpc-core.js:855 maps `lastTs` with that
+exact comment) — reading it as seconds rendered every chat-list stamp
+as "Feb 3, +58838" (FormatTimeTest guards the formatter side).
+- The chatlist summary `summaryText2` ALREADY embeds the media emoji
+(core summary.rs get_summary_text_ext, add_type_emoji — "📷 help",
+"📷 Image", "🎥 Video", "📎 file – text"; Gif/Sticker get none) —
+client previews must pass it through for media types, never re-prefix
+(one received photo rendered as "📷 📷 caption"; web rpc-core.js
+carries the same no-re-prefix rule).
 - Message state numbers (core/src/message.rs): 10=InFresh, 13=InNoticed,
   16=InSeen, 19=OutDraft, 20=OutPending, 24=OutFailed, 26=OutDelivered,
   28=OutMdnRcvd. Wire casing: `MessageLoadResult` kind is **"message"**
