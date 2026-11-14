@@ -17,9 +17,10 @@ sends with attachments/quotes/reactions, renders images, encrypts its
 database at rest, locks behind biometric/device-credential, and keeps
 syncing in the background. Desktop tests gate every push, plus a
 real-binary check when `VELTA_KMP_RPC_SERVER` is set. Debug APKs are
-signed with the shared `composeApp/debug.keystore` and take the CI run
-number as versionCode, so each build installs over the previous one; ABI
-splits keep the phone APK ~28 MB. See [docs/PHASES.md](docs/PHASES.md)
+signed with the shared `composeApp/debug.keystore` and take epoch minutes
+at build time as versionCode — one clock for CI and local builds, so the
+newest build installs over any older one; ABI splits keep the phone APK
+~28 MB, and every CI APK carries the core shim (#334). See [docs/PHASES.md](docs/PHASES.md)
 for the per-phase ledger and what's left.
 
 | Surface | Codebase | Status |
@@ -163,8 +164,9 @@ signing reads `keystore.properties` (gitignored) when present and falls
 back to the debug key otherwise — sizes: debug ≈ 69 MB, release ≈ 57 MB
 universal (size-tuned LTO shim + R8). CI:
 `.github/workflows/build-kmp.yml` builds both targets and runs the tests
-on every push touching this dir; the `shim` job produces the Android core
-`.so` artifacts on demand.
+on every push touching this dir (or `core/`); the `shim` job builds the
+Android core `.so` on every run, the APK job bundles it and refuses to
+upload an APK without it, and `shim-test` runs the shim's `cargo test`.
 
 ## Run the desktop demo
 
@@ -187,5 +189,6 @@ connects with a plain socket transport. Every connection must open with a
 per-launch random token the app hands the shim at start (#334) — other
 apps on the device can reach loopback, but not the core. Same architecture as the Tauri
 Android shell. Build recipe (WSL, NDK exports) is in [AGENTS.md](AGENTS.md);
-the CI `shim` job publishes ready-made `.so` artifacts. The files stay out
+the CI `shim` job publishes ready-made `.so` artifacts (`velta-rpc-shim-so`,
+laid out as `jniLibs/<abi>/`) and every CI APK already bundles them. The files stay out
 of git (same rule as the Tauri `binaries/`).

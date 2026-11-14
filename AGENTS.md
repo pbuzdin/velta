@@ -58,7 +58,10 @@ a numbered version or move the tag to include it.
   switchover); still open: #323–#329 fidelity follow-ups, relay-side
   UnifiedPush delivery, ktlint/detekt.
   `build-kmp.yml` builds and tests on every master push touching
-  `velta-kmp/**`, and uploads the debug APK as an artifact. Three
+  `velta-kmp/**` or `core/**`: the `shim` job builds the core `.so` for
+  arm64-v8a + x86_64, the `build` job bundles it into jniLibs, fails if
+  any split APK lacks it, and uploads all split APKs (`velta-kmp-debug-apk`)
+  (#334). Three
   generators keep the client in the web's family — `ui/VeltaTokens.kt`
   (from `app/css/main.css`), `ui/VeltaIcons.kt` (from `app/js/icons.js`),
   and `ui/LangRu.kt`/`LangFr.kt` (from `app/locales/*.json`) — all
