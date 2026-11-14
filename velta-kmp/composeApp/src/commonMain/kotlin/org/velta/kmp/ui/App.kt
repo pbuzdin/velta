@@ -1530,10 +1530,9 @@ private fun ListBar(model: AppModel) {
                             model.screen = AppModel.Screen.Join
                         },
                     )
-                    DropdownMenuItem(
-                        text = { Text("Refresh") },
-                        onClick = { menuOpen = false; model.refreshChats() },
-                    )
+                    // No "Refresh" item: the web menu has none — chat-list
+                    // reloads are event-driven (MsgsChanged → dirty-coalesced
+                    // loadChats), a manual yank is dead weight.
                 }
             }
         }
