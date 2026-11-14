@@ -187,10 +187,15 @@ class MainActivity : FragmentActivity() {
         consumeChatIntent(intent)
     }
 
-    /** A notification tap carries the chat id; the list opens it on landing. */
+    /** A notification tap carries the account + chat; the model switches
+     * account if needed and opens the chat (now, or once the core is up). */
     private fun consumeChatIntent(intent: Intent?) {
         val chatId = intent?.getLongExtra("chatId", -1L) ?: -1L
-        if (chatId >= 0) model.pendingOpenChatId = chatId
+        if (chatId <= 0) return
+        val accountId = intent?.getLongExtra("accountId", -1L)?.takeIf { it > 0 }
+        model.openFromNotification(accountId, chatId)
+        // Consumed: a configuration change must not re-open it.
+        intent?.removeExtra("chatId")
     }
 
     override fun onResume() {
@@ -201,12 +206,14 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        model.onAppForeground(true)
         // App in the foreground: the user is looking at it, no service needed.
         VeltaForegroundService.stop(this)
     }
 
     override fun onStop() {
         super.onStop()
+        model.onAppForeground(false)
         // App backgrounded: hold the process so the core keeps syncing.
         VeltaForegroundService.start(this)
     }

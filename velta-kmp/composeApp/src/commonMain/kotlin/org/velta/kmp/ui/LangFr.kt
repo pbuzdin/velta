@@ -51,6 +51,7 @@ internal object LangFr {
         "New channel" to "Nouvelle chaîne",
         "New chat" to "Nouvelle discussion",
         "New group" to "Nouveau groupe",
+        "New message" to "Nouveau message",
         "No archived chats" to "Aucune discussion archivée",
         "No calls yet" to "Aucun appel pour l'instant",
         "No chats found." to "Aucune discussion trouvée.",

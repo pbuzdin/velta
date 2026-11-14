@@ -1654,5 +1654,6 @@
   "Sent {filename}": "Envoyé : {filename}",
   "Couldn't open the photo picker": "Impossible d'ouvrir le sélecteur de photos",
   "Couldn't open the video picker": "Impossible d'ouvrir le sélecteur de vidéos",
-  "Couldn't open the file picker": "Impossible d'ouvrir le sélecteur de fichiers"
+  "Couldn't open the file picker": "Impossible d'ouvrir le sélecteur de fichiers",
+  "Messages": "Messages"
 }

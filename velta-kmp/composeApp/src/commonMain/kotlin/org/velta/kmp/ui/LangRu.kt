@@ -51,6 +51,7 @@ internal object LangRu {
         "New channel" to "Новый канал",
         "New chat" to "Новый чат",
         "New group" to "Новая группа",
+        "New message" to "Новое сообщение",
         "No archived chats" to "Нет архивных чатов",
         "No calls yet" to "Звонков пока нет",
         "No chats found." to "Чаты не найдены.",

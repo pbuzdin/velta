@@ -1654,5 +1654,6 @@
   "Sent {filename}": "Отправлено: {filename}",
   "Couldn't open the photo picker": "Не удалось открыть выбор фото",
   "Couldn't open the video picker": "Не удалось открыть выбор видео",
-  "Couldn't open the file picker": "Не удалось открыть выбор файлов"
+  "Couldn't open the file picker": "Не удалось открыть выбор файлов",
+  "Messages": "Сообщения"
 }

@@ -106,6 +106,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -2449,6 +2450,19 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     // System back (Android) returns to the chat list; desktop uses ‹ Back.
     PlatformBackHandler {
         model.backToChatList()
+    }
+
+    // Read receipts (#334, web per-visible-row markSeen): report the message
+    // rows on screen; the model marks unseen incoming ones while the app is
+    // in the foreground. Re-emits on scroll, reloads and foreground changes.
+    LaunchedEffect(chat.chatId) {
+        snapshotFlow {
+            val rows = chatRows(model.chatMessages)
+            val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull {
+                (rows.getOrNull(it.index) as? ChatRow.Message)?.message?.id
+            }
+            visible to model.appInForeground
+        }.collect { (ids, _) -> model.onMessagesVisible(ids) }
     }
 
     var headPx by remember { mutableIntStateOf(0) }
