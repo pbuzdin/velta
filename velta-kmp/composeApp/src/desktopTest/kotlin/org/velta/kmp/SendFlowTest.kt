@@ -268,9 +268,18 @@ class SendFlowTest {
                 while (transport.requests.none { "\"send_reaction\"" in it }) yield()
             }
 
-            assertEquals(null, model.messageActions, "action bar closes after reacting")
+            assertEquals(null, model.messageSheet, "the sheet closes after reacting")
             val line = transport.requests.first { "\"send_reaction\"" in it }
             assertTrue(line.contains("""[1,33,["👍"]]"""), "reaction params must be [account, message, [emoji]]: $line")
+
+            // Stable reactionToggle: our own emoji again removes it (send []).
+            val mine = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"reactionsByContact":{"1":["👍"]},"reactions":[{"emoji":"👍","count":1,"isFromSelf":true}]}""",
+            )
+            model.react(MessageObject(id = 34, text = "mine", reactions = mine), "👍")
+            withTimeout(10_000) {
+                while (transport.requests.none { "\"send_reaction\"" in it && "[1,34,[]]" in it }) yield()
+            }
         } finally {
             scope.cancel()
         }

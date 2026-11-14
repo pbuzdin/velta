@@ -71,6 +71,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -1097,7 +1100,7 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
  *  hits are full chat-items (.ci-last 14px), archived rows use .archived-sub
  *  (12px) — one anatomy, two deliberate sub sizes. */
 @Composable
-private fun ContactLikeChatRow(item: ChatListItem, subSize: TextUnit, onClick: () -> Unit) {
+internal fun ContactLikeChatRow(item: ChatListItem, subSize: TextUnit, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
@@ -2504,7 +2507,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     val haptics = LocalHapticFeedback.current
     var backDx by remember { mutableStateOf(0f) }
     var listWidthPx by remember { mutableStateOf(0) }
-    val lens = model.replyTo == null && model.pendingAttachment == null && model.messageActions == null
+    val lens = model.replyTo == null && model.editingMsg == null && model.pendingAttachment == null
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(
             WindowInsets.ime.union(WindowInsets.navigationBars),
@@ -2579,7 +2582,6 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                         senderName = if (chat.isGroup) model.senderNames[row.message.fromId] else null,
                         members = model.chatMembers[chat.chatId] ?: emptyList(),
                         model = model,
-                        onTap = { model.toggleMessageActions(row.message) },
                     )
                 }
             }
@@ -2594,6 +2596,8 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         ) {
             Column(Modifier.fillMaxWidth()) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+            // index.html #selection-bar overlays the head while selecting.
+            if (model.selection.isNotEmpty()) SelectionBar(model) else
             Row(
                 Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2661,12 +2665,21 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
             lens = lens,
         ) {
             Column {
-                MessageActionBar(model)
                 Composer(model)
             }
         }
+        ToastHost(
+            model,
+            Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { footPx.toDp() }),
+        )
         },
     )
+    // Long-press sheet + the flows its items open (#334 step 5).
+    MessageSheetHost(model)
+    ForwardPicker(model) { item, onClick -> ContactLikeChatRow(item, subSize = 14.sp, onClick = onClick) }
+    MessageInfoDialog(model) { id -> model.senderNames[id] }
+    SelectTextDialog(model)
+    DeleteMessagesDialog(model)
 }
 
 /** Web velta-chat-head statusLine: per-kind subtitle under the name.
@@ -2766,8 +2779,6 @@ private fun stateIcon(state: Int): ImageVector? = when (state) {
     28 -> VeltaIcons.tick2
     else -> null
 }
-
-private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
 /** "1 week" / "5 min" / "45 s" — the disappearing-timer value. */
 private fun humantimeSecs(secs: Int): String = when {
@@ -2931,29 +2942,10 @@ private fun profileRows(p: AppModel.ProfileData) {
     }
 }
 
-/** Tapping a bubble opens this bar: quick reactions + reply. */
-@Composable
-private fun MessageActionBar(model: AppModel) {
-    val message = model.messageActions ?: return
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        QUICK_REACTIONS.forEach { emoji ->
-            TextButton(onClick = { model.react(message, emoji) }) { Text(emoji) }
-        }
-        Spacer(Modifier.weight(1f))
-        TextButton(onClick = { model.startReply(message) }) { Icon(VeltaIcons.reply, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text(L.t("Reply")) }
-        TextButton(onClick = { model.toggleMessageActions(message) }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
-    }
-}
-
 @Composable
 private fun Composer(model: AppModel) {
     val reply = model.replyTo
+    val editing = model.editingMsg
     val attachment = model.pendingAttachment
     var showStickers by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
@@ -2968,6 +2960,26 @@ private fun Composer(model: AppModel) {
         )
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        // Stable #reply-preview in edit mode: "Editing message" + the text.
+        if (editing != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    VeltaIcons.edit,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.size(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(L.t("Editing message"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                    Text(editing.text.take(60), style = MaterialTheme.typography.labelMedium, color = Velta.tokens.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                TextButton(onClick = { model.cancelEdit() }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
+            }
+        }
         if (reply != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -3283,7 +3295,6 @@ private fun MessageBubble(
     senderName: String?,
     members: List<MentionMember>,
     model: AppModel,
-    onTap: () -> Unit,
 ) {
     val outgoing = message.fromId == 1L // ContactId.SELF
     val clipboard = LocalClipboardManager.current
@@ -3321,8 +3332,121 @@ private fun MessageBubble(
     // Web .msg-meta: 11.5px in --text-meta-in/--text-meta-out; ticks read
     // --ticks-read, failures --danger, everything else rides the meta color.
     val metaColor = if (outgoing) tokens.textMetaOut else tokens.textMetaIn
-    // Web .bubble max-width: min(480px, 90%). The 42px group avatar rides
-    // bottom-aligned on the same 90% row (calc(90% - 50px) effectively).
+    // #334 step 5 — stable row gestures (chat-view.js:3053-3130): a 500 ms
+    // long-press opens the message sheet (the link under the finger rides
+    // along); a rightward drag is swipe-to-reply; in selection mode a tap
+    // toggles the row. A plain tap does nothing on the bubble itself.
+    val selectionMode = model.selection.isNotEmpty()
+    val selected = message.id in model.selection
+    val held = message.id in model.deleteHolds
+    val tomb = message.id in model.tombstones
+    val pressHref = remember(message.id) { arrayOf("") }
+    var bubbleH by remember(message.id) { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val viewConfig = LocalViewConfiguration.current
+    val liveSelection by rememberUpdatedState(selectionMode)
+    val liveHeld by rememberUpdatedState(held)
+    val actionsLabel = L.t("Message actions")
+    val gestures = Modifier.pointerInput(message.id) {
+        val engage = 12.dp.toPx()
+        val commit = 48.dp.toPx()
+        val clamp = 64.dp.toPx()
+        val slop = viewConfig.touchSlop
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            pressHref[0] = ""
+            val x0 = down.position.x
+            val y0 = down.position.y
+            var lastUptime = down.uptimeMillis
+            var swipeOk = touchGesturesEnabled && !liveSelection && !liveHeld && !model.sheetChat.readOnly
+            var engaged = false
+            var moved = false
+            var longPressed = false
+            var dx = 0f
+            var haptic = false
+            while (true) {
+                val event = if (!longPressed && !moved && !engaged) {
+                    val left = (LONG_PRESS_MS - (lastUptime - down.uptimeMillis)).coerceAtLeast(1L)
+                    withTimeoutOrNull(left) { awaitPointerEvent(PointerEventPass.Initial) }
+                } else {
+                    awaitPointerEvent(PointerEventPass.Initial)
+                }
+                if (event == null) {
+                    longPressed = true
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    model.openMessageSheet(message, pressHref[0])
+                    continue
+                }
+                event.changes.firstOrNull()?.let { lastUptime = it.uptimeMillis }
+                // A second finger never means long-press or reply (web touchstart).
+                if (event.changes.size > 1) { moved = true; swipeOk = false; replyDx = 0f }
+                val cur = event.changes.firstOrNull()?.position
+                if (event.changes.none { it.pressed } || cur == null) {
+                    when {
+                        // The sheet is up: the lift must not also tap a link.
+                        longPressed -> event.changes.forEach { it.consume() }
+                        !moved && !engaged && liveSelection -> {
+                            event.changes.forEach { it.consume() }
+                            model.toggleSelect(message.id)
+                        }
+                    }
+                    // Release past the commit line opens the reply draft
+                    // (web endReplySwipe(true)); either way the bubble springs home.
+                    if (engaged && dx >= commit) model.startReply(message)
+                    replyDx = 0f
+                    break
+                }
+                if (longPressed) {
+                    event.changes.forEach { it.consume() }
+                    continue
+                }
+                val dxc = cur.x - x0
+                val dyc = cur.y - y0
+                if (!moved && (Math.abs(dxc) > slop || Math.abs(dyc) > slop)) moved = true
+                if (!swipeOk) continue
+                if (!engaged) {
+                    if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) { swipeOk = false; continue }
+                    if (dxc < engage || Math.abs(dxc) < Math.abs(dyc)) continue
+                    engaged = true
+                }
+                dx = dxc.coerceIn(0f, clamp)
+                replyDx = dx
+                if (dx >= commit) {
+                    if (!haptic) {
+                        haptic = true
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                } else {
+                    haptic = false
+                }
+                event.changes.forEach { it.consume() }
+            }
+        }
+    }.semantics {
+        // TalkBack: the long-press menu as a custom action.
+        onLongClick(label = actionsLabel) { model.openMessageSheet(message); true }
+    }
+    // .msg-row.selected: accent 16% across the row; the checkbox leads.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(if (selected) tokens.accent.copy(alpha = 0.16f) else Color.Transparent)
+            .then(
+                if (selectionMode) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { model.toggleSelect(message.id) }
+                } else Modifier,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+    if (selectionMode) {
+        Spacer(Modifier.size(4.dp))
+        SelectCheck(selected)
+        Spacer(Modifier.size(8.dp))
+    }
+    Box(Modifier.weight(1f)) {
     Row(
         modifier = Modifier.fillMaxWidth(0.9f),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
@@ -3333,6 +3457,18 @@ private fun MessageBubble(
             Spacer(Modifier.size(8.dp))
         }
         Column(horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start) {
+            if (held || tomb) {
+                Box(gestures) {
+                    DeletedBubble(
+                        model = model,
+                        message = message,
+                        outgoing = outgoing,
+                        minHeight = with(density) { bubbleH.toDp() },
+                        shape = bubbleShape,
+                    )
+                }
+                return@Column
+            }
             Surface(
                 color = when {
                     sticker -> Color.Transparent
@@ -3344,52 +3480,9 @@ private fun MessageBubble(
                 modifier = Modifier
                     .widthIn(max = 480.dp)
                     .heightIn(min = 20.dp)
+                    .onSizeChanged { bubbleH = it.height }
                     .graphicsLayer { translationX = replyDx }
-                    .clickable(onClick = onTap)
-                    .pointerInput(message.id) {
-                        if (!touchGesturesEnabled) return@pointerInput
-                        val engage = 12.dp.toPx()
-                        val commit = 48.dp.toPx()
-                        val clamp = 64.dp.toPx()
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val x0 = down.position.x
-                            val y0 = down.position.y
-                            var engaged = false
-                            var dx = 0f
-                            var haptic = false
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val cur = event.changes.firstOrNull()?.position
-                                if (event.changes.none { it.pressed } || cur == null) {
-                                    // Release: past the commit line opens the
-                                    // reply draft (web endReplySwipe(true));
-                                    // either way the bubble springs home.
-                                    if (engaged && dx >= commit) model.startReply(message)
-                                    replyDx = 0f
-                                    break
-                                }
-                                val dxc = cur.x - x0
-                                val dyc = cur.y - y0
-                                if (!engaged) {
-                                    if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) break
-                                    if (dxc < engage || Math.abs(dxc) < Math.abs(dyc)) continue
-                                    engaged = true
-                                }
-                                dx = dxc.coerceIn(0f, clamp)
-                                replyDx = dx
-                                if (dx >= commit) {
-                                    if (!haptic) {
-                                        haptic = true
-                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                } else {
-                                    haptic = false
-                                }
-                                event.changes.forEach { it.consume() }
-                            }
-                        }
-                    },
+                    .then(gestures),
             ) {
                 Column(
                     Modifier.padding(
@@ -3493,6 +3586,17 @@ private fun MessageBubble(
                             lineHeight = (15.5f * VeltaType.msgLineHeight).sp,
                             onTextLayout = { textLayout = it },
                             modifier = Modifier.pointerInput(annotated) {
+                                // #161: the link under the finger at touch-down
+                                // targets the long-press sheet (web pressHref).
+                                awaitEachGesture {
+                                    val d = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                    val layout = textLayout ?: return@awaitEachGesture
+                                    val pos = layout.getOffsetForPosition(d.position)
+                                    val hit = annotated.getStringAnnotations(ANN_URL, pos, pos).firstOrNull()
+                                        ?: annotated.getStringAnnotations(ANN_INVITE, pos, pos).firstOrNull()
+                                    if (hit != null) pressHref[0] = hit.item
+                                }
+                            }.pointerInput(annotated) {
                                 detectTapGestures { offset ->
                                     // Web semantics: code = click-to-copy,
                                     // links open, invites route to Join.
@@ -3561,13 +3665,20 @@ private fun MessageBubble(
                                 Text(
                                     if (chip.count > 1) "${chip.emoji} ${chip.count}" else chip.emoji,
                                     fontSize = 13.sp,
+                                    color = tokens.text,
                                     modifier = Modifier
-                                        .background(tokens.bgReply, RoundedCornerShape(12.dp))
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (chip.mine) tokens.accent.copy(alpha = 0.18f) else tokens.bgReply,
+                                            RoundedCornerShape(12.dp),
+                                        )
                                         .border(
                                             1.dp,
                                             if (chip.mine) tokens.accent else tokens.border,
                                             RoundedCornerShape(12.dp),
                                         )
+                                        // Stable: tapping a chip toggles our reaction.
+                                        .clickable(enabled = !selectionMode) { model.react(message, chip.emoji) }
                                         .padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
@@ -3576,6 +3687,8 @@ private fun MessageBubble(
                 }
             }
         }
+    }
+    }
     }
 }
 
@@ -3734,20 +3847,3 @@ private fun formatDuration(ms: Long): String {
     return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
 }
 
-private data class ReactionChip(val emoji: String, val count: Int, val mine: Boolean)
-
-/** Aggregate the core's `Reactions` object (`contactsByReaction`: emoji →
- *  contact list); `mine` flags rows where SELF (contact id 1) reacted. */
-private fun reactionChips(reactions: kotlinx.serialization.json.JsonElement?): List<ReactionChip> {
-    val byReaction = (reactions as? kotlinx.serialization.json.JsonObject)
-        ?.get("contactsByReaction") as? kotlinx.serialization.json.JsonObject
-        ?: return emptyList()
-    return byReaction.map { (emoji, contacts) ->
-        val list = contacts as? kotlinx.serialization.json.JsonArray
-        ReactionChip(
-            emoji,
-            list?.size ?: 0,
-            list?.any { (it as? kotlinx.serialization.json.JsonPrimitive)?.content == "1" } == true,
-        )
-    }
-}

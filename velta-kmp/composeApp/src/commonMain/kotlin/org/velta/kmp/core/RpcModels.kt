@@ -84,6 +84,19 @@ data class MessageObject(
     val dimensionsWidth: Int? = null,
     val dimensionsHeight: Int? = null,
     val error: String? = null,
+    /** Core `receivedTimestamp` (seconds) — message info "Received". */
+    val receivedTimestamp: Long = 0,
+    /** Core mime_modified: an HTML original exists (no Edit, msg-edit.js). */
+    val hasHtml: Boolean = false,
+    val isEdited: Boolean = false,
+    /** Core pinned-messages state (set_pinned_message_state). */
+    val isPinned: Boolean = false,
+    /** Core `DownloadState` variant ("Done", "Available", "Failure", "InProgress", …). */
+    val downloadState: String? = null,
+    val fileMime: String? = null,
+    /** Sender contact (message info "From"). */
+    val sender: Contact? = null,
+    val overrideSenderName: String? = null,
 )
 
 /** Core `MessageQuote` (message.rs): JustText carries only the text;
