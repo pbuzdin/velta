@@ -94,15 +94,15 @@ android {
         buildConfigField("String", "VAPID_KEY", quoted(veltaVapidKey))
     }
 
-    // The Rust core shim is ~26 MB (arm64) / ~29 MB (x86_64) per ABI; a
-    // universal APK carries both. Splits give the phone a ~30 MB APK and
-    // keep a universal variant for CI artifacts.
+    // The Rust core shim is ~26 MB (arm64) / ~29 MB (x86_64) per ABI.
+    // Splits give each device only its own ABI; no universal APK (it carried
+    // both shims, ~70 MB, and nobody installs it — #334).
     splits {
         abi {
             isEnable = true
             reset()
             include("arm64-v8a", "x86_64")
-            isUniversalApk = true
+            isUniversalApk = false
         }
     }
 

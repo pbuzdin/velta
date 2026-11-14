@@ -14,6 +14,7 @@ lto = true
 codegen-units = 1
 opt-level = "s"
 strip = "symbols"
+debug = false
 
 # In-process deltachat core for the KMP Android client (issue #192 P1b).
 # Loads via System.loadLibrary("velta_rpc_shim") and serves the deltachat
