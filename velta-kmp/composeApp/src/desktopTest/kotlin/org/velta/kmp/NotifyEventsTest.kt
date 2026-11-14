@@ -127,12 +127,18 @@ class NotifyEventsTest {
     fun otherAccountNotifiesWithItsOwnIdAndDoesNotReloadThisOne() = runBlocking {
         val f = started(script())
         try {
+            delay(400) // let the startup archived-list lookup settle first
             val listLoads = count(f.transport, "get_chatlist_entries")
             f.model.handleEvent(incoming(2))
             withTimeout(5_000) { while (f.notifier.posted.isEmpty()) yield() }
             assertEquals(2L, f.notifier.posted.single().first, "notification carries the event's account")
-            val lookup = f.transport.requests.last { "\"get_chatlist_items_by_entries\"" in it }
-            assertEquals("2", Json.parseToJsonElement(lookup).jsonObject["params"]!!.jsonArray[0].toString())
+            // Any lookup for account 2 (account 1's own startup reload may
+            // land after it — "last" was flaky).
+            val lookups = f.transport.requests.filter { "\"get_chatlist_items_by_entries\"" in it }
+            assertTrue(
+                lookups.any { Json.parseToJsonElement(it).jsonObject["params"]!!.jsonArray[0].toString() == "2" },
+                "the notification lookup runs on the event's account",
+            )
             delay(400)
             assertEquals(listLoads, count(f.transport, "get_chatlist_entries"), "account 1's list must not reload")
         } finally {
