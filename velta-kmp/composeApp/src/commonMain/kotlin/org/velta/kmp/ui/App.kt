@@ -921,9 +921,44 @@ private fun QrView(model: AppModel) {
                         model.inviteError != null -> SideViewEmpty("${L.t("Couldn't create the invite:")} ${model.inviteError}")
                         model.inviteLink != null -> {
                             Spacer(Modifier.size(6.dp)) // web .qr-view gap 12
-                            InviteQrCard(model)
+                            // Domain tabs (web mountInviteDomains): builtin
+                            // hosts, velta.cc first/default. velta.cc and the
+                            // mirrors render the branded square QR; the
+                            // i.delta.chat tab keeps the core's card.
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                AppModel.INVITE_HOSTS.forEach { domain ->
+                                    val active = model.inviteDomain == domain
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(percent = 50))
+                                            .background(if (active) Velta.tokens.accent else Velta.tokens.bgHover)
+                                            .clickable { model.onSetInviteDomain(domain) }
+                                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            domain,
+                                            fontSize = 11.5.sp,
+                                            color = if (active) Velta.tokens.onAccentChip else Velta.tokens.textDim,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.size(8.dp))
+                            val link = rewriteInviteHost(model.inviteLink!!, model.inviteDomain)
+                                ?: model.inviteLink!!
+                            if (model.inviteDomain == "i.delta.chat") {
+                                InviteQrCard(model)
+                            } else {
+                                BrandedQrSquare(link)
+                            }
                             Text(
-                                model.inviteLink.orEmpty(),
+                                link,
                                 fontSize = 12.5.sp,
                                 color = Velta.tokens.accent,
                                 modifier = Modifier
@@ -936,13 +971,13 @@ private fun QrView(model: AppModel) {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                             ) {
                                 val clipboard = LocalClipboardManager.current
-                                TextButton(onClick = { clipboard.setText(AnnotatedString(model.inviteLink.orEmpty())) }) {
+                                TextButton(onClick = { clipboard.setText(AnnotatedString(link)) }) {
                                     Icon(VeltaIcons.copy, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.size(6.dp))
                                     Text(L.t("Copy a link"))
                                 }
                                 if (model.shareText != null) {
-                                    TextButton(onClick = { model.shareText?.invoke(model.inviteLink.orEmpty()) }) {
+                                    TextButton(onClick = { model.shareText?.invoke(link) }) {
                                         Icon(VeltaIcons.share, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.size(6.dp))
                                         Text(L.t("Share a link"))
@@ -1744,6 +1779,71 @@ private fun captionLines(text: String): List<String> {
         else lines.add(word)
     }
     return lines
+}
+
+/**
+ * Web rewriteInviteHost (invite-domains.js:20-27): slices the canonical
+ * `https://i.delta.chat/#` prefix off the core link — the payload stays
+ * byte-identical — and re-hosts it. velta.cc gets the `/join/?` universal
+ * form; the other mirrors keep the `/#` hash form.
+ */
+private const val CORE_INVITE_PREFIX = "https://i.delta.chat/#"
+
+private fun rewriteInviteHost(link: String, domain: String): String? {
+    if (!link.startsWith(CORE_INVITE_PREFIX)) return null
+    val payload = link.removePrefix(CORE_INVITE_PREFIX)
+    return when (domain) {
+        "i.delta.chat" -> link
+        "velta.cc" -> "https://velta.cc/join/?$payload"
+        else -> "https://$domain/#$payload"
+    }
+}
+
+/**
+ * The Tauri "My code" look (web brandedQrSvg, invite-domains.js:49-53):
+ * a plain white 512×512 square — quiet zone 48px, the optimally-encoded
+ * matrix scaled 416/size, and the VELTA_QR_LOGO badge dead-center
+ * (white ring r56, #1c1c1c disc r48, the V mark at 84×84/214,216).
+ */
+@Composable
+private fun BrandedQrSquare(link: String) {
+    val qr = remember(link) { runCatching { QrEncode.encode(link) }.getOrNull() }
+    val density = LocalDensity.current
+    var boxPx by remember { mutableIntStateOf(0) }
+    val logoDp = with(density) { (boxPx * 84f / 512f).toDp() }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .onSizeChanged { boxPx = it.width },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val s = size.width / 512f
+            drawRect(Color.White)
+            if (qr != null) {
+                val cell = 416f * s / qr.size
+                for (y in 0 until qr.size) for (x in 0 until qr.size) {
+                    if (qr[x, y]) {
+                        drawRect(
+                            Color.Black,
+                            topLeft = Offset(48f * s + x * cell, 48f * s + y * cell),
+                            size = androidx.compose.ui.geometry.Size(cell, cell),
+                        )
+                    }
+                }
+            }
+            // VELTA_QR_LOGO: white ring r56 + #1c1c1c disc r48 at (256,256).
+            drawCircle(Color.White, radius = 56f * s, center = Offset(256f * s, 256f * s))
+            drawCircle(Color(0xFF1C1C1C), radius = 48f * s, center = Offset(256f * s, 256f * s))
+        }
+        Image(
+            painterResource(Res.drawable.v_logo),
+            contentDescription = null,
+            modifier = Modifier.size(logoDp),
+            contentScale = ContentScale.Fit,
+        )
+    }
 }
 
 /** The `a=` address param of an i.delta.chat invite link (after the #fragment). */

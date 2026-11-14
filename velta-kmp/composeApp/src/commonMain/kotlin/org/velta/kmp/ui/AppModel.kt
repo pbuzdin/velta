@@ -33,6 +33,10 @@ class AppModel(
 
         /** #57 chip bar (web index.html:48-54, in order). */
         val CHAT_CATEGORIES = listOf("all", "unread", "people", "groups", "channels", "bots", "system")
+
+        /** Invite-link domains (web BUILTIN_HOSTS, invites.js:15 — velta.cc
+         * default-first; mirrors AndroidManifest intent filters). */
+        val INVITE_HOSTS = listOf("velta.cc", "i.delta.chat", "i.deltachat.id", "i.gluek.info")
     }
 
     sealed interface Screen {
@@ -211,6 +215,17 @@ class AppModel(
         private set
     var inviteColor by mutableStateOf<String?>(null)
         private set
+
+    /** Selected invite-link domain (web chosenDomain, key `velta-invite-domain`;
+     * "velta.cc" stores by REMOVING the key like every web default). */
+    var inviteDomain by mutableStateOf(platform.pref("velta-invite-domain")?.takeIf { it in INVITE_HOSTS } ?: "velta.cc")
+        private set
+
+    fun onSetInviteDomain(domain: String) {
+        if (domain !in INVITE_HOSTS) return
+        inviteDomain = domain
+        platform.setPref("velta-invite-domain", if (domain == "velta.cc") null else domain)
+    }
 
     fun loadInviteQr() {
         val veltaCore = core
