@@ -39,6 +39,11 @@ fun veltaTokensFor(mode: VeltaThemeMode, systemDark: Boolean): VeltaTokens = whe
 /** Velta-only tokens (bubbles, meta ink, ticks, chat ground…) Material has no slot for. */
 val LocalVeltaTokens = staticCompositionLocalOf { VeltaTokenSets.Dark }
 
+/** The RESOLVED theme mode inside [VeltaTheme] (System → Dark/Light). Some
+ * web palettes are keyed on data-theme, not tokens (light/brutal quote ink,
+ * service pill) — read this instead of guessing from isDark. */
+val LocalVeltaThemeMode = staticCompositionLocalOf { VeltaThemeMode.Dark }
+
 /** Shortcut: `Velta.tokens.bgBubbleIn` inside a [VeltaTheme]. */
 object Velta {
     val tokens: VeltaTokens
@@ -143,11 +148,17 @@ fun VeltaTheme(
     accentHex: String? = null,
     content: @Composable () -> Unit,
 ) {
-    var tokens = veltaTokensFor(mode, isSystemInDarkTheme())
+    val resolved = if (mode == VeltaThemeMode.System) {
+        if (isSystemInDarkTheme()) VeltaThemeMode.Dark else VeltaThemeMode.Light
+    } else mode
+    var tokens = veltaTokensFor(resolved, isSystemInDarkTheme())
     if (accentHex != null) {
-        tokens = Accent.derive(tokens, accentHex, brutal = mode == VeltaThemeMode.Brutal)
+        tokens = Accent.derive(tokens, accentHex, brutal = resolved == VeltaThemeMode.Brutal)
     }
-    CompositionLocalProvider(LocalVeltaTokens provides tokens) {
+    CompositionLocalProvider(
+        LocalVeltaTokens provides tokens,
+        LocalVeltaThemeMode provides resolved,
+    ) {
         MaterialTheme(
             colorScheme = veltaColorScheme(tokens),
             typography = veltaTypography(),

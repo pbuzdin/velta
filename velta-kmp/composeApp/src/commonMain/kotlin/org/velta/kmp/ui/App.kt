@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -927,7 +928,7 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
                     } else {
                         LazyColumn(Modifier.weight(1f)) {
                             items(model.archivedChats, key = { it.id }) { item ->
-                                ContactLikeChatRow(item) { model.openChatById(item.id) }
+                                ContactLikeChatRow(item, subSize = 12.sp) { model.openChatById(item.id) }
                             }
                         }
                     }
@@ -949,7 +950,9 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
                             } else {
                                 LazyColumn(Modifier.weight(1f)) {
                                     items(hits, key = { it.id }) { item ->
-                                        SideOptionRow(item.name) { model.openChat(item) }
+                                        // Web search hits are full chat-items
+                                        // (.ci-name 15.5 / .ci-last 14).
+                                        ContactLikeChatRow(item, subSize = 14.sp) { model.openChat(item) }
                                     }
                                 }
                             }
@@ -961,9 +964,11 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
     }
 }
 
-/** Archived-tab row: avatar + name + last-message sub (web renderArchivedTab). */
+/** Side-view chat row. [subSize] follows the web's per-role sizes: search
+ *  hits are full chat-items (.ci-last 14px), archived rows use .archived-sub
+ *  (12px) — one anatomy, two deliberate sub sizes. */
 @Composable
-private fun ContactLikeChatRow(item: ChatListItem, onClick: () -> Unit) {
+private fun ContactLikeChatRow(item: ChatListItem, subSize: TextUnit, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
@@ -986,7 +991,7 @@ private fun ContactLikeChatRow(item: ChatListItem, onClick: () -> Unit) {
             Text(item.name, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, color = Velta.tokens.text, maxLines = 1)
             val preview = listPreview(item)
             if (preview.isNotBlank()) {
-                Text(preview, fontSize = 12.5.sp, color = Velta.tokens.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(preview, fontSize = subSize, color = Velta.tokens.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -2147,18 +2152,23 @@ private fun DayHeader(text: String) {
     }
 }
 
-/** Web .service-msg: monospace system message pill, centered — not a bubble. */
+/** Web .service-msg: monospace system message pill, centered — not a bubble.
+ *  Dark = #d7d7de on black-28%; light flips to a white-80% pill with #464b55
+ *  ink (main.css:855 — the dark pairing is 1.56:1 on the light canvas). */
 @Composable
 private fun ServiceMessage(message: MessageObject) {
+    val tokens = Velta.tokens
+    val bg = if (tokens.isDark) Color(0x47101016) else Color(0xCCF4F4F4)
+    val fg = if (tokens.isDark) Color(0xFFD7D7DE) else Color(0xFF464B55)
     Box(Modifier.fillMaxWidth().padding(vertical = 3.dp), contentAlignment = Alignment.Center) {
         Text(
             message.text,
             fontFamily = FontFamily.Monospace,
             fontSize = 12.5.sp,
             lineHeight = (12.5f * 1.5f).sp,
-            color = Color(0xFFD7D7DE),
+            color = fg,
             modifier = Modifier
-                .background(Color(0x47101016), RoundedCornerShape(10.dp))
+                .background(bg, RoundedCornerShape(10.dp))
                 .padding(horizontal = 12.dp, vertical = 4.dp),
         )
     }
@@ -2716,7 +2726,17 @@ private fun MessageBubble(
         bottomStart = if (outgoing) tokens.radiusBubble else tokens.radiusTail,
         bottomEnd = if (outgoing) tokens.radiusTail else tokens.radiusBubble,
     )
-    val quoteText = if (outgoing) Color(0xFFCFE0F2) else if (tokens.isDark) Color(0xFF9AA3B5) else Color(0xFF4D5A68)
+    // Web .q-text palettes (main.css 907-912, 3393): measured WCAG per
+    // bubble — dark/amoled in #9aa3b5 / out #cfe0f2; light inks BOTH sides
+    // to #4d5a68 (the light-on-blue out pair measured 1.05:1); brutal inks
+    // the yellow-bubble out quote down to #3d3410.
+    val themeMode = LocalVeltaThemeMode.current
+    val quoteText = when {
+        themeMode == VeltaThemeMode.Light -> Color(0xFF4D5A68)
+        outgoing && themeMode == VeltaThemeMode.Brutal -> Color(0xFF3D3410)
+        outgoing -> Color(0xFFCFE0F2)
+        else -> Color(0xFF9AA3B5)
+    }
     val quoteName = if (outgoing) tokens.quoteNameOut else tokens.quoteName
     val quoteBg = tokens.bgReply
     // Web .msg-meta: 11.5px in --text-meta-in/--text-meta-out; ticks read
