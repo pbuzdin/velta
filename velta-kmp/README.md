@@ -31,9 +31,17 @@ for the per-phase ledger and what's left.
 
 ## What works today
 
-- **Onboarding** — sign-in, paste a `DCACCOUNT:` invite (🎟), or **scan a
-  QR** (📷, CameraX + ZXing, decoded on-device); secure-join invites
-  (`DCJOIN:`) start the join protocol.
+- **Onboarding** — stable's welcome splash (#334): Create an account
+  (relay address, `dcaccount:`/`DCLOGIN:` code, relay invite link
+  `https://<relay>/i/<token>`, or **Autopick the fastest relay** — the
+  core's `init_transports` probes its built-in public relay pool and keeps
+  the first that answers and configures), Add as a second device
+  (`DCBACKUP` code), Restore from a backup (tar / gzip). Step list driven
+  by ConfigureProgress, nickname ask, version line and App log footer.
+  **Scan a QR** (📷, CameraX + ZXing, decoded on-device) and invite links
+  (`dcaccount:`/`dclogin:`/`dcbackup:`/`openpgp4fpr:`, `i.delta.chat`)
+  feed the same paths; a contact/group invite on a fresh install picks a
+  relay near the inviter and joins after setup.
 - **Relays** — ⚡ screen: one card per transport with C/I/P/D capability
   flags and relay-provided details; remove.
 - **Accounts** — 👤 switcher; the core's selected account persists across

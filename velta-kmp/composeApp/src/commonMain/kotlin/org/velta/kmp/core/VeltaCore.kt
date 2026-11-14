@@ -306,6 +306,51 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    // ---- Onboarding (#334: stable splash port) ----
+
+    /** Core autorelay onboarding (stable rpc-core initTransports): probes the
+     * core's built-in PUBLIC relay pool (core/src/autorelay.rs) with parallel
+     * TCP connects, configures the first that answers and works, skips the
+     * rest. A `DCACCOUNT:`/`DCLOGIN:` [qr] adds that one relay instead. */
+    suspend fun initTransports(accountId: Long, qr: String? = null) {
+        client.call(
+            "init_transports",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)),
+            timeoutMs = 180_000, // stable's ceiling
+        )
+    }
+
+    /** Second device: receive a profile from a DCBACKUP code. Returns when
+     * the transfer finished (ImexProgress reports along the way). */
+    suspend fun getBackup(accountId: Long, qr: String) {
+        client.call("get_backup", RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)), timeoutMs = null)
+    }
+
+    /** Restore a backup tar into the (unconfigured) account. */
+    suspend fun importBackup(accountId: Long, path: String) {
+        client.call(
+            "import_backup",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(path), RpcClient.nullParam()),
+            timeoutMs = null,
+        )
+    }
+
+    suspend fun setConfig(accountId: Long, key: String, value: String?) {
+        client.call("set_config", RpcClient.params(RpcClient.param(accountId), RpcClient.param(key), RpcClient.param(value)))
+    }
+
+    /** Pre-claims a device-message label so the core never posts it (stable
+     * SUPPRESSED_DEVICE_LABELS: the core welcome image). */
+    suspend fun suppressDeviceMessage(accountId: Long, label: String) {
+        client.call(
+            "add_device_message",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(label), RpcClient.nullParam()),
+        )
+    }
+
+    suspend fun isConfigured(accountId: Long): Boolean =
+        client.call("is_configured", RpcClient.params(RpcClient.param(accountId))).toString() == "true"
+
     suspend fun addTransport(accountId: Long, addr: String, password: String) {
         val param = buildJsonObject {
             put("addr", addr)

@@ -61,6 +61,8 @@ class AppModel(
     var screen by mutableStateOf<Screen>(Screen.Login)
     var status by mutableStateOf("starting")
         private set
+    /** App version for the splash version line (platform-reported). */
+    val appVersion: String get() = platform.appVersion()
     var coreVersion by mutableStateOf("?")
         private set
     var connected by mutableStateOf(false)
@@ -620,8 +622,21 @@ class AppModel(
      * shot lands in onAttachmentPicked. Null = no camera menu item. */
     var cameraCapture: (() -> Unit)? = null
 
-    /** Scanner result → the Join screen, pre-filled and immediately checked. */
+    /** A scan / deep link that arrived before the core was up (cold start). */
+    private var pendingScan: String? = null
+
+    /** Scanner result or deep link. On the welcome splash it feeds stable's
+     * create / second-device paths; otherwise the Join screen, pre-filled
+     * and immediately checked. */
     fun onQrScanned(text: String) {
+        if (core == null || !connected) {
+            pendingScan = text
+            return
+        }
+        if (screen == Screen.Login) {
+            welcomeFromCode(text)
+            return
+        }
         joinText = text
         joinChecked = null
         joinError = null
@@ -887,6 +902,381 @@ class AppModel(
         } else {
             status = "connected"
             screen = Screen.Login
+        }
+        pendingScan?.let { text ->
+            pendingScan = null
+            onQrScanned(text)
+        }
+    }
+
+    // ---- Welcome splash (#334: port of stable's showSplash) ----
+
+    enum class WelcomeMode { Actions, Create, SecondDevice }
+
+    var welcomeMode by mutableStateOf(WelcomeMode.Actions)
+    var relayInput by mutableStateOf("")
+    var backupInput by mutableStateOf("")
+    var nicknameInput by mutableStateOf("")
+
+    /** The step list (ul.ob-steps). */
+    var obSteps by mutableStateOf<List<ObStep>>(emptyList())
+        private set
+    var obBusy by mutableStateOf(false)
+        private set
+
+    /** Which create trigger ran last ("ok" / "auto") — it reads "Creating…"
+     * while busy and "Retry" after a failure, like stable's button. */
+    var obTrigger by mutableStateOf<String?>(null)
+        private set
+    var obFailed by mutableStateOf(false)
+        private set
+
+    /** Stable's toast lines on the splash (bad input, picker errors). */
+    var welcomeNotice by mutableStateOf<String?>(null)
+
+    /** Issue #6 nickname ask after the account exists (skippable). */
+    var askNickname by mutableStateOf(false)
+        private set
+
+    /** One-shot line for the chat list ("Account created on {host}"). */
+    var createdNotice by mutableStateOf<String?>(null)
+
+    /** Splash "App log — errors & debug" (onboarding lines and errors). */
+    var appLog by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    /** Platform-injected backup-file picker (Android SAF); null hides
+     * "Restore from a backup…". The staged path lands in [onBackupPicked]. */
+    var backupPicker: (() -> Unit)? = null
+
+    /** Test seam: the invite claim's HTTPS GET. */
+    internal var httpGet: suspend (String) -> Pair<Int, String> = { httpGetText(it) }
+
+    private var obPhases: List<Pair<Int, String>> = emptyList()
+    private var obPhaseIdx = 0
+    private var imexKind: String? = null // "receive" | "restore" while a transfer runs
+    private var afterNickname: (suspend (VeltaCore, Long) -> Unit)? = null
+
+    /** Claimed invite credentials, parked so a configure failure retries
+     * without burning the single-use invite (stable: 30 min, session only). */
+    private var parkedClaim: Triple<Onboarding.RelayInvite, Onboarding.Creds, Long>? = null
+
+    fun log(line: String) {
+        val stamp = formatTimestamp(wallClockSeconds())
+        appLog = (appLog + "$stamp $line").takeLast(200)
+        println("velta-kmp: $line")
+    }
+
+    private fun addStep(text: String) {
+        obSteps = obSteps.map { if (it.state == ObStep.State.Active) it.copy(state = ObStep.State.Done) else it } +
+            ObStep(text, ObStep.State.Active)
+        log(text)
+    }
+
+    private fun finishSteps(ok: Boolean) {
+        val to = if (ok) ObStep.State.Done else ObStep.State.Failed
+        obSteps = obSteps.map { if (it.state == ObStep.State.Active) it.copy(state = to) else it }
+    }
+
+    private fun failStep(text: String) {
+        finishSteps(false)
+        obSteps = obSteps + ObStep(text, ObStep.State.Failed)
+        log(text)
+    }
+
+    fun welcomeShowCreate() {
+        welcomeMode = WelcomeMode.Create
+        welcomeNotice = null
+    }
+
+    fun welcomeShowSecondDevice() {
+        welcomeMode = WelcomeMode.SecondDevice
+        welcomeNotice = null
+    }
+
+    fun welcomeShowActions() {
+        if (obBusy) return
+        welcomeMode = WelcomeMode.Actions
+        welcomeNotice = null
+        obSteps = emptyList()
+        obTrigger = null
+        obFailed = false
+    }
+
+    /** Scanned / deep-linked code on the splash: a DCBACKUP code is a second
+     * device, anything else goes through the create form (stable: the scan
+     * fills the relay field and presses Create account). */
+    private fun welcomeFromCode(text: String) {
+        if (Onboarding.isBackupCode(text)) {
+            welcomeMode = WelcomeMode.SecondDevice
+            backupInput = text.trim()
+            welcomeReceive()
+        } else {
+            welcomeMode = WelcomeMode.Create
+            relayInput = text.trim()
+            welcomeSubmit()
+        }
+    }
+
+    private suspend fun welcomeAccount(veltaCore: VeltaCore): Long {
+        val id = accountId ?: unconfiguredAccountId ?: veltaCore.addAccount()
+        accountId = id
+        unconfiguredAccountId = null
+        return id
+    }
+
+    /** rpc-core _prepareFirstConfigure: claim the suppressed device labels. */
+    private suspend fun prepareFirstConfigure(veltaCore: VeltaCore, id: Long) {
+        runCatching {
+            if (veltaCore.isConfigured(id)) return
+            for (label in Onboarding.SUPPRESSED_DEVICE_LABELS) veltaCore.suppressDeviceMessage(id, label)
+        }.onFailure { log("device label prep failed: $it") }
+    }
+
+    /**
+     * Stable runCreate: intro step, ConfigureProgress phase lines, success →
+     * nickname ask → chat list; failure → failed step + Retry.
+     */
+    private fun runCreate(
+        trigger: String,
+        intro: String,
+        phases: List<Pair<Int, String>>,
+        then: (suspend (VeltaCore, Long) -> Unit)? = null,
+        run: suspend (VeltaCore, Long) -> Unit,
+    ) {
+        val veltaCore = core ?: return
+        if (obBusy) return
+        obBusy = true
+        obTrigger = trigger
+        obFailed = false
+        welcomeNotice = null
+        obSteps = emptyList()
+        addStep(intro)
+        obPhases = phases
+        obPhaseIdx = 0
+        scope.launch {
+            try {
+                val id = welcomeAccount(veltaCore)
+                prepareFirstConfigure(veltaCore, id)
+                run(veltaCore, id)
+                runCatching { veltaCore.startIoForAllAccounts() }
+                accountAddr = veltaCore.accountInfo(id).addr
+                obPhases = emptyList()
+                addStep(L.t("Account created — welcome!"))
+                finishSteps(true)
+                afterNickname = then
+                nicknameInput = ""
+                askNickname = true
+            } catch (t: Throwable) {
+                obPhases = emptyList()
+                failStep(L.t("Setup failed: ") + (t.message ?: t.toString()))
+                obFailed = true
+            } finally {
+                obBusy = false
+            }
+        }
+    }
+
+    internal fun onConfigureProgress(p: Int) {
+        while (obPhaseIdx < obPhases.size && p >= obPhases[obPhaseIdx].first) {
+            addStep(obPhases[obPhaseIdx].second)
+            obPhaseIdx++
+        }
+    }
+
+    internal fun onImexProgress(p: Int) {
+        val kind = imexKind ?: return
+        if (p !in 1..999) return
+        val n = (p + 5) / 10
+        val text = if (kind == "receive") L.t("Receiving profile… {n}%").replace("{n}", n.toString())
+        else L.t("Restoring profile… {n}%").replace("{n}", n.toString())
+        // One live percentage line instead of one line per event.
+        val last = obSteps.lastOrNull()
+        obSteps = if (last != null && last.state == ObStep.State.Active && last.text.endsWith("%")) {
+            obSteps.dropLast(1) + last.copy(text = text)
+        } else {
+            obSteps.map { if (it.state == ObStep.State.Active) it.copy(state = ObStep.State.Done) else it } +
+                ObStep(text, ObStep.State.Active)
+        }
+    }
+
+    /** "Create account" on the form: relay invite link, relay address /
+     * dcaccount: link, DCLOGIN code, or a contact/group invite (the core
+     * picks a relay near the inviter: init_transports(qr) adds the
+     * inviter's relays to its candidates; the join runs after the name). */
+    fun welcomeSubmit() {
+        if (obBusy) return
+        val raw = relayInput.trim()
+        val invite = Onboarding.parseRelayInvite(raw)
+        if (invite != null) {
+            runCreate(
+                trigger = "ok",
+                intro = L.t("Claiming your invite on {host}").replace("{host}", invite.host),
+                phases = Onboarding.phasesForInvite(invite.host),
+            ) { veltaCore, id ->
+                val creds = claimInvite(invite)
+                veltaCore.addTransport(id, creds.email, creds.password)
+                parkedClaim = null
+            }
+            return
+        }
+        val secureJoin = raw.startsWith("openpgp4fpr:", ignoreCase = true) ||
+            Regex("^https://(i\\.delta\\.chat|i\\.deltachat\\.id|i\\.gluek\\.info)/", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+        if (secureJoin) {
+            runCreate(
+                trigger = "ok",
+                intro = L.t("Looking for a fast relay…"),
+                phases = Onboarding.phasesForAutopick(),
+                then = { veltaCore, id -> runCatching { veltaCore.secureJoin(id, raw) }.onFailure { log("secure-join after setup failed: $it") } },
+            ) { veltaCore, id -> veltaCore.initTransports(id, raw) }
+            return
+        }
+        val link = Onboarding.normalizeRelayLink(raw)
+            ?: raw.takeIf { it.startsWith("dclogin:", ignoreCase = true) }
+        if (link == null) {
+            welcomeNotice = if (raw.isEmpty()) L.t("Enter a relay address")
+            else L.t("That doesn't look like a relay or invite address")
+            return
+        }
+        val host = if (link.startsWith("dclogin:", ignoreCase = true)) {
+            link.substringAfter('@').substringBefore('?').substringBefore('/')
+        } else {
+            Onboarding.hostOfLink(link)
+        }
+        runCreate(
+            trigger = "ok",
+            intro = L.t("Attempting to connect to relay at {host}").replace("{host}", host),
+            phases = Onboarding.phasesForRelay(host),
+        ) { veltaCore, id -> veltaCore.addTransportFromQr(id, link) }
+    }
+
+    /** "Autopick the fastest relay": the core probes its public relay pool. */
+    fun welcomeAutopick() {
+        runCreate(
+            trigger = "auto",
+            intro = L.t("Looking for a fast relay…"),
+            phases = Onboarding.phasesForAutopick(),
+        ) { veltaCore, id -> veltaCore.initTransports(id, null) }
+    }
+
+    private suspend fun claimInvite(invite: Onboarding.RelayInvite): Onboarding.Creds {
+        parkedClaim?.let { (inv, creds, exp) ->
+            if (inv == invite && exp > wallClockSeconds()) return creds
+        }
+        val (status, body) = try {
+            httpGet("https://${invite.host}/i/claim?t=${invite.token}")
+        } catch (t: Throwable) {
+            throw IllegalStateException("Couldn't reach ${invite.host}: ${t.message ?: t}")
+        }
+        val obj = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+        fun field(k: String) = (obj?.get(k) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val creds = Onboarding.relayClaimResult(status, field("email"), field("password"))
+        parkedClaim = Triple(invite, creds, wallClockSeconds() + 30 * 60)
+        return creds
+    }
+
+    /** Nickname sheet: Save name (true) or Skip (false) → into the app. */
+    fun finishNickname(apply: Boolean) {
+        val veltaCore = core
+        val id = accountId
+        askNickname = false
+        scope.launch {
+            if (apply && veltaCore != null && id != null) {
+                val name = nicknameInput.trim()
+                if (name.isNotEmpty()) runCatching { veltaCore.setConfig(id, "displayname", name) }
+            }
+            val then = afterNickname
+            afterNickname = null
+            if (then != null && veltaCore != null && id != null) then(veltaCore, id)
+            val host = accountAddr?.substringAfter('@', "")?.ifBlank { null } ?: L.t("your new relay")
+            createdNotice = L.t("Account created on {host}").replace("{host}", host)
+            welcomeDone()
+        }
+    }
+
+    private suspend fun welcomeDone() {
+        welcomeMode = WelcomeMode.Actions
+        obSteps = emptyList()
+        obTrigger = null
+        relayInput = ""
+        backupInput = ""
+        loadChats()
+        screen = Screen.ChatList
+        refreshRelayLine()
+    }
+
+    /** "Add as a second device…": receive a profile from a DCBACKUP code. */
+    fun welcomeReceive() {
+        val veltaCore = core ?: return
+        if (obBusy) return
+        val code = backupInput.trim()
+        if (!Onboarding.isBackupCode(code)) {
+            welcomeNotice = L.t("That doesn't look like a second-device code")
+            return
+        }
+        obBusy = true
+        obFailed = false
+        welcomeNotice = null
+        obSteps = emptyList()
+        addStep(L.t("Preparing this device…"))
+        imexKind = "receive"
+        scope.launch {
+            try {
+                val id = welcomeAccount(veltaCore)
+                veltaCore.getBackup(id, code)
+                runCatching { veltaCore.startIoForAllAccounts() }
+                finishSteps(true)
+                addStep(L.t("Profile received — signing in"))
+                finishSteps(true)
+                accountAddr = veltaCore.accountInfo(id).addr
+                welcomeDone()
+            } catch (t: Throwable) {
+                failStep(L.t("Transfer failed: ") + (t.message ?: t.toString()))
+                obFailed = true
+            } finally {
+                imexKind = null
+                obBusy = false
+            }
+        }
+    }
+
+    fun welcomeRestore() {
+        backupPicker?.invoke()
+    }
+
+    /** Platform: the picked backup, staged at a readable path (gzip already
+     * unpacked), or the read error. */
+    fun onBackupPicked(path: String?, error: String? = null) {
+        if (error != null) {
+            welcomeNotice = L.t("Couldn't read the backup file: ") + error
+            return
+        }
+        val veltaCore = core ?: return
+        if (path == null || obBusy) return
+        obBusy = true
+        obFailed = false
+        welcomeNotice = null
+        obSteps = emptyList()
+        addStep(L.t("Restoring profile…"))
+        imexKind = "restore"
+        scope.launch {
+            try {
+                val id = welcomeAccount(veltaCore)
+                veltaCore.importBackup(id, path)
+                runCatching { veltaCore.startIoForAllAccounts() }
+                finishSteps(true)
+                addStep(L.t("Profile restored — restarting"))
+                finishSteps(true)
+                accountAddr = veltaCore.accountInfo(id).addr
+                welcomeDone()
+            } catch (t: Throwable) {
+                log("restore: ${t.message ?: t}")
+                failStep(L.t("Restore failed: couldn't import the backup"))
+                obFailed = true
+            } finally {
+                imexKind = null
+                obBusy = false
+            }
         }
     }
 
@@ -1848,8 +2238,10 @@ class AppModel(
             "ConnectivityChanged" -> if (forCurrent) refreshRelayLine()
             "ConfigureProgress" -> {
                 val comment = event.event?.get("comment")?.toString()?.trim('"')
-                if (!comment.isNullOrBlank()) loginProgress = comment
+                if (!comment.isNullOrBlank() && comment != "null") loginProgress = comment
+                event.event?.get("progress")?.toString()?.toIntOrNull()?.let { onConfigureProgress(it) }
             }
+            "ImexProgress" -> event.event?.get("progress")?.toString()?.toIntOrNull()?.let { onImexProgress(it) }
             "IncomingMsg" -> {
                 if (forCurrent) scheduleChatReload(chatId)
                 if (eventAccount != null && chatId != null) notifyIncoming(eventAccount, chatId, event)
