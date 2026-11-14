@@ -228,10 +228,22 @@ never run Gradle on the Windows side.
   default on; tap → create_chat_by_contact_id → open), Calls (LOCAL log
   under `velta-call-log`, capped 30, fed by the core `CallEnded` event —
   the core stores no call log), Your QR code (`get_chat_securejoin_qr_code_svg`
-  → the code text IS the canonical invite link; drawn by the `QrEncode.kt`
-  port of qr-encode.js, NOT the core SVG — the web's card/logo decoration
-  is skipped; Copy via clipboard, Share via the injected `shareText` seam
-  (ACTION_SEND on Android), Scan tab reuses ScanActivity, desktop hides
+  → the code text IS the canonical invite link; **per-domain tabs**
+  (web mountInviteDomains: `velta.cc` default-first + i.delta.chat /
+  i.deltachat.id / i.gluek.info — `AppModel.INVITE_HOSTS`, selection
+  persisted under `velta-invite-domain`, the default stores by REMOVING
+  the key): `rewriteInviteHost` slices the canonical `https://i.delta.chat/#`
+  prefix and re-hosts the payload byte-identical (velta.cc → the
+  `/join/?` universal form, mirrors → `/host/#`); **non-i.delta.chat
+  domains render `BrandedQrSquare`** — the web's brandedQrSvg: LOCALLY
+  built white 512² square, 48px quiet zone, matrix scaled 416/size, the
+  VELTA_QR_LOGO badge dead-center (white ring r56, #1c1c1c disc r48, V
+  mark 84×84); the **i.delta.chat tab keeps the core's 515×630 card**
+  (`InviteQrCard`: QR at translate(57.5, 75) scale 400/size, caption
+  "Scan to chat with {name}" at baseline 515, identity disc centered on
+  the QR at (257.5, 275), Velta mark in the footer slot). Link chip +
+  Copy/Share ride the SELECTED domain's link (injected `shareText` seam,
+  ACTION_SEND on Android); Scan tab reuses ScanActivity, desktop hides
   it), Search (live name filter, min 2 chars, first 30 + the Archived tab
   = `get_chatlist_entries` with listFlags=1, DC_GCL_ARCHIVED_ONLY), and
   New chat ("Start something", web newChatOptions order — new chat
@@ -467,6 +479,21 @@ as "Feb 3, +58838" (FormatTimeTest guards the formatter side).
 client previews must pass it through for media types, never re-prefix
 (one received photo rendered as "📷 📷 caption"; web rpc-core.js
 carries the same no-re-prefix rule).
+- Per-transport strip (web parseConnectivityHtml port, `ui/RelayStates.kt`):
+`get_connectivity_html` is the ONLY live per-transport source (🐴 ceiling
+noted on the web too — no per-transport JSON-RPC) — one `<li class="transport">`
+per relay with colored dots, worst dot wins, the SMTP dot OUTSIDE the list,
+the #79 `smtp-via` span. The #76 shell-side probe is `probeRelayReachable`
+expect/actual (jvmCommon: HTTPS GET 6 s — cast to **javax.net.ssl**, android.jar
+has no java.net.HttpsURLConnection), 60 s min gap, failing ≥10 min = offline
+grey, failing-while-green = unreachable amber. `ScriptedRpcTransport` answers
+`get_connectivity_html` with "" by default so scripted tests never hang the
+strip (an unscripted call would leave refreshRelayLine suspended forever).
+- Invite-domain keys ride the web's localStorage names via CorePlatform.pref:
+`velta-invite-domain` (selected QR domain; "velta.cc" stores by REMOVING the
+key), builtin hosts = velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info
+(web BUILTIN_HOSTS, invites.js:15). Extra user domains (drawer registry,
+`velta-invite-hosts`) not ported.
 - Message state numbers (core/src/message.rs): 10=InFresh, 13=InNoticed,
   16=InSeen, 19=OutDraft, 20=OutPending, 24=OutFailed, 26=OutDelivered,
   28=OutMdnRcvd. Wire casing: `MessageLoadResult` kind is **"message"**
@@ -491,6 +518,16 @@ carries the same no-re-prefix rule).
   every later column pair), (3) byte-mode `numChars` counts BYTES, not
   UTF-16 units (an astral char is 1 char but 4 numChars). Diff against
   the real `app/js/qr-encode.js` via node before re-deriving by eye.
+- Porting GEOMETRY (SVG/canvas → Compose): read the GENERATOR SOURCE
+  directly, never a summary — a misread QR card spec cost a broken screen
+  (QR y=255 vs the real translate y=75). And keep POSITIONS and SIZES
+  separate: computing a size from a `cx(x)`-style position helper silently
+  includes the letterbox offset once one exists (the QR modules rendered
+  ~14% oversize and collided with the caption). Same class as the zigzag
+  `right`-mutation trap: layout math that holds pre-offset breaks after.
+- On-device "it didn't change" checks: `install -r` racing a live app
+  process can leave the OLD UI on screen even with lastUpdateTime
+  updated — force-stop + relaunch before believing a stale screenshot.
 - `runBlocking`, never `runTest`, for anything touching real threads/processes
   (virtual time fires timeouts while real IO waits).
 - Calls under test go in a **SupervisorJob scope** — a plain `async` child

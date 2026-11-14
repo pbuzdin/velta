@@ -873,3 +873,47 @@ CI-green; phone-verified on the vivo):**
   list-item data + async fullChat/contact), info zone + menu dots open
   the Profile for ALL chats. Still missing vs web: typing indicator
   (#332), online flag (no KMP contact field), in-chat search.
+
+## 2026-11-14 (4) — QR view = Tauri look (domain tabs + branded square) + Loop lift M1
+
+User: "Velta Tauri has a better design, pls make Velta KMP screen looks
+same good for this fucking Your QR code screen" (screenshot: white square
+QR + dark V badge + domain pills + velta.cc/join link). Recon verdict: the
+Tauri look is NOT the core's SVG — web invite-domains.js builds the white
+square LOCALLY (brandedQrSvg) per invite domain, and only the i.delta.chat
+tab mounts the core card.
+
+**SHIPPED**
+- **Domain tabs** (`AppModel.INVITE_HOSTS` = web BUILTIN_HOSTS; selection
+  persisted under `velta-invite-domain`, default = velta.cc stores by
+  REMOVING the key).
+- **`rewriteInviteHost`** (invite-domains.js:20-27 port): slices the
+  canonical `https://i.delta.chat/#` prefix, re-hosts the payload
+  byte-identical — velta.cc → `https://velta.cc/join/?payload` (the
+  universal form with fp/v/i/s/a/r/n), mirrors → `https://host/#payload`.
+- **`BrandedQrSquare`** (web brandedQrSvg port): white 512² square, 48px
+  quiet zone, the optimally-encoded matrix scaled 416/size, the
+  VELTA_QR_LOGO badge dead-center (white ring r56, #1c1c1c disc r48, the
+  V mark 84×84) — for velta.cc + mirror domains.
+- **i.delta.chat tab keeps `InviteQrCard`** (the core's 515×630 card —
+  see the 2026-11-14 (3) entry). Link chip + Copy/Share ride the selected
+  domain's link.
+
+**FIXED en route** (cost two verify cycles): the first card render used a
+MISREAD geometry spec (QR y=255 vs the real translate y=75; disc at 455 vs
+the real QR-center 275) — read the generator source, never a summary; and
+the module size was computed from `cx(400)`, which includes the letterbox
+cardLeft offset — positions leaked into a size, modules ~14% oversize.
+Both lessons in AGENTS test conventions.
+
+**Velta Loop lift M1** (branch `kmp/p2p-loop`, 63c77f1e, issue #332):
+p2p.rs (7023 lines) + groups.rs compile IN the shim after mechanical
+edits (spawn swap, Sink::Events, Tauri glue stripped); the engine's own
+70 tests pass in the shim incl. real-engine typing + group delivery.
+M2 = p2p JSON-Lines socket bridge; M3 = KMP surfaces (typing previews +
+P2P local groups — the two remaining "no KMP counterpart" features).
+
+**MISSING (named)**: extra user invite domains (web drawer registry,
+`velta-invite-hosts`) — builtins only; #102 "delayed" strip state (no
+send-failure feed); relay-detail chips ported by the parallel session's
+gesture round (documented in AGENTS).

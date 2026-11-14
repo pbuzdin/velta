@@ -41,8 +41,11 @@ for the per-phase ledger and what's left.
   People / Groups / Channels / Bots / System, persisted selection, lazy
   bot flags), the full #329 bottom action bar and the side views it
   toggles: Contacts (`get_contacts` + "Show only known contacts"), Calls
-  (local ended-call log), Your QR code (self invite, locally encoded
-  matrix via the QrEncode port + copy/share), Search (live filter +
+  (local ended-call log), Your QR code (the Tauri look: per-domain tabs —
+  velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info — with the
+  white branded square QR + dark V badge for velta.cc's `/join/?…`
+  universal links and the core's invite card for i.delta.chat, copy/share),
+  Search (live filter +
   Archived tab), and Start something (new chat / group / channel with
   real create flows, join invite, add relay, add account); chat view
   (day separators, sender names in groups, media, quote blocks with
