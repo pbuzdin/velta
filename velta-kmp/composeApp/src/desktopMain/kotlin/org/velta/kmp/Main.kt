@@ -39,6 +39,17 @@ fun main() = application {
                 }
             }.start()
         }
+        // Message sheet "Download": a save dialog, then copy the blob.
+        model.saveFile = { path, name, _ ->
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val dialog = FileDialog(awtFrame, "Save", FileDialog.SAVE)
+                dialog.file = name
+                dialog.isVisible = true
+                val target = dialog.file?.let { File(dialog.directory, it) }
+                if (target == null) "cancelled"
+                else runCatching { File(path).copyTo(target, overwrite = true); null }.getOrElse { it.message ?: it.toString() }
+            }
+        }
         App(model)
     }
 }

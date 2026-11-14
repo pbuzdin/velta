@@ -513,7 +513,6 @@ class AppModel(
     var sendError by mutableStateOf<String?>(null)
 
     /** Message whose action bar (react / reply) is open; null = hidden. */
-    var messageActions by mutableStateOf<MessageObject?>(null)
 
     // ---- App lock (P4, phase 4 port) ----
 
@@ -581,7 +580,7 @@ class AppModel(
             composerText = ""
             replyTo = null
             pendingAttachment = null
-            messageActions = null
+            resetChatActions()
             profile = null
             screen = Screen.ChatList
             locked = true
@@ -1481,6 +1480,13 @@ class AppModel(
                     (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
                 val ids = (chat["contactIds"] as? kotlinx.serialization.json.JsonArray)
                     ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
+                sheetChat = SheetChat(
+                    readOnly = jstr(chat, "canSend") == "false",
+                    groupAdminId = jstr(chat, "groupAdminId")?.toLongOrNull(),
+                    isGroup = jstr(chat, "chatType") == "Group",
+                    isSaved = jstr(chat, "isSelfTalk") == "true",
+                    isEncrypted = jstr(chat, "isEncrypted") != "false",
+                )
                 if (jstr(chat, "chatType") == "Single") {
                     val cid = ids?.firstOrNull() ?: return@launch
                     val contact = veltaCore.contact(id, cid)
@@ -1501,7 +1507,8 @@ class AppModel(
         sendError = null
         senderNames = emptyMap()
         pendingAttachment = null
-        messageActions = null
+        resetChatActions()
+        sheetChat = SheetChat(isGroup = item.chatType == "Group" || item.isGroup, isSaved = item.isSelfTalk, isEncrypted = item.isEncrypted)
         loadChatHead(item)
         scope.launch {
             val veltaCore = core
@@ -1539,7 +1546,7 @@ class AppModel(
         val chat = screen as? Screen.Chat
         val veltaCore = core
         val id = accountId
-        if (chat != null && veltaCore != null && id != null) {
+        if (chat != null && veltaCore != null && id != null && editingMsg == null) {
             val text = composerText
             val attachment = pendingAttachment
             scope.launch {
@@ -1565,6 +1572,7 @@ class AppModel(
         replyTo = null
         sendError = null
         pendingAttachment = null
+        resetChatActions()
         screen = Screen.ChatList
         refreshChats()
     }
@@ -1678,7 +1686,7 @@ class AppModel(
     }
 
     /** Millis wall clock for the probe/grace windows (probe constants are ms). */
-    private fun wallClockMillis(): Long = wallClockSeconds() * 1000L
+    internal fun wallClockMillis(): Long = wallClockSeconds() * 1000L
 
     fun refreshRelays() {
         val veltaCore = core
@@ -1757,7 +1765,7 @@ class AppModel(
         composerText = ""
         replyTo = null
         pendingAttachment = null
-        messageActions = null
+        resetChatActions()
         sendError = null
         try {
             accountAddr = veltaCore.accountInfo(id).addr
@@ -1885,6 +1893,10 @@ class AppModel(
         val attachment = pendingAttachment
         if (veltaCore == null || id == null || sending) return
         if (text.isEmpty() && attachment == null) return
+        editingMsg?.let { editing ->
+            if (text.isNotEmpty()) sendEdit(editing, text)
+            return
+        }
         val quote = replyTo?.id
         composerText = ""
         replyTo = null
@@ -1914,21 +1926,116 @@ class AppModel(
         }
     }
 
-    // ---- Message actions: reactions + reply (P3) ----
+    // ---- Message sheet (#334 step 5): stable's phone message sheet ----
 
-    fun toggleMessageActions(message: MessageObject) {
-        messageActions = if (messageActions?.id == message.id) null else message
+    /** The long-pressed message + the link under the finger (stable
+     *  `_msgContextMenu(item, x, y, linkHref)`); null = sheet closed. */
+    data class SheetTarget(val message: MessageObject, val linkHref: String = "")
+
+    var messageSheet by mutableStateOf<SheetTarget?>(null)
+
+    /** Chat-level sheet inputs (canSend / admin / encryption), from fullChat. */
+    var sheetChat by mutableStateOf(SheetChat())
+        private set
+
+    /** Selection mode (stable this.selection): message ids, in tap order. */
+    var selection by mutableStateOf<List<Long>>(emptyList())
+        private set
+
+    /** Composer edit mode (stable editingMsg). */
+    var editingMsg by mutableStateOf<MessageObject?>(null)
+        private set
+
+    /** Forward picker open for these ids (stable forwardFlow). */
+    var forwardIds by mutableStateOf<List<Long>?>(null)
+
+    /** Message info modal (stable _showInfo). */
+    data class MessageInfoData(val message: MessageObject, val rfc724Mid: String? = null, val serverUrls: List<String>? = null)
+    var messageInfo by mutableStateOf<MessageInfoData?>(null)
+
+    /** Select text panel (stable _selectMessageText). */
+    var selectTextFor by mutableStateOf<MessageObject?>(null)
+
+    /** Selection-bar Delete: the modal confirm (stable confirmDeleteMessagesModal). */
+    var deleteConfirmIds by mutableStateOf<List<Long>?>(null)
+
+    /** Short status line (stable toast / errToast). */
+    var toast by mutableStateOf<String?>(null)
+        private set
+    private var toastJob: Job? = null
+
+    fun showToast(text: String, ms: Long = 2500) {
+        toast = text
+        toastJob?.cancel()
+        toastJob = scope.launch {
+            delay(ms)
+            toast = null
+        }
     }
 
+    /** Platform save (Android: Downloads via MediaStore / save dialog):
+     *  returns null on success, else the error text. */
+    var saveFile: (suspend (path: String, name: String, mime: String?) -> String?)? = null
+
+    // Delete hold (stable _holdDelete): the bubble turns into a tombstone
+    // with Undo; the core delete runs when the 10 s window ends.
+    data class DeleteHold(val key: Int, val forAll: Boolean, val startedAt: Long, val ms: Long, val committing: Boolean = false)
+    var deleteHolds by mutableStateOf<Map<Long, DeleteHold>>(emptyMap())
+        private set
+    /** Committed deletes keep a compact "Message deleted" row this session. */
+    var tombstones by mutableStateOf<Set<Long>>(emptySet())
+        private set
+    private var deleteSeq = 0
+    private val deleteJobs = HashMap<Int, Job>()
+    private val deleteBatchIds = HashMap<Int, Pair<Long, List<Long>>>() // key -> (chatId, ids)
+
+    private fun msgById(id: Long): MessageObject? = chatMessages.firstOrNull { it.id == id }
+
+    private fun currentChatId(): Long? = (screen as? Screen.Chat)?.chatId
+
+    private fun reloadOpenChat() {
+        val chat = screen as? Screen.Chat ?: return
+        loadMessages(chat.chatId, chat.isGroup)
+    }
+
+    /** Long-press (stable `_msgContextMenu`): info rows and committed
+     *  tombstones get nothing; select-text mode keeps the sheet shut. */
+    fun openMessageSheet(message: MessageObject, linkHref: String = "") {
+        if (message.isInfo || message.id in tombstones || selectTextFor != null) return
+        messageSheet = SheetTarget(message, linkHref)
+    }
+
+    fun closeMessageSheet() { messageSheet = null }
+
+    /** The sheet's items for [target] (held deletes: Select / Info / Delete). */
+    fun sheetActionsFor(target: SheetTarget): List<SheetAction> {
+        val m = target.message
+        if (m.id in deleteHolds) return deletedMessageActions()
+        return sheetOrder(
+            messageSheetActions(
+                m,
+                SheetContext(chat = sheetChat, linkHref = target.linkHref, canShareLink = shareText != null),
+            ),
+        )
+    }
+
+    fun canDeleteForAllIds(ids: List<Long>): Boolean = canDeleteForAll(sheetChat, ids.map { msgById(it) })
+
+    /** Tracking-param stripping (stable trackers.js; default on). */
+    val stripTrackers: Boolean get() = platform.pref("velta-strip-trackers") != "0"
+
+    /** Own-reaction toggle with optimistic chips (stable _toggleReaction). */
     fun react(message: MessageObject, emoji: String) {
         val veltaCore = core
         val id = accountId
-        messageActions = null
+        messageSheet = null
         if (veltaCore == null || id == null) return
+        val live = msgById(message.id) ?: message
+        val plan = reactionToggle(reactionChips(live.reactions), emoji)
         scope.launch {
             try {
-                veltaCore.sendReaction(id, message.id, listOf(emoji))
-                if (screen is Screen.Chat) loadMessages((screen as Screen.Chat).chatId, (screen as Screen.Chat).isGroup)
+                veltaCore.sendReaction(id, message.id, plan.send)
+                reloadOpenChat()
             } catch (t: Throwable) {
                 println("velta-kmp: react failed: $t")
             }
@@ -1936,8 +2043,289 @@ class AppModel(
     }
 
     fun startReply(message: MessageObject) {
+        if (sheetChat.readOnly) return
+        editingMsg = null
         replyTo = message
-        messageActions = null
+        messageSheet = null
+    }
+
+    /** stable _setEdit: the composer takes the text; Send edits instead. */
+    fun startEdit(message: MessageObject) {
+        if (!canEditMsg(message) || pendingAttachment != null) return
+        replyTo = null
+        editingMsg = message
+        composerText = message.text
+        messageSheet = null
+    }
+
+    fun cancelEdit() {
+        if (editingMsg != null) composerText = ""
+        editingMsg = null
+    }
+
+    private fun sendEdit(editing: MessageObject, text: String) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        editingMsg = null
+        composerText = ""
+        scope.launch {
+            try {
+                veltaCore.sendEditRequest(id, editing.id, text)
+                reloadOpenChat()
+            } catch (t: Throwable) {
+                showToast(L.t("Couldn't edit message: ") + (t.message ?: t.toString()), 4000)
+            }
+        }
+    }
+
+    fun saveSticker(message: MessageObject) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.saveSticker(id, message.id)
+                showToast(L.t("Sticker saved"))
+            } catch (t: Throwable) {
+                showToast(L.t("Couldn't save: ") + (t.message ?: t.toString()), 4000)
+            }
+        }
+    }
+
+    /** stable _saveAttachment: fetch a server-side file first, then hand
+     *  the blob to the platform save path. */
+    fun downloadAttachment(message: MessageObject) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                var msg = msgById(message.id) ?: message
+                val ds = msg.downloadState ?: "Done"
+                if (ds != "Done") {
+                    if (ds == "InProgress") { showToast(L.t("Still downloading…")); return@launch }
+                    veltaCore.downloadFullMessage(id, msg.id)
+                    msg = veltaCore.messages(id, listOf(msg.id)).firstOrNull() ?: msg
+                    reloadOpenChat()
+                }
+                val path = msg.file ?: return@launch
+                val save = saveFile ?: return@launch
+                val name = msg.fileName ?: path.substringAfterLast('/')
+                val err = save(path, name, msg.fileMime)
+                when {
+                    err == null -> showToast(L.t("Saved"))
+                    err.contains("cancel", ignoreCase = true) -> {}
+                    else -> showToast(L.t("Couldn't save: ") + err, 4000)
+                }
+            } catch (t: Throwable) {
+                val text = t.message ?: t.toString()
+                if (!text.contains("cancel", ignoreCase = true)) showToast(L.t("Couldn't save: ") + text, 4000)
+            }
+        }
+    }
+
+    fun togglePin(message: MessageObject) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val pinned = message.isPinned
+        scope.launch {
+            try {
+                veltaCore.setPinned(id, message.id, !pinned)
+                reloadOpenChat()
+            } catch (t: Throwable) {
+                showToast((if (pinned) L.t("Couldn't unpin: ") else L.t("Couldn't pin: ")) + (t.message ?: t.toString()), 4000)
+            }
+        }
+    }
+
+    /** stable _resendMessage: resend_messages re-queues our own message. */
+    fun resend(message: MessageObject) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.resendMessages(id, listOf(message.id))
+                reloadOpenChat()
+            } catch (t: Throwable) {
+                showToast(L.t("Resend failed: {why}").replace("{why}", t.message ?: t.toString()), 4000)
+            }
+        }
+    }
+
+    /** stable starMessages: one ("Saved") or the selection ("Saved to Saved Messages"). */
+    fun saveToSaved(ids: List<Long>, fromSelection: Boolean = false) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.saveMessages(id, ids)
+                showToast(if (fromSelection) L.t("Saved to Saved Messages") else L.t("Saved"))
+                if (fromSelection) exitSelection()
+                refreshChats()
+            } catch (t: Throwable) {
+                val msg = t.message ?: t.toString()
+                showToast((if (fromSelection) L.t("Couldn't save messages: ") else L.t("Couldn't save message: ")) + msg, 4000)
+            }
+        }
+    }
+
+    fun startForward(ids: List<Long>) {
+        messageSheet = null
+        if (ids.isNotEmpty()) forwardIds = ids
+    }
+
+    /** stable forwardFlow pick: forward, leave selection, toast. */
+    fun forwardTo(chat: ChatListItem) {
+        val ids = forwardIds ?: return
+        forwardIds = null
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.forwardMessages(id, ids, chat.id)
+                exitSelection()
+                showToast(L.t("Forwarded to {name}").replace("{name}", chat.name))
+                refreshChats()
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString(), 4000)
+            }
+        }
+    }
+
+    /** Forward targets: stable drops the contact-request deaddrop + device chat. */
+    fun forwardTargets(): List<ChatListItem> =
+        chats.filter { it.kind == "ChatListItem" && !it.isDeviceTalk && !it.isContactRequest && it.id > 9 }
+
+    fun showInfo(message: MessageObject) {
+        messageSheet = null
+        val m = msgById(message.id) ?: message
+        messageInfo = MessageInfoData(m)
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            val extra = runCatching { veltaCore.messageInfoObject(id, m.id) }.getOrNull()
+            if (messageInfo?.message?.id == m.id) {
+                messageInfo = messageInfo?.copy(rfc724Mid = extra?.first ?: "", serverUrls = extra?.second ?: emptyList())
+            }
+        }
+    }
+
+    fun startSelectText(message: MessageObject) {
+        messageSheet = null
+        selectTextFor = message
+    }
+
+    // ---- Selection mode (stable _enterSelection / _toggleSelect) ----
+
+    fun enterSelection(messageId: Long) {
+        messageSheet = null
+        if (messageId !in selection) selection = selection + messageId
+    }
+
+    fun toggleSelect(messageId: Long) {
+        selection = if (messageId in selection) selection - messageId else selection + messageId
+    }
+
+    fun exitSelection() { selection = emptyList() }
+
+    /** Selection bar actions (index.html .sel-actions: reply, forward, copy,
+     *  star, delete, info). Copy is UI-side (clipboard) — see [selectionText]. */
+    fun selectionReply() {
+        val first = selection.firstOrNull()?.let { msgById(it) }
+        if (first != null) startReply(first)
+        exitSelection()
+    }
+
+    fun selectionText(): Pair<String, Int> {
+        val texts = selection.mapNotNull { msgById(it)?.text?.takeIf { t -> t.isNotEmpty() } }
+        return texts.joinToString("\n") to texts.size
+    }
+
+    fun selectionInfo() {
+        selection.firstOrNull()?.let { msgById(it) }?.let { showInfo(it) }
+    }
+
+    // ---- Delete with undo (stable _delete / _holdDelete / _commitDelete) ----
+
+    /** Inline sheet confirm or the modal: hold, then commit after the window. */
+    fun applyDeleteChoice(ids: List<Long>, choice: DeleteChoice) {
+        if (choice == DeleteChoice.Cancel) return
+        messageSheet = null
+        deleteConfirmIds = null
+        holdDelete(ids, choice == DeleteChoice.ForEveryone)
+        exitSelection()
+    }
+
+    private fun holdDelete(ids0: List<Long>, forAll: Boolean) {
+        val chatId = currentChatId() ?: return
+        val ids = ids0.filter { msgById(it) != null && it !in deleteHolds }
+        if (ids.isEmpty()) return
+        val key = ++deleteSeq
+        val hold = DeleteHold(key, forAll, wallClockMillis(), DELETE_UNDO_MS)
+        deleteHolds = deleteHolds + ids.associateWith { hold }
+        deleteBatchIds[key] = chatId to ids
+        deleteJobs[key] = scope.launch {
+            delay(DELETE_UNDO_MS)
+            commitDelete(key)
+        }
+    }
+
+    /** Undo on any message of a batch restores the whole batch. */
+    fun undoDelete(messageId: Long) {
+        val hold = deleteHolds[messageId] ?: return
+        if (hold.committing) return
+        deleteJobs.remove(hold.key)?.cancel()
+        val ids = deleteBatchIds.remove(hold.key)?.second ?: listOf(messageId)
+        deleteHolds = deleteHolds - ids.toSet()
+    }
+
+    /** The sheet's Delete on a held message: commit now (stable _commitDelete). */
+    fun commitDeleteNow(messageId: Long) {
+        val hold = deleteHolds[messageId] ?: return
+        messageSheet = null
+        scope.launch { commitDelete(hold.key) }
+    }
+
+    private suspend fun commitDelete(key: Int) {
+        val (chatId, ids) = deleteBatchIds[key] ?: return
+        val hold = ids.firstNotNullOfOrNull { deleteHolds[it] }?.takeIf { it.key == key } ?: return
+        if (hold.committing) return
+        deleteJobs.remove(key)?.cancel()
+        deleteBatchIds.remove(key)
+        val veltaCore = core
+        val id = accountId
+        tombstones = tombstones + ids
+        deleteHolds = deleteHolds - ids.toSet()
+        if (veltaCore == null || id == null) return
+        try {
+            veltaCore.deleteMessages(id, ids, hold.forAll)
+            exitSelection()
+            refreshChats()
+            if (currentChatId() == chatId) reloadOpenChat()
+        } catch (t: Throwable) {
+            tombstones = tombstones - ids.toSet()
+            showToast(L.t("Couldn't delete messages: ") + (t.message ?: t.toString()), 4500)
+        }
+    }
+
+    /** Leaving the chat commits a confirmed delete (stable _flushPendingDeletes). */
+    private fun flushPendingDeletes() {
+        val keys = deleteBatchIds.keys.toList()
+        for (key in keys) {
+            deleteJobs.remove(key)?.cancel()
+            scope.launch { commitDelete(key) }
+        }
+    }
+
+    /** Reset per-chat sheet state (open / leave a chat). */
+    private fun resetChatActions() {
+        flushPendingDeletes()
+        messageSheet = null
+        selection = emptyList()
+        editingMsg = null
+        forwardIds = null
+        messageInfo = null
+        selectTextFor = null
+        deleteConfirmIds = null
+        tombstones = emptySet()
     }
 
     // ---- Mentions: member list per chat (names + fingerprint codes) ----

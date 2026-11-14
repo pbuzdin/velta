@@ -393,6 +393,84 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         }
     }
 
+    // ---- Message sheet actions (#334 step 5) — the same RPCs stable's
+    // rpc-core.js calls for each sheet item. ----
+
+    private fun idArray(ids: List<Long>) =
+        buildJsonArray { ids.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+
+    /** rpc-core forwardMessages. */
+    suspend fun forwardMessages(accountId: Long, messageIds: List<Long>, toChatId: Long) {
+        client.call(
+            "forward_messages",
+            RpcClient.params(RpcClient.param(accountId), idArray(messageIds), RpcClient.param(toChatId)),
+        )
+    }
+
+    /** rpc-core deleteMessages (forAll → delete_messages_for_all). */
+    suspend fun deleteMessages(accountId: Long, messageIds: List<Long>, forAll: Boolean) {
+        client.call(
+            if (forAll) "delete_messages_for_all" else "delete_messages",
+            RpcClient.params(RpcClient.param(accountId), idArray(messageIds)),
+        )
+    }
+
+    /** rpc-core starMessages ("Save to Saved Messages"). */
+    suspend fun saveMessages(accountId: Long, messageIds: List<Long>) {
+        client.call("save_msgs", RpcClient.params(RpcClient.param(accountId), idArray(messageIds)))
+    }
+
+    /** rpc-core resendMessage. */
+    suspend fun resendMessages(accountId: Long, messageIds: List<Long>) {
+        client.call("resend_messages", RpcClient.params(RpcClient.param(accountId), idArray(messageIds)))
+    }
+
+    /** rpc-core editMessage. */
+    suspend fun sendEditRequest(accountId: Long, messageId: Long, text: String) {
+        client.call(
+            "send_edit_request",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(messageId), RpcClient.param(text)),
+        )
+    }
+
+    /** rpc-core pinMessage. */
+    suspend fun setPinned(accountId: Long, messageId: Long, pinned: Boolean) {
+        client.call(
+            "set_pinned_message_state",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(messageId), RpcClient.param(pinned)),
+        )
+    }
+
+    /** rpc-core saveSticker (collection "Default"). */
+    suspend fun saveSticker(accountId: Long, messageId: Long, collection: String = "Default") {
+        client.call(
+            "misc_save_sticker",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(messageId), RpcClient.param(collection)),
+        )
+    }
+
+    /** rpc-core downloadFullMessage. */
+    suspend fun downloadFullMessage(accountId: Long, messageId: Long) {
+        client.call(
+            "download_full_message",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(messageId)),
+            timeoutMs = null,
+        )
+    }
+
+    /** rpc-core getMessageInfo: get_message_info_object → (Message-ID, server URLs). */
+    suspend fun messageInfoObject(accountId: Long, messageId: Long): Pair<String, List<String>> {
+        val o = client.call(
+            "get_message_info_object",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(messageId)),
+        ) as? JsonObject
+        val mid = (o?.get("rfc724Mid") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+        val urls = (o?.get("serverUrls") as? JsonArray)?.mapNotNull {
+            (it as? kotlinx.serialization.json.JsonPrimitive)?.content
+        } ?: emptyList()
+        return mid to urls
+    }
+
     /** Core send_sticker — deprecated upstream but present and functional. */
     suspend fun sendSticker(accountId: Long, chatId: Long, stickerPath: String) {
         client.call(

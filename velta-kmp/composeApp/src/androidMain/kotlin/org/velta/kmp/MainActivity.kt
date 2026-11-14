@@ -73,6 +73,57 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** Message sheet "Download" below API 29 (no MediaStore.Downloads):
+     *  the SAF save dialog, stable's Android save path. */
+    private var pendingSave: Pair<String, kotlinx.coroutines.CompletableDeferred<String?>>? = null
+    private val createDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val (path, done) = pendingSave ?: return@registerForActivityResult
+        pendingSave = null
+        if (uri == null) { done.complete("cancelled"); return@registerForActivityResult }
+        done.complete(
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use { out -> File(path).inputStream().use { it.copyTo(out) } }
+                null
+            }.getOrElse { it.message ?: it.toString() },
+        )
+    }
+
+    /** Copy a core blob into Downloads (#334 step 5 "Download"). */
+    private suspend fun saveToDownloads(path: String, name: String, mime: String?): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            val done = kotlinx.coroutines.CompletableDeferred<String?>()
+            pendingSave = path to done
+            runOnUiThread { createDocument.launch(name) }
+            return done.await()
+        }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime ?: "application/octet-stream")
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val resolver = contentResolver
+                val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: error("no Downloads entry")
+                try {
+                    resolver.openOutputStream(uri)?.use { out -> File(path).inputStream().use { it.copyTo(out) } }
+                        ?: error("cannot write")
+                    values.clear()
+                    values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                } catch (t: Throwable) {
+                    resolver.delete(uri, null, null)
+                    throw t
+                }
+                null
+            }.getOrElse { it.message ?: it.toString() }
+        }
+    }
+
     /** Welcome splash "Restore from a backup…": stage the picked tar in
      * the cache (gzip PWA exports unpacked, stable prep_backup). */
     private val pickBackup = registerForActivityResult(
@@ -180,6 +231,7 @@ class MainActivity : FragmentActivity() {
         }
         model.requestQrScan = { startQrScan() }
         model.backupPicker = { pickBackup.launch(arrayOf("application/x-tar", "application/gzip", "application/octet-stream", "*/*")) }
+        model.saveFile = { path, name, mime -> saveToDownloads(path, name, mime) }
         // QR view "Share a link" (web shareLink → ACTION_SEND chooser).
         model.shareText = { text ->
             val send = Intent(Intent.ACTION_SEND).apply {
