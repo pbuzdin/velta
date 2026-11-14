@@ -2724,17 +2724,38 @@ private fun DayHeader(text: String) {
         Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
         contentAlignment = Alignment.Center,
     ) {
+        // Brutal (main.css .day-chip override): 2px ink border, 6px radius,
+        // --bg-sidebar fill and a hard 2px offset ink shadow.
+        val brutal = LocalVeltaThemeMode.current == VeltaThemeMode.Brutal
+        val chipShape = RoundedCornerShape(if (brutal) 6.dp else 14.dp)
         Text(
             text,
             fontSize = 13.sp,
             color = if (tokens.isDark) Color(0xFFD7D7DE) else Color(0xFF5D636E),
-            modifier = Modifier
-                .shadow(if (tokens.isDark) 0.dp else 2.dp, RoundedCornerShape(14.dp))
-                .background(
-                    if (tokens.isDark) Color(0xFF1C1C22) else Color(0xFFF4F4F4),
-                    RoundedCornerShape(14.dp),
-                )
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+            modifier = if (brutal) {
+                Modifier
+                    .drawBehind {
+                        val r = 6.dp.toPx()
+                        val o = 2.dp.toPx()
+                        drawRoundRect(
+                            Color(0xFF121017),
+                            topLeft = androidx.compose.ui.geometry.Offset(o, o),
+                            size = size,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                        )
+                    }
+                    .background(tokens.bgSidebar, chipShape)
+                    .border(2.dp, Color(0xFF121017), chipShape)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            } else {
+                Modifier
+                    .shadow(if (tokens.isDark) 0.dp else 2.dp, chipShape)
+                    .background(
+                        if (tokens.isDark) Color(0xFF1C1C22) else Color(0xFFF4F4F4),
+                        chipShape,
+                    )
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            },
         )
     }
 }
@@ -3475,6 +3496,12 @@ private fun MessageBubble(
                     outgoing -> tokens.bgBubbleOut
                     else -> tokens.bgBubbleIn
                 },
+                // Stable .bubble sets no color, so bubble text inherits
+                // --text (brutal out: --nb-main-ink). Without an explicit
+                // contentColor, Material matched bgBubbleIn == bgElev
+                // (surfaceVariant) and painted incoming text in
+                // onSurfaceVariant = --text-dim in dark/AMOLED/brutal.
+                contentColor = if (outgoing) tokens.textOut else tokens.text,
                 shape = bubbleShape,
                 shadowElevation = if (sticker) 0.dp else 1.dp,
                 modifier = Modifier
