@@ -19,6 +19,8 @@ import org.velta.kmp.core.VeltaForegroundService
 import org.velta.kmp.core.VeltaKeystore
 import org.velta.kmp.ui.App
 import org.velta.kmp.ui.AppModel
+import org.velta.kmp.ui.L
+import org.velta.kmp.ui.LockPolicy
 import java.io.File
 
 /**
@@ -82,31 +84,51 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
-     * App-lock prompt (biometric or device credential — no CryptoObject: a
-     * successful authentication opens the 30 s Keystore auth window the
-     * keystore calls run inside).
+     * App-lock prompt (no CryptoObject: a successful authentication opens
+     * the Keystore auth window the keystore calls run inside). The allowed
+     * authenticators come from LockPolicy and match the bio KEK's
+     * requirement (strong biometric or device credential) — a weak face
+     * unlock used to pass the prompt and then fail at the key, silently.
+     * Failures land in model.lockError (lock screen + settings row).
      */
     private fun runAuthPrompt(onSuccess: () -> Unit) {
+        val policy = LockPolicy.authenticators(Build.VERSION.SDK_INT)
+        var allowed = 0
+        if (policy.strongBiometric) allowed = allowed or BiometricManager.Authenticators.BIOMETRIC_STRONG
+        if (policy.deviceCredential) allowed = allowed or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val can = BiometricManager.from(this).canAuthenticate(allowed)
+        if (can != BiometricManager.BIOMETRIC_SUCCESS) {
+            model.onLockError(
+                if (policy.deviceCredential) L.t("Set up a screen lock (PIN, pattern or password) or a fingerprint in Android settings first.")
+                else L.t("Set up a fingerprint in Android settings first."),
+            )
+            return
+        }
         val prompt = BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    model.onLockError(null)
                     onSuccess()
                 }
 
                 override fun onAuthenticationError(code: Int, errString: CharSequence) {
                     println("velta-kmp: auth prompt error $code: $errString")
+                    val userCancelled = code == BiometricPrompt.ERROR_USER_CANCELED ||
+                        code == BiometricPrompt.ERROR_NEGATIVE_BUTTON ||
+                        code == BiometricPrompt.ERROR_CANCELED
+                    if (!userCancelled) {
+                        model.onLockError(L.t("Authentication failed: {reason}").replace("{reason}", errString.toString()))
+                    }
                 }
             },
         )
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Velta")
-            .setSubtitle("Confirm to continue")
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-            )
+            .setSubtitle(L.t("Confirm to continue"))
+            .setAllowedAuthenticators(allowed)
+            .apply { if (policy.needsNegativeButton) setNegativeButtonText(L.t("Cancel")) }
             .build()
         prompt.authenticate(info)
     }
@@ -159,7 +181,7 @@ class MainActivity : FragmentActivity() {
             runAuthPrompt {
                 val dek = VeltaKeystore.unlockDek(applicationContext)
                 if (dek != null) model.onAppUnlocked(dek)
-                else println("velta-kmp: unlock succeeded but the DEK unwrap failed")
+                else model.onLockError(L.t("Couldn't unlock. Try again."))
             }
         }
         model.requestAppLockEnable = {
