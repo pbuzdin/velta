@@ -827,10 +827,11 @@ export class JsonRpcCore extends EventTarget {
     const kind = this._chatKind(c);
     const lastType = c.lastMessageType;
     let lastMsg = [c.summaryText1, c.summaryText2].filter(Boolean).join(": ");
-    if (lastType === "Image" || lastType === "Gif") lastMsg = "📷 " + (c.summaryText2 || "Photo");
-    else if (lastType === "Voice" || lastType === "Audio") lastMsg = "🎤 " + (c.summaryText2 || "Voice message");
-    else if (lastType === "Video") lastMsg = "🎬 " + (c.summaryText2 || "Video");
-    else if (lastType === "File") lastMsg = "📎 " + (c.summaryText2 || "File");
+    // core's summaryText2 already embeds the media emoji ("📷 Photo", "📎 name – …") — don't prepend another
+    if (lastType === "Image" || lastType === "Gif") lastMsg = c.summaryText2 || "📷 Photo";
+    else if (lastType === "Voice" || lastType === "Audio") lastMsg = c.summaryText2 || "🎤 Voice message";
+    else if (lastType === "Video") lastMsg = c.summaryText2 || "🎬 Video";
+    else if (lastType === "File") lastMsg = c.summaryText2 || "📎 File";
     else if (lastType === "Sticker") lastMsg = c.summaryText2 || "Sticker";
     const outgoing = c.summaryStatus >= 18 && c.summaryStatus <= 28;
     return {
