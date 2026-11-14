@@ -70,22 +70,29 @@ for the per-phase ledger and what's left.
   under the same keys the web app uses.
 - **Security** — database encryption at rest (Keystore-wrapped DEK →
   `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext);
-  optional app lock (🔒 biometric/device-credential — locked = the core
-  never starts, nothing decrypts). Port of #178, with two Tauri-side
+  optional app lock (🔒 strong biometric/device-credential — locked = the
+  core never starts, nothing decrypts; auto-lock after 1/5/15 min hidden,
+  like stable's "Lock when hidden"). Port of #178, with two Tauri-side
   keystore bugs (undersized wrap blob, StrongBox fallback) fixed here.
 - **Persistence** — resume straight into the chat list on every start;
   the core's accounts dir holds the data, app-level settings ride the
   platform prefs (SharedPreferences / java.util.prefs).
-- **Background** — a dataSync foreground service holds the process (screen
+- **Background** — a remoteMessaging foreground service (like stable; no
+  Android 15 dataSync time cap) holds the process (screen
   off); after a process kill the sticky service rebuilds the core
   headlessly (`am crash` verified); UnifiedPush receiver wired (relay-side
   notifier still pending); battery-allowance row for OEM savers.
 - **Profile** — the contact sheet: fingerprint identity matrix (or Prism
   tile), media counts, profile key, last seen, notifications and
   disappearing-messages state, block/unblock.
-- **Notifications** — per-chat conversation cards on a Messages channel;
-  muted chats and the on-screen chat are skipped; tap deep-opens the
-  chat. (Background delivery still needs the relay-side UnifiedPush
+- **Notifications** — one conversation card per account + chat on a
+  Messages channel, for every account (events route by `contextId`);
+  muted chats are skipped, and the open chat only while the app is
+  visible; cards clear when the chat is opened or read elsewhere; a tap
+  switches to the right account and opens the chat. Visible unseen
+  messages get `markseen_msgs` (read receipts). Read/delivered/failed,
+  reactions, chat and contact changes and chat-list events update live
+  (#334). (Background delivery still needs the relay-side UnifiedPush
   notifier.)
 - **Look** — `VeltaTheme` built from tokens generated from Velta
   stable's `app/css/main.css` (#318): dark, light, brutal and AMOLED,

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import org.velta.kmp.AppHolder
+import org.velta.kmp.ui.L
 
 /**
  * Foreground service that keeps the app process — and with it the in-process
@@ -25,10 +26,28 @@ class VeltaForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        // remoteMessaging, like stable's CoreService: dataSync is capped at
+        // 6 h per day on Android 15 (onTimeout, then a crash if ignored) —
+        // a messenger's always-on IMAP IDLE is exactly remote messaging.
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING)
+        } catch (t: RuntimeException) {
+            // Android 12+: ForegroundServiceStartNotAllowedException (e.g. a
+            // sticky restart from the background). Don't crash the app.
+            println("velta-kmp: foreground start refused: $t")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         // Rebuild the core after a process kill; a no-op when it is already up.
         AppHolder.obtain(applicationContext).connect()
         return START_STICKY
+    }
+
+    /** Android 15 time-limited types end here; stop cleanly instead of the
+     * system's crash. remoteMessaging has no limit, so this is a guard. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        println("velta-kmp: foreground service timeout (type $fgsType)")
+        stopSelf(startId)
     }
 
     override fun onDestroy() {
@@ -46,14 +65,14 @@ class VeltaForegroundService : Service() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Background sync",
+                    L.t("Background sync"),
                     NotificationManager.IMPORTANCE_MIN,
                 ),
             )
         }
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Velta")
-            .setContentText("Keeping your messages up to date")
+            .setContentText(L.t("Keeping your messages up to date"))
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .build()
@@ -64,7 +83,13 @@ class VeltaForegroundService : Service() {
         private const val NOTIFICATION_ID = 1
 
         fun start(context: Context) {
-            context.startForegroundService(Intent(context, VeltaForegroundService::class.java))
+            try {
+                context.startForegroundService(Intent(context, VeltaForegroundService::class.java))
+            } catch (t: RuntimeException) {
+                // Background-start restrictions (Android 12+): sync then
+                // resumes when the app is next opened.
+                println("velta-kmp: foreground service start refused: $t")
+            }
         }
 
         fun stop(context: Context) {

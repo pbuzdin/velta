@@ -9,7 +9,9 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const SRC = "velta-kmp/composeApp/src/commonMain/kotlin";
+// commonMain AND androidMain: notification channels, the lock prompt and
+// the sync service call L.t too (#334).
+const SRCS = ["velta-kmp/composeApp/src/commonMain/kotlin", "velta-kmp/composeApp/src/androidMain/kotlin"];
 const OUT = "velta-kmp/composeApp/src/commonMain/kotlin/org/velta/kmp/ui";
 
 const esc = (s) => JSON.stringify(s).replace(/\$/g, "\\$");
@@ -30,7 +32,7 @@ export function usedKeys() {
       }
     }
   };
-  walk(SRC);
+  for (const src of SRCS) walk(src);
   return [...keys];
 }
 

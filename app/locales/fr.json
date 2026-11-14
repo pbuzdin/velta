@@ -1654,5 +1654,15 @@
   "Sent {filename}": "Envoyé : {filename}",
   "Couldn't open the photo picker": "Impossible d'ouvrir le sélecteur de photos",
   "Couldn't open the video picker": "Impossible d'ouvrir le sélecteur de vidéos",
-  "Couldn't open the file picker": "Impossible d'ouvrir le sélecteur de fichiers"
+  "Couldn't open the file picker": "Impossible d'ouvrir le sélecteur de fichiers",
+  "Messages": "Messages",
+  "App lock": "Verrouillage de l'app",
+  "Couldn't turn on the app lock": "Impossible d'activer le verrouillage de l'app",
+  "Couldn't turn off the app lock": "Impossible de désactiver le verrouillage de l'app",
+  "Couldn't unlock. Try again.": "Impossible de déverrouiller. Réessayez.",
+  "Set up a fingerprint in Android settings first.": "Ajoutez d'abord une empreinte dans les paramètres Android.",
+  "Authentication failed: {reason}": "Échec de l'authentification : {reason}",
+  "Confirm to continue": "Confirmez pour continuer",
+  "Background sync": "Synchronisation en arrière-plan",
+  "Keeping your messages up to date": "Vos messages restent à jour"
 }

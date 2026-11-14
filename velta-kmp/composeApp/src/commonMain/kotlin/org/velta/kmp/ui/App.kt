@@ -106,6 +106,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -172,11 +173,15 @@ private fun LockScreen(model: AppModel) {
         Text("Velta", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.size(8.dp))
         Text(
-            "Locked — the database stays encrypted until you unlock",
+            L.t("Database locked"),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
+        model.lockError?.let { err ->
+            Spacer(Modifier.size(12.dp))
+            Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+        }
         Spacer(Modifier.size(24.dp))
         Button(onClick = { model.requestUnlock?.invoke() }) { Text(L.t("Unlock")) }
     }
@@ -266,33 +271,77 @@ private fun AccountsScreen(model: AppModel) {
     }
 }
 
-/** P4 phase-4 port: enable/disable the app lock (prompt runs per tap). */
+/** P4 phase-4 port: enable/disable the app lock (prompt runs per tap),
+ * stable's "Lock when hidden" picker, and the last failure (#334). */
 @Composable
 private fun AppLockRow(model: AppModel) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                if (model.appLockOn) model.requestAppLockDisable?.invoke()
-                else model.requestAppLockEnable?.invoke()
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (model.appLockOn) model.requestAppLockDisable?.invoke()
+                    else model.requestAppLockEnable?.invoke()
+                }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(L.t("App lock"))
+                Text(
+                    if (model.appLockOn) L.t("Biometric lock is on.") else L.t("Biometric lock is off."),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("App lock")
-            Text(
-                if (model.appLockOn) "on — unlock required at start"
-                else "off — tap to lock the database behind your screen lock",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                if (model.appLockOn) VeltaIcons.lock else VeltaIcons.lockOpen,
+                contentDescription = L.t("App lock"),
+                modifier = Modifier.size(18.dp),
             )
         }
-        Icon(
-            if (model.appLockOn) VeltaIcons.lock else VeltaIcons.lockOpen,
-            contentDescription = if (model.appLockOn) "App lock on" else "App lock off",
-            modifier = Modifier.size(18.dp),
-        )
+        if (model.appLockOn) {
+            var open by remember { mutableStateOf(false) }
+            val label = { mins: Int ->
+                when (mins) {
+                    0 -> L.t("Off")
+                    1 -> L.t("After 1 minute")
+                    5 -> L.t("After 5 minutes")
+                    else -> L.t("After 15 minutes")
+                }
+            }
+            Box {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { open = true }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(L.t("Lock when hidden"), modifier = Modifier.weight(1f))
+                    Text(label(model.autoLockMins), color = MaterialTheme.colorScheme.primary)
+                }
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    LockPolicy.AUTOLOCK_CHOICES.forEach { mins ->
+                        DropdownMenuItem(
+                            text = { Text(label(mins)) },
+                            onClick = {
+                                model.onSetAutoLock(mins)
+                                open = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        model.lockError?.let { err ->
+            Text(
+                err,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }
 
@@ -2449,6 +2498,19 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     // System back (Android) returns to the chat list; desktop uses ‹ Back.
     PlatformBackHandler {
         model.backToChatList()
+    }
+
+    // Read receipts (#334, web per-visible-row markSeen): report the message
+    // rows on screen; the model marks unseen incoming ones while the app is
+    // in the foreground. Re-emits on scroll, reloads and foreground changes.
+    LaunchedEffect(chat.chatId) {
+        snapshotFlow {
+            val rows = chatRows(model.chatMessages)
+            val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull {
+                (rows.getOrNull(it.index) as? ChatRow.Message)?.message?.id
+            }
+            visible to model.appInForeground
+        }.collect { (ids, _) -> model.onMessagesVisible(ids) }
     }
 
     var headPx by remember { mutableIntStateOf(0) }

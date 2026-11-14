@@ -121,6 +121,17 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    /** Marks these messages SEEN: read receipts go out and IMAP \Seen syncs
+     * to other devices (web markSeen — only rows actually shown). */
+    suspend fun markseenMsgs(accountId: Long, messageIds: List<Long>) {
+        if (messageIds.isEmpty()) return
+        val ids = buildJsonArray { messageIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+        client.call(
+            "markseen_msgs",
+            RpcClient.params(RpcClient.param(accountId), ids),
+        )
+    }
+
     // ---- Write path (P3): the draft flow — set, then send. ----
 
     suspend fun setDraft(

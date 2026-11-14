@@ -1654,5 +1654,15 @@
   "Sent {filename}": "Отправлено: {filename}",
   "Couldn't open the photo picker": "Не удалось открыть выбор фото",
   "Couldn't open the video picker": "Не удалось открыть выбор видео",
-  "Couldn't open the file picker": "Не удалось открыть выбор файлов"
+  "Couldn't open the file picker": "Не удалось открыть выбор файлов",
+  "Messages": "Сообщения",
+  "App lock": "Блокировка приложения",
+  "Couldn't turn on the app lock": "Не удалось включить блокировку приложения",
+  "Couldn't turn off the app lock": "Не удалось выключить блокировку приложения",
+  "Couldn't unlock. Try again.": "Не удалось разблокировать. Попробуйте ещё раз.",
+  "Set up a fingerprint in Android settings first.": "Сначала добавьте отпечаток пальца в настройках Android.",
+  "Authentication failed: {reason}": "Ошибка проверки: {reason}",
+  "Confirm to continue": "Подтвердите, чтобы продолжить",
+  "Background sync": "Фоновая синхронизация",
+  "Keeping your messages up to date": "Сообщения обновляются"
 }
