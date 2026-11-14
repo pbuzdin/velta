@@ -112,7 +112,7 @@ tests incl. out-of-order correlation and error mapping; CI green.
 **Shipped:** `native/rpc-shim` Rust cdylib (Accounts + CommandApi + yerpc,
 session per connection, JSON Lines on 127.0.0.1) loaded via JNI;
 `SocketRpcTransport`; INTERNET permission; per-ABI shim build recipe; CI
-`shim` job (dispatch-triggered artifacts).
+`shim` job (since #334: every run, bundled into every CI APK).
 
 **Verified:** Pixel_7 emulator — shim loads, core 2.66.0 handshake,
 connected state; distinct shim error codes exercised during debugging.

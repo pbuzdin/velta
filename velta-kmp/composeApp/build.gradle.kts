@@ -83,11 +83,13 @@ android {
         applicationId = "org.velta.kmp"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        // CI: run number. Local: epoch minutes — every build is a strict
-        // upgrade, which vivo's Super Care gate expects from an unknown
-        // source; a stream of same-versionCode reinstalls gets blocked.
-        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
-            ?: (System.currentTimeMillis() / 60_000L).toInt()
+        // ONE clock for CI and local builds (#334): epoch minutes at build
+        // time. The newest build always installs over any older one, from
+        // either source — the old CI run-number scheme (~76) sat far below
+        // local epoch-minute builds (~29.9M), so CI APKs were refused as
+        // downgrades. Every build is a strict upgrade, which vivo's Super
+        // Care gate expects from an unknown source. Int-safe until ~5960.
+        versionCode = (System.currentTimeMillis() / 60_000L).toInt()
         versionName = "0.1.0"
         buildConfigField("String", "VAPID_KEY", quoted(veltaVapidKey))
     }
