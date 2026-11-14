@@ -103,7 +103,7 @@ Total ≈ 6–10 days.
 ## As built (UI, #177)
 - New group → name dialog: an "Admin group" switch (outline shield icon) with the hint string.
 - Chat info: "Moderated group · admin: X" line under the name; an Admin badge on the admin's member row.
-- Admin: Remove on every other member. Velta's relay-group sheet had no Remove before, so regular groups still have none.
+- Admin: Remove on every other member. Regular relay groups had no Remove in the UI until the profile-sheet/context-menu removal shipped (stock Delta Chat rules: any member may remove another); local P2P groups keep their own sheet flow.
 - Non-admin: the Edit group, Add members, and Invite via link/QR buttons are hidden, and so is "Group invite QR" in the chat menu. The disappearing-messages row is shown but inert (`aria-disabled`, with the title "Only the group admin can do this"). Pin, Unpin, and the pinned-bar unpin are hidden.
 - Delete for everyone: the admin also gets it on others' messages. Everyone keeps it for their own messages.
 - Leaving stays possible for everyone, the admin included. Nothing hands the group over, so if the admin leaves, the group is frozen.

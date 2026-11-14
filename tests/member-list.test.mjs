@@ -81,3 +81,21 @@ test("mounted list: only the window is in the DOM, search filters live, empty st
   await scroller.fire("click", { target: { closest: sel => (sel === "button" ? {} : row) } });
   assert.equal(opened.length, 2);
 });
+
+test("member row context menu fires with the member and pointer coordinates", async () => {
+  installChatViewGlobals();
+  installFakeDocument();
+  const host = document.createElement("div");
+  const menus = [];
+  mountMemberList(host, people, { onContextMenu: (m, x, y) => menus.push([m.id, x, y]), viewportH: 240 });
+  const scroller = host.children[1];
+  const row = scroller.children[0].children[0];
+  await scroller.fire("contextmenu", { target: { closest: sel => (sel === ".member-row" ? row : null) }, clientX: 33, clientY: 44 });
+  assert.deepEqual(menus, [[1, 33, 44]]);
+  // a miss (no row under the pointer) fires nothing
+  await scroller.fire("contextmenu", { target: { closest: () => null }, clientX: 1, clientY: 2 });
+  assert.equal(menus.length, 1);
+  // omitted onContextMenu = no listener work, no crash
+  const plain = mountMemberList(document.createElement("div"), people, { viewportH: 240 });
+  await plain.scroller.fire("contextmenu", { target: { closest: () => null } });
+});

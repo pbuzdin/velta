@@ -50,6 +50,7 @@ export function memberRowHtml(m, { subtitle = null, actionsHtml = "" } = {}) {
 // Mounts search + virtual list into `host`. opts:
 //   rowOptions(m) -> { subtitle, actionsHtml } (optional)
 //   onOpen(m)     -> row activated (tap / Enter / Space); omitted = inert rows
+//   onContextMenu(m, x, y) -> right-click on a row (desktop); omitted = no menu
 //   viewportH     -> scroll box height in px (default 240)
 // Returns { setMembers(list), render(), state } for tests and refreshes.
 // Search field + hidden Clear button (.member-search), shared with the
@@ -93,7 +94,7 @@ export function buildVirtualScroller(doc, { className, viewportH, label, emptyTe
   return { scroller, spacer, empty };
 }
 
-export function mountMemberList(host, members, { rowOptions = () => ({}), onOpen = null, viewportH = 240, doc = document } = {}) {
+export function mountMemberList(host, members, { rowOptions = () => ({}), onOpen = null, onContextMenu = null, viewportH = 240, doc = document } = {}) {
   host.replaceChildren();
   const { search, input, clear } = buildSearchRow(doc, { placeholder: t("Search members"), clearLabel: t("Clear member search") });
   const { scroller, spacer, empty } = buildVirtualScroller(doc, {
@@ -161,6 +162,13 @@ export function mountMemberList(host, members, { rowOptions = () => ({}), onOpen
     if (e.target?.closest?.("button")) return; // per-member actions handle themselves
     const row = rowOf(e);
     if (row) activate(row);
+  });
+  scroller.addEventListener("contextmenu", e => {
+    if (!onContextMenu) return;
+    const row = rowOf(e);
+    if (!row) return;
+    e.preventDefault?.();
+    onContextMenu(state.shown[Number(row.dataset.index)], e.clientX, e.clientY);
   });
   const focusIndex = (i) => {
     const n = state.shown.length;

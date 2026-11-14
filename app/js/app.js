@@ -2583,6 +2583,8 @@ function openContactProfile(contact) {
     name: contact.name,
     kind: "single",
     encrypted: true,
+    // Set when opened from a relay group's member list: enables "Remove from group".
+    memberOf: contact.memberOf || null,
   });
 }
 
@@ -3195,6 +3197,23 @@ async function copyContactAddr(addr) {
   catch { errToast(t("Couldn't copy")); }
 }
 
+// Confirm + remove a member from a relay group, then land back on the group
+// sheet with a fresh roster. Shared by the profile-sheet action and the
+// member-row context menu — kicking is never a one-click list-level action.
+async function removeGroupMemberFlow(chat, m, epoch) {
+  const ok = await confirmModal(t("Remove member"),
+    t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name: m.name || "?", chat: chat.name }), t("Remove"), true);
+  if (!ok || !accountIsCurrent(epoch)) return;
+  try {
+    await core.removeChatMember(chat.id, m.id);
+    if (!accountIsCurrent(epoch)) return;
+    toast(t("Member removed"));
+    refreshChatList();
+    await modalHistorySettled();
+    showChatInfo(chat);
+  } catch (err) { errToast(t("Couldn't remove: ") + (err?.message || err)); }
+}
+
 async function showChatInfo(chat) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
@@ -3226,6 +3245,10 @@ async function showChatInfo(chat) {
   const isGroup = chat.kind === "group" || chat.kind === "channel";
   const isSelf = chat.contactId === 1;
   const isContactProfile = !isGroup && chat.contactId && !isSelf;
+  // "Remove from group" — the profile was opened from a relay group's member
+  // list and this account may remove that member there.
+  const memberOfGroup = isContactProfile && chat.memberOf && core.removeChatMember
+    && !chat.memberOf.isP2pGroup && canRemoveMember(chat.memberOf, { id: chat.contactId }) ? chat.memberOf : null;
 
   // Relay rows. For 1:1 profiles: the contact's relay, derived from their
   // address (🐴 the core exposes no per-contact relay list — a multi-relay
@@ -3272,6 +3295,7 @@ async function showChatInfo(chat) {
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button type="button" class="btn-text" data-pa="send">${escapeHtml(t("Send message"))}</button>
       <button type="button" class="btn-text" data-pa="rename">${escapeHtml(t("Edit name"))}</button>
+      ${memberOfGroup ? `<button type="button" class="btn-text" data-pa="remove-group" style="color:var(--danger)">${escapeHtml(t("Remove from group"))}</button>` : ""}
       <button type="button" class="btn-text" data-pa="block" style="color:var(--danger)">${escapeHtml(t("Block"))}</button>
     </div>` : ""}
     ${isGroup ? `<details class="info-details" data-members-details${chat.isP2pGroup ? " open" : ""}>
@@ -3619,6 +3643,9 @@ async function showChatInfo(chat) {
         blockBtn.dataset.blocked = blockedNow ? "0" : "1";
       } catch (err) { errToast(t("Failed: {err}", { err: err.message || err })); }
     });
+    actBtn("remove-group")?.addEventListener("click", async () => {
+      await removeGroupMemberFlow(chat.memberOf, { id: contactId, name: chat.name }, epoch);
+    });
   }
 
   // Every relay address of the contact (core: "Relays:" in the encryption
@@ -3746,27 +3773,8 @@ async function showChatInfo(chat) {
     });
   }
 
-  // #177: the admin removes a member (relay admin groups only).
-  if (caps.canRemoveOthers && core.removeChatMember) {
-    body.addEventListener("click", async e => {
-      const btn = e.target.closest?.("[data-admin-remove]");
-      if (!btn) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const name = btn.dataset.name || "?";
-      const ok = await confirmModal(t("Remove member"),
-        t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
-      if (!ok || !accountIsCurrent(epoch)) return;
-      try {
-        await core.removeChatMember(chat.id, Number(btn.dataset.adminRemove));
-        if (!accountIsCurrent(epoch)) return;
-        toast(t("Member removed"));
-        refreshChatList();
-        await modalHistorySettled();
-        showChatInfo(chat);
-      } catch (err) { errToast(t("Couldn't remove: ") + (err?.message || err)); }
-    }, true);
-  }
+  // #177: the admin removes a member from the profile sheet or the member-row
+  // context menu (removeGroupMemberFlow) — no inline row button anymore.
 
   if (isGroup && core.getChatMembers) {
     core.getChatMembers(chat.id).then(members => {
@@ -3790,11 +3798,10 @@ async function showChatInfo(chat) {
         mountMemberList(list, members.map(m => ({ ...m, self: m.self || m.id === 1, avatarUrl: m.avatar ? fileUrl(m.avatar) : null })), {
           rowOptions: m => {
             if (!chat.isP2pGroup) {
-              // #177: admin badge; the admin gets Remove on everyone else.
+              // #177: admin badge only. Removal lives on the member's profile
+              // sheet and the desktop context menu — never a list-level click.
               const badge = caps.isAdminGroup && m.id === chat.groupAdminId ? adminBadgeHtml() : "";
-              const remove = canRemoveMember(chat, m)
-                ? `<button type="button" class="btn-text" data-admin-remove="${escapeAttr(m.id)}" data-name="${escapeAttr(m.name || "?")}" aria-label="${escapeAttr(t("Remove {name}", { name: m.name }))}">${escapeHtml(t("Remove"))}</button>` : "";
-              return badge || remove ? { actionsHtml: badge + remove } : {};
+              return badge ? { actionsHtml: badge } : {};
             }
             const subtitle = (m.self ? t("you") : (m.online ? t("online") : t("offline")) + (m.introduced ? t(" · not paired") : "")) + (m.isCreator ? t(" · admin") : "");
             const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
@@ -3803,7 +3810,11 @@ async function showChatInfo(chat) {
           // showModal replaces this sheet (and reuses its history entry).
           onOpen: chat.isP2pGroup ? null : m => {
             if (m.self) openSelfProfile();
-            else openContactProfile({ contactId: m.id, name: m.name });
+            else openContactProfile({ contactId: m.id, name: m.name, memberOf: chat });
+          },
+          onContextMenu: chat.isP2pGroup ? null : (m, x, y) => {
+            if (!canRemoveMember(chat, m)) return;
+            showContextMenu([{ label: t("Remove from group"), danger: true, onClick: () => removeGroupMemberFlow(chat, m, epoch) }], x, y);
           },
         });
       }

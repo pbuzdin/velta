@@ -1149,6 +1149,11 @@ The chat info sheet carries the per-chat actions:
 
 - **Add members** (groups) — pick contacts from your address book; the
   group is informed automatically.
+- **Remove a member** (groups) — open the member's profile from the
+  Members list, or right-click their row on desktop: the profile carries
+  **Remove from group**, always behind a confirmation naming the person.
+  In regular groups any member may remove another; in admin groups only
+  the admin can.
 - **Members list** (groups) — collapsed behind a "Members (n)" summary;
   each row shows which **relay** the member is on (hover/long-press for
   the full address).

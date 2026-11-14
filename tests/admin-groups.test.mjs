@@ -19,7 +19,7 @@ const { ICON } = await import("../app/js/icons.js");
 const src = f => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
 const group = (groupAdminId = null) => ({ id: 5, kind: "group", groupAdminId });
 
-test("regular groups keep the stock rules: everyone edits, nobody removes others", () => {
+test("regular groups keep the stock rules: everyone edits and may remove others", () => {
   const caps = adminCaps(group(null));
   assert.equal(caps.isAdminGroup, false);
   assert.equal(caps.canEditGroup, true);
@@ -29,7 +29,11 @@ test("regular groups keep the stock rules: everyone edits, nobody removes others
   assert.equal(caps.canRemoveOthers, false);
   assert.equal(caps.canDeleteForAll(1), true);
   assert.equal(caps.canDeleteForAll(7), false, "others' messages stay undeletable for everyone");
-  assert.equal(canRemoveMember(group(null), { id: 7 }), false);
+  // Removal follows the stock Delta Chat rules: any member, never self.
+  assert.equal(canRemoveMember(group(null), { id: 7 }), true);
+  assert.equal(canRemoveMember(group(null), { id: 1 }), false);
+  assert.equal(canRemoveMember(group(null), { id: 7, self: true }), false);
+  assert.equal(canRemoveMember({ id: 5, kind: "group", isP2pGroup: true }, { id: 7 }), false, "local P2P groups keep their own flow");
 });
 
 test("admin group, this account is the admin: full control", () => {
