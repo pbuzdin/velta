@@ -914,6 +914,7 @@ private fun QrView(model: AppModel) {
                         model.inviteLoading -> SideViewEmpty(L.t("Generating QR code…"))
                         model.inviteError != null -> SideViewEmpty("${L.t("Couldn't create the invite:")} ${model.inviteError}")
                         model.inviteLink != null -> {
+                            Spacer(Modifier.size(6.dp)) // web .qr-view gap 12
                             InviteQrCard(model)
                             Text(
                                 model.inviteLink.orEmpty(),
@@ -1625,18 +1626,23 @@ private fun InviteQrCard(model: AppModel) {
     val density = LocalDensity.current
     var boxPx by remember { mutableIntStateOf(0) }
     val wDp = with(density) { boxPx.toDp() }
-    val u = wDp.value / 515f // dp per card unit
+    val u = wDp.value / 630f // dp per card unit — the square box letterboxes the card by height
     val caption = captionLines(
         // Core stock string (SetupContactQRDescription fallback, stock_str.rs:197) —
-        // owned by the core, not a web locale key.
-        "Scan to chat with ${model.inviteName.ifBlank { model.accountAddr ?: "" }}",
+        // owned by the core, not a web locale key. Name chain: displayname →
+        // account addr → the link's a= param (the link demonstrably carries it).
+        "Scan to chat with ${model.inviteName.ifBlank {
+            model.accountAddr ?: linkAddr(model.inviteLink) ?: ""
+        }}",
     )
     val captionFs = if (caption.size <= 2) 27f else 19f
     val captionShift = if (caption.size <= 2) 0f else -10f
-    val letter = model.inviteName.trim().firstOrNull()?.uppercase() ?: "#"
+    val letter = model.inviteName.trim().firstOrNull()?.uppercase()
+        ?: linkAddr(model.inviteLink)?.firstOrNull()?.uppercaseChar()?.toString()
+        ?: "#"
     val discColor = model.inviteColor?.takeIf { it.startsWith("#") }
         ?.let { runCatching { Accent.toColor(it) }.getOrNull() }
-        ?: prismTileColor(model.inviteName.ifBlank { model.accountAddr ?: "?" })
+        ?: prismTileColor(model.inviteName.ifBlank { model.accountAddr ?: linkAddr(model.inviteLink) ?: "?" })
 
     Box(
         Modifier
@@ -1646,11 +1652,10 @@ private fun InviteQrCard(model: AppModel) {
         contentAlignment = Alignment.TopCenter,
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val cardH = size.width * 630f / 515f
-            val cardTop = (size.height - cardH) / 2f
-            val s = size.width / 515f // px per card unit
-            fun cx(x: Float) = x * s
-            fun cy(y: Float) = cardTop + y * s
+            val s = size.width / 630f // px per card unit
+            val cardLeft = (size.width - 515f * s) / 2f
+            fun cx(x: Float) = cardLeft + x * s
+            fun cy(y: Float) = y * s
             // Card: rect x2 y2 511x626 rx40, fill #f2f2f2, stroke #c6c6c6 w2.
             drawRoundRect(
                 Color(0xFFF2F2F2),
@@ -1665,12 +1670,11 @@ private fun InviteQrCard(model: AppModel) {
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(cx(40f)),
                 style = Stroke(width = cx(2f)),
             )
-            // QR group: translate(57.5,255), scale 400/size.
+            // QR group: translate(57.5, 75), scale 400/size (core L203-208).
             if (qr != null) {
-                val qrArea = cx(400f)
-                val cell = qrArea / qr.size
+                val cell = 400f * s / qr.size // SIZE only — cx() includes cardLeft!
                 val qx = cx(57.5f)
-                val qy = cy(255f)
+                val qy = cy(75f)
                 for (y in 0 until qr.size) for (x in 0 until qr.size) {
                     if (qr[x, y]) {
                         drawRect(
@@ -1681,9 +1685,9 @@ private fun InviteQrCard(model: AppModel) {
                     }
                 }
             }
-            // Center identity disc: ring r56.2 #f2f2f2 + disc r47.2.
-            drawCircle(Color(0xFFF2F2F2), radius = cx(56.2f), center = Offset(cx(257.5f), cy(455f)))
-            drawCircle(discColor, radius = cx(47.2f), center = Offset(cx(257.5f), cy(455f)))
+            // Identity disc centered on the QR (core L289-303: center (257.5, 275)).
+            drawCircle(Color(0xFFF2F2F2), radius = cx(56.2f), center = Offset(cx(257.5f), cy(275f)))
+            drawCircle(discColor, radius = cx(47.2f), center = Offset(cx(257.5f), cy(275f)))
         }
         // Caption block (bold, black, centered; first baseline y=515+shift).
         Text(
@@ -1697,16 +1701,17 @@ private fun InviteQrCard(model: AppModel) {
                 .fillMaxWidth()
                 .offset(y = ((515f + captionShift - captionFs * 1.05f) * u).dp),
         )
-        // The white letter on the disc (dominant-baseline central + 6.136 shift).
+        // The white letter on the disc (dominant-baseline central + 6.136 shift →
+        // glyph center at y 278.936, weight 400 per the core).
         Text(
             letter,
             color = Color.White,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Normal,
             fontSize = (61.36f * u).sp,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .offset(y = ((455f + 6.136f - 61.36f * 0.55f) * u).dp),
+                .offset(y = ((278.936f - 61.36f * 0.55f) * u).dp),
         )
         // Footer mark: the core inlines a 198×35 DC wordmark KMP doesn't
         // ship — the Velta mark at the same slot (height 35).
@@ -1714,24 +1719,30 @@ private fun InviteQrCard(model: AppModel) {
             painterResource(Res.drawable.v_logo),
             contentDescription = null,
             modifier = Modifier
-                .offset(y = ((567f - 35f) * u).dp)
+                .offset(y = ((567f - captionShift) * u).dp)
                 .height((35f * u).dp),
             contentScale = ContentScale.Fit,
         )
     }
 }
 
-/** Core textwrap: word-wrap at 32 chars (never mid-word). */
+/** Core textwrap (qr_code_generator.rs L250-257): word-wrap at 38 chars when
+ * the description is longer than 76, else 32. */
 private fun captionLines(text: String): List<String> {
+    val width = if (text.length > 76) 38 else 32
     val lines = mutableListOf<String>()
     for (word in text.split(" ")) {
         val last = lines.lastOrNull()
         if (last == null) lines.add(word)
-        else if (last.length + 1 + word.length <= 32) lines[lines.size - 1] = "$last $word"
+        else if (last.length + 1 + word.length <= width) lines[lines.size - 1] = "$last $word"
         else lines.add(word)
     }
     return lines
 }
+
+/** The `a=` address param of an i.delta.chat invite link (after the #fragment). */
+private fun linkAddr(link: String?): String? =
+    link?.let { Regex("[?&]a=([^&]+)").find(it)?.groupValues?.get(1)?.replace("%40", "@") }
 
 @Composable
 private fun SearchMark() {

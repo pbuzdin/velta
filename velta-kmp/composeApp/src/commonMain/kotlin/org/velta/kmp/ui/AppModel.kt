@@ -226,6 +226,9 @@ class AppModel(
                 inviteName = info?.displayName?.takeIf { it.isNotBlank() }
                     ?: info?.addr?.takeIf { it.isNotBlank() }
                     ?: ""
+                if (inviteName.isBlank()) {
+                    println("velta-kmp: invite card name empty — accountInfo failed or blank (info=${info != null})")
+                }
                 if (inviteColor == null) {
                     inviteColor = runCatching { veltaCore.contact(id, 1).color }.getOrNull()
                 }
