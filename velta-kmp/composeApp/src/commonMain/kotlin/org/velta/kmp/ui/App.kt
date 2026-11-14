@@ -111,6 +111,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -561,6 +564,8 @@ private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> 
                     .weight(1f)
                     .fillMaxWidth()
                     .pointerInput(Unit) {
+                        // Web pull-open: pulling down at the very top reveals
+                        // the relay detail chips.
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                             // Only a pull from the absolute top counts (web
@@ -580,6 +585,34 @@ private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> 
                                 if (pulled > 32.dp.toPx()) {
                                     onPullTop()
                                     break
+                                }
+                            }
+                        }
+                    }
+                    .pointerInput(Unit) {
+                        // #57 follow-up (web app.js:1428-1440): a horizontal
+                        // swipe steps through the category chips — one step per
+                        // gesture, left = next, right = previous.
+                        if (!touchGesturesEnabled) return@pointerInput
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            val x0 = down.position.x
+                            val y0 = down.position.y
+                            var totalX = 0f
+                            var totalY = 0f
+                            var stepped = false
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.changes.none { it.pressed }) break
+                                if (stepped) continue // latch: one step per gesture
+                                totalX += event.changes.maxOf { it.positionChangeIgnoreConsumed().x }
+                                totalY += event.changes.maxOf { it.positionChangeIgnoreConsumed().y }
+                                val step = swipeCategoryStep(totalX, totalY, 48.dp.toPx())
+                                if (step != 0) {
+                                    stepped = true
+                                    val cats = AppModel.CHAT_CATEGORIES
+                                    val next = cats.getOrNull(cats.indexOf(model.chatCategory) + step)
+                                    if (next != null) model.onSetChatCategory(next)
                                 }
                             }
                         }
@@ -2304,6 +2337,13 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     var headPx by remember { mutableIntStateOf(0) }
     var footPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    // Web back-swipe (chat-view.js:5460-5540): dragging the history leftward
+    // slides the pane with the finger; past min(72dp, 28% width) it commits
+    // to the chat list. The .18s slide animations are skipped in Compose —
+    // commit switches the screen, cancel snaps home.
+    val haptics = LocalHapticFeedback.current
+    var backDx by remember { mutableStateOf(0f) }
+    var listWidthPx by remember { mutableStateOf(0) }
     val lens = model.replyTo == null && model.pendingAttachment == null && model.messageActions == null
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(
@@ -2312,7 +2352,53 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         content = {
         val rows = chatRows(model.chatMessages)
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { listWidthPx = it.width }
+                .graphicsLayer { translationX = backDx }
+                .pointerInput(Unit) {
+                    if (!touchGesturesEnabled) return@pointerInput
+                    val engage = 12.dp.toPx()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val x0 = down.position.x
+                        val y0 = down.position.y
+                        var engaged = false
+                        var dx = 0f
+                        var haptic = false
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val cur = event.changes.firstOrNull()?.position
+                            if (event.changes.none { it.pressed } || cur == null) {
+                                if (engaged) {
+                                    // Commit: dragged past min(72dp, 28% width).
+                                    if (dx <= -Math.min(72.dp.toPx(), listWidthPx * 0.28f)) {
+                                        model.backToChatList()
+                                    }
+                                    backDx = 0f
+                                }
+                                break
+                            }
+                            val dxc = cur.x - x0
+                            val dyc = cur.y - y0
+                            if (!engaged) {
+                                if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) break
+                                if (dxc > -engage || Math.abs(dxc) < Math.abs(dyc)) continue
+                                engaged = true
+                            }
+                            dx = dxc.coerceIn(-(listWidthPx.toFloat()), 0f)
+                            backDx = dx
+                            if (dx <= -Math.min(72.dp.toPx(), listWidthPx * 0.28f)) {
+                                if (!haptic) {
+                                    haptic = true
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            } else {
+                                haptic = false
+                            }
+                        }
+                    }
+                },
             state = listState,
             contentPadding = PaddingValues(
                 start = 12.dp,
@@ -3014,6 +3100,11 @@ private fun MessageBubble(
         outgoing -> Color(0xFFCFE0F2)
         else -> Color(0xFF9AA3B5)
     }
+    // Web reply swipe (chat-view.js:3035-3110): drag the bubble rightward —
+    // engages at 12dp, follows the finger up to 64dp, ticks at the 48dp
+    // commit line, and a release past the line opens the reply draft.
+    val haptics = LocalHapticFeedback.current
+    var replyDx by remember(message.id) { mutableStateOf(0f) }
     val quoteName = if (outgoing) tokens.quoteNameOut else tokens.quoteName
     val quoteBg = tokens.bgReply
     // Web .msg-meta: 11.5px in --text-meta-in/--text-meta-out; ticks read
@@ -3042,7 +3133,52 @@ private fun MessageBubble(
                 modifier = Modifier
                     .widthIn(max = 480.dp)
                     .heightIn(min = 20.dp)
-                    .clickable(onClick = onTap),
+                    .graphicsLayer { translationX = replyDx }
+                    .clickable(onClick = onTap)
+                    .pointerInput(message.id) {
+                        if (!touchGesturesEnabled) return@pointerInput
+                        val engage = 12.dp.toPx()
+                        val commit = 48.dp.toPx()
+                        val clamp = 64.dp.toPx()
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val x0 = down.position.x
+                            val y0 = down.position.y
+                            var engaged = false
+                            var dx = 0f
+                            var haptic = false
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val cur = event.changes.firstOrNull()?.position
+                                if (event.changes.none { it.pressed } || cur == null) {
+                                    // Release: past the commit line opens the
+                                    // reply draft (web endReplySwipe(true));
+                                    // either way the bubble springs home.
+                                    if (engaged && dx >= commit) model.startReply(message)
+                                    replyDx = 0f
+                                    break
+                                }
+                                val dxc = cur.x - x0
+                                val dyc = cur.y - y0
+                                if (!engaged) {
+                                    if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) break
+                                    if (dxc < engage || Math.abs(dxc) < Math.abs(dyc)) continue
+                                    engaged = true
+                                }
+                                dx = dxc.coerceIn(0f, clamp)
+                                replyDx = dx
+                                if (dx >= commit) {
+                                    if (!haptic) {
+                                        haptic = true
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                } else {
+                                    haptic = false
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    },
             ) {
                 Column(
                     Modifier.padding(

@@ -6,3 +6,6 @@ import androidx.compose.runtime.Composable
 @Composable
 actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
 }
+
+/** Desktop mice don't swipe (web _mobileGestures gates to coarse pointers). */
+actual val touchGesturesEnabled: Boolean = false

@@ -65,3 +65,14 @@ fun listPreview(item: ChatListItem): String {
             .joinToString(": ")
     }
 }
+
+/**
+ * Web swipeCategoryStep (rpc-core.js:56-59): the #57 category-bar swipe.
+ * A horizontal drag steps +1 (left, toward the next chip) or −1 (right,
+ * previous) once it clears [threshold] px AND dominates the vertical axis
+ * by 1.4× — anything shallower is a scroll, not a swipe. 0 = no step.
+ */
+fun swipeCategoryStep(dx: Float, dy: Float, threshold: Float = 48f): Int {
+    if (Math.abs(dx) < threshold || Math.abs(dx) < Math.abs(dy) * 1.4f) return 0
+    return if (dx < 0) 1 else -1
+}

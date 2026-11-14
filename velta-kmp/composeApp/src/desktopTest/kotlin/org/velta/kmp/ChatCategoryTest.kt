@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.velta.kmp.core.ChatListItem
+import org.velta.kmp.ui.swipeCategoryStep
 import org.velta.kmp.ui.chatCategoryOf
 import org.velta.kmp.ui.chatIsUnread
 import org.velta.kmp.ui.chatKindOf
@@ -98,5 +99,17 @@ class ChatCategoryTest {
         assertEquals("🎤 Voice message", listPreview(ChatListItem(lastMessageType = "Voice")))
         assertEquals("🎬 Video", listPreview(ChatListItem(lastMessageType = "Video")))
         assertEquals("📎 File", listPreview(ChatListItem(lastMessageType = "File")))
+    }
+
+    @Test
+    fun categorySwipeSteps() {
+        // Web swipeCategoryStep: 48px threshold, horizontal must dominate
+        // vertical by 1.4x; left = next (+1), right = previous (-1).
+        assertEquals(1, swipeCategoryStep(-60f, 0f))
+        assertEquals(-1, swipeCategoryStep(60f, 0f))
+        assertEquals(0, swipeCategoryStep(-40f, 0f), "below threshold")
+        assertEquals(0, swipeCategoryStep(-60f, 50f), "vertical competition above 1.4x")
+        assertEquals(1, swipeCategoryStep(-60f, 30f), "still horizontal-dominant")
+        assertEquals(0, swipeCategoryStep(0f, -120f), "pure vertical scroll")
     }
 }
