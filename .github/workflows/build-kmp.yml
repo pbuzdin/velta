@@ -53,10 +53,17 @@ jobs:
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TC/x86_64-linux-android24-clang"
           cargo build --release \
             --target aarch64-linux-android --target x86_64-linux-android
-          "$TC/llvm-strip" \
+          "$TC/llvm-strip" --strip-all \
             target/aarch64-linux-android/release/libvelta_rpc_shim.so
-          "$TC/llvm-strip" \
+          "$TC/llvm-strip" --strip-all \
             target/x86_64-linux-android/release/libvelta_rpc_shim.so
+          # Fail if any debug info or symbol table survived; log the sizes.
+          for so in target/*-linux-android/release/libvelta_rpc_shim.so; do
+            if "$TC/llvm-readelf" -S -W "$so" | grep -E '\.(debug_|symtab)'; then
+              echo "::error::$so still carries debug sections"; exit 1
+            fi
+            echo "$so: $(stat -c %s "$so") bytes" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
 
       # Laid out as jniLibs/<abi>/ so the APK job can drop it in as-is.
       - name: Stage jniLibs
@@ -121,7 +128,7 @@ jobs:
         run: ./gradlew :composeApp:assembleDebug --no-daemon --stacktrace
 
       # Fail the run instead of shipping an APK without the core: every
-      # split must carry its ABI's .so, the universal one both.
+      # split must carry its ABI's .so.
       - name: Verify the core is in every APK
         working-directory: velta-kmp/composeApp/build/outputs/apk/debug
         run: |
@@ -130,19 +137,24 @@ jobs:
           check() { unzip -l "$1" | grep -q "lib/$2/libvelta_rpc_shim.so" || { echo "::error::$1 lacks lib/$2/libvelta_rpc_shim.so"; exit 1; }; }
           check composeApp-arm64-v8a-debug.apk arm64-v8a
           check composeApp-x86_64-debug.apk x86_64
-          check composeApp-universal-debug.apk arm64-v8a
-          check composeApp-universal-debug.apk x86_64
-          for apk in *.apk; do echo "== $apk"; unzip -l "$apk" | grep libvelta_rpc_shim.so; done
+          for apk in *.apk; do echo "== $apk $(stat -c %s "$apk") bytes" | tee -a "$GITHUB_STEP_SUMMARY"; unzip -l "$apk" | grep libvelta_rpc_shim.so; done
           VC=$(grep -o '"versionCode": *[0-9]*' output-metadata.json | head -1 | grep -o '[0-9]*$')
           echo "versionCode $VC" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload debug APKs
+      # Phones: arm64 on its own, small download (#334). x86_64 is for
+      # emulators. No universal APK any more.
+      - name: Upload arm64 APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: velta-kmp-debug-apk
-          path: |
-            velta-kmp/composeApp/build/outputs/apk/debug/*.apk
-            velta-kmp/composeApp/build/outputs/apk/debug/output-metadata.json
+          name: velta-kmp-arm64-apk
+          path: velta-kmp/composeApp/build/outputs/apk/debug/composeApp-arm64-v8a-debug.apk
+          if-no-files-found: error
+
+      - name: Upload x86_64 APK (emulators)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: velta-kmp-x86_64-apk
+          path: velta-kmp/composeApp/build/outputs/apk/debug/composeApp-x86_64-debug.apk
           if-no-files-found: error
 
       - name: Build desktop distribution
