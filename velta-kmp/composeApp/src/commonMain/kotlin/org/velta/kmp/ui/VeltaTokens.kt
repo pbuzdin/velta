@@ -42,8 +42,12 @@ data class VeltaTokens(
     val accentTextIn: Color,
     /** ink on accent fills */
     val onAccent: Color,
+    /** ink on active category chips */
+    val onAccentChip: Color,
     /** unread badge ink */
     val onBadge: Color,
+    /** muted unread badge ink */
+    val onBadgeMuted: Color,
     /** keyboard focus outline */
     val focusRing: Color,
     /** body ink */
@@ -113,7 +117,9 @@ object VeltaTokenSets {
         accentText = Color(0xFF5AA2E6), // var(--accent)
         accentTextIn = Color(0xFF5AA2E6), // var(--accent)
         onAccent = Color(0xFF10131A), // #10131a
+        onAccentChip = Color(0xFF10131A), // #10131a
         onBadge = Color(0xFF10131A), // #10131a
+        onBadgeMuted = Color(0xFF10131A), // #10131a
         focusRing = Color(0xFF5AA2E6), // var(--accent)
         text = Color(0xFFF2F2F5), // #f2f2f5
         textDim = Color(0xFF8B8B96), // #8b8b96
@@ -157,7 +163,9 @@ object VeltaTokenSets {
         accentText = Color(0xFF1A68B8), // #1a68b8
         accentTextIn = Color(0xFF1A68B8), // #1a68b8
         onAccent = Color(0xFF10131A), // #10131a
+        onAccentChip = Color(0xFF10131A), // #10131a
         onBadge = Color(0xFF10131A), // #10131a
+        onBadgeMuted = Color(0xFFF4F4F4), // #f4f4f4
         focusRing = Color(0xFF1A68B8), // #1a68b8
         text = Color(0xFF16181D), // #16181d
         textDim = Color(0xFF5D626D), // #5d626d
@@ -201,7 +209,9 @@ object VeltaTokenSets {
         accentText = Color(0xFFA99CF5), // #a99cf5
         accentTextIn = Color(0xFF4FD1C5), // var(--accent-2)
         onAccent = Color(0xFF10131A), // #10131a
+        onAccentChip = Color(0xFF10131A), // #10131a
         onBadge = Color(0xFF10131A), // #10131a
+        onBadgeMuted = Color(0xFF10131A), // #10131a
         focusRing = Color(0xFFA99CF5), // var(--accent-text)
         text = Color(0xFFF2F0E9), // #f2f0e9
         textDim = Color(0xFFA3A0AD), // #a3a0ad
@@ -245,7 +255,9 @@ object VeltaTokenSets {
         accentText = Color(0xFF5AA2E6), // var(--accent)
         accentTextIn = Color(0xFF5AA2E6), // var(--accent)
         onAccent = Color(0xFF10131A), // #10131a
+        onAccentChip = Color(0xFF10131A), // #10131a
         onBadge = Color(0xFF10131A), // #10131a
+        onBadgeMuted = Color(0xFF10131A), // #10131a
         focusRing = Color(0xFF5AA2E6), // var(--accent)
         text = Color(0xFFF2F2F5), // #f2f2f5
         textDim = Color(0xFF8B8B96), // #8b8b96
