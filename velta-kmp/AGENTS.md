@@ -419,6 +419,15 @@ never run Gradle on the Windows side.
   each JNI `startCore` would spawn a second core on the same accounts dir,
   while the shim itself is a long-lived accept-loop server that survives
   client disconnects — the port stays valid for reconnects.
+- Shim auth (#334): loopback is open to every app on the device, so
+  `startCoreOnce` mints a per-launch token (`ShimAuth.newToken()`, 32
+  SecureRandom bytes as hex, memory only) and passes it to JNI
+  `startCore(dir, dbKey, token)`. `SocketRpcTransport` writes it as the
+  FIRST line; the shim drops any connection whose first line isn't the
+  token (constant-time compare, 256-byte cap, 5 s timeout) before reading
+  an RPC line or writing a byte, and refuses to start (-4) with a token
+  under 32 chars. Pinned by the shim's `cargo test` and `ShimAuthTest`.
+  Never log or persist the token.
 - Message-event bursts are coalesced: `MsgsChanged`/`IncomingMsg`/
   `MsgsNoticed`/`MsgDelivered` mark chats dirty and flush ONE list/chat
   reload 200 ms after the burst started (the model scope is

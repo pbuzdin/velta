@@ -41,12 +41,12 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
             // Keystore wrap; null → "" runs keyless, which leaves
             // already-encrypted databases locked instead of recreating them.
             val dbKey = VeltaKeystore.getOrCreateDek(context) ?: ""
-            val port = RpcShim.startCoreOnce(accountsDir, dbKey)
-            if (port <= 0) {
-                println("velta-kmp: shim failed to start the core (port=$port)")
+            val shim = RpcShim.startCoreOnce(accountsDir, dbKey)
+            if (shim.port <= 0) {
+                println("velta-kmp: shim failed to start the core (port=${shim.port})")
                 null
             } else {
-                SocketRpcTransport("127.0.0.1", port)
+                SocketRpcTransport("127.0.0.1", shim.port, shim.authToken)
             }
         } catch (t: Throwable) {
             println("velta-kmp: shim start threw: $t")
@@ -73,12 +73,12 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
             return null
         }
         return try {
-            val port = RpcShim.startCoreOnce(accountsDir, dbKey)
-            if (port <= 0) {
-                println("velta-kmp: shim failed to start the core (port=$port)")
+            val shim = RpcShim.startCoreOnce(accountsDir, dbKey)
+            if (shim.port <= 0) {
+                println("velta-kmp: shim failed to start the core (port=${shim.port})")
                 null
             } else {
-                SocketRpcTransport("127.0.0.1", port)
+                SocketRpcTransport("127.0.0.1", shim.port, shim.authToken)
             }
         } catch (t: Throwable) {
             println("velta-kmp: shim start threw: $t")

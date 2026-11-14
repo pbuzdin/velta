@@ -7,11 +7,26 @@ import kotlin.concurrent.thread
 /**
  * JSON Lines transport over a TCP socket — the Android in-process shim
  * (libvelta_rpc_shim) serves the deltachat JSON-RPC surface on 127.0.0.1.
+ *
+ * [authToken] (#334) is written as the very first line, before any RPC
+ * request: the shim drops connections that don't open with it.
  */
-class SocketRpcTransport(host: String, port: Int) : RpcTransport {
+class SocketRpcTransport(host: String, port: Int, authToken: String) : RpcTransport {
 
     private val socket = Socket(host, port)
     private val output = socket.getOutputStream()
+
+    init {
+        try {
+            synchronized(output) {
+                output.write((authToken + "\n").toByteArray(Charsets.UTF_8))
+                output.flush()
+            }
+        } catch (t: Throwable) {
+            close()
+            throw t
+        }
+    }
 
     override fun start(onLine: (String) -> Unit, onExit: () -> Unit) {
         thread(name = "rpc-socket", isDaemon = true) {
