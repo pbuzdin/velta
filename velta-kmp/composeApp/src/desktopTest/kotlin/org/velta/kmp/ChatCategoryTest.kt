@@ -85,13 +85,18 @@ class ChatCategoryTest {
             "a: b",
             listPreview(ChatListItem(summaryText1 = "a", summaryText2 = "b")),
         )
-        assertEquals("📷 Photo", listPreview(ChatListItem(lastMessageType = "Image")))
-        assertEquals("📷 caption", listPreview(ChatListItem(lastMessageType = "Gif", summaryText2 = "caption")))
+        // Core's summaryText2 already embeds the media emoji (summary.rs
+        // get_summary_text_ext, add_type_emoji) — pass through unchanged;
+        // a re-prefix showed one received photo as "📷 📷 caption".
+        assertEquals("📷 help", listPreview(ChatListItem(lastMessageType = "Image", summaryText2 = "📷 help")))
+        assertEquals("📷 Image", listPreview(ChatListItem(lastMessageType = "Image", summaryText2 = "📷 Image")))
+        assertEquals("caption", listPreview(ChatListItem(lastMessageType = "Gif", summaryText2 = "caption")))
+        assertEquals("doc.pdf", listPreview(ChatListItem(lastMessageType = "File", summaryText2 = "doc.pdf")))
+        assertEquals("sticker", listPreview(ChatListItem(lastMessageType = "Sticker", summaryText2 = "sticker")))
+        // Empty media summaries fall back to the web's defaults (with emoji).
+        assertEquals("📷 Photo", listPreview(ChatListItem(lastMessageType = "Image", summaryText2 = "")))
         assertEquals("🎤 Voice message", listPreview(ChatListItem(lastMessageType = "Voice")))
         assertEquals("🎬 Video", listPreview(ChatListItem(lastMessageType = "Video")))
-        assertEquals("📎 doc.pdf", listPreview(ChatListItem(lastMessageType = "File", summaryText2 = "doc.pdf")))
-        assertEquals("sticker", listPreview(ChatListItem(lastMessageType = "Sticker", summaryText2 = "sticker")))
-        // Empty media captions fall back to the web's defaults.
-        assertEquals("📷 Photo", listPreview(ChatListItem(lastMessageType = "Image", summaryText2 = "")))
+        assertEquals("📎 File", listPreview(ChatListItem(lastMessageType = "File")))
     }
 }

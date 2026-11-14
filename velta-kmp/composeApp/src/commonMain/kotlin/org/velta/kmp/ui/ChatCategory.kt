@@ -45,15 +45,20 @@ fun summaryStateOf(state: Int): String = when (state) {
 
 /**
  * Web _mapChatListItem's lastMsg: summaryText1/summaryText2 joined ": ",
- * with media-type emoji prefixes (📷/🎤/🎬/📎) riding lastMessageType.
+ * and for media types the core's summaryText2 passed through UNCHANGED —
+ * it already embeds the type emoji ("📷 Photo"/"📷 caption", "🎥 Video",
+ * "📎 file – text" — core summary.rs get_summary_text_ext with
+ * add_type_emoji). Prepending another emoji here showed one received
+ * photo as "📷 📷 caption" (web rpc-core.js _mapChatListItem carries the
+ * same no-re-prefix comment).
  */
 fun listPreview(item: ChatListItem): String {
     val t2 = item.summaryText2
     return when (item.lastMessageType) {
-        "Image", "Gif" -> "📷 " + (t2.ifBlank { "Photo" })
-        "Voice", "Audio" -> "🎤 " + (t2.ifBlank { "Voice message" })
-        "Video" -> "🎬 " + (t2.ifBlank { "Video" })
-        "File" -> "📎 " + (t2.ifBlank { "File" })
+        "Image", "Gif" -> t2.ifBlank { "📷 Photo" }
+        "Voice", "Audio" -> t2.ifBlank { "🎤 Voice message" }
+        "Video" -> t2.ifBlank { "🎬 Video" }
+        "File" -> t2.ifBlank { "📎 File" }
         "Sticker" -> t2.ifBlank { "Sticker" }
         else -> listOf(item.summaryText1, item.summaryText2)
             .filter { it.isNotBlank() }
