@@ -28,6 +28,14 @@ class AppModel(
     private val scope: CoroutineScope,
 ) {
     companion object {
+        /** Unique per account + chat (#334): the Android notification tag. */
+        fun notificationKey(accountId: Long, chatId: Long): String = "velta:$accountId:$chatId"
+
+        /** Incoming states the core still counts as unread
+         * (core message.rs: 10 InFresh, 13 InNoticed; 16 = InSeen). */
+        fun isUnseenIncoming(m: MessageObject): Boolean =
+            m.fromId > 1L && !m.isInfo && (m.state == 10 || m.state == 13)
+
         /** Messages fetched per page in the chat view (#223). */
         const val MESSAGE_PAGE_SIZE = 200
 
@@ -381,8 +389,20 @@ class AppModel(
      * desktop. */
     var notifier: IncomingNotifier? = null
 
-    /** Set from a notification tap; consumed when the chat list lands. */
-    var pendingOpenChatId: Long? = null
+    /** A notification tap: which account + chat to open once the core and
+     * the chat list are up (#334). */
+    data class PendingOpen(val accountId: Long?, val chatId: Long)
+
+    private var pendingOpen: PendingOpen? = null
+
+    /** True while an activity is visible (Android onStart/onStop; desktop
+     * stays true). Notifications are suppressed ONLY for the chat on screen
+     * while this is true, and read receipts only go out while it is true. */
+    var appInForeground by mutableStateOf(true)
+        private set
+
+    /** Message ids already sent to markseen_msgs in this session. */
+    private val seenSent = HashSet<Long>()
 
     /** Peer fingerprint hex per 1:1 chat id (identity matrix tiles); filled
      * asynchronously after the list lands. */
@@ -799,6 +819,7 @@ class AppModel(
             screen = Screen.ChatList
             refreshRelayLine()
             status = "resumed ${account.addr ?: ""}".trim()
+            consumePendingOpen()
         } else {
             status = "connected"
             screen = Screen.Login
@@ -840,9 +861,12 @@ class AppModel(
         scope.launch { loadChats() }
     }
 
-    /** Platform hook contract: one notification per chat, latest text. */
-    fun interface IncomingNotifier {
-        fun notifyIncoming(chatId: Long, chatName: String, text: String)
+    /** Platform hook contract: one notification per (account, chat), latest
+     * text; keyed by [notificationKey] so chats of different accounts never
+     * replace each other. */
+    interface IncomingNotifier {
+        fun notifyIncoming(accountId: Long, chatId: Long, chatName: String, text: String)
+        fun cancel(accountId: Long, chatId: Long)
     }
 
     private suspend fun loadChats() {
@@ -857,10 +881,6 @@ class AppModel(
                 compareByDescending<ChatListItem> { it.isPinned }
                     .thenByDescending { it.lastUpdated ?: 0L },
             )
-            pendingOpenChatId?.let { wanted ->
-                chats.firstOrNull { it.id == wanted }?.let { openChat(it) }
-                pendingOpenChatId = null
-            }
             scope.launch { loadIdentities(id, items) }
             // Archived count for the list-end link row (web getChatListIds archived:true).
             loadArchivedChats()
@@ -1021,6 +1041,7 @@ class AppModel(
 
     fun openChat(item: ChatListItem) {
         screen = Screen.Chat(item.id, item.name, item.isGroup)
+        accountId?.let { notifier?.cancel(it, item.id) }
         composerText = ""
         replyTo = null
         sendError = null
@@ -1267,26 +1288,30 @@ class AppModel(
     fun switchAccount(id: Long) {
         val veltaCore = core
         if (veltaCore == null) return
-        scope.launch {
-            try {
-                veltaCore.selectAccount(id)
-            } catch (t: Throwable) {
-                println("velta-kmp: selectAccount failed: $t")
-            }
-            accountId = id
-            composerText = ""
-            replyTo = null
-            pendingAttachment = null
-            messageActions = null
-            sendError = null
-            try {
-                accountAddr = veltaCore.accountInfo(id).addr
-            } catch (t: Throwable) {
-                println("velta-kmp: accountInfo failed: $t")
-            }
-            loadChats()
-            screen = Screen.ChatList
+        scope.launch { switchAccountNow(veltaCore, id) }
+    }
+
+    private suspend fun switchAccountNow(veltaCore: VeltaCore, id: Long) {
+        // Message ids are per-account databases: forget what was marked.
+        synchronized(seenSent) { seenSent.clear() }
+        try {
+            veltaCore.selectAccount(id)
+        } catch (t: Throwable) {
+            println("velta-kmp: selectAccount failed: $t")
         }
+        accountId = id
+        composerText = ""
+        replyTo = null
+        pendingAttachment = null
+        messageActions = null
+        sendError = null
+        try {
+            accountAddr = veltaCore.accountInfo(id).addr
+        } catch (t: Throwable) {
+            println("velta-kmp: accountInfo failed: $t")
+        }
+        loadChats()
+        screen = Screen.ChatList
     }
 
     /** "Add account" from the switcher → the login screen (login() reuses/creates). */
@@ -1691,11 +1716,19 @@ class AppModel(
     private val reloadLock = Any()
     private val dirtyChatIds = HashSet<Long>()
     private var dirtyAllChats = false
+    private var dirtyList = false
+    private var dirtyHead = false
     private var reloadJob: Job? = null
 
-    private fun scheduleChatReload(chatId: Long?) {
+    /** [chatId] null = every chat (core uses 0 / absent for "many"). */
+    private fun scheduleChatReload(chatId: Long?, listOnly: Boolean = false, head: Boolean = false) {
         synchronized(reloadLock) {
-            if (chatId == null) dirtyAllChats = true else dirtyChatIds += chatId
+            when {
+                listOnly -> dirtyList = true
+                chatId == null -> dirtyAllChats = true
+                else -> dirtyChatIds += chatId
+            }
+            if (head) dirtyHead = true
             if (reloadJob == null) {
                 reloadJob = scope.launch { flushReloads() }
             }
@@ -1704,54 +1737,162 @@ class AppModel(
 
     private suspend fun flushReloads() {
         delay(200)
-        val (ids, all) = synchronized(reloadLock) {
-            val snapshot = dirtyChatIds.toSet()
+        val snapshot = synchronized(reloadLock) {
+            val s = ReloadSnapshot(dirtyChatIds.toSet(), dirtyAllChats, dirtyList, dirtyHead)
             dirtyChatIds.clear()
-            val allChats = dirtyAllChats
             dirtyAllChats = false
+            dirtyList = false
+            dirtyHead = false
             reloadJob = null
-            snapshot to allChats
+            s
         }
         when (val current = screen) {
-            is Screen.Chat -> if (all || current.chatId in ids) {
-                loadMessages(current.chatId, current.isGroup)
+            is Screen.Chat -> {
+                if (snapshot.all || current.chatId in snapshot.ids) {
+                    loadMessages(current.chatId, current.isGroup)
+                }
+                if (snapshot.head) refreshOpenChatHead(current)
             }
-            Screen.ChatList -> if (all || ids.isNotEmpty()) loadChats()
+            Screen.ChatList -> if (snapshot.all || snapshot.ids.isNotEmpty() || snapshot.list) loadChats()
             else -> {}
         }
     }
 
-    private suspend fun handleEvent(event: CoreEvent) {
+    private data class ReloadSnapshot(val ids: Set<Long>, val all: Boolean, val list: Boolean, val head: Boolean)
+
+    /** Name/avatar/member changes of the open chat: re-read its list item. */
+    private suspend fun refreshOpenChatHead(current: Screen.Chat) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val item = runCatching { veltaCore.chatlistItems(id, listOf(current.chatId)).firstOrNull() }
+            .getOrNull() ?: return
+        if ((screen as? Screen.Chat)?.chatId != current.chatId) return
+        if (item.name != current.title) screen = current.copy(title = item.name)
+        loadChatHead(item)
+    }
+
+    /**
+     * Live updates (#334). Events carry the ACCOUNT in `contextId`: only the
+     * account on screen reloads UI; every account notifies. chatId 0/absent
+     * means "many chats".
+     */
+    internal suspend fun handleEvent(event: CoreEvent) {
+        val eventAccount = event.accountId ?: accountId
+        val forCurrent = eventAccount == accountId
+        val chatId = event.chatId()?.takeIf { it > 0L }
         when (event.kind) {
-            "ConnectivityChanged" -> refreshRelayLine()
+            "ConnectivityChanged" -> if (forCurrent) refreshRelayLine()
             "ConfigureProgress" -> {
                 val comment = event.event?.get("comment")?.toString()?.trim('"')
                 if (!comment.isNullOrBlank()) loginProgress = comment
             }
-            "MsgsChanged", "IncomingMsg", "MsgsNoticed", "MsgDelivered" -> {
-                val chatId = event.chatId()
-                scheduleChatReload(chatId)
-                if (event.kind == "IncomingMsg" && chatId != null) {
-                    notifyIncoming(chatId, event)
-                }
+            "IncomingMsg" -> {
+                if (forCurrent) scheduleChatReload(chatId)
+                if (eventAccount != null && chatId != null) notifyIncoming(eventAccount, chatId, event)
             }
-            "CallEnded" -> event.chatId()?.let { recordCallEnded(it) }
+            "MsgsNoticed" -> {
+                // Read here or on another device: the notification is stale.
+                if (eventAccount != null && chatId != null) notifier?.cancel(eventAccount, chatId)
+                if (forCurrent) scheduleChatReload(chatId)
+            }
+            "MsgsChanged", "MsgDelivered", "MsgFailed", "MsgRead", "MsgReadCountChanged",
+            "MsgDeleted", "ReactionsChanged", "IncomingReaction", "ChatEphemeralTimerModified",
+            -> if (forCurrent) scheduleChatReload(chatId)
+            "ChatModified" -> if (forCurrent) {
+                scheduleChatReload(chatId, head = chatId != null && (screen as? Screen.Chat)?.chatId == chatId)
+                scheduleChatReload(null, listOnly = true)
+            }
+            "ChatlistItemChanged" -> if (forCurrent) {
+                if (chatId == null) scheduleChatReload(null, listOnly = true) else scheduleChatReload(chatId)
+            }
+            "ChatlistChanged" -> if (forCurrent) scheduleChatReload(null, listOnly = true)
+            "ContactsChanged", "IncomingMsgBunch" -> if (forCurrent) {
+                // Names/avatars may change in any chat (sender names are
+                // re-resolved on every group load; the head re-reads).
+                scheduleChatReload(null, head = event.kind == "ContactsChanged")
+            }
+            "CallEnded" -> if (forCurrent) chatId?.let { recordCallEnded(it) }
         }
     }
 
-    /** Conversation notification for an incoming message — skipped while the
-     * user is looking at that chat, and for muted chats. */
-    private suspend fun notifyIncoming(chatId: Long, event: CoreEvent) {
+    /** Conversation notification for an incoming message — skipped only for
+     * the chat on screen while the app is in the foreground, and for muted
+     * chats. Works for every account, not just the one on screen. */
+    private suspend fun notifyIncoming(eventAccount: Long, chatId: Long, event: CoreEvent) {
         val current = screen
-        if (current is Screen.Chat && current.chatId == chatId) return
-        val item = chats.firstOrNull { it.id == chatId }
+        if (appInForeground && eventAccount == accountId && current is Screen.Chat && current.chatId == chatId) return
+        val n = notifier ?: return
+        val veltaCore = core ?: return
+        val item = runCatching { veltaCore.chatlistItems(eventAccount, listOf(chatId)).firstOrNull() }.getOrNull()
         if (item?.isMuted == true) return
+        val msgId = event.event?.get("msgId")?.toString()?.trim('"')?.toLongOrNull()
+        val text = msgId?.let { mid ->
+            runCatching { veltaCore.messages(eventAccount, listOf(mid)).firstOrNull()?.text }.getOrNull()
+        } ?: ""
+        val fallback = L.t("New message")
+        n.notifyIncoming(eventAccount, chatId, item?.name?.ifBlank { null } ?: fallback, text.ifBlank { fallback })
+    }
+
+    // ---- Foreground + read receipts + notification taps (#334) ----
+
+    /** Android onStart/onStop. Coming back with a chat open re-reads it so
+     * the visible rows get marked seen and its notification goes away. */
+    fun onAppForeground(visible: Boolean) {
+        appInForeground = visible
+        if (!visible) return
+        val current = screen as? Screen.Chat ?: return
+        accountId?.let { notifier?.cancel(it, current.chatId) }
+        loadMessages(current.chatId, current.isGroup)
+    }
+
+    /**
+     * The chat view reports the message ids on screen; unseen incoming ones
+     * go to markseen_msgs (read receipts, IMAP \Seen) — once each, only
+     * while the app is visible and that chat is open (web markSeen).
+     */
+    fun onMessagesVisible(ids: Collection<Long>) {
+        val current = screen as? Screen.Chat ?: return
         val veltaCore = core ?: return
         val id = accountId ?: return
-        val msgId = event.event?.get("msgId")?.toString()?.trim('"')?.toLongOrNull()
-            ?: event.event?.get("msg_id")?.toString()?.trim('"')?.toLongOrNull()
-        val text = msgId?.let { mid -> veltaCore.messages(id, listOf(mid)).firstOrNull()?.text } ?: ""
-        notifier?.notifyIncoming(chatId, item?.name ?: "New message", text.ifBlank { "New message" })
+        if (!appInForeground || ids.isEmpty()) return
+        val wanted = ids.toSet()
+        val fresh = chatMessages.filter { it.id in wanted && it.chatId == current.chatId && isUnseenIncoming(it) }
+            .map { it.id }
+            .filter { synchronized(seenSent) { seenSent.add(it) } }
+        if (fresh.isEmpty()) return
+        scope.launch {
+            try {
+                veltaCore.markseenMsgs(id, fresh)
+            } catch (t: Throwable) {
+                synchronized(seenSent) { seenSent.removeAll(fresh.toSet()) }
+                println("velta-kmp: markseen failed: $t")
+            }
+        }
+    }
+
+    /** A notification tap: open [chatId] of [accountId] (switching account
+     * if needed) now, or as soon as the core + chat list are up. */
+    fun openFromNotification(accountId: Long?, chatId: Long) {
+        if (chatId <= 0L) return
+        pendingOpen = PendingOpen(accountId, chatId)
+        if (connected && this.accountId != null && screen != Screen.Login) consumePendingOpen()
+    }
+
+    private fun consumePendingOpen() {
+        val wanted = pendingOpen ?: return
+        val veltaCore = core ?: return
+        pendingOpen = null
+        scope.launch {
+            val current = accountId
+            if (wanted.accountId != null && wanted.accountId != current) {
+                switchAccountNow(veltaCore, wanted.accountId)
+            }
+            val id = accountId ?: return@launch
+            val item = chats.firstOrNull { it.id == wanted.chatId }
+                ?: archivedChats.firstOrNull { it.id == wanted.chatId }
+                ?: runCatching { veltaCore.chatlistItems(id, listOf(wanted.chatId)).firstOrNull() }.getOrNull()
+            if (item != null) openChat(item) else println("velta-kmp: notification chat ${wanted.chatId} not found")
+        }
     }
 
     private fun CoreEvent.chatId(): Long? =

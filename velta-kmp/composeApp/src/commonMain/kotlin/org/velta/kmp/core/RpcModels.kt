@@ -177,11 +177,16 @@ data class CoreQr(
 
 /**
  * Core event as returned by the long-poll `get_next_event`:
- * `{accountId, event: {kind, ...}}` — the inner event is kept raw; consumers
+ * `{contextId, event: {kind, ...}}` — the inner event is kept raw; consumers
  * match on `kind` (ConfigureProgress, MsgsChanged, IncomingMsg, …).
+ * `contextId` is the ACCOUNT id (deltachat-jsonrpc events.rs) — #334: it
+ * was read as `accountId`, never matched the wire, and was always null.
  */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Serializable
 data class CoreEvent(
+    @kotlinx.serialization.SerialName("contextId")
+    @kotlinx.serialization.json.JsonNames("accountId")
     val accountId: Long? = null,
     val event: kotlinx.serialization.json.JsonObject? = null,
 ) {

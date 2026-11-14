@@ -83,9 +83,14 @@ for the per-phase ledger and what's left.
 - **Profile** — the contact sheet: fingerprint identity matrix (or Prism
   tile), media counts, profile key, last seen, notifications and
   disappearing-messages state, block/unblock.
-- **Notifications** — per-chat conversation cards on a Messages channel;
-  muted chats and the on-screen chat are skipped; tap deep-opens the
-  chat. (Background delivery still needs the relay-side UnifiedPush
+- **Notifications** — one conversation card per account + chat on a
+  Messages channel, for every account (events route by `contextId`);
+  muted chats are skipped, and the open chat only while the app is
+  visible; cards clear when the chat is opened or read elsewhere; a tap
+  switches to the right account and opens the chat. Visible unseen
+  messages get `markseen_msgs` (read receipts). Read/delivered/failed,
+  reactions, chat and contact changes and chat-list events update live
+  (#334). (Background delivery still needs the relay-side UnifiedPush
   notifier.)
 - **Look** — `VeltaTheme` built from tokens generated from Velta
   stable's `app/css/main.css` (#318): dark, light, brutal and AMOLED,
