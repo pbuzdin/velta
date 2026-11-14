@@ -2456,17 +2456,50 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = { model.backToChatList() }) { Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
-                Text(
-                    chat.title,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (!chat.isGroup) {
-                    TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) { Icon(VeltaIcons.info, contentDescription = L.t("Info"), modifier = Modifier.size(24.dp), tint = Velta.tokens.textDim) }
+                // Web velta-chat-head: avatar + name + status line; the whole
+                // info zone opens the chat profile (web chat menu ≈ KMP Profile).
+                val head = model.chatHead
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { model.openProfile(chat.chatId, chat.title) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AvatarTile(
+                        name = chat.title,
+                        colorHex = head?.colorHex,
+                        kind = head?.kind ?: "single",
+                        size = 42.dp,
+                        identityFpr = head?.fingerprint,
+                        avatarPath = head?.avatarPath,
+                    )
+                    Spacer(Modifier.size(10.dp))
+                    Column {
+                        Text(
+                            chat.title,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Velta.tokens.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        chatHeadStatus(head)?.let { status ->
+                            Text(
+                                status,
+                                fontSize = 13.sp,
+                                color = Velta.tokens.textDim,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
                 if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
-                Spacer(Modifier.size(8.dp))
+                TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) {
+                    Icon(VeltaIcons.dotsVertical, contentDescription = L.t("Chat menu"), modifier = Modifier.size(22.dp), tint = Velta.tokens.text)
+                }
             }
             }
         }
@@ -2491,6 +2524,24 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         }
         },
     )
+}
+
+/** Web velta-chat-head statusLine: per-kind subtitle under the name.
+ *  Typing indicators ride #332; the online flag has no KMP contact field. */
+private fun chatHeadStatus(head: AppModel.ChatHead?): String? {
+    head ?: return null
+    return when (head.kind) {
+        "saved" -> L.t("your personal space")
+        "device" -> L.t("local device messages")
+        "group" -> head.memberCount?.let { n -> L.t("{n} members").replace("{n}", n.toString()) }
+        "channel" -> head.memberCount?.let { n -> L.t("{n} subscribers").replace("{n}", n.toString()) }
+        else -> when {
+            head.isBot -> L.t("bot")
+            (head.lastSeen ?: 0L) > 0L ->
+                L.t("last seen {when}").replace("{when}", relativeLastSeen(head.lastSeen ?: 0L))
+            else -> null
+        }
+    }
 }
 
 /** Group messages by local calendar date, inserting a header where the day changes. */

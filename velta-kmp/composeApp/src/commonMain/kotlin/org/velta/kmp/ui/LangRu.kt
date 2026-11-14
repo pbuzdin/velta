@@ -26,6 +26,7 @@ internal object LangRu {
         "Calls you ended on this device (kept locally — the core stores no call log)" to "Звонки, завершённые на этом устройстве (хранятся локально — ядро не ведёт журнал звонков)",
         "Camera" to "Камера",
         "Cancel" to "Отмена",
+        "Chat menu" to "Меню чата",
         "Chats" to "Чаты",
         "Close" to "Закрыть",
         "Contact request:" to "Запрос на контакт:",
@@ -38,7 +39,6 @@ internal object LangRu {
         "File" to "Файл",
         "Generating QR code…" to "Создание QR-кода…",
         "Group name" to "Название группы",
-        "Info" to "Сведения",
         "Join" to "Войти",
         "Join chat via invite link" to "Войти по ссылке-приглашению",
         "Language" to "Язык",
@@ -95,6 +95,12 @@ internal object LangRu {
         "Voice message" to "Голосовое сообщение",
         "Welcome to Velta" to "Добро пожаловать в Velta",
         "Your QR code" to "Ваш QR-код",
+        "bot" to "бот",
+        "last seen {when}" to "был(а) {when}",
+        "local device messages" to "сообщения на этом устройстве",
         "tap to accept" to "нажмите, чтобы принять",
+        "your personal space" to "ваше личное пространство",
+        "{n} members" to "Участников: {n}",
+        "{n} subscribers" to "Подписчиков: {n}",
     )
 }

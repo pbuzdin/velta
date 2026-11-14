@@ -452,6 +452,22 @@ class AppModel(
     var senderNames by mutableStateOf<Map<Long, String>>(emptyMap())
         private set
 
+    /** Chat header (web velta-chat-head): avatar inputs + the status line.
+     *  Set synchronously from the ChatListItem on open; memberCount and
+     *  lastSeen fill in from the async fullChat/contact fetch. */
+    data class ChatHead(
+        val kind: String,
+        val colorHex: String?,
+        val avatarPath: String?,
+        val fingerprint: String?,
+        val memberCount: Int? = null,
+        val lastSeen: Long? = null,
+        val isBot: Boolean = false,
+    )
+
+    var chatHead by mutableStateOf<ChatHead?>(null)
+        private set
+
     // ---- Composer (P3) ----
     var composerText by mutableStateOf("")
     var replyTo by mutableStateOf<MessageObject?>(null)
@@ -953,6 +969,41 @@ class AppModel(
         }
     }
 
+    /** Chat header inputs (web velta-chat-head): the avatar rides the list
+     *  item (color/avatar/identity), the status line = member count for
+     *  groups/channels, last-seen for 1:1, bot/static lines for the rest.
+     *  memberCount/lastSeen land async from fullChat/contact. */
+    private fun loadChatHead(item: ChatListItem) {
+        val head = ChatHead(
+            kind = chatKindOf(item),
+            colorHex = item.color,
+            avatarPath = item.avatarPath,
+            fingerprint = identities[item.id],
+            isBot = item.dmChatContact?.let { chatIsBot(it) } == true,
+        )
+        chatHead = head
+        ensureContactBots()
+        scope.launch {
+            val veltaCore = core ?: return@launch
+            val id = accountId ?: return@launch
+            runCatching {
+                val chat = veltaCore.fullChat(id, item.id) ?: return@launch
+                fun jstr(o: kotlinx.serialization.json.JsonObject, k: String) =
+                    (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val ids = (chat["contactIds"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
+                if (jstr(chat, "chatType") == "Single") {
+                    val cid = ids?.firstOrNull() ?: return@launch
+                    val contact = veltaCore.contact(id, cid)
+                    // Web statusLine: the header keeps the row's own bot flag.
+                    chatHead = chatHead?.copy(lastSeen = contact.lastSeen)
+                } else {
+                    chatHead = chatHead?.copy(memberCount = ids?.size ?: 0)
+                }
+            }
+        }
+    }
+
     fun openChat(item: ChatListItem) {
         screen = Screen.Chat(item.id, item.name, item.isGroup)
         composerText = ""
@@ -961,6 +1012,7 @@ class AppModel(
         senderNames = emptyMap()
         pendingAttachment = null
         messageActions = null
+        loadChatHead(item)
         scope.launch {
             val veltaCore = core
             val id = accountId

@@ -26,6 +26,7 @@ internal object LangFr {
         "Calls you ended on this device (kept locally — the core stores no call log)" to "Appels terminés sur cet appareil (gardés en local — le cœur ne tient pas de journal d'appels)",
         "Camera" to "Appareil photo",
         "Cancel" to "Annuler",
+        "Chat menu" to "Menu de la discussion",
         "Chats" to "Discussions",
         "Close" to "Fermer",
         "Contact request:" to "Demande de contact :",
@@ -38,7 +39,6 @@ internal object LangFr {
         "File" to "Fichier",
         "Generating QR code…" to "Génération du code QR…",
         "Group name" to "Nom du groupe",
-        "Info" to "Infos",
         "Join" to "Rejoindre",
         "Join chat via invite link" to "Rejoindre via un lien d'invitation",
         "Language" to "Langue",
@@ -95,6 +95,12 @@ internal object LangFr {
         "Voice message" to "Message vocal",
         "Welcome to Velta" to "Bienvenue dans Velta",
         "Your QR code" to "Votre code QR",
+        "bot" to "bot",
+        "last seen {when}" to "vu {when}",
+        "local device messages" to "messages locaux de l'appareil",
         "tap to accept" to "touchez pour accepter",
+        "your personal space" to "votre espace personnel",
+        "{n} members" to "{n} membres",
+        "{n} subscribers" to "{n} abonnés",
     )
 }
