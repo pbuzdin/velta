@@ -228,15 +228,30 @@ never run Gradle on the Windows side.
   core owns that string; the web hardcodes it too — only "Contact
   request:" is an L.t key).
 - Chat-list rows = the web .chat-item anatomy: 48dp avatar tile at 22%
-  radius (`AvatarTile` — identity matrix for key-holding 1:1 peers,
-  saved/device 135° #5aa2e6→#8774e1 gradient tiles with avatarStar/device
-  icons at 55%, photos decoded over the tile, contact-color/Prism
-  initials otherwise), 15.5sp/600 name + 12sp formatListTime stamp (today
+  radius (`AvatarTile` — identity matrix for key-holding 1:1 peers, a
+  single contact's PHOTO sits ON the matrix (inset 19.17%, 2.5% padding,
+  #1c1c1c ring, radius 24.3% — web avatar.js/main.css:1754), saved/device
+  135° #5aa2e6→#8774e1 gradient tiles with avatarStar/device icons at 55%,
+  group photos full-bleed, contact-color/Prism initials otherwise),
+  15.5sp/600 name + 12sp formatListTime stamp (today
   HH:MM, Yesterday, weekday < 7d, "MMM d", with year), ticks from
   summaryStatus (18-28 = outgoing: clock/warn-red/tick1/tick2-read) before
   a 14sp dim preview, right slot priority unread > pin > mute, badge =
-  accent-2 pill (min 23dp, 12.5sp/600, "999+" cap; grey textDim variant
-  when muted).
+  accent-2 pill (min 23dp, 12.5sp/600, "999+" cap; muted variant =
+  textDim bg + **onBadgeMuted** ink — a generated token since the
+  velta.cc/design pass; light theme = #f4f4f4, the dark ink read 2.6:1).
+- Design-page contracts applied (velta.cc/design, generated from
+  main.css): chips' active ink = **onAccentChip** (identical to onAccent
+  in every theme today — the token exists so a future split can't break
+  silently); `VeltaDialog` = the web .modal contract (centered radius-16
+  bgSidebar card w/ 1px border over a 45% scrim, width ≤420dp; FULL-SCREEN
+  below a 600dp window width like the web's ≤600px breakpoint; ONE filled
+  accent confirm + text cancel; scrim/back dismiss; text fields use
+  placeholder hints, never floating labels); `Modifier.rowSurface(...)`
+  = the web states contract — shared interaction source with
+  `.clickable(indication = null)`, draws hover bgHover / 2dp focusRing
+  outline / selectionBg (web: "hover and focus change surfaces, never
+  text"); chips pass `hover = false` (their hover changes ink).
 - Settings screen (#321 step 5): theme radios (Auto/Dark/Light/Brutal) +
   "Pure black (AMOLED)" flag shown only while the effective theme is dark
   (AMOLED layers on dark — `veltaEffectiveMode` pins app.js applyTheme),

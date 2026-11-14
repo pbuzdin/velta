@@ -761,3 +761,35 @@ counts bytes not UTF-16 units. Diagnosis recipe that worked: dump the
 reference matrix via node (the real js module), dump the Kotlin matrix
 via a throwaway test, diff rows; decode-side failures were the test's own
 raster (scale to 8 px/module).
+
+## 2026-11-14 (2) — design-system QA pass per velta.cc/design
+
+User: "maybe velta.cc/design can help you" — the generated token
+reference (built from app/css/main.css, staleness-gated). An audit of its
+contracts against the main-screen port found one real bug + four gaps,
+all fixed:
+
+- **Muted badge ink (light theme)** — web `.ci-badge.muted` ink =
+  `--on-badge-muted` (#f4f4f4 in light, main.css:129,1829); KMP always
+  used onBadge (#10131a on #5d626d ≈ 2.6:1). Generator now emits
+  `onBadgeMuted`; badge uses it when muted.
+- **Single-contact photos on the matrix** — web avatar.js pads a 1:1
+  contact's photo onto the identity matrix (inset 19.17%, 2.5% padding,
+  #1c1c1c ring, radius 24.3%); KMP photos were full-bleed. `AvatarTile`
+  now renders the photo-on-matrix variant; group photos stay full-bleed.
+- **Dialog contract** — `VeltaDialog` (web .modal): radius-16 bgSidebar
+  card ≤420dp over a 45% scrim on desktop widths, FULL-SCREEN under 600dp
+  (web's ≤600px breakpoint); ONE filled accent confirm + text cancel;
+  placeholder hints instead of floating labels. GroupName/Channel dialogs
+  swapped onto it; picker "Add" is now the filled action (web footButtons).
+- **onAccentChip** emitted + used by chips/search/QR tabs (value-identical
+  to onAccent today; the contract names it).
+- **Hover/focus surfaces** — `Modifier.rowSurface` (shared interaction
+  source, indication = null): hover = bgHover, keyboard focus = 2dp
+  focusRing outline (the token existed but was used ZERO times), chips
+  pass hover=false (their hover changes ink).
+
+Verified: node kmp-theme-tokens 4/4, WSL gate green. Deviations noted:
+focus ring draws inside bounds (Compose drawBehind can't go outside like
+CSS outline-offset 2px); AttachMenu popup rows and picker rows keep plain
+clickables (popup/touch surfaces).

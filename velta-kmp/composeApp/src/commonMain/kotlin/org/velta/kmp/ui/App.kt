@@ -3,8 +3,14 @@ package org.velta.kmp.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,7 +47,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -549,12 +554,14 @@ private fun CategoryChips(model: AppModel) {
     ) {
         AppModel.CHAT_CATEGORIES.forEach { cat ->
             val active = model.chatCategory == cat
+            val interaction = remember { MutableInteractionSource() }
             Box(
                 Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(percent = 50))
                     .background(if (active) Velta.tokens.accent else Velta.tokens.bgHover)
-                    .clickable { model.onSetChatCategory(cat) }
+                    .rowSurface(interaction, hover = false) // web chip hover changes ink, not surface
+                    .clickable(interactionSource = interaction, indication = null) { model.onSetChatCategory(cat) }
                     .padding(horizontal = 2.dp, vertical = 5.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -572,7 +579,7 @@ private fun CategoryChips(model: AppModel) {
                     ),
                     fontSize = 11.5.sp,
                     lineHeight = 11.5.sp,
-                    color = if (active) Velta.tokens.onAccent else Velta.tokens.textDim,
+                    color = if (active) Velta.tokens.onAccentChip else Velta.tokens.textDim,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -583,10 +590,12 @@ private fun CategoryChips(model: AppModel) {
 
 @Composable
 private fun ArchivedLinkRow(count: Int, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
+            .rowSurface(interaction)
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -680,10 +689,12 @@ private fun KnownToggleRow(model: AppModel) {
 
 @Composable
 private fun ContactRow(contact: org.velta.kmp.core.Contact, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
+            .rowSurface(interaction)
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -717,10 +728,15 @@ private fun CallsView(model: AppModel) {
                 LazyColumn(Modifier.weight(1f)) {
                     items(model.callLog, key = { "${it.chatId}-${it.ts}" }) { entry ->
                         val chat = model.chats.firstOrNull { it.id == entry.chatId }
+                        val interaction = remember { MutableInteractionSource() }
                         Row(
                             Modifier
+                                .rowSurface(interaction)
                                 .fillMaxWidth()
-                                .clickable {
+                                .clickable(
+                                    interactionSource = interaction,
+                                    indication = null,
+                                ) {
                                     model.toggleListView("chats")
                                     model.openChatById(entry.chatId)
                                 }
@@ -787,7 +803,7 @@ private fun QrView(model: AppModel) {
                                 Text(
                                     L.t(label),
                                     fontSize = 11.5.sp,
-                                    color = if (active) Velta.tokens.onAccent else Velta.tokens.textDim,
+                                    color = if (active) Velta.tokens.onAccentChip else Velta.tokens.textDim,
                                 )
                             }
                         }
@@ -897,7 +913,7 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(label, fontSize = 11.5.sp, color = if (active) Velta.tokens.onAccent else Velta.tokens.textDim)
+                            Text(label, fontSize = 11.5.sp, color = if (active) Velta.tokens.onAccentChip else Velta.tokens.textDim)
                         }
                     }
                 }
@@ -944,10 +960,12 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
 /** Archived-tab row: avatar + name + last-message sub (web renderArchivedTab). */
 @Composable
 private fun ContactLikeChatRow(item: ChatListItem, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
+            .rowSurface(interaction)
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -972,10 +990,12 @@ private fun ContactLikeChatRow(item: ChatListItem, onClick: () -> Unit) {
 
 @Composable
 private fun SideOptionRow(label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
+            .rowSurface(interaction)
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1056,7 +1076,8 @@ private fun PickContactsScreen(model: AppModel) {
             }
             Text(L.t(request.titleKey), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (request.multi) {
-                TextButton(
+                // Web footButtons ok = .btn-primary — the ONE filled accent action.
+                Button(
                     onClick = { model.onContactsPicked(model.contacts.filter { it.id in selected.value }) },
                     enabled = selected.value.isNotEmpty(),
                 ) { Text(L.t("Add")) }
@@ -1115,48 +1136,120 @@ private fun PickContactsScreen(model: AppModel) {
     }
 }
 
+/**
+ * Web .modal contract (main.css:2110-2143, 2294-2305): centered radius-16
+ * bgSidebar card with a 1px border over a 45% scrim, width capped 420px —
+ * and on a phone-width window (the web's ≤600px breakpoint) a FULL-SCREEN
+ * page instead. Foot = ONE filled accent confirm + a text cancel; scrim and
+ * back dismiss. `.text-field` placeholders are hints — pass `placeholder`,
+ * never floating labels.
+ */
+@Composable
+private fun VeltaDialog(
+    title: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    confirmEnabled: Boolean = true,
+    body: @Composable () -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val fullScreen = maxWidth < 600.dp
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0x73101010)) // rgba(16,16,16,.45)
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                ) { onDismiss() },
+        )
+        PlatformBackHandler { onDismiss() }
+        if (fullScreen) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(Velta.tokens.bg)
+                    .windowInsetsPadding(WindowInsets.statusBars),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(VeltaIcons.close, contentDescription = L.t("Close"), modifier = Modifier.size(22.dp), tint = Velta.tokens.text)
+                    }
+                    Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                }
+                Column(Modifier.weight(1f).padding(16.dp)) { body() }
+                Row(
+                    Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    TextButton(onClick = onDismiss) { Text(L.t("Cancel")) }
+                    Button(onClick = onConfirm, enabled = confirmEnabled) { Text(confirmLabel) }
+                }
+            }
+        } else {
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = 420.dp)
+                    .background(Velta.tokens.bgSidebar, RoundedCornerShape(16.dp))
+                    .border(1.dp, Velta.tokens.border, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+            ) {
+                Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.size(12.dp))
+                body()
+                Spacer(Modifier.size(16.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    TextButton(onClick = onDismiss) { Text(L.t("Cancel")) }
+                    Button(onClick = onConfirm, enabled = confirmEnabled) { Text(confirmLabel) }
+                }
+            }
+        }
+    }
+}
+
 /** Group name dialog (web askGroupName + #177 admin-group switch). */
 @Composable
 private fun GroupNameDialog(model: AppModel) {
     if (!model.showGroupNameDialog) return
     var name by remember { mutableStateOf(L.t("New group")) }
     var admin by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = { model.showGroupNameDialog = false },
-        title = { Text(L.t("New group")) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    singleLine = true,
-                    label = { Text(L.t("Group name")) },
-                )
-                Row(
-                    Modifier.clickable { admin = !admin }.padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = admin, onCheckedChange = { admin = it })
-                    Column {
-                        Text(L.t("Admin group"))
-                        Text(
-                            L.t("Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat."),
-                            fontSize = 11.5.sp,
-                            color = Velta.tokens.textDim,
-                        )
-                    }
+    VeltaDialog(
+        title = L.t("New group"),
+        confirmLabel = L.t("Create group"),
+        onConfirm = { model.createGroup(name.trim().ifBlank { L.t("New group") }, admin) },
+        onDismiss = { model.showGroupNameDialog = false },
+    ) {
+        Column {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                placeholder = { Text(L.t("Group name")) },
+            )
+            Row(
+                Modifier.clickable { admin = !admin }.padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = admin, onCheckedChange = { admin = it })
+                Column {
+                    Text(L.t("Admin group"))
+                    Text(
+                        L.t("Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat."),
+                        fontSize = 11.5.sp,
+                        color = Velta.tokens.textDim,
+                    )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { model.createGroup(name.trim().ifBlank { L.t("New group") }, admin) }) {
-                Text(L.t("Create group"))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { model.showGroupNameDialog = false }) { Text(L.t("Cancel")) }
-        },
-    )
+        }
+    }
 }
 
 /** Channel name dialog (web askText → createChat channel → create_broadcast). */
@@ -1164,26 +1257,19 @@ private fun GroupNameDialog(model: AppModel) {
 private fun ChannelDialog(model: AppModel) {
     if (!model.showChannelDialog) return
     var name by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = { model.showChannelDialog = false },
-        title = { Text(L.t("New channel")) },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                singleLine = true,
-                label = { Text(L.t("New channel")) },
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { model.createChannel(name.trim().ifBlank { L.t("New channel") }) }) {
-                Text(L.t("Create channel"))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { model.showChannelDialog = false }) { Text(L.t("Cancel")) }
-        },
-    )
+    VeltaDialog(
+        title = L.t("New channel"),
+        confirmLabel = L.t("Create channel"),
+        onConfirm = { model.createChannel(name.trim().ifBlank { L.t("New channel") }) },
+        onDismiss = { model.showChannelDialog = false },
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            singleLine = true,
+            placeholder = { Text(L.t("New channel")) },
+        )
+    }
 }
 
 /** One segment per relay, colored by the account connectivity. Tap opens the relays screen. */
@@ -1298,6 +1384,7 @@ private fun ListBar(model: AppModel) {
 private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: String, model: AppModel) {
     val active = model.listView == view
     val accent = Velta.tokens.accent
+    val interaction = remember { MutableInteractionSource() }
     Box(
         Modifier
             .weight(1f)
@@ -1309,7 +1396,8 @@ private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: Strin
                     RoundedCornerShape(8.dp)
                 },
             )
-            .clickable { model.toggleListView(view) }
+            .rowSurface(interaction)
+            .clickable(interactionSource = interaction, indication = null) { model.toggleListView(view) }
             .drawBehind {
                 if (active) {
                     drawLine(
@@ -1343,6 +1431,36 @@ private fun SearchMark() {
     }
 }
 
+/**
+ * Web states contract (main.css:163-165, 1792-1795): hover and focus change
+ * SURFACES, never text — hover = bgHover fill (pointer only), keyboard
+ * focus = a 2px --focus-ring outline, selection = selection-bg. Pass the
+ * SAME interaction source to `.clickable` so hover/focus register; pass
+ * `hover = false` for surfaces whose web hover changes ink instead (chips).
+ */
+@Composable
+private fun Modifier.rowSurface(
+    interaction: androidx.compose.foundation.interaction.MutableInteractionSource,
+    hover: Boolean = true,
+    selected: Boolean = false,
+): Modifier {
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    val ring = Velta.tokens.focusRing
+    val hoverBg = Velta.tokens.bgHover
+    val selBg = Velta.tokens.selectionBg
+    return this
+        .focusable(interactionSource = interaction)
+        .hoverable(interaction)
+        .drawBehind {
+            when {
+                focused -> drawRect(ring, style = Stroke(width = 2.dp.toPx()))
+                hover && hovered -> drawRect(hoverBg)
+                selected -> drawRect(selBg)
+            }
+        }
+}
+
 /** Web <velta-avatar> (components.js): 22%-radius rounded square; special
  * kinds (saved/device) wear the 135° gradient tile + a 55% white icon;
  * 1:1 peers with a key wear the fingerprint identity matrix (web avatar.js);
@@ -1369,7 +1487,6 @@ private fun AvatarTile(
             .background(
                 when {
                     special -> androidx.compose.ui.graphics.Color.Transparent
-                    photoBitmap != null || cells != null -> androidx.compose.ui.graphics.Color.Transparent
                     else -> tileColor
                 },
             ),
@@ -1388,13 +1505,6 @@ private fun AvatarTile(
                 contentDescription = null,
                 modifier = Modifier.size(size * 0.55f),
                 tint = androidx.compose.ui.graphics.Color.White,
-            )
-        } else if (photoBitmap != null) {
-            Image(
-                photoBitmap,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
             )
         } else if (cells != null) {
             Column(Modifier.fillMaxSize()) {
@@ -1416,6 +1526,32 @@ private fun AvatarTile(
                     }
                 }
             }
+            if (photoBitmap != null) {
+                // Web avatar.js: a single contact's photo sits ON the matrix —
+                // inset 19.17%, 2.5% padding, #1c1c1c ring, radius 24.3% (main.css:1754).
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(size * 0.1917f)
+                        .background(Color(0xFF1C1C1C), RoundedCornerShape(size * 0.243f))
+                        .padding(size * 0.025f)
+                        .clip(RoundedCornerShape(size * 0.22f)),
+                ) {
+                    Image(
+                        photoBitmap,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            }
+        } else if (photoBitmap != null) {
+            Image(
+                photoBitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
         } else {
             Text(prismInitials(name), fontWeight = FontWeight.Bold)
         }
@@ -1424,10 +1560,12 @@ private fun AvatarTile(
 
 @Composable
 private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
+            .rowSurface(interaction)
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1548,7 +1686,8 @@ private fun UnreadBadge(count: Int, muted: Boolean) {
             if (count > 999) "999+" else count.toString(),
             fontSize = 12.5.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Velta.tokens.onBadge,
+            // Web .ci-badge.muted ink — --on-badge-muted (light = #f4f4f4).
+            color = if (muted) Velta.tokens.onBadgeMuted else Velta.tokens.onBadge,
         )
     }
 }
