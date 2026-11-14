@@ -431,16 +431,20 @@ private fun ChatListScreen(model: AppModel) {
         content = {
         Column(Modifier.fillMaxSize()) {
             Spacer(Modifier.height(headDp))
-            when (model.listView) {
-                "contacts" -> ContactsView(model)
-                "calls" -> CallsView(model)
-                "qr" -> QrView(model)
-                "new" -> NewChatView(model)
-                "search" -> SearchView(model, searchTab) { searchTab = it }
-                else -> ChatsView(model, onArchived = {
-                    searchTab = "archived"
-                    model.toggleListView("search")
-                })
+            // Views fill this Box, never the Column — the ListBar stays
+            // pinned at the bottom (weight would let fillMaxSize eat it).
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (model.listView) {
+                    "contacts" -> ContactsView(model)
+                    "calls" -> CallsView(model)
+                    "qr" -> QrView(model)
+                    "new" -> NewChatView(model)
+                    "search" -> SearchView(model, searchTab) { searchTab = it }
+                    else -> ChatsView(model, onArchived = {
+                        searchTab = "archived"
+                        model.toggleListView("chats")
+                    })
+                }
             }
             ListBar(model)
         }
@@ -1591,8 +1595,11 @@ private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () ->
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Spacer(Modifier.size(6.dp))
+                // ChatListItem.lastUpdated is MILLISECONDS on the wire (web
+                // _mapChatListItem: "core ChatListItem.lastUpdated is already
+                // ms") — message timestamps are seconds, this field is not.
                 Text(
-                    item.lastUpdated?.let { formatListTime(it) } ?: "",
+                    item.lastUpdated?.let { formatListTime(it / 1000) } ?: "",
                     fontSize = 12.sp,
                     color = Velta.tokens.textDim,
                 )
