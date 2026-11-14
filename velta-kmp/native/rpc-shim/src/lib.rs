@@ -9,6 +9,22 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+pub mod p2p;
+
+/// crate::log for the p2p engine lift (#332) — stdout today; logcat picks
+/// shim stderr up on desktop but not on Android (distinct return codes carry
+/// the failure there).
+pub(crate) fn log(msg: &str) {
+    println!("velta-shim: {msg}");
+}
+
+/// crate::random_bytes for the p2p engine lift (ticket tokens).
+pub(crate) fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
+    getrandom::getrandom(&mut bytes).expect("OS random source unavailable");
+    bytes
+}
+
 use deltachat_jsonrpc::api::{Accounts, CommandApi};
 use futures_util::StreamExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

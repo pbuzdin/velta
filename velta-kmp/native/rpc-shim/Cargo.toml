@@ -35,7 +35,15 @@ crate-type = ["cdylib"]
 deltachat-jsonrpc = { path = "../../../core/deltachat-jsonrpc" }
 yerpc = "0.7"
 tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
 futures-util = "0.3"
 serde_json = "1"
+serde = { version = "1", features = ["derive"] }
 anyhow = "1"
+data-encoding = "2"
+getrandom = "0.2"
+socket2 = "0.5"
+# Velta Loop engine (#332 lift): same engine the Tauri shell runs; LAN
+# discovery only — the engine talks peer-to-peer, never to a relay.
+iroh = { version = "0.35", default-features = false, features = ["discovery-local-network"] }
 jni = "0.21"
