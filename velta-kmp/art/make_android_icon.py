@@ -1,15 +1,25 @@
-"""Velta KMP launcher icon → Android adaptive icon (vector) + legacy PNGs + mask preview.
+"""Velta KMP launcher icon → Android adaptive icons (vector) + legacy PNGs + mask preview.
 
 Usage (from velta-kmp/): python3 art/make_android_icon.py composeApp/src/androidMain/res [preview.png]
-Needs cairosvg, numpy, Pillow. Source: art/velta-kmp-icon.svg."""
-import re, io, os, sys, math
+Needs cairosvg, numpy, Pillow. Source: art/velta-kmp-icon.svg.
+
+Optical centring (Pavel, #334): the V is wide at the top and pointed at the
+bottom, so centring its bounding box makes it look high. Two placements, one
+scale (the bbox fit into the 66/108 safe circle, 94 % margin):
+  - ic_launcher_round → A: the V's area-weighted centroid at the canvas centre
+    (circle-only icon, true visual centre);
+  - ic_launcher       → B: halfway between the bbox centre and the centroid
+    (squircle / rounded-square masks).
+Both share the gradient background; each has its own foreground + monochrome.
+"""
+import re, io, os, sys
 import cairosvg
 import numpy as np
 from PIL import Image, ImageDraw
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'velta-kmp-icon.svg')
-PREVIEW = sys.argv[2] if len(sys.argv) > 2 else 'adaptive-preview.png'
 RES = sys.argv[1]
+PREVIEW = sys.argv[2] if len(sys.argv) > 2 else 'adaptive-preview.png'
 s = open(SRC).read()
 grad = re.search(r'<linearGradient id="kbg"(.*?)</linearGradient>', s, re.S)
 stops = re.findall(r'<stop offset="([\d.]+)" stop-color="(#[0-9A-Fa-f]{6})"/>', grad.group(1))
@@ -17,107 +27,167 @@ paths = [(m.group(1), m.group(2), m.group(3), m.group(4))
          for m in re.finditer(r'<path d="([^"]*)" fill="([^"]*)" transform="translate\(([-\d.]+),([-\d.]+)\)"/>', s)]
 bgpath, fg = paths[0], paths[1:]
 assert bgpath[1] == 'url(#kbg)' and all(p[1].startswith('#') for p in fg)
+SAFE = 1024 * 33 / 108
+U = 108 / 1024
 
-def fg_svg(transform='', mono=False):
+
+def fg_svg(t=(0, 0, 1), mono=False):
     body = ''.join(f'<path d="{d}" fill="{"#FFFFFF" if mono else f}" transform="translate({x},{y})"/>' for d, f, x, y in fg)
-    return f'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><g transform="{transform}">{body}</g></svg>'
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">'
+            f'<g transform="translate({t[0]:.2f},{t[1]:.2f}) scale({t[2]:.5f})">{body}</g></svg>')
+
 
 def render(svg, size):
     return Image.open(io.BytesIO(cairosvg.svg2png(bytestring=svg.encode(), output_width=size, output_height=size))).convert('RGBA')
 
-# Fit the V into the 66/108 safe circle (radius 313 of 1024), centred, with margin.
-a = np.asarray(render(fg_svg(), 1024))[..., 3] > 8
-ys, xs = np.nonzero(a)
-cx, cy = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2
-rmax = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2).max()
-SAFE = 1024 * 33 / 108
-scale = SAFE * 0.94 / rmax
-tx, ty = 512 - scale * cx, 512 - scale * cy
-print(f'V bbox x{xs.min()}..{xs.max()} y{ys.min()}..{ys.max()} rmax={rmax:.1f} scale={scale:.4f}')
-T = f'translate({tx:.2f},{ty:.2f}) scale({scale:.5f})'
+
+# ---- placement ----
+alpha = np.asarray(render(fg_svg(), 1024))[..., 3].astype(float) / 255
+ys, xs = np.nonzero(alpha > 0.03)
+bbox_c = np.array([(xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2])
+yy, xx = np.mgrid[0:1024, 0:1024]
+centroid = np.array([(alpha * xx).sum() / alpha.sum(), (alpha * yy).sum() / alpha.sum()])
+scale = SAFE * 0.94 / np.sqrt((xs - bbox_c[0]) ** 2 + (ys - bbox_c[1]) ** 2).max()
+
+
+def placement(anchor):
+    sc = min(scale, SAFE * 0.94 / np.sqrt((xs - anchor[0]) ** 2 + (ys - anchor[1]) ** 2).max())
+    return (512 - sc * anchor[0], 512 - sc * anchor[1], sc)
+
+
+VARIANTS = {  # name → (placement, legacy mask)
+    'ic_launcher': (placement((bbox_c + centroid) / 2), 'rounded'),   # B
+    'ic_launcher_round': (placement(centroid), 'circle'),             # A
+}
+for name, (t, _) in VARIANTS.items():
+    land = (np.array(t[:2]) + t[2] * centroid - 512) * U
+    rmax = np.sqrt((t[0] + t[2] * xs - 512) ** 2 + (t[1] + t[2] * ys - 512) ** 2).max() * U
+    assert rmax < 33, (name, rmax)
+    print(f'{name}: scale={t[2]:.4f} centroid at dx={land[0]:+.2f} dy={land[1]:+.2f} dp, max radius {rmax:.2f}/33 dp')
+
 
 # ---- vector drawables ----
 def argb(c): return '#FF' + c[1:].upper()
+
+
 def vd(groups, extra_ns=''):
     return ('<?xml version="1.0" encoding="utf-8"?>\n'
             '<!-- Generated from velta-kmp/art/velta-kmp-icon.svg by art/make_android_icon.py. -->\n'
             f'<vector xmlns:android="http://schemas.android.com/apk/res/android"{extra_ns}\n'
             '    android:width="108dp" android:height="108dp"\n'
             '    android:viewportWidth="1024" android:viewportHeight="1024">\n' + groups + '</vector>\n')
-def fg_groups(mono):
+
+
+def fg_groups(t, mono):
     inner = ''.join(
         f'        <group android:translateX="{x}" android:translateY="{y}">\n'
         f'            <path android:fillColor="{"#FFFFFFFF" if mono else argb(f)}" android:pathData="{d.strip()}"/>\n'
         f'        </group>\n' for d, f, x, y in fg)
-    return (f'    <group android:translateX="{tx:.2f}" android:translateY="{ty:.2f}"\n'
-            f'        android:scaleX="{scale:.5f}" android:scaleY="{scale:.5f}">\n{inner}    </group>\n')
+    return (f'    <group android:translateX="{t[0]:.2f}" android:translateY="{t[1]:.2f}"\n'
+            f'        android:scaleX="{t[2]:.5f}" android:scaleY="{t[2]:.5f}">\n{inner}    </group>\n')
+
+
 stop_xml = ''.join(f'                <item android:offset="{o}" android:color="{argb(c)}"/>\n' for o, c in stops)
-bg_xml = vd(
+os.makedirs(f'{RES}/drawable', exist_ok=True)
+os.makedirs(f'{RES}/mipmap-anydpi-v26', exist_ok=True)
+open(f'{RES}/drawable/ic_launcher_background.xml', 'w').write(vd(
     '    <path android:pathData="M0,0h1024v1024h-1024z">\n'
     '        <aapt:attr name="android:fillColor">\n'
     '            <gradient android:type="linear" android:startX="0" android:startY="0"\n'
     '                android:endX="1024" android:endY="1024">\n' + stop_xml +
     '            </gradient>\n        </aapt:attr>\n    </path>\n',
-    extra_ns='\n    xmlns:aapt="http://schemas.android.com/aapt"')
-os.makedirs(f'{RES}/drawable', exist_ok=True)
-open(f'{RES}/drawable/ic_launcher_background.xml', 'w').write(bg_xml)
-open(f'{RES}/drawable/ic_launcher_foreground.xml', 'w').write(vd(fg_groups(False)))
-open(f'{RES}/drawable/ic_launcher_monochrome.xml', 'w').write(vd(fg_groups(True)))
-adaptive = ('<?xml version="1.0" encoding="utf-8"?>\n'
-            '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
-            '    <background android:drawable="@drawable/ic_launcher_background"/>\n'
-            '    <foreground android:drawable="@drawable/ic_launcher_foreground"/>\n'
-            '    <monochrome android:drawable="@drawable/ic_launcher_monochrome"/>\n'
-            '</adaptive-icon>\n')
-os.makedirs(f'{RES}/mipmap-anydpi-v26', exist_ok=True)
-for n in ('ic_launcher', 'ic_launcher_round'):
-    open(f'{RES}/mipmap-anydpi-v26/{n}.xml', 'w').write(adaptive)
+    extra_ns='\n    xmlns:aapt="http://schemas.android.com/aapt"'))
+for name, (t, _) in VARIANTS.items():
+    open(f'{RES}/drawable/{name}_foreground.xml', 'w').write(vd(fg_groups(t, False)))
+    open(f'{RES}/drawable/{name}_monochrome.xml', 'w').write(vd(fg_groups(t, True)))
+    open(f'{RES}/mipmap-anydpi-v26/{name}.xml', 'w').write(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <background android:drawable="@drawable/ic_launcher_background"/>\n'
+        f'    <foreground android:drawable="@drawable/{name}_foreground"/>\n'
+        f'    <monochrome android:drawable="@drawable/{name}_monochrome"/>\n'
+        '</adaptive-icon>\n')
 
-# ---- adaptive composite (108-unit canvas) via cairo ----
+# ---- composites ----
 gstops = ''.join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in stops)
-def full_svg(transform):
+
+
+def full_svg(t):
+    inner = fg_svg(t)
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">'
             f'<defs><linearGradient id="g" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">{gstops}</linearGradient></defs>'
-            f'<rect width="1024" height="1024" fill="url(#g)"/>' + fg_svg(transform)[fg_svg(transform).index('<g '):-6] + '</svg>')
-adaptive_img = render(full_svg(T), 1080)          # 108 units × 10 px
+            f'<rect width="1024" height="1024" fill="url(#g)"/>' + inner[inner.index('<g '):-6] + '</svg>')
+
 
 def visible(img):  # launchers show the inner 72/108
     w = img.size[0]; m = w * 18 // 108
     return img.crop((m, m, w - m, w - m))
 
+
 def mask(kind, n):
-    m = Image.new('L', (n * 4, n * 4), 0); d = ImageDraw.Draw(m); N = n * 4
-    if kind == 'circle': d.ellipse((0, 0, N - 1, N - 1), fill=255)
-    elif kind == 'rounded': d.rounded_rectangle((0, 0, N - 1, N - 1), radius=int(N * 0.22), fill=255)
-    else:  # squircle |x|^4+|y|^4<=1
-        yy, xx = np.mgrid[0:N, 0:N] / (N - 1) * 2 - 1
-        m = Image.fromarray(((np.abs(xx) ** 4 + np.abs(yy) ** 4) <= 1).astype('uint8') * 255)
+    N = n * 4
+    if kind == 'squircle':
+        y, x = np.mgrid[0:N, 0:N] / (N - 1) * 2 - 1
+        m = Image.fromarray(((np.abs(x) ** 4 + np.abs(y) ** 4) <= 1).astype('uint8') * 255)
+    else:
+        m = Image.new('L', (N, N), 0); d = ImageDraw.Draw(m)
+        if kind == 'circle': d.ellipse((0, 0, N - 1, N - 1), fill=255)
+        else: d.rounded_rectangle((0, 0, N - 1, N - 1), radius=int(N * 0.22), fill=255)
     return m.resize((n, n), Image.LANCZOS)
 
-# ---- legacy PNGs ----
+
+views = {name: visible(render(full_svg(t), 1080)) for name, (t, _) in VARIANTS.items()}
+
+# ---- legacy PNGs: ic_launcher = B rounded square, ic_launcher_round = A circle ----
 for dens, px in (('mdpi', 48), ('hdpi', 72), ('xhdpi', 96), ('xxhdpi', 144), ('xxxhdpi', 192)):
     os.makedirs(f'{RES}/mipmap-{dens}', exist_ok=True)
-    base = visible(adaptive_img).resize((px, px), Image.LANCZOS)
-    for name, kind in (('ic_launcher', 'rounded'), ('ic_launcher_round', 'circle')):
-        out = Image.new('RGBA', (px, px), (0, 0, 0, 0)); out.paste(base, (0, 0), mask(kind, px))
+    for name, (_, kind) in VARIANTS.items():
+        out = Image.new('RGBA', (px, px), (0, 0, 0, 0))
+        out.paste(views[name].resize((px, px), Image.LANCZOS), (0, 0), mask(kind, px))
         out.save(f'{RES}/mipmap-{dens}/{name}.png', optimize=True)
 
-# ---- preview: circle / squircle / rounded square + safe-zone guide + themed ----
-P = 360; tiles = []
-v = visible(adaptive_img).resize((P, P), Image.LANCZOS)
-for kind in ('circle', 'squircle', 'rounded'):
-    t = Image.new('RGBA', (P, P), (0, 0, 0, 0)); t.paste(v, (0, 0), mask(kind, P)); tiles.append(t)
-g = v.copy(); d = ImageDraw.Draw(g); r = P * 33 / 72
-d.ellipse((P / 2 - r, P / 2 - r, P / 2 + r, P / 2 + r), outline=(255, 255, 0, 255), width=3); tiles.append(g)
-mono = visible(render(fg_svg(T, mono=True), 1080)).resize((P, P), Image.LANCZOS)
-th = Image.new('RGBA', (P, P), (0, 0, 0, 0)); bgc = Image.new('RGBA', (P, P), (210, 228, 255, 255))
-th.paste(bgc, (0, 0), mask('circle', P)); tint = Image.new('RGBA', (P, P), (20, 60, 120, 255))
-th.paste(tint, (0, 0), Image.fromarray(np.minimum(np.asarray(mono)[..., 3], np.asarray(mask('circle', P)))))
-tiles.append(th)
-sheet = Image.new('RGBA', (len(tiles) * (P + 30) + 30, P + 60), (236, 236, 240, 255))
-for i, t in enumerate(tiles): sheet.alpha_composite(t, (30 + i * (P + 30), 30))
+# ---- preview: row 1 ic_launcher (B) squircle / rounded / circle / guide / themed;
+#               row 2 ic_launcher_round (A) circle / guide / themed ----
+P, G = 300, 24
+
+
+def tile(img, kind):
+    t = Image.new('RGBA', (P, P), (0, 0, 0, 0)); t.paste(img.resize((P, P), Image.LANCZOS), (0, 0), mask(kind, P)); return t
+
+
+def guide(name):
+    t, _ = VARIANTS[name]
+    g = tile(views[name], 'circle'); d = ImageDraw.Draw(g); r = P * 33 / 72; c = P / 2
+    d.ellipse((c - r, c - r, c + r, c + r), outline=(255, 230, 0, 255), width=2)
+    d.line((c, 0, c, P), fill=(0, 255, 160, 255)); d.line((0, c, P, c), fill=(0, 255, 160, 255))
+    px = (np.array(t[:2]) + t[2] * centroid - 1024 * 18 / 108) / (1024 * 72 / 108) * P
+    d.ellipse((px[0] - 5, px[1] - 5, px[0] + 5, px[1] + 5), fill=(255, 60, 60, 255))
+    return g
+
+
+def themed(name):
+    t, _ = VARIANTS[name]
+    mono = visible(render(fg_svg(t, mono=True), 1080)).resize((P, P), Image.LANCZOS)
+    th = Image.new('RGBA', (P, P), (0, 0, 0, 0)); cm = mask('circle', P)
+    th.paste(Image.new('RGBA', (P, P), (210, 228, 255, 255)), (0, 0), cm)
+    th.paste(Image.new('RGBA', (P, P), (20, 60, 120, 255)), (0, 0),
+             Image.fromarray(np.minimum(np.asarray(mono)[..., 3], np.asarray(cm))))
+    return th
+
+
+rows = [
+    ('ic_launcher (B)', [tile(views['ic_launcher'], k) for k in ('squircle', 'rounded', 'circle')]
+     + [guide('ic_launcher'), themed('ic_launcher')]),
+    ('ic_launcher_round (A)', [tile(views['ic_launcher_round'], 'circle'), guide('ic_launcher_round'), themed('ic_launcher_round')]),
+]
+sheet = Image.new('RGBA', (260 + 5 * (P + G), 2 * (P + G) + G), (236, 236, 240, 255)); d = ImageDraw.Draw(sheet)
+try:
+    from PIL import ImageFont
+    F = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 20)
+except Exception:
+    F = None
+for j, (label, tiles) in enumerate(rows):
+    y = G + j * (P + G)
+    d.text((14, y + P // 2 - 10), label, fill=(20, 20, 20), font=F)
+    for i, t in enumerate(tiles): sheet.alpha_composite(t, (260 + i * (P + G), y))
 sheet.convert('RGB').save(PREVIEW)
-# clipping check: no V pixel outside the safe circle
-fa = np.asarray(render(fg_svg(T), 1080))[..., 3] > 8
-yy, xx = np.nonzero(fa)
-print('max V radius (units of 108):', (np.sqrt((xx - 540) ** 2 + (yy - 540) ** 2).max() / 10).round(2), 'safe = 33')
