@@ -64,3 +64,25 @@ actual fun timeAgo(epochSeconds: Long): String {
 
 /** actual — wall clock (JVM targets only; both Android and desktop are JVM). */
 actual fun wallClockSeconds(): Long = System.currentTimeMillis() / 1000
+
+/** actual — HTTPS probe (web probe_relay, lib.rs:714: GET https://host/, 6 s). */
+actual suspend fun probeRelayReachable(domain: String): Boolean =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val host = domain.trim().lowercase()
+            if (host.isEmpty() || !host.contains(".")) return@withContext false
+            val conn = java.net.URL("https://$host/").openConnection()
+                as javax.net.ssl.HttpsURLConnection // android.jar has no java.net.HttpsURLConnection
+            conn.connectTimeout = 6000
+            conn.readTimeout = 6000
+            conn.requestMethod = "GET"
+            conn.instanceFollowRedirects = false
+            try {
+                conn.responseCode > 0 // any HTTP response = reachable
+            } finally {
+                conn.disconnect()
+            }
+        } catch (t: Throwable) {
+            false
+        }
+    }

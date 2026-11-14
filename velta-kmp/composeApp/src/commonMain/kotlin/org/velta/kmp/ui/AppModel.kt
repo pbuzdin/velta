@@ -198,12 +198,19 @@ class AppModel(
 
     // ---- QR view ("Your QR code"): the core's self invite; the code text IS
     // the canonical invite link. The SVG is discarded — KMP draws its own
-    // matrix from the QrEncode port (web reencodes the core SVG too).
+    // card from the QrEncode port + the core card geometry (web reencodes
+    // the core SVG; captions/disc ride the account identity below).
     var inviteLink by mutableStateOf<String?>(null)
         private set
     var inviteLoading by mutableStateOf(false)
         private set
     var inviteError by mutableStateOf<String?>(null)
+
+    /** Card center-disc identity: account display name + self contact color. */
+    var inviteName by mutableStateOf("")
+        private set
+    var inviteColor by mutableStateOf<String?>(null)
+        private set
 
     fun loadInviteQr() {
         val veltaCore = core
@@ -214,6 +221,14 @@ class AppModel(
             inviteError = null
             try {
                 inviteLink = veltaCore.inviteQr(id).first.ifBlank { null }
+                // core self_info: displayname (fallback addr) + self contact color.
+                val info = runCatching { veltaCore.accountInfo(id) }.getOrNull()
+                inviteName = info?.displayName?.takeIf { it.isNotBlank() }
+                    ?: info?.addr?.takeIf { it.isNotBlank() }
+                    ?: ""
+                if (inviteColor == null) {
+                    inviteColor = runCatching { veltaCore.contact(id, 1).color }.getOrNull()
+                }
             } catch (t: Throwable) {
                 inviteError = t.message ?: t.toString()
             } finally {
@@ -396,6 +411,30 @@ class AppModel(
     /** Account-wide connectivity (1000 down / 2000 connecting / 4000 connected). Null until the first read. */
     var relayConnectivity by mutableStateOf<Int?>(null)
         private set
+
+    /**
+     * Per-relay strip segments with their display state (web renderRelayLine):
+     * a parse of get_connectivity_html + the #76 probe downgrade. Empty = no
+     * parseable transports (single combined segment colored by
+     * [relayConnectivity]).
+     */
+    data class RelaySegDisplay(
+        val domain: String,
+        val state: String, // ok | connecting | down | unreachable | offline
+        val title: String,
+        val isSendRelay: Boolean,
+    )
+
+    var relaySegments by mutableStateOf<List<RelaySegDisplay>>(emptyList())
+        private set
+
+    /** #79: the transport SMTP is actually bound to (may fail over). */
+    private var smtpVia: String? = null
+
+    /** #76 probe cache per domain (web relayProbeCache): ok/ts/failedSince. */
+    private data class ProbeEntry(val ok: Boolean?, val ts: Long, val failedSince: Long?)
+    private val relayProbes = HashMap<String, ProbeEntry>()
+
     private var relayLineBusy = false
     private var relayLineArmed = false
     private var relayLineMark = TimeSource.Monotonic.markNow()
@@ -1012,11 +1051,89 @@ class AppModel(
                 if (relays.isEmpty()) {
                     relays = runCatching { veltaCore.relayCards(id) }.getOrDefault(emptyList())
                 }
+                // Per-transport strip (web renderRelayLine): parse the HTML
+                // page, then downgrade through the #76 shell-side probe.
+                val html = runCatching { veltaCore.connectivityHtml(id) }.getOrDefault("")
+                val parse = parseConnectivityHtml(html)
+                synchronized(reloadLock) { smtpVia = parse.smtpVia }
+                scheduleRelayProbes(parse.segs)
+                relaySegments = relayDisplaySegments(parse)
             } finally {
                 relayLineBusy = false
             }
         }
     }
+
+    /** Composes the display segments: parse state → probe downgrade → send attribution. */
+    private fun relayDisplaySegments(parse: ConnectivityParse): List<RelaySegDisplay> {
+        val now = wallClockMillis()
+        val sendDomain: String?
+        synchronized(reloadLock) { sendDomain = smtpVia }
+        val effectiveSend = sendDomain ?: accountAddr?.substringAfterLast("@")?.lowercase()
+        return parse.segs.mapIndexed { i, seg ->
+            val domainKey = seg.domain.lowercase()
+            val probe = synchronized(reloadLock) { relayProbes[domainKey] }
+            var state = relaySegmentDisplayState(seg.state, probe?.ok, probe?.failedSince, now)
+            var isSend = segsSendRelay(parse.segs.size, seg.domain, effectiveSend)
+            val base = if (seg.domain.isNotEmpty()) "${seg.domain}: ${seg.text}" else seg.text.ifEmpty { "Relay" }
+            var title = when (state) {
+                "unreachable" -> "$base: not accepting new connections (web check failed)"
+                "offline" -> "$base: offline (not accepting connections for a while)"
+                else -> base
+            }
+            if (isSend && state != "offline" && relaySeverity(parse.smtpState) > relaySeverity(state)) {
+                state = parse.smtpState ?: state // the SMTP dot outranks the segment (web 1321-1323)
+                title = "$base — sending"
+            }
+            if (seg.quota.isNotEmpty()) title = "$title · ${seg.quota}"
+            RelaySegDisplay(seg.domain, state, title, isSend)
+        }
+    }
+
+    /** Web isSendRelay: the SMTP-bound transport; a single relay always counts. */
+    private fun segsSendRelay(count: Int, domain: String, sendDomain: String?): Boolean {
+        if (sendDomain == null) return count == 1
+        if (count == 1) return true
+        return domain.lowercase() == sendDomain.lowercase()
+    }
+
+    /** #76 probe scheduling (web scheduleRelayProbes): one probe per domain,
+     * min 60 s between tries, ground truth for unreachable/offline. */
+    private fun scheduleRelayProbes(segs: List<RelaySeg>) {
+        val now = wallClockMillis()
+        for (seg in segs) {
+            val d = seg.domain.lowercase()
+            if (d.isEmpty() || !d.contains(".")) continue
+            val launch: Boolean
+            synchronized(reloadLock) {
+                val cached = relayProbes[d]
+                if (cached?.ok == null && cached != null) {
+                    launch = false // probe in flight
+                } else if (cached != null && now - cached.ts < RELAY_PROBE_MIN_GAP_MS) {
+                    launch = false
+                } else {
+                    relayProbes[d] = ProbeEntry(null, now, cached?.failedSince)
+                    launch = true
+                }
+            }
+            if (!launch) continue
+            scope.launch {
+                val ok = runCatching { probeRelayReachable(d) }.getOrDefault(false)
+                synchronized(reloadLock) {
+                    val prev = relayProbes[d]
+                    relayProbes[d] = if (ok) {
+                        ProbeEntry(true, wallClockMillis(), null)
+                    } else {
+                        ProbeEntry(false, wallClockMillis(), prev?.failedSince ?: wallClockMillis())
+                    }
+                }
+                refreshRelayLine()
+            }
+        }
+    }
+
+    /** Millis wall clock for the probe/grace windows (probe constants are ms). */
+    private fun wallClockMillis(): Long = wallClockSeconds() * 1000L
 
     fun refreshRelays() {
         val veltaCore = core

@@ -793,3 +793,44 @@ Verified: node kmp-theme-tokens 4/4, WSL gate green. Deviations noted:
 focus ring draws inside bounds (Compose drawBehind can't go outside like
 CSS outline-offset 2px); AttachMenu popup rows and picker rows keep plain
 clickables (popup/touch surfaces).
+
+## 2026-11-14 (3) — the four "no KMP counterpart" features, part 1: strip + QR card
+
+User: "you skipped Velta exclusive features… but why? lets just make them."
+Recon verdict: per-relay strip + QR card are app-layer work (shipped here);
+typing previews + P2P local groups BOTH depend on the Velta Loop engine
+(velta-app/src-tauri/src/p2p.rs, 7023 lines + groups.rs — Tauri-coupled but
+headless-runnable per bin/p2p-hub.rs) — that lift is tracked as its own
+slice (issue #330), started after this commit.
+
+**SHIPPED**
+- **Per-relay strip states** (web renderRelayLine + parseConnectivityHtml +
+  #76 probe + #79 SMTP attribution): `VeltaCore.connectivityHtml` (the HTML
+  page is the ONLY live per-transport source — 🐴 ceiling noted on the web
+  too), pure `ui/RelayStates.kt` port (worst-dot-wins parse, quota text,
+  unpublished skip, SMTP dot outside the list, smtp-via span), `RelaySegDisplay`
+  state in AppModel with the probe loop (`probeRelayReachable` expect/actual —
+  HTTPS GET 6 s, the web's shell probe_relay semantics; 60 s min gap, ≥10 min
+  failing = offline grey, failing-while-green = unreachable amber), and the
+  RelayLine UI: one segment per relay with its own state color (ok #2ecc71 /
+  connecting+unreachable+delayed #e6a23c / offline #9aa0a6 / down #e05252 /
+  local #4c8dff), the send-relay segment running animated data-sending
+  dashes while a send is in flight, per-segment titles (incl. quota) as
+  contentDescription. Empty parse → the single combined account segment as
+  before. RelayStatesTest pins the parse + downgrade vectors against a
+  core-shaped fixture; ScriptedRpcTransport gained a
+  `get_connectivity_html: ""` default so scripted tests never hang the strip.
+- **QR card** (core qr_code_generator.rs card, web mounts it and re-encodes
+  the module path): `InviteQrCard` draws the 515×630 card in Compose —
+  #f2f2f2 rx40 card w/ #c6c6c6 border, optimally-encoded matrix at
+  (57.5,255) scale 400/size, the bold caption ("Scan to chat with {name}"
+  — the core stock string, wrapped 32 chars, 27px or 19px), the center
+  identity disc (ring #f2f2f2 r56.2 + disc r47.2 in the self contact color
+  + white letter 61.36px) and the footer slot (the core inlines a DC
+  wordmark image KMP doesn't ship — the Velta mark stands in, height 35).
+
+**MISSING (named)**: #102 "delayed" amber state rides a send-failure event
+feed KMP doesn't have yet (the branch is coded in the web port; KMP's
+sending-dashes key off the composer's sending flag); relay-detail chips row
+(web hidden by default, hover/pull-down reveal) not ported; caption/footer
+branding deviation on the QR card noted above.

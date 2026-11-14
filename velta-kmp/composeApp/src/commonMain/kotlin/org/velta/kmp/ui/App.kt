@@ -2,6 +2,11 @@ package org.velta.kmp.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
@@ -19,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
@@ -831,33 +837,7 @@ private fun QrView(model: AppModel) {
                         model.inviteLoading -> SideViewEmpty(L.t("Generating QR code…"))
                         model.inviteError != null -> SideViewEmpty("${L.t("Couldn't create the invite:")} ${model.inviteError}")
                         model.inviteLink != null -> {
-                            val qr = remember(model.inviteLink) {
-                                runCatching { QrEncode.encode(model.inviteLink!!) }.getOrNull()
-                            }
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f)
-                                    .padding(vertical = 4.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Canvas(Modifier.fillMaxSize()) {
-                                    drawRect(androidx.compose.ui.graphics.Color.White)
-                                    if (qr != null) {
-                                        val n = qr.size + 8 // white quiet zone of 4 modules
-                                        val cell = size.width / n
-                                        for (y in 0 until qr.size) for (x in 0 until qr.size) {
-                                            if (qr[x, y]) {
-                                                drawRect(
-                                                    androidx.compose.ui.graphics.Color.Black,
-                                                    topLeft = Offset((x + 4) * cell, (y + 4) * cell),
-                                                    size = androidx.compose.ui.geometry.Size(cell, cell),
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            InviteQrCard(model)
                             Text(
                                 model.inviteLink.orEmpty(),
                                 fontSize = 12.5.sp,
@@ -1281,15 +1261,15 @@ private fun ChannelDialog(model: AppModel) {
     }
 }
 
-/** One segment per relay, colored by the account connectivity. Tap opens the relays screen. */
+/** One segment per relay with its OWN state color (web renderRelayLine +
+ * parseConnectivityHtml + #76 probe downgrade). Empty parse → a single
+ * combined segment colored by the account connectivity. The sending relay's
+ * segment runs the data-sending dashes (web .relay-dashes). Tap opens the
+ * relays screen. */
 @Composable
 private fun RelayLine(model: AppModel) {
-    val color = when (relayBarState(model.relayConnectivity)) {
-        "ok" -> RELAY_OK
-        "down" -> RELAY_DOWN
-        else -> RELAY_WAIT
-    }
-    val count = model.relays.size.coerceAtLeast(1)
+    val accountColor = relayColorFor(relayBarState(model.relayConnectivity))
+    val segments = model.relaySegments
     Row(
         Modifier
             .fillMaxWidth()
@@ -1299,10 +1279,50 @@ private fun RelayLine(model: AppModel) {
             .semantics { contentDescription = "Relay status" },
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        repeat(count) {
-            Box(Modifier.weight(1f).fillMaxHeight().background(color))
+        if (segments.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxHeight().background(accountColor))
+        } else {
+            val shift = rememberInfiniteTransition(label = "relay-dashes").animateFloat(
+                initialValue = 0f,
+                targetValue = 12f,
+                animationSpec = infiniteRepeatable(
+                    tween(450, easing = LinearEasing),
+                ),
+                label = "relay-dash-offset",
+            )
+            segments.forEach { seg ->
+                val color = relayColorFor(seg.state)
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .drawBehind {
+                            if (seg.isSendRelay && model.sending) {
+                                // data-sending: dashes of currentColor marching rightward.
+                                val w = size.width / 12f
+                                var x = -(shift.value / 12f) * (w * 2)
+                                while (x < size.width) {
+                                    drawRect(color, topLeft = Offset(x, 0f), size = androidx.compose.ui.geometry.Size(w, size.height))
+                                    x += w * 2
+                                }
+                            } else {
+                                drawRect(color)
+                            }
+                        }
+                        .semantics { contentDescription = seg.title },
+                )
+            }
         }
     }
+}
+
+/** Web .relay-seg state colors (main.css:239-249). */
+private fun relayColorFor(state: String): Color = when (state) {
+    "ok" -> RELAY_OK
+    "down" -> RELAY_DOWN
+    "offline" -> Color(0xFF9AA0A6)
+    "local" -> Color(0xFF4C8DFF)
+    else -> RELAY_WAIT // connecting / unreachable / delayed
 }
 
 /** Web renderRelayLine's account-wide color. 4000 connected, 2000–3999 connecting, below that down. */
@@ -1421,6 +1441,132 @@ private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: Strin
     ) {
         Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp), tint = if (active) Velta.tokens.accent else Velta.tokens.text)
     }
+}
+
+/**
+ * The core's invite CARD (qr_code_generator.rs inner_generate_secure_join_qr_code,
+ * 515×630) drawn in Compose: #f2f2f2 rounded card with a #c6c6c6 border, the
+ * optimally-encoded QR matrix at (57.5,255) scaled 400/size, the bold caption
+ * (web/core stock string "Scan to chat with {name}", wrapped 32 chars, 27px
+ * or 19px), the center identity disc (ring #f2f2f2 r56.2, disc r47.2 in the
+ * self contact's color + white letter) and the footer mark (the core inlines
+ * a DC wordmark image KMP doesn't ship — the Velta logo mark stands in).
+ * The web mounts this exact card and only re-encodes the module path.
+ */
+@Composable
+private fun InviteQrCard(model: AppModel) {
+    val qr = remember(model.inviteLink) {
+        runCatching { QrEncode.encode(model.inviteLink!!) }.getOrNull()
+    }
+    val density = LocalDensity.current
+    var boxPx by remember { mutableIntStateOf(0) }
+    val wDp = with(density) { boxPx.toDp() }
+    val u = wDp.value / 515f // dp per card unit
+    val caption = captionLines(
+        // Core stock string (SetupContactQRDescription fallback, stock_str.rs:197) —
+        // owned by the core, not a web locale key.
+        "Scan to chat with ${model.inviteName.ifBlank { model.accountAddr ?: "" }}",
+    )
+    val captionFs = if (caption.size <= 2) 27f else 19f
+    val captionShift = if (caption.size <= 2) 0f else -10f
+    val letter = model.inviteName.trim().firstOrNull()?.uppercase() ?: "#"
+    val discColor = model.inviteColor?.takeIf { it.startsWith("#") }
+        ?.let { runCatching { Accent.toColor(it) }.getOrNull() }
+        ?: prismTileColor(model.inviteName.ifBlank { model.accountAddr ?: "?" })
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .onSizeChanged { boxPx = it.width },
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val cardH = size.width * 630f / 515f
+            val cardTop = (size.height - cardH) / 2f
+            val s = size.width / 515f // px per card unit
+            fun cx(x: Float) = x * s
+            fun cy(y: Float) = cardTop + y * s
+            // Card: rect x2 y2 511x626 rx40, fill #f2f2f2, stroke #c6c6c6 w2.
+            drawRoundRect(
+                Color(0xFFF2F2F2),
+                topLeft = Offset(cx(2f), cy(2f)),
+                size = androidx.compose.ui.geometry.Size(cx(511f), cy(626f)),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cx(40f)),
+            )
+            drawRoundRect(
+                Color(0xFFC6C6C6),
+                topLeft = Offset(cx(2f), cy(2f)),
+                size = androidx.compose.ui.geometry.Size(cx(511f), cy(626f)),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cx(40f)),
+                style = Stroke(width = cx(2f)),
+            )
+            // QR group: translate(57.5,255), scale 400/size.
+            if (qr != null) {
+                val qrArea = cx(400f)
+                val cell = qrArea / qr.size
+                val qx = cx(57.5f)
+                val qy = cy(255f)
+                for (y in 0 until qr.size) for (x in 0 until qr.size) {
+                    if (qr[x, y]) {
+                        drawRect(
+                            Color.Black,
+                            topLeft = Offset(qx + x * cell, qy + y * cell),
+                            size = androidx.compose.ui.geometry.Size(cell, cell),
+                        )
+                    }
+                }
+            }
+            // Center identity disc: ring r56.2 #f2f2f2 + disc r47.2.
+            drawCircle(Color(0xFFF2F2F2), radius = cx(56.2f), center = Offset(cx(257.5f), cy(455f)))
+            drawCircle(discColor, radius = cx(47.2f), center = Offset(cx(257.5f), cy(455f)))
+        }
+        // Caption block (bold, black, centered; first baseline y=515+shift).
+        Text(
+            caption.joinToString("\n"),
+            color = Color.Black,
+            fontWeight = FontWeight.Bold,
+            fontSize = (captionFs * u).sp,
+            lineHeight = (captionFs * 1.2f * u).sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset(y = ((515f + captionShift - captionFs * 1.05f) * u).dp),
+        )
+        // The white letter on the disc (dominant-baseline central + 6.136 shift).
+        Text(
+            letter,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = (61.36f * u).sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset(y = ((455f + 6.136f - 61.36f * 0.55f) * u).dp),
+        )
+        // Footer mark: the core inlines a 198×35 DC wordmark KMP doesn't
+        // ship — the Velta mark at the same slot (height 35).
+        Image(
+            painterResource(Res.drawable.v_logo),
+            contentDescription = null,
+            modifier = Modifier
+                .offset(y = ((567f - 35f) * u).dp)
+                .height((35f * u).dp),
+            contentScale = ContentScale.Fit,
+        )
+    }
+}
+
+/** Core textwrap: word-wrap at 32 chars (never mid-word). */
+private fun captionLines(text: String): List<String> {
+    val lines = mutableListOf<String>()
+    for (word in text.split(" ")) {
+        val last = lines.lastOrNull()
+        if (last == null) lines.add(word)
+        else if (last.length + 1 + word.length <= 32) lines[lines.size - 1] = "$last $word"
+        else lines.add(word)
+    }
+    return lines
 }
 
 @Composable

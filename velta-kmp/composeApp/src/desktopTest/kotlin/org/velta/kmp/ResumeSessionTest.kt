@@ -25,6 +25,14 @@ import kotlin.test.assertTrue
  * with that message instead. Records all requests for assertions.
  */
 class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTransport {
+
+    companion object {
+        /** Answer for a harmless read-only method tests never script — the
+         * connectivity-HTML parse feeds the chat-list strip (an unscripted
+         * call would hang the refresh coroutine instead of failing a test). */
+        val DEFAULT_ANSWERS = mapOf("get_connectivity_html" to "\"\"")
+    }
+
     val requests = CopyOnWriteArrayList<String>()
     private var onLine: ((String) -> Unit)? = null
     var closed = false
@@ -39,7 +47,7 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
         val obj = Json.parseToJsonElement(line).jsonObject
         val id = obj["id"]!!.jsonPrimitive.content
         val method = obj["method"]!!.jsonPrimitive.content
-        val scripted = script[method] ?: return
+        val scripted = script[method] ?: DEFAULT_ANSWERS[method] ?: return
         if (scripted.startsWith("ERROR:")) {
             onLine?.invoke(
                 """{"id":$id,"error":{"code":-1,"message":"${scripted.removePrefix("ERROR:")}"}}""",

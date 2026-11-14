@@ -18,3 +18,8 @@ expect fun timeAgo(epochSeconds: Long): String
 
 /** Wall clock in unix seconds (call log timestamps; java.* is not commonMain). */
 expect fun wallClockSeconds(): Long
+
+/** Shell-side relay probe (#76): HTTPS GET https://domain/ with a 6 s
+ * timeout; true = any HTTP response arrived (a bare TCP connect lies
+ * behind fake-IP VPNs — web probe_relay). */
+expect suspend fun probeRelayReachable(domain: String): Boolean

@@ -316,6 +316,16 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call("get_connectivity", RpcClient.params(RpcClient.param(accountId)))
             .toString().trim('"').toInt()
 
+    /**
+     * The core's full connectivity HTML page — the ONLY live per-transport
+     * source: one `<li class="transport">` per relay with colored dots
+     * (web parseConnectivityHtml; 🐴 ceiling noted there too — the upgrade
+     * is a per-transport JSON-RPC in the core).
+     */
+    suspend fun connectivityHtml(accountId: Long): String =
+        (client.call("get_connectivity_html", RpcClient.params(RpcClient.param(accountId)))
+            as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+
     /** Sticker packs (misc_get_stickers): pack name → sticker file paths. */
     suspend fun getStickers(accountId: Long): Map<String, List<String>> {
         val result = client.call("misc_get_stickers", RpcClient.params(RpcClient.param(accountId)))
