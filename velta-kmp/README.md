@@ -185,7 +185,9 @@ Sign in with a throwaway account — or paste a `DCACCOUNT:` invite via 🎟.
 Android runs the core **in-process** — `native/rpc-shim/` is a small Rust
 cdylib (Accounts + CommandApi + yerpc, one session per connection) serving
 the deltachat JSON-RPC surface on `127.0.0.1`; the app loads it via JNI and
-connects with a plain socket transport. Same architecture as the Tauri
+connects with a plain socket transport. Every connection must open with a
+per-launch random token the app hands the shim at start (#334) — other
+apps on the device can reach loopback, but not the core. Same architecture as the Tauri
 Android shell. Build recipe (WSL, NDK exports) is in [AGENTS.md](AGENTS.md);
 the CI `shim` job publishes ready-made `.so` artifacts (`velta-rpc-shim-so`,
 laid out as `jniLibs/<abi>/`) and every CI APK already bundles them. The files stay out
