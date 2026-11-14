@@ -526,7 +526,67 @@ private fun ChatListScreen(model: AppModel) {
 @Composable
 private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> Unit) {
     LaunchedEffect(model.chatCategory, model.accountId) { model.ensureContactBots() }
-    Column(Modifier.fillMaxSize()) {
+    val listState = rememberLazyListState()
+    // The two list-level gestures ride the CONTAINER, not the LazyColumn —
+    // empty categories render the empty-state Box instead of a list, and the
+    // swipes must keep working there (web: both handlers live on chatListEl).
+    val gestures = Modifier
+        .pointerInput(Unit) {
+            // Web pull-open: pulling down at the very top reveals
+            // the relay detail chips.
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                // Only a pull from the absolute top counts (web
+                // touchstart gate: scrollTop <= 0 — an unrendered list is
+                // always at top, its state sits at the defaults).
+                if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+                    // Ride out the gesture without acting.
+                    while (awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }) { /* draining */ }
+                    return@awaitEachGesture
+                }
+                var pulled = 0f
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (event.changes.none { it.pressed }) break
+                    // Raw delta: the list's overscroll consumes the
+                    // change, the pull gesture must still measure it.
+                    pulled += event.changes.maxOf { it.positionChangeIgnoreConsumed().y }
+                    if (pulled > 32.dp.toPx()) {
+                        onPullTop()
+                        break
+                    }
+                }
+            }
+        }
+        .pointerInput(Unit) {
+            // #57 follow-up (web app.js:1428-1440): a horizontal
+            // swipe steps through the category chips — one step per
+            // gesture, left = next, right = previous.
+            if (!touchGesturesEnabled) return@pointerInput
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val x0 = down.position.x
+                val y0 = down.position.y
+                var totalX = 0f
+                var totalY = 0f
+                var stepped = false
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (event.changes.none { it.pressed }) break
+                    if (stepped) continue // latch: one step per gesture
+                    totalX += event.changes.maxOf { it.positionChangeIgnoreConsumed().x }
+                    totalY += event.changes.maxOf { it.positionChangeIgnoreConsumed().y }
+                    val step = swipeCategoryStep(totalX, totalY, 48.dp.toPx())
+                    if (step != 0) {
+                        stepped = true
+                        val cats = AppModel.CHAT_CATEGORIES
+                        val next = cats.getOrNull(cats.indexOf(model.chatCategory) + step)
+                        if (next != null) model.onSetChatCategory(next)
+                    }
+                }
+            }
+        }
+    Column(Modifier.fillMaxSize().then(gestures)) {
         CategoryChips(model)
         // Web renderSyncBar: the first-fetch strip — chats view, nothing real
         // in the list yet, core still working (connectivity < 4000).
@@ -558,65 +618,11 @@ private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> 
                 )
             }
         } else {
-            val listState = rememberLazyListState()
             LazyColumn(
                 Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .pointerInput(Unit) {
-                        // Web pull-open: pulling down at the very top reveals
-                        // the relay detail chips.
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                            // Only a pull from the absolute top counts (web
-                            // touchstart gate: scrollTop <= 0).
-                            if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
-                                // Ride out the gesture without acting.
-                                while (awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }) { /* draining */ }
-                                return@awaitEachGesture
-                            }
-                            var pulled = 0f
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.changes.none { it.pressed }) break
-                                // Raw delta: the list's overscroll consumes the
-                                // change, the pull gesture must still measure it.
-                                pulled += event.changes.maxOf { it.positionChangeIgnoreConsumed().y }
-                                if (pulled > 32.dp.toPx()) {
-                                    onPullTop()
-                                    break
-                                }
-                            }
-                        }
-                    }
-                    .pointerInput(Unit) {
-                        // #57 follow-up (web app.js:1428-1440): a horizontal
-                        // swipe steps through the category chips — one step per
-                        // gesture, left = next, right = previous.
-                        if (!touchGesturesEnabled) return@pointerInput
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                            val x0 = down.position.x
-                            val y0 = down.position.y
-                            var totalX = 0f
-                            var totalY = 0f
-                            var stepped = false
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.changes.none { it.pressed }) break
-                                if (stepped) continue // latch: one step per gesture
-                                totalX += event.changes.maxOf { it.positionChangeIgnoreConsumed().x }
-                                totalY += event.changes.maxOf { it.positionChangeIgnoreConsumed().y }
-                                val step = swipeCategoryStep(totalX, totalY, 48.dp.toPx())
-                                if (step != 0) {
-                                    stepped = true
-                                    val cats = AppModel.CHAT_CATEGORIES
-                                    val next = cats.getOrNull(cats.indexOf(model.chatCategory) + step)
-                                    if (next != null) model.onSetChatCategory(next)
-                                }
-                            }
-                        }
-                    },
+                    .fillMaxWidth(),
+                state = listState,
             ) {
                 items(shown, key = { it.id }) { item ->
                     ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
