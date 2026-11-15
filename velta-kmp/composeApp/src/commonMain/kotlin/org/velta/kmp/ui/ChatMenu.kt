@@ -185,6 +185,7 @@ internal fun ChatMenuHost(model: AppModel) {
     }
     ChatConfirmDialog(model)
     GroupInviteDialog(model)
+    SharePickerHost(model)
     // The chat screen hosts its own toast above the composer; elsewhere
     // (chat list actions) the toast sits above the bottom bar.
     if (model.screen !is AppModel.Screen.Chat && model.toast != null) {

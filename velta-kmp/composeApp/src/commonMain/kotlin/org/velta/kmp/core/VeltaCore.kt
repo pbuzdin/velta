@@ -473,6 +473,22 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call("accept_chat", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)))
     }
 
+    /** rpc-core sendMessage (send_msg MessageData; both viewtype casings,
+     *  as stable sends them, so either core build reads its own). */
+    suspend fun sendMessage(accountId: Long, chatId: Long, text: String, viewtype: String? = null, file: String? = null, filename: String? = null): Long? {
+        val data = buildJsonObject {
+            put("text", text)
+            if (viewtype != null) {
+                put("viewType", viewtype)
+                put("viewtype", viewtype)
+            }
+            if (file != null) put("file", file)
+            if (filename != null) put("filename", filename)
+        }
+        val r = client.call("send_msg", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), data))
+        return (r as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+    }
+
     /** rpc-core saveSticker (collection "Default"). */
     suspend fun saveSticker(accountId: Long, messageId: Long, collection: String = "Default") {
         client.call(

@@ -24,16 +24,23 @@
 
         <activity
             android:name=".MainActivity"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:exported="true"
             android:windowSoftInputMode="adjustNothing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Invite links (#334, stable's filters minus Velta-only hosts):
-                 contact/group invites and chatmail scheme codes land on the
-                 welcome splash or the Join screen. -->
+            <!-- Invite links (#334, stable's filters): contact/group invites
+                 and chatmail scheme codes land on the welcome splash or the
+                 Join screen. velta.cc is path-scoped to /join/ so ordinary
+                 site taps stay in the browser (stable manifest, step 7). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="velta.cc" android:pathPrefix="/join/" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -50,6 +57,31 @@
                 <data android:scheme="dclogin" />
                 <data android:scheme="dcbackup" />
                 <data android:scheme="openpgp4fpr" />
+            </intent-filter>
+            <!-- #334 step 7 (stable #97): Velta in the system share sheet.
+                 singleTask (as stable) so a share lands in the running app
+                 instead of a second copy inside the sender's task. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="application/*" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="application/*" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
         <provider
