@@ -61,7 +61,9 @@ for the per-phase ledger and what's left.
   Archived tab), and Start something (new chat / group / channel with
   real create flows, join invite, add relay, add account); chat view
   (day separators, sender names in groups, media, quote blocks with
-  tap-to-jump, markdown: bold/italic/underline/code-click-to-copy,
+  tap-to-jump (older history loads first, like stable), **Search in
+  chat** (header search button or a tapped #hashtag: core fulltext, the
+  newest 30 hits, a hit jumps to the message), markdown: bold/italic/underline/code-click-to-copy,
   links, bare links, @mentions, hashtags, invite cards that route to
   the Join flow), composer with drafts, the attach menu (Photo / Video /
   Camera / File / Stickers — camera capture via FileProvider), quick

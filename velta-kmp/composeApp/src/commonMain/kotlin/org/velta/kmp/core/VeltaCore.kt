@@ -623,6 +623,22 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         }
     }
 
+    /** rpc-core searchMessages: core fulltext ids (oldest first); with a
+     *  chat id only that chat. */
+    suspend fun searchMessages(accountId: Long, query: String, chatId: Long?): List<Long> {
+        val result = client.call(
+            "search_messages",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                RpcClient.param(query),
+                if (chatId != null) RpcClient.param(chatId) else RpcClient.nullParam(),
+            ),
+        )
+        return (result as? JsonArray)?.mapNotNull {
+            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+        } ?: emptyList()
+    }
+
     suspend fun messageIds(accountId: Long, chatId: Long): List<Long> {
         val result = client.call(
             "get_message_ids",

@@ -1512,6 +1512,7 @@ class AppModel(
         }
         stopAudio()
         stopVoice(send = false)
+        closeChatSearch()
         screen = Screen.Chat(item.id, item.name, item.isGroup)
         accountId?.let { notifier?.cancel(it, item.id) }
         composerText = ""
@@ -1555,6 +1556,7 @@ class AppModel(
 
     /** Persist or clear the draft of the open chat when leaving it. */
     fun backToChatList() {
+        closeChatSearch()
         stopAudio()
         stopVoice(send = false)
         saveOpenDraft()
@@ -1804,6 +1806,7 @@ class AppModel(
      *  "account-changing"): drop it so the new profile refetches. The call
      *  log stays device-wide like stable's velta-call-log. */
     private fun resetAccountCaches() {
+        closeChatSearch()
         stopAudio()
         stopVoice(send = false)
         audioFailed = emptySet()
@@ -3013,11 +3016,135 @@ class AppModel(
         checkJoin()
     }
 
-    /** Quote tap: jump when the quoted message is in the loaded window. */
+    /** Quote tap: jump to the quoted message, loading history if needed. */
     fun jumpToQuoted(messageId: Long?) {
-        if (messageId != null && chatMessages.any { it.id == messageId }) {
-            pendingJumpToId = messageId
+        if (messageId != null) jumpToMessage(messageId)
+    }
+
+    /** The row a jump landed on, tinted briefly (stable _flashRow). */
+    var flashMsgId by mutableStateOf<Long?>(null)
+        private set
+    private var flashJob: Job? = null
+    private var jumpInFlight = false
+
+    private fun landJump(msgId: Long) {
+        pendingJumpToId = msgId
+        flashMsgId = msgId
+        flashJob?.cancel()
+        flashJob = scope.launch {
+            delay(1200)
+            if (flashMsgId == msgId) flashMsgId = null
         }
+    }
+
+    /** Stable _jumpToMessage: scroll to [msgId]; when it is older than the
+     *  loaded window, load history down to it first. */
+    fun jumpToMessage(msgId: Long) {
+        if (chatMessages.any { it.id == msgId }) { landJump(msgId); return }
+        val chat = screen as? Screen.Chat ?: return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        if (jumpInFlight) return
+        jumpInFlight = true
+        scope.launch {
+            chatLoading = true
+            try {
+                val ids = veltaCore.messageIds(id, chat.chatId).sorted()
+                if (!stillOn(id, chat.chatId)) return@launch
+                val loadedFrom = if (loadedForChatId == chat.chatId) loadedFromIdx else ids.size
+                when (val plan = jumpPlan(ids, loadedFrom, msgId)) {
+                    JumpPlan.Gone -> showToast(L.t("Message is no longer in this chat's history"))
+                    JumpPlan.TooFar -> showToast(L.t("Message is higher up in history — scroll up to load it"))
+                    JumpPlan.Loaded -> if (chatMessages.any { it.id == msgId }) landJump(msgId)
+                    is JumpPlan.LoadFrom -> {
+                        val older = veltaCore.messages(id, ids.subList(plan.from, loadedFrom))
+                        if (!stillOn(id, chat.chatId)) return@launch
+                        pendingPrependCount = older.size
+                        chatMessages = (older + chatMessages).distinctBy { it.id }.sortedBy { it.sortTimestamp ?: it.timestamp }
+                        loadedForChatId = chat.chatId
+                        loadedFromIdx = plan.from
+                        hasMoreMessages = plan.from > 0
+                        if (chat.isGroup) loadSenderNames(veltaCore, id, older)
+                        landJump(msgId)
+                    }
+                }
+            } catch (t: Throwable) {
+                if (stillOn(id, chat.chatId)) showToast(L.t("Couldn't load history: ") + (t.message ?: t.toString()), 4000)
+            } finally {
+                chatLoading = false
+                jumpInFlight = false
+            }
+        }
+    }
+
+    private fun stillOn(id: Long, chatId: Long) = accountId == id && (screen as? Screen.Chat)?.chatId == chatId
+
+    // ---- Search in chat (stable app.js openChatSearch) ----
+    var chatSearchOpen by mutableStateOf(false)
+        private set
+    var chatSearchQuery by mutableStateOf("")
+        private set
+    var chatSearchBusy by mutableStateOf(false)
+        private set
+    /** null = nothing searched yet (query too short). */
+    var chatSearchHits by mutableStateOf<List<MessageObject>?>(null)
+        private set
+    var chatSearchError by mutableStateOf<String?>(null)
+        private set
+    private var searchJob: Job? = null
+    private var searchSeq = 0
+
+    /** Header search button, or a tapped #hashtag (prefilled). */
+    fun openChatSearch(prefill: String = "") {
+        if (screen !is Screen.Chat) return
+        chatSearchOpen = true
+        searchInChat(prefill)
+    }
+
+    fun closeChatSearch() {
+        searchJob?.cancel()
+        searchSeq++
+        chatSearchOpen = false
+        chatSearchQuery = ""
+        chatSearchHits = null
+        chatSearchError = null
+        chatSearchBusy = false
+    }
+
+    /** Debounced like stable (250 ms); a newer keystroke owns the result. */
+    fun searchInChat(raw: String) {
+        chatSearchQuery = raw
+        searchJob?.cancel()
+        val seq = ++searchSeq
+        chatSearchHits = null
+        chatSearchError = null
+        chatSearchBusy = false
+        val q = searchQuery(raw) ?: return
+        val chat = screen as? Screen.Chat ?: return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        searchJob = scope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            if (seq != searchSeq) return@launch
+            chatSearchBusy = true
+            try {
+                val page = searchPage(veltaCore.searchMessages(id, q, chat.chatId))
+                val byId = veltaCore.messages(id, page).associateBy { it.id }
+                if (seq != searchSeq || !stillOn(id, chat.chatId)) return@launch
+                chatSearchHits = page.mapNotNull { byId[it] }
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                if (seq == searchSeq) chatSearchError = t.message ?: t.toString()
+            } finally {
+                if (seq == searchSeq) chatSearchBusy = false
+            }
+        }
+    }
+
+    fun pickSearchHit(m: MessageObject) {
+        closeChatSearch()
+        jumpToMessage(m.id)
     }
 
     // ---- Appearance + language (#321 step 5). The web keeps these in
