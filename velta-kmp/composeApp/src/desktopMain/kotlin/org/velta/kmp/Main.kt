@@ -50,6 +50,19 @@ fun main() = application {
                 else runCatching { File(path).copyTo(target, overwrite = true); null }.getOrElse { it.message ?: it.toString() }
             }
         }
+        // Tap on a file: an original-named copy, then the desktop's default app.
+        model.openFile = { path, name, _ ->
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val dir = File(System.getProperty("java.io.tmpdir"), "velta-open-docs").apply { mkdirs() }
+                    val copy = File(dir, org.velta.kmp.ui.safeOpenName(name))
+                    File(path).copyTo(copy, overwrite = true)
+                    if (!java.awt.Desktop.isDesktopSupported()) return@runCatching "no-app"
+                    java.awt.Desktop.getDesktop().open(copy)
+                    null
+                }.getOrElse { it.message ?: it.toString() }
+            }
+        }
         App(model)
     }
 }

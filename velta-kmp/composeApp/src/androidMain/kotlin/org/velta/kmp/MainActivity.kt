@@ -91,6 +91,38 @@ class MainActivity : FragmentActivity() {
     }
 
     /** Copy a core blob into Downloads (#334 step 5 "Download"). */
+    /** Stable FileOpen.kt (#279): an original-named copy in cache/open-docs
+     *  (the FileProvider's cache-path), then ACTION_VIEW. "no-app" when
+     *  nothing can open it, so the page offers "Save as…". Copies older
+     *  than a day are swept on the next open. */
+    private suspend fun openWithSystem(path: String, name: String, mime: String?): String? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val dir = File(cacheDir, "open-docs").apply { mkdirs() }
+                val dayAgo = System.currentTimeMillis() - 24 * 3600_000L
+                dir.listFiles()?.forEach { f -> if (f.lastModified() < dayAgo) f.deleteRecursively() }
+                val copy = File(File(dir, System.currentTimeMillis().toString()).apply { mkdirs() }, org.velta.kmp.ui.safeOpenName(name))
+                File(path).copyTo(copy, overwrite = true)
+                val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", copy)
+                val ext = copy.name.substringAfterLast('.', "").lowercase()
+                val byExt = if (ext.isEmpty()) null else android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                val type = (if (mime == "text/plain") mime else null)
+                    ?: byExt
+                    ?: mime?.takeIf { it.contains('/') && it != "application/octet-stream" }
+                    ?: "*/*"
+                val view = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, type)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { startActivity(view) }
+                null
+            } catch (e: android.content.ActivityNotFoundException) {
+                "no-app"
+            } catch (t: Throwable) {
+                t.message ?: t.toString()
+            }
+        }
+
     private suspend fun saveToDownloads(path: String, name: String, mime: String?): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             val done = kotlinx.coroutines.CompletableDeferred<String?>()
@@ -232,6 +264,8 @@ class MainActivity : FragmentActivity() {
         model.requestQrScan = { startQrScan() }
         model.backupPicker = { pickBackup.launch(arrayOf("application/x-tar", "application/gzip", "application/octet-stream", "*/*")) }
         model.saveFile = { path, name, mime -> saveToDownloads(path, name, mime) }
+        model.openFile = { path, name, mime -> openWithSystem(path, name, mime) }
+        model.mediaInLightbox = true
         // QR view "Share a link" (web shareLink → ACTION_SEND chooser).
         model.shareText = { text ->
             val send = Intent(Intent.ACTION_SEND).apply {

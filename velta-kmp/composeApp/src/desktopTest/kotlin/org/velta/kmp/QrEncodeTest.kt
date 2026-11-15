@@ -46,7 +46,7 @@ class QrEncodeTest {
 
     @Test
     fun shortPayloadAndAstralTextRoundTrip() {
-        assertEquals("DCACCOUNT:https://d13.buro.dev/new", decode(QrEncode.encode("DCACCOUNT:https://d13.buro.dev/new")))
+        assertEquals("DCACCOUNT:https://relay.example.dev/new", decode(QrEncode.encode("DCACCOUNT:https://relay.example.dev/new")))
         // Code points, not UTF-16 units: an astral char is one numChars unit.
         val emojiPayload = "hi 👋ometer"
         assertEquals(emojiPayload, decode(QrEncode.encode(emojiPayload)))

@@ -39,13 +39,15 @@ for the per-phase ledger and what's left.
   the first that answers and configures), Add as a second device
   (`DCBACKUP` code), Restore from a backup (tar / gzip). Step list driven
   by ConfigureProgress, nickname ask, version line and App log footer.
-  **Scan a QR** (📷, CameraX + ZXing, decoded on-device) and invite links
+  **Scan a QR code** (welcome screen, Start something → Join, and the
+  QR view; CameraX + ZXing, decoded on-device) and invite links
   (`dcaccount:`/`dclogin:`/`dcbackup:`/`openpgp4fpr:`, `i.delta.chat`)
   feed the same paths; a contact/group invite on a fresh install picks a
   relay near the inviter and joins after setup.
-- **Relays** — ⚡ screen: one card per transport with C/I/P/D capability
-  flags and relay-provided details; remove.
-- **Accounts** — 👤 switcher; the core's selected account persists across
+- **Relays** — Menu → Relays: one card per transport with C/I/P/D
+  capability flags and relay-provided details; remove (with stable's
+  confirm; the last relay cannot be removed).
+- **Accounts** — Menu → Accounts switcher; the core's selected account persists across
   restarts (probed), so the choice survives with zero local storage.
 - **Messaging** — chat list with the #57 category chips (All / Unread /
   People / Groups / Channels / Bots / System, persisted selection, lazy
@@ -67,7 +69,13 @@ for the per-phase ledger and what's left.
   the web anatomy: 22%-radius avatar tiles (identity matrix, saved/device
   gradient tiles, photos), list-time stamps, draft/request red previews,
   outgoing ticks, accent-2 unread badge pills (grey when muted). Media
-  previews pass the core's own emoji through (no doubled 📷). **Touch
+  previews pass the core's own emoji through (no doubled 📷). **Media and
+  files**: tap a photo, GIF or sticker for the full-screen viewer (pinch
+  zoom up to 8×, double tap 2.5×, drag while zoomed, tap or Back to
+  close; a received sticker first offers "Add sticker"); tap a video or
+  file to open it in another app (an original-named copy via
+  FileProvider; "No app can open this file" offers Save as…; HTML opens
+  as plain text). **Touch
   gestures**: swipe the chat list left/right to step through the category
   chips, swipe a bubble right to reply (haptic at the commit line), swipe
   the history left to go back — thresholds ported from the web's touch
@@ -79,7 +87,7 @@ for the per-phase ledger and what's left.
   under the same keys the web app uses.
 - **Security** — database encryption at rest (Keystore-wrapped DEK →
   `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext);
-  optional app lock (🔒 strong biometric/device-credential — locked = the
+  optional app lock (Settings → App lock: strong biometric/device-credential — locked = the
   core never starts, nothing decrypts; auto-lock after 1/5/15 min hidden,
   like stable's "Lock when hidden"). Port of #178, with two Tauri-side
   keystore bugs (undersized wrap blob, StrongBox fallback) fixed here.
@@ -197,7 +205,9 @@ export VELTA_KMP_RPC_SERVER=/path/to/deltachat-rpc-server   # any recent build
 ./gradlew :composeApp:run
 ```
 
-Sign in with a throwaway account — or paste a `DCACCOUNT:` invite via 🎟.
+The welcome screen creates an account on a relay (or autopicks one),
+adds this device as a second device, or restores a backup. There is no
+email/password sign-in.
 
 ## Android core shim (P1b)
 

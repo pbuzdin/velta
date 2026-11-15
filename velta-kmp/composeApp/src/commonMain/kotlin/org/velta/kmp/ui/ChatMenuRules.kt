@@ -123,6 +123,14 @@ fun relayRemoveConfirm(addr: String) = ConfirmSpec(
     args = mapOf("addr" to addr),
 )
 
+/** chat-view.js received-sticker tap: ask, then the lightbox either way. */
+val ADD_STICKER_CONFIRM = ConfirmSpec(
+    title = "Add sticker",
+    text = "Add this sticker to your sticker collection?",
+    ok = "Add",
+    danger = false,
+)
+
 /** #145: a group or broadcast must be left before delete_chat. */
 fun deleteChatLeavesFirst(chat: MenuChat): Boolean =
     chat.kind == "group" || chat.chatType == "OutBroadcast" || chat.chatType == "InBroadcast"
