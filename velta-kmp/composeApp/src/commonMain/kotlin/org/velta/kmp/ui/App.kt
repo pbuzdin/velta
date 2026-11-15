@@ -121,6 +121,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawBehind
@@ -1575,7 +1576,7 @@ private fun RelayDetailChip(
     }
 }
 
-/** Web maskRelayDomain (app.js:1266): "d13*.dev" — first 3 chars, a star,
+/** Web maskRelayDomain (app.js:1266): "rel*.dev" — first 3 chars, a star,
  *  then ONLY the last dot label; "cha*.uk" for two-label hosts. */
 internal fun maskRelayDomain(domain: String?): String {
     val d = domain ?: ""
@@ -3393,6 +3394,18 @@ private fun InviteCard(url: String, onJoin: () -> Unit) {
 
 private val MEDIA_VIEWTYPES = setOf("Image", "Gif", "Sticker")
 
+/** A bubble tap target with no ripple (stable media/file cards). The
+ *  bubble's own gesture loop consumes long-press and select taps, so
+ *  those never reach here. */
+private fun Modifier.tapOpens(onTap: () -> Unit): Modifier = composed {
+    clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        role = androidx.compose.ui.semantics.Role.Button,
+        onClick = onTap,
+    )
+}
+
 @Composable
 private fun MessageBubble(
     message: MessageObject,
@@ -3672,16 +3685,18 @@ private fun MessageBubble(
                             message.dimensionsWidth,
                             message.dimensionsHeight,
                             sticker = message.viewType == "Sticker",
-                            modifier = if (message.viewType == "Sticker") Modifier else Modifier.mediaBleed(),
+                            modifier = (if (message.viewType == "Sticker") Modifier else Modifier.mediaBleed())
+                                .tapOpens { model.tapMedia(message) },
                         )
                     } else when (message.viewType) {
                         // Web .msg-video: #101010 band with a play button and
-                        // size/duration chips. No playback engine yet (P4).
-                        "Video" -> VideoCard(message, tokens)
+                        // size/duration chips; a tap hands the file to the system player.
+                        "Video" -> Box(Modifier.tapOpens { model.openMessageFile(message) }) { VideoCard(message, tokens) }
                         // Web .msg-voice/.msg-audio: play circle + meta. Static.
                         "Audio", "Voice" -> AudioCard(message, tokens)
-                        // Web .msg-file: 44px accent circle + name + size.
-                        "File", "Webxdc" -> FileCard(message, tokens)
+                        // Web .msg-file: 44px accent circle + name + size; a tap opens it.
+                        "File" -> Box(Modifier.tapOpens { model.openMessageFile(message) }) { FileCard(message, tokens) }
+                        "Webxdc" -> FileCard(message, tokens)
                         else -> {}
                     }
                     if (message.text.isNotBlank()) {

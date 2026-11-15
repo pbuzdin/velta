@@ -192,7 +192,7 @@ never run Gradle on the Windows side.
   spacing, NOT hit area — padding before clickable, or the bands swallow
   the category chips' taps below. Pull-down >32dp while the list sits at
   the very top overlays the web's `.relay-detail` chips for 4s (web
-  pull-open): one pill per segment — `maskRelayDomain` ("d13*.dev" — first
+  pull-open): one pill per segment — `maskRelayDomain` ("rel*.dev" — first
   3 chars + star + last dot label) + segment title, the send relay marked
   with an envelope in its own state color. Both list gestures ride the
   ChatsView CONTAINER, not the LazyColumn — empty categories render the

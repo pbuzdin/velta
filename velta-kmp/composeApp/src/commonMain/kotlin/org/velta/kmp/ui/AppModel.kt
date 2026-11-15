@@ -2025,13 +2025,99 @@ class AppModel(
         private set
     private var toastJob: Job? = null
 
-    fun showToast(text: String, ms: Long = 2500) {
+    /** Optional toast button (stable toast `action`, e.g. "Save as…"). */
+    var toastAction by mutableStateOf<Pair<String, () -> Unit>?>(null)
+        private set
+
+    fun showToast(text: String, ms: Long = 2500, action: Pair<String, () -> Unit>? = null) {
         toast = text
+        toastAction = action
         toastJob?.cancel()
         toastJob = scope.launch {
             delay(ms)
             toast = null
+            toastAction = null
         }
+    }
+
+    fun runToastAction() {
+        val action = toastAction ?: return
+        toast = null
+        toastAction = null
+        toastJob?.cancel()
+        action.second()
+    }
+
+    // ---- Image lightbox + opening files (#334 step 11, stable
+    // openImageLightbox / openAttachmentFile) ----
+
+    data class Lightbox(val path: String, val caption: String)
+
+    var lightbox by mutableStateOf<Lightbox?>(null)
+
+    /** Platform: open a file in the system's default app. Returns null when
+     *  it opened, "no-app" when nothing can open it, else the error text. */
+    var openFile: (suspend (path: String, name: String, mime: String?) -> String?)? = null
+
+    /** True on Android: images open in the lightbox (stable documentOpenPlan). */
+    var mediaInLightbox = false
+
+    /** Image / sticker tap in a bubble. A received sticker first asks to
+     *  add it to the collection, then opens the viewer either way. */
+    fun tapMedia(message: MessageObject) {
+        val path = message.file ?: return
+        val open = { lightbox = Lightbox(path, lightboxCaption(message.fileName, message.viewType)) }
+        if (message.viewType == "Sticker" && message.fromId != 1L) {
+            chatConfirm = PendingConfirm(ADD_STICKER_CONFIRM, onCancel = open) {
+                saveSticker(message)
+                open()
+            }
+            return
+        }
+        open()
+    }
+
+    /** File / video tap: stable _openFile → openAttachmentFile. */
+    fun openMessageFile(message: MessageObject) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                val msg = ensureDownloaded(veltaCore, id, message) ?: return@launch
+                val path = msg.file ?: return@launch
+                val name = attachmentName(msg.fileName, path)
+                when (documentOpenPlan(path, name, mediaInLightbox)) {
+                    OpenPlan.Lightbox -> lightbox = Lightbox(path, msg.fileName?.ifBlank { null } ?: "image")
+                    // No sandboxed in-app viewer: HTML goes out as plain text
+                    // so no browser runs the untrusted page (stable: iframe).
+                    OpenPlan.Html, OpenPlan.Native -> {
+                        val open = openFile ?: return@launch
+                                val mime = if (documentOpenPlan(path, name, mediaInLightbox) == OpenPlan.Html) "text/plain" else msg.fileMime
+                        when (val err = open(path, name, mime)) {
+                            null -> {}
+                            "no-app" -> if (accountId == id) {
+                                showToast(L.t("No app can open this file"), 6000, L.t("Save as…") to { downloadAttachment(msg) })
+                            }
+                            else -> if (accountId == id) showToast(L.t("Could not open file: ") + err, 4000)
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                if (accountId == id) showToast(L.t("Could not open file: ") + (t.message ?: t.toString()), 4000)
+            }
+        }
+    }
+
+    /** A server-side (partial) file is fetched first; null = still loading. */
+    private suspend fun ensureDownloaded(veltaCore: VeltaCore, id: Long, message: MessageObject): MessageObject? {
+        var msg = msgById(message.id) ?: message
+        val ds = msg.downloadState ?: "Done"
+        if (ds == "Done") return msg
+        if (ds == "InProgress") { showToast(L.t("Still downloading…")); return null }
+        veltaCore.downloadFullMessage(id, msg.id)
+        msg = veltaCore.messages(id, listOf(msg.id)).firstOrNull() ?: msg
+        reloadOpenChat()
+        return msg
     }
 
     /** Platform save (Android: Downloads via MediaStore / save dialog):
@@ -2159,14 +2245,7 @@ class AppModel(
         val id = accountId ?: return
         scope.launch {
             try {
-                var msg = msgById(message.id) ?: message
-                val ds = msg.downloadState ?: "Done"
-                if (ds != "Done") {
-                    if (ds == "InProgress") { showToast(L.t("Still downloading…")); return@launch }
-                    veltaCore.downloadFullMessage(id, msg.id)
-                    msg = veltaCore.messages(id, listOf(msg.id)).firstOrNull() ?: msg
-                    reloadOpenChat()
-                }
+                val msg = ensureDownloaded(veltaCore, id, message) ?: return@launch
                 val path = msg.file ?: return@launch
                 val save = saveFile ?: return@launch
                 val name = msg.fileName ?: path.substringAfterLast('/')
@@ -2409,7 +2488,7 @@ class AppModel(
     var chatMenu by mutableStateOf<ChatMenuState?>(null)
 
     /** A stable confirmModal waiting for an answer. */
-    data class PendingConfirm(val spec: ConfirmSpec, val onOk: () -> Unit)
+    data class PendingConfirm(val spec: ConfirmSpec, val onCancel: () -> Unit = {}, val onOk: () -> Unit)
 
     var chatConfirm by mutableStateOf<PendingConfirm?>(null)
 
@@ -2487,7 +2566,7 @@ class AppModel(
     fun answerChatConfirm(ok: Boolean) {
         val pending = chatConfirm ?: return
         chatConfirm = null
-        if (ok) pending.onOk()
+        if (ok) pending.onOk() else pending.onCancel()
     }
 
     /** Runs [block] for the account that was current when the action began

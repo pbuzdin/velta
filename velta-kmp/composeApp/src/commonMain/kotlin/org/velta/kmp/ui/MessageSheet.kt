@@ -928,16 +928,20 @@ internal fun DeletedBubble(
 internal fun ToastHost(model: AppModel, modifier: Modifier = Modifier) {
     val text = model.toast ?: return
     val tokens = Velta.tokens
+    val action = model.toastAction
     Box(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text,
-            fontSize = 14.sp,
-            color = tokens.text,
-            modifier = Modifier
+        Row(
+            Modifier
                 .background(tokens.bgElev, RoundedCornerShape(12.dp))
                 .border(1.dp, tokens.border, RoundedCornerShape(12.dp))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-        )
+                .padding(start = 14.dp, end = if (action != null) 4.dp else 14.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text, fontSize = 14.sp, color = tokens.text, modifier = Modifier.weight(1f, fill = false))
+            if (action != null) {
+                TextButton(onClick = { model.runToastAction() }) { Text(action.first, color = tokens.accentText) }
+            }
+        }
     }
 }
 

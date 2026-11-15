@@ -22,7 +22,7 @@ class RelayStatesTest {
     private val html = """
         <h3>Connectivity</h3>
         <ul>
-        <li class="transport"><span class="green dot"></span> <b>d13.buro.dev:</b> Connected <br>
+        <li class="transport"><span class="green dot"></span> <b>relay.example.dev:</b> Connected <br>
         <ul class="quota-list"><li>1.3 GiB of 2 GiB used</li><li>67%</li></ul>
         </li>
         <li class="transport"><span class="green dot"></span><span class="yellow dot"></span> <b>backup.example:</b> Connecting…<br></li>
@@ -30,14 +30,14 @@ class RelayStatesTest {
         <li class="transport"><span class="red dot"></span> <b>down.example:</b> Not connected <br></li>
         </ul>
         <p>Outgoing messages <span class="yellow dot"></span></p>
-        <span class="smtp-via">d13.buro.dev</span>
+        <span class="smtp-via">relay.example.dev</span>
     """
 
     @Test
     fun parsesPerTransportSegments() {
         val p = parseConnectivityHtml(html)
         assertEquals(3, p.segs.size)
-        assertEquals("d13.buro.dev", p.segs[0].domain)
+        assertEquals("relay.example.dev", p.segs[0].domain)
         assertEquals("ok", p.segs[0].state)
         assertTrue(p.segs[0].quota.contains("67%"))
         // Worst dot wins (green+yellow → connecting).
@@ -52,7 +52,7 @@ class RelayStatesTest {
     fun smtpDotLivesOutsideTheList() {
         val p = parseConnectivityHtml(html)
         assertEquals("connecting", p.smtpState) // the last span-dot in the document
-        assertEquals("d13.buro.dev", p.smtpVia) // #79 sending attribution
+        assertEquals("relay.example.dev", p.smtpVia) // #79 sending attribution
     }
 
     @Test

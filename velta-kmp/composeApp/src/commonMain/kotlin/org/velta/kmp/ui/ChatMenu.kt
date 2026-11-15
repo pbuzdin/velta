@@ -187,6 +187,7 @@ internal fun ChatMenuHost(model: AppModel) {
             }
         }
     }
+    ImageLightbox(model)
     ChatConfirmDialog(model)
     GroupInviteDialog(model)
     SharePickerHost(model)
