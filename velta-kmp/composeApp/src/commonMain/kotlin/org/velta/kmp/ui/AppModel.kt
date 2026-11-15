@@ -1364,7 +1364,7 @@ class AppModel(
                 println("velta-kmp: identity for chat ${item.id} failed: $t")
             }
         }
-        identities = map
+        if (this.accountId == accountId) identities = map // not a late write after a switch
     }
 
     // ---- Profile (contact sheet) ----
@@ -1553,31 +1553,7 @@ class AppModel(
 
     /** Persist or clear the draft of the open chat when leaving it. */
     fun backToChatList() {
-        val chat = screen as? Screen.Chat
-        val veltaCore = core
-        val id = accountId
-        if (chat != null && veltaCore != null && id != null && editingMsg == null) {
-            val text = composerText
-            val attachment = pendingAttachment
-            scope.launch {
-                try {
-                    if (text.isNotBlank() || attachment != null) {
-                        veltaCore.setDraft(
-                            id,
-                            chat.chatId,
-                            text,
-                            replyTo?.id,
-                            file = attachment?.first,
-                            filename = attachment?.second,
-                        )
-                    } else {
-                        veltaCore.removeDraft(id, chat.chatId)
-                    }
-                } catch (t: Throwable) {
-                    println("velta-kmp: draft save failed: $t")
-                }
-            }
-        }
+        saveOpenDraft()
         composerText = ""
         replyTo = null
         sendError = null
@@ -1585,6 +1561,30 @@ class AppModel(
         resetChatActions()
         screen = Screen.ChatList
         refreshChats()
+    }
+
+    /** Leaving a chat (back or account switch) keeps its draft like stable
+     *  chat-view (text or quote kept, else dropped). Everything is read
+     *  NOW — the caller clears the composer right after (#334 bug 11). */
+    private fun saveOpenDraft() {
+        val chat = screen as? Screen.Chat ?: return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        if (editingMsg != null) return
+        val text = composerText
+        val attachment = pendingAttachment
+        val quoteId = replyTo?.id
+        scope.launch {
+            try {
+                if (keepDraft(text, attachment != null, quoteId)) {
+                    veltaCore.setDraft(id, chat.chatId, text, quoteId, file = attachment?.first, filename = attachment?.second)
+                } else {
+                    veltaCore.removeDraft(id, chat.chatId)
+                }
+            } catch (t: Throwable) {
+                println("velta-kmp: draft save failed: $t")
+            }
+        }
     }
 
     // ---- Relays (P4) ----
@@ -1714,17 +1714,24 @@ class AppModel(
         }
     }
 
+    /** app.js relay row [data-remove]: confirm, then delete_transport;
+     *  "Relay removed" or the core's error as a toast (#334 bug 15). */
     fun removeRelay(addr: String) {
-        val veltaCore = core
-        val id = accountId
-        if (veltaCore == null || id == null) return
+        if (core == null || accountId == null) return
+        chatConfirm = PendingConfirm(relayRemoveConfirm(addr)) { removeRelayNow(addr) }
+    }
+
+    private fun removeRelayNow(addr: String) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
         scope.launch {
             try {
                 veltaCore.deleteTransport(id, addr)
+                if (accountId == id) showToast(L.t("Relay removed"))
             } catch (t: Throwable) {
-                println("velta-kmp: removeRelay failed: $t")
+                if (accountId == id) showToast(t.message ?: t.toString(), 4000)
             }
-            refreshRelays()
+            if (accountId == id) refreshRelays()
         }
     }
 
@@ -1764,6 +1771,7 @@ class AppModel(
     }
 
     private suspend fun switchAccountNow(veltaCore: VeltaCore, id: Long) {
+        saveOpenDraft() // stable keeps the open chat's draft per account
         // Message ids are per-account databases: forget what was marked.
         synchronized(seenSent) { seenSent.clear() }
         try {
@@ -1777,6 +1785,7 @@ class AppModel(
         pendingAttachment = null
         resetChatActions()
         sendError = null
+        resetAccountCaches()
         try {
             accountAddr = veltaCore.accountInfo(id).addr
         } catch (t: Throwable) {
@@ -1784,6 +1793,47 @@ class AppModel(
         }
         loadChats()
         screen = Screen.ChatList
+    }
+
+    /** Everything keyed by chat/contact/message id or fetched once per
+     *  profile belongs to the old account (#334 bug 16, app.js
+     *  "account-changing"): drop it so the new profile refetches. The call
+     *  log stays device-wide like stable's velta-call-log. */
+    private fun resetAccountCaches() {
+        chats = emptyList()
+        archivedChats = emptyList()
+        contacts = emptyList()
+        contactBots = null
+        contactBotsError = null
+        identities = emptyMap()
+        chatMembers = emptyMap()
+        senderNames = emptyMap()
+        stickerPacks = emptyMap()
+        profile = null
+        inviteLink = null
+        inviteError = null
+        inviteName = ""
+        inviteColor = null
+        relays = emptyList()
+        relaysNotice = null
+        relayConnectivity = null
+        relaySegments = emptyList()
+        chatMessages = emptyList()
+        chatHead = null
+        loadedForChatId = null
+        hasMoreMessages = false
+        pendingPrependCount = 0
+        pendingJumpToId = null
+        synchronized(reloadLock) {
+            dirtyChatIds.clear()
+            dirtyAllChats = false
+            dirtyList = false
+            dirtyHead = false
+            smtpVia = null
+        }
+        listView = "chats" // side views hold the old profile's rows
+        relayLineArmed = false // the new profile's strip loads now, not throttled
+        refreshRelayLine()
     }
 
     /** "Add account" from the switcher → the login screen (login() reuses/creates). */
@@ -2747,14 +2797,14 @@ class AppModel(
                     }.getOrNull()
                     MentionMember(cid, name, fpr?.take(4)?.uppercase() ?: "")
                 }
-                chatMembers = chatMembers + (chatId to members)
+                if (accountId == id) chatMembers = chatMembers + (chatId to members)
             } catch (t: Throwable) {
                 println("velta-kmp: chat members for $chatId failed: $t")
             }
         }
     }
 
-    /** Sticker packs, fetched once per session on first composer open. */
+    /** Sticker packs, fetched once per profile on first composer open. */
     fun loadStickers() {
         if (stickerPacks.isNotEmpty()) return
         val veltaCore = core
@@ -2762,7 +2812,8 @@ class AppModel(
         if (veltaCore == null || id == null) return
         scope.launch {
             try {
-                stickerPacks = veltaCore.getStickers(id)
+                val packs = veltaCore.getStickers(id)
+                if (accountId == id) stickerPacks = packs
             } catch (t: Throwable) {
                 println("velta-kmp: stickers failed: $t")
             }

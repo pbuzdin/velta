@@ -87,6 +87,10 @@ internal fun chatMenuLabel(label: String): String = when (label) {
     "\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply." ->
         L.t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.")
     "Accept" -> L.t("Accept")
+    "Remove {addr}?" -> L.t("Remove {addr}?")
+    "The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed." ->
+        L.t("The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed.")
+    "Remove" -> L.t("Remove")
     // OLD_MESSAGE_SPANS: stable t()s them too; the packs lack some (English shows).
     "1 day" -> L.t("1 day")
     "1 year" -> L.t("1 year")
@@ -202,10 +206,14 @@ private fun ChatConfirmDialog(model: AppModel) {
     val tokens = Velta.tokens
     val spec = pending.spec
     var text = chatMenuLabel(spec.text)
-    spec.args.forEach { (k, v) -> text = text.replace("{$k}", v) }
+    var title = chatMenuLabel(spec.title)
+    spec.args.forEach { (k, v) ->
+        text = text.replace("{$k}", v)
+        title = title.replace("{$k}", v)
+    }
     PlatformBackHandler { model.answerChatConfirm(false) }
     SheetModal(
-        title = chatMenuLabel(spec.title),
+        title = title,
         onClose = { model.answerChatConfirm(false) },
         compact = true,
         foot = {

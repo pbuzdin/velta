@@ -3547,9 +3547,12 @@ private fun MessageBubble(
         SelectCheck(selected)
         Spacer(Modifier.size(8.dp))
     }
-    Box(Modifier.weight(1f)) {
+    BoxWithConstraints(Modifier.weight(1f)) {
+    // Stable .msg-row is full width (.out: flex-end), the BUBBLE caps at
+    // min(480px, 90%) (- 50px with the avatar) — #334 bug 13.
+    val bubbleMax = bubbleMaxWidth(maxWidth.value, withAvatar = !outgoing && senderName != null).dp
     Row(
-        modifier = Modifier.fillMaxWidth(0.9f),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
         verticalAlignment = if (!outgoing && senderName != null) Alignment.Bottom else Alignment.Top,
     ) {
@@ -3557,7 +3560,7 @@ private fun MessageBubble(
             MessageAvatar(senderName)
             Spacer(Modifier.size(8.dp))
         }
-        Column(horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start) {
+        Column(Modifier.widthIn(max = bubbleMax), horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start) {
             if (held || tomb) {
                 Box(gestures) {
                     DeletedBubble(
@@ -3585,7 +3588,7 @@ private fun MessageBubble(
                 shape = bubbleShape,
                 shadowElevation = if (sticker) 0.dp else 1.dp,
                 modifier = Modifier
-                    .widthIn(max = 480.dp)
+                    .widthIn(max = bubbleMax)
                     .heightIn(min = 20.dp)
                     .onSizeChanged { bubbleH = it.height }
                     .graphicsLayer { translationX = replyDx }
