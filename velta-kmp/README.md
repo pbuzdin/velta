@@ -177,13 +177,13 @@ generated.
 composeApp/src/
   commonMain/    Compose UI + AppModel + VeltaCore facade (PURE Kotlin — no java.*);
                  ChatCategory.kt (#57 buckets) + QrEncode.kt (Nayuki port)
-  jvmCommon/     shared JVM: process/socket transports, java.time formatters
+  jvmCommon/     shared JVM: process transport, java.time formatters
   androidMain/   MainActivity (FragmentActivity), AppHolder, foreground service,
                  push receiver, VeltaKeystore/VeltaLock, scan/ (QR camera),
                  SAF picker, JNI shim
   desktopMain/   sidecar spawn, window entry, AWT file picker
   desktopTest/   all tests (scripted transports + real-binary IT)
-native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines on 127.0.0.1)
+native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI)
 composeApp/proguard-rules.pro — JNI + serialization keeps for R8
 ```
 
@@ -228,12 +228,9 @@ email/password sign-in.
 ## Android core shim (P1b)
 
 Android runs the core **in-process** — `native/rpc-shim/` is a small Rust
-cdylib (Accounts + CommandApi + yerpc, one session per connection) serving
-the deltachat JSON-RPC surface on `127.0.0.1`; the app loads it via JNI and
-connects with a plain socket transport. Every connection must open with a
-per-launch random token the app hands the shim at start (#334) — other
-apps on the device can reach loopback, but not the core. Same architecture as the Tauri
-Android shell. Build recipe (WSL, NDK exports) is in [AGENTS.md](AGENTS.md);
+cdylib (Accounts + CommandApi + yerpc, one JSON-lines session) reached
+through JNI (`sendLine` / `onNativeLine`, #357). There is no listening
+port, so other apps cannot open the core. Build recipe (WSL, NDK exports) is in [AGENTS.md](AGENTS.md);
 the CI `shim` job publishes ready-made `.so` artifacts (`velta-rpc-shim-so`,
 laid out as `jniLibs/<abi>/`) and every CI APK already bundles them. The files stay out
 of git (same rule as the Tauri `binaries/`).

@@ -828,9 +828,9 @@ class AppModel(
                 println("velta-kmp: connect ok — core $coreVersion, ${modelAccountsSummary()}")
             } catch (t: Throwable) {
                 status = "connect failed: ${t.message}"
-                // Drop the half-built connection so a retry starts clean; on
-                // Android the shim itself survives (port cached) and the retry
-                // just opens a new socket to it.
+                // Drop the half-built connection so a retry starts clean. On
+                // Android the in-process session survives a dropped client.
+                // A dead session clears `running` and the retry starts a new one.
                 client.close()
                 core = null
                 transport = null

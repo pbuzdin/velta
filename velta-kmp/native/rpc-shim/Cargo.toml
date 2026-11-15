@@ -16,13 +16,9 @@ opt-level = "s"
 strip = "symbols"
 debug = false
 
-# In-process deltachat core for the KMP Android client (issue #192 P1b).
-# Loads via System.loadLibrary("velta_rpc_shim") and serves the deltachat
-# JSON-RPC surface on a localhost TCP port — one yerpc session per
-# connection, exactly the framing deltachat-rpc-server speaks on stdio.
-# The KMP client connects with a plain socket transport; when this shim is
-# eventually replaced by a proper foreground-service architecture, that
-# contract stays.
+# In-process deltachat core for the KMP Android client (issue #192 P1b, #357).
+# Loads via System.loadLibrary("velta_rpc_shim"). One yerpc JSON-lines
+# session over JNI — no listening port. Framing matches deltachat-rpc-server.
 #
 # Build (WSL, NDK exports per AGENTS §4.3.3):
 #   cargo build --release --target aarch64-linux-android --target x86_64-linux-android
@@ -38,5 +34,4 @@ yerpc = "0.7"
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 serde_json = "1"
-anyhow = "1"
 jni = "0.21"

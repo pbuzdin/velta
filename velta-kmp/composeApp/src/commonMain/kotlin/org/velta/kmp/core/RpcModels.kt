@@ -189,7 +189,7 @@ data class CoreQr(
 }
 
 /**
- * Core event as returned by the long-poll `get_next_event`:
+ * Core event as returned inside a `get_next_event_batch` array:
  * `{contextId, event: {kind, ...}}` — the inner event is kept raw; consumers
  * match on `kind` (ConfigureProgress, MsgsChanged, IncomingMsg, …).
  * `contextId` is the ACCOUNT id (deltachat-jsonrpc events.rs) — #334: it

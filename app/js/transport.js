@@ -77,9 +77,8 @@ function tauriTransport() {
     },
     send(line) {
       // Return the promise so rpc-core can catch invoke errors; a resolved
-      // string is the response line (desktop correlation, #49) and feeds the
-      // receiver. Android's write-only arm resolves empty — its responses
-      // still arrive via the broadcast.
+      // string is the response line (#49 desktop, #357 Android) and feeds the
+      // receiver. An empty string still means "wait for velta-rpc".
       const result = invoke("rpc", { request: line });
       if (result && typeof result.then === "function") {
         result.then((resp) => {

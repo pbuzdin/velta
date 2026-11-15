@@ -1,146 +1,119 @@
-//! In-process deltachat core for the Velta KMP Android client (issue #192 P1b).
+//! In-process deltachat core for the Velta KMP Android client (#192, #357).
 //!
-//! Mirrors `deltachat-rpc-server/src/main.rs` (Accounts + CommandApi +
-//! yerpc RpcSession) but serves **JSON Lines on a 127.0.0.1 TCP port**
-//! instead of stdio, so the Kotlin client needs no exec'd sidecar binary —
-//! the same in-process architecture the Tauri Android shell uses
-//! (`init_android_core`), minus the Tauri event plumbing.
+//! One JSON-lines session, same framing as `deltachat-rpc-server`. Kotlin
+//! calls `sendLine`; responses call `RpcShim.onNativeLine`. There is no
+//! listening port — other apps cannot open the core. The session ends with
+//! `RpcShim.onNativeExit`.
 //!
-//! **Auth (#334):** loopback is reachable by every app on the device, so a
-//! bare port would hand the whole core (messages, keys, send-as-you) to any
-//! app with INTERNET. Each `start_core` takes a per-launch random token from
-//! the Kotlin side (SecureRandom, memory only). A connection must send that
-//! token as its FIRST line within [AUTH_TIMEOUT]; anything else (wrong token,
-//! no newline within [MAX_AUTH_LINE] bytes, silence) is dropped before a
-//! single RPC line is read or any byte is written back.
+//! `velta_set_push_device_token` is answered here, before yerpc: it is not
+//! on the JSON-RPC surface and the shim holds the accounts manager.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use deltachat_jsonrpc::api::{Accounts, CommandApi};
 use futures_util::StreamExt;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpListener;
-use tokio::sync::RwLock;
+use jni::objects::{GlobalRef, JClass, JString, JValue};
+use jni::{JNIEnv, JavaVM};
+use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use yerpc::{RpcClient, RpcSession};
 
-/// The current stop signal, installed by each `start_core` and taken by
-/// `stop_core`. A fresh Notify per start means a stale permit can never kill
-/// a later session (issue #224: the shim used to be start-only).
+/// Per-start stop signal (#224). A stale permit must not kill the next session.
 static STOP: std::sync::RwLock<Option<Arc<tokio::sync::Notify>>> = std::sync::RwLock::new(None);
 
-/// Live client sessions, aborted on stop so no task keeps the Accounts (and
-/// the sqlite handles) alive after the accept loop has ended.
-static SESSIONS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
+/// `true` only while a session accepts `send_line`. `stop_core` clears it
+/// before the worker thread has exited, so a later start waits and opens
+/// a new Accounts instead of reusing a dying one.
+static SERVING: AtomicBool = AtomicBool::new(false);
 
-/// How long a fresh connection may take to present the token.
-const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+/// Serializes start and stop. Held across the previous worker's join so two
+/// `Accounts` never open the same directory.
+static START_LOCK: Mutex<()> = Mutex::new(());
 
-/// Upper bound on the auth line (the token is 64 hex chars); a longer line
-/// is rejected without buffering it.
-const MAX_AUTH_LINE: usize = 256;
+static WORKER: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 
-/// Minimum accepted token length — `start_core` refuses weaker tokens.
-const MIN_TOKEN_LEN: usize = 32;
+static LIVE: Mutex<Option<mpsc::UnboundedSender<String>>> = Mutex::new(None);
 
-/// Constant-time equality: the running time depends only on the lengths,
-/// never on where the first differing byte is.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
+static VM: Mutex<Option<JavaVM>> = Mutex::new(None);
+static SHIM_CLASS: Mutex<Option<GlobalRef>> = Mutex::new(None);
 
-/// Reads the first line (byte-wise, capped at [MAX_AUTH_LINE]) and checks it
-/// against `token`. False on mismatch, EOF, an over-long line or timeout.
-async fn authenticate<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    token: &str,
-    timeout: Duration,
-) -> bool {
-    let read_line = async {
-        let mut line = Vec::with_capacity(token.len() + 2);
-        loop {
-            let byte = reader.read_u8().await.ok()?;
-            if byte == b'\n' {
-                break;
-            }
-            if line.len() >= MAX_AUTH_LINE {
-                return None;
-            }
-            line.push(byte);
-        }
-        if line.last() == Some(&b'\r') {
-            line.pop();
-        }
-        Some(line)
-    };
-    match tokio::time::timeout(timeout, read_line).await {
-        Ok(Some(line)) => ct_eq(&line, token.as_bytes()),
-        _ => false,
+/// Clears the session when the worker exits, including panic, and tells
+/// Kotlin. Constructed only after `Accounts::new` succeeds.
+struct SessionGuard;
+
+impl SessionGuard {
+    fn arm() -> Self {
+        SERVING.store(true, Ordering::SeqCst);
+        SessionGuard
     }
 }
 
-/// One yerpc session per connection: read request lines, dispatch them as
-/// independent tasks, and forward responses/events back as JSON Lines.
-/// `velta_set_push_device_token` is intercepted before dispatch: it is a
-/// shim-only extension (Accounts::set_push_device_token is not on the
-/// JSON-RPC surface, and the shim holds the accounts manager).
-async fn serve_connection(
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        SERVING.store(false, Ordering::SeqCst);
+        if let Ok(mut live) = LIVE.lock() {
+            *live = None;
+        }
+        jni_on_exit();
+    }
+}
+
+/// One yerpc session. `incoming` is `send_line`. `outgoing` is one JSON
+/// object per line, no trailing newline. Ends on [stop] or a dropped sender.
+async fn run_session(
     state: CommandApi,
     accounts: Arc<RwLock<Accounts>>,
-    stream: tokio::net::TcpStream,
-    token: Arc<str>,
-    auth_timeout: Duration,
-) -> anyhow::Result<()> {
-    let (reader, mut writer) = stream.into_split();
-    let mut reader = BufReader::new(reader);
-    // Auth gate (#334): nothing is dispatched or written before this passes.
-    if !authenticate(&mut reader, &token, auth_timeout).await {
-        anyhow::bail!("rejected unauthenticated connection");
-    }
+    mut incoming: mpsc::UnboundedReceiver<String>,
+    outgoing: mpsc::Sender<String>,
+    stop: Arc<tokio::sync::Notify>,
+) {
     let (client, mut out_receiver) = RpcClient::new();
     let session = RpcSession::new(client.clone(), state);
-    let mut lines = reader.lines();
-
+    let mut tasks: Vec<JoinHandle<()>> = Vec::new();
     loop {
         tokio::select! {
-            incoming = lines.next_line() => match incoming? {
+            biased;
+            _ = stop.notified() => break,
+            incoming = incoming.recv() => match incoming {
                 Some(line) => {
                     if let Some(response) = push_token_intercept(&accounts, &line).await {
-                        writer.write_all(response.as_bytes()).await?;
-                        writer.write_all(b"\n").await?;
+                        if outgoing.send(response).await.is_err() {
+                            break;
+                        }
                         continue;
                     }
                     let session = session.clone();
-                    tokio::spawn(async move {
+                    let handle = tokio::spawn(async move {
                         session.handle_incoming(&line).await;
                     });
+                    tasks.retain(|h| !h.is_finished());
+                    tasks.push(handle);
                 }
                 None => break,
             },
-            outgoing = out_receiver.next() => match outgoing {
-                Some(message) => {
-                    let line = serde_json::to_string(&message)?;
-                    writer.write_all(line.as_bytes()).await?;
-                    writer.write_all(b"\n").await?;
-                }
+            outgoing_msg = out_receiver.next() => match outgoing_msg {
+                Some(message) => match serde_json::to_string(&message) {
+                    Ok(line) => {
+                        if outgoing.send(line).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => eprintln!("velta-rpc-shim: encode failed: {e}"),
+                },
                 None => break,
             },
         }
     }
-    Ok(())
+    for handle in tasks {
+        handle.abort();
+    }
 }
 
-/// Answers `velta_set_push_device_token` directly and returns the JSON Lines
-/// response, or None when the line is anything else (normal RPC dispatch).
+/// Answers `velta_set_push_device_token` directly and returns the JSON line,
+/// or None when the line is anything else (normal RPC dispatch).
 async fn push_token_intercept(accounts: &Arc<RwLock<Accounts>>, line: &str) -> Option<String> {
     let obj: serde_json::Value = serde_json::from_str(line).ok()?;
     let method = obj.get("method")?.as_str()?;
@@ -170,184 +143,255 @@ async fn push_token_intercept(accounts: &Arc<RwLock<Accounts>>, line: &str) -> O
     Some(serde_json::to_string(&response).unwrap_or_default())
 }
 
-/// The accept loop: every connection must pass [authenticate] before it gets
-/// a session. Ends on `stop`, aborting live sessions.
-async fn serve(
-    listener: TcpListener,
-    token: Arc<str>,
-    state: CommandApi,
-    accounts: Arc<RwLock<Accounts>>,
+fn worker_main(
+    accounts_dir: String,
     stop: Arc<tokio::sync::Notify>,
-    auth_timeout: Duration,
-    sessions: &'static Mutex<Vec<JoinHandle<()>>>,
+    ready: std::sync::mpsc::Sender<i32>,
 ) {
-    loop {
-        tokio::select! {
-            _ = stop.notified() => {
-                eprintln!("velta-rpc-shim: stop signal — shutting down");
-                break;
-            }
-            accepted = listener.accept() => {
-                let (stream, _peer) = match accepted {
-                    Ok(accepted) => accepted,
-                    Err(e) => {
-                        eprintln!("velta-rpc-shim: accept failed: {e}");
-                        continue;
-                    }
-                };
-                let state = state.clone();
-                let accounts = accounts.clone();
-                let token = token.clone();
-                let handle = tokio::spawn(async move {
-                    if let Err(e) = serve_connection(state, accounts, stream, token, auth_timeout).await {
-                        eprintln!("velta-rpc-shim: connection ended: {e:#}");
-                    }
-                });
-                let mut live = sessions.lock().expect("sessions lock");
-                live.retain(|h| !h.is_finished());
-                live.push(handle);
-            }
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("velta-rpc-shim: tokio runtime failed: {e}");
+            let _ = ready.send(-1);
+            return;
         }
-    }
-    // End the live client sessions so nothing keeps the Accounts
-    // (and their sqlite handles) alive after the accept loop.
-    for handle in sessions.lock().expect("sessions lock").drain(..) {
-        handle.abort();
-    }
+    };
+    rt.block_on(async move {
+        let accounts = match Accounts::new(PathBuf::from(&accounts_dir), true).await {
+            Ok(accounts) => Arc::new(RwLock::new(accounts)),
+            Err(e) => {
+                eprintln!("velta-rpc-shim: Accounts::new failed: {e:#}");
+                let _ = ready.send(-3);
+                return;
+            }
+        };
+        let state = CommandApi::from_arc(accounts.clone()).await;
+        let (in_tx, in_rx) = mpsc::unbounded_channel();
+        let (out_tx, mut out_rx) = mpsc::channel(64);
+        *LIVE.lock().expect("live") = Some(in_tx);
+        let _ended = SessionGuard::arm();
+        let _ = ready.send(1);
+        let session = tokio::spawn({
+            let stop = stop.clone();
+            async move {
+                run_session(state, accounts, in_rx, out_tx, stop).await;
+            }
+        });
+        while let Some(line) = out_rx.recv().await {
+            jni_on_line(&line);
+        }
+        session.abort();
+        let _ = session.await;
+    });
 }
 
-/// Bind a loopback port synchronously (the port must be known before the
-/// JNI call returns), then serve the core from a dedicated thread with its
-/// own tokio runtime. Returns the port, or a distinct negative code:
-/// -2 bind failed, -3 Accounts::new failed, -4 auth token too short.
+/// Opens one session. Returns 1, or -1 (generic) / -3 (`Accounts::new`).
+/// A session that is already serving returns 1 without a second `Accounts`.
 ///
-/// `auth_token` is the per-launch connection secret (#334); it is kept only
-/// in this process's memory and never logged.
-///
-/// `db_key` is the 64-hex database-encryption DEK (#178 port): the vendored
-/// core reads `VELTA_DB_KEY` from the environment when accounts open
-/// (patch #20), so it is set HERE — before the worker thread and the tokio
-/// runtime exist, the only moment in this process where env mutation cannot
-/// race a concurrent reader. Empty string = keyless (upstream behavior).
-fn start_core(accounts_dir: String, db_key: String, auth_token: String) -> anyhow::Result<i32> {
-    if auth_token.len() < MIN_TOKEN_LEN {
-        eprintln!("velta-rpc-shim: refusing to start without a strong auth token");
-        return Ok(-4);
+/// `db_key` is the 64-hex database-encryption DEK. The vendored core reads
+/// `VELTA_DB_KEY` when accounts open (patch #20). Set it here, before the
+/// worker exists. Empty string = keyless (upstream behavior).
+fn start_core(accounts_dir: String, db_key: String) -> i32 {
+    let _lock = START_LOCK.lock().expect("start lock");
+    if SERVING.load(Ordering::SeqCst) {
+        return 1;
     }
-    let token: Arc<str> = Arc::from(auth_token);
+    if let Some(prev) = WORKER.lock().expect("worker").take() {
+        let _ = prev.join();
+    }
     if !db_key.is_empty() {
         std::env::set_var("VELTA_DB_KEY", &db_key);
     }
-    let std_listener = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
-        Ok(listener) => listener,
-        Err(e) => {
-            eprintln!("velta-rpc-shim: bind failed: {e:#}");
-            return Ok(-2);
-        }
-    };
-    let port = std_listener.local_addr()?.port() as i32;
-    // tokio's from_std requires a non-blocking socket.
-    std_listener.set_nonblocking(true)?;
-
     let stop = Arc::new(tokio::sync::Notify::new());
     *STOP.write().expect("stop lock") = Some(stop.clone());
-    SESSIONS.lock().expect("sessions lock").clear();
-
-    std::thread::Builder::new()
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let handle = match std::thread::Builder::new()
         .name("velta-rpc-shim".into())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .expect("tokio runtime");
-            rt.block_on(async move {
-                let accounts = match Accounts::new(PathBuf::from(&accounts_dir), true).await {
-                    Ok(accounts) => Arc::new(RwLock::new(accounts)),
-                    Err(e) => {
-                        eprintln!("velta-rpc-shim: Accounts::new failed: {e:#}");
-                        return;
-                    }
-                };
-                let state = CommandApi::from_arc(accounts.clone()).await;
-                let listener = match TcpListener::from_std(std_listener) {
-                    Ok(listener) => listener,
-                    Err(e) => {
-                        eprintln!("velta-rpc-shim: listener handoff failed: {e}");
-                        return;
-                    }
-                };
-                eprintln!("velta-rpc-shim: serving core on 127.0.0.1:{port}");
-                serve(
-                    listener,
-                    token,
-                    state,
-                    accounts,
-                    stop,
-                    AUTH_TIMEOUT,
-                    &SESSIONS,
-                )
-                .await;
-                // accounts/state drop here — databases close with the process
-                // still alive, so a later start_core starts clean.
-            });
-        })?;
-
-    Ok(port)
-}
-
-/// Signals the accept loop to end, aborts live sessions and clears the
-/// installed stop signal. Returns 0 always (idempotent: no shim running =
-/// nothing to do); the Kotlin side clears its cached port.
-fn stop_core() -> i32 {
-    if let Some(stop) = STOP.write().expect("stop lock").take() {
-        stop.notify_one();
-    }
-    for handle in SESSIONS.lock().expect("sessions lock").drain(..) {
-        handle.abort();
-    }
-    0
-}
-
-/// JNI entry: `org.velta.kmp.core.RpcShim.startCore(accountsDir, dbKey, authToken) -> port`.
-/// Returns -1 on failure (the Kotlin side surfaces that as a connect error).
-#[no_mangle]
-pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startCore<'local>(
-    mut env: jni::JNIEnv<'local>,
-    _class: jni::objects::JClass<'local>,
-    accounts_dir: jni::objects::JString<'local>,
-    db_key: jni::objects::JString<'local>,
-    auth_token: jni::objects::JString<'local>,
-) -> i32 {
-    let dir: String = match env.get_string(&accounts_dir) {
-        Ok(s) => s.into(),
-        Err(_) => return -1,
-    };
-    // An absent (null) key runs keyless — same as the empty string.
-    let key: String = match env.get_string(&db_key) {
-        Ok(s) => s.into(),
-        Err(_) => String::new(),
-    };
-    // A missing token can't authenticate anyone: start_core refuses it.
-    let token: String = match env.get_string(&auth_token) {
-        Ok(s) => s.into(),
-        Err(_) => String::new(),
-    };
-    match start_core(dir, key, token) {
-        Ok(port) => port,
+        .spawn(move || worker_main(accounts_dir, stop, ready_tx))
+    {
+        Ok(handle) => handle,
         Err(e) => {
-            eprintln!("velta-rpc-shim: start failed: {e:#}");
+            eprintln!("velta-rpc-shim: thread spawn failed: {e}");
+            return -1;
+        }
+    };
+    *WORKER.lock().expect("worker") = Some(handle);
+    match ready_rx.recv_timeout(Duration::from_secs(60)) {
+        Ok(code) => code,
+        Err(_) => {
+            eprintln!("velta-rpc-shim: core did not become ready");
             -1
         }
     }
 }
 
-/// JNI entry: `org.velta.kmp.core.RpcShim.stopCore() -> 0`. Idempotent.
+/// Signals the session to end. Idempotent. Does not join: the next
+/// `start_core` joins the worker so this call stays non-blocking (#224).
+fn stop_core() -> i32 {
+    let _lock = START_LOCK.lock().expect("start lock");
+    SERVING.store(false, Ordering::SeqCst);
+    if let Some(stop) = STOP.write().expect("stop lock").take() {
+        stop.notify_one();
+    }
+    if let Ok(mut live) = LIVE.lock() {
+        *live = None;
+    }
+    0
+}
+
+fn send_line(line: String) -> i32 {
+    let guard = match LIVE.lock() {
+        Ok(guard) => guard,
+        Err(_) => return -1,
+    };
+    match guard.as_ref() {
+        Some(tx) => match tx.send(line) {
+            Ok(()) => 0,
+            Err(_) => -1,
+        },
+        None => -1,
+    }
+}
+
+/// Cache the VM and `RpcShim` from the Java thread that called `startCore`.
+/// `FindClass` from the worker later would use the system loader and miss it.
+fn remember_vm(env: &mut JNIEnv) -> bool {
+    let vm = match env.get_java_vm() {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("velta-rpc-shim: JavaVM: {e}");
+            return false;
+        }
+    };
+    let class = match env.find_class("org/velta/kmp/core/RpcShim") {
+        Ok(class) => class,
+        Err(e) => {
+            let _ = env.exception_clear();
+            eprintln!("velta-rpc-shim: RpcShim class: {e}");
+            return false;
+        }
+    };
+    let global = match env.new_global_ref(class) {
+        Ok(global) => global,
+        Err(e) => {
+            let _ = env.exception_clear();
+            eprintln!("velta-rpc-shim: global ref: {e}");
+            return false;
+        }
+    };
+    *VM.lock().expect("vm") = Some(vm);
+    *SHIM_CLASS.lock().expect("class") = Some(global);
+    true
+}
+
+fn jni_call(method: &str, line: Option<&str>) {
+    let vm = {
+        let guard = match VM.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        let Some(vm) = guard.as_ref() else {
+            return;
+        };
+        // JavaVM is a raw pointer with no Drop. Copy it so the callback can
+        // re-enter send_line without taking this mutex.
+        match unsafe { JavaVM::from_raw(vm.get_java_vm_pointer()) } {
+            Ok(vm) => vm,
+            Err(_) => return,
+        }
+    };
+    let class = match SHIM_CLASS.lock() {
+        Ok(guard) => guard.clone(),
+        Err(_) => return,
+    };
+    let Some(class) = class else {
+        return;
+    };
+    let mut env = match vm.attach_current_thread() {
+        Ok(env) => env,
+        Err(e) => {
+            eprintln!("velta-rpc-shim: attach failed: {e}");
+            return;
+        }
+    };
+    let call = if let Some(line) = line {
+        let s = match env.new_string(line) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = env.exception_clear();
+                eprintln!("velta-rpc-shim: string alloc failed: {e}");
+                return;
+            }
+        };
+        env.call_static_method(
+            &class,
+            method,
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(s.as_ref())],
+        )
+    } else {
+        env.call_static_method(&class, method, "()V", &[])
+    };
+    if let Err(e) = call {
+        let _ = env.exception_clear();
+        eprintln!("velta-rpc-shim: {method} failed: {e}");
+    }
+}
+
+fn jni_on_line(line: &str) {
+    jni_call("onNativeLine", Some(line));
+}
+
+fn jni_on_exit() {
+    jni_call("onNativeExit", None);
+}
+
+/// JNI: `RpcShim.startCore(accountsDir, dbKey) -> 1`, or a negative code.
+#[no_mangle]
+pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startCore<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    accounts_dir: JString<'local>,
+    db_key: JString<'local>,
+) -> i32 {
+    if !remember_vm(&mut env) {
+        return -1;
+    }
+    let dir: String = match env.get_string(&accounts_dir) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    let key: String = match env.get_string(&db_key) {
+        Ok(s) => s.into(),
+        Err(_) => String::new(),
+    };
+    start_core(dir, key)
+}
+
+/// JNI: `RpcShim.stopCore() -> 0`. Idempotent.
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_stopCore(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
+    _env: JNIEnv,
+    _class: JClass,
 ) -> i32 {
     stop_core()
+}
+
+/// JNI: `RpcShim.sendLine(line) -> 0`, or -1 when no session is serving.
+#[no_mangle]
+pub extern "system" fn Java_org_velta_kmp_core_RpcShim_sendLine(
+    mut env: JNIEnv,
+    _class: JClass,
+    line: JString,
+) -> i32 {
+    let line: String = match env.get_string(&line) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    send_line(line)
 }
 
 #[cfg(test)]
@@ -367,7 +411,6 @@ mod tests {
             .expect("push line must be intercepted");
         assert!(response.contains("\"result\":null"), "response: {response}");
 
-        // A normal RPC line must NOT be intercepted.
         assert!(
             push_token_intercept(
                 &accounts,
@@ -379,153 +422,56 @@ mod tests {
         );
     }
 
-    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-    /// Test servers track their sessions here, not in the production
-    /// SESSIONS that stop_core drains (other tests call it concurrently).
-    static TEST_SESSIONS: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
-
-    /// A real loopback server (temp accounts dir) behind the auth gate, with
-    /// a short auth timeout so the silent-client case stays fast. Never
-    /// stopped: the runtime of each #[tokio::test] tears it down.
-    async fn auth_server(name: &str) -> u16 {
-        let dir =
-            std::env::temp_dir().join(format!("velta-shim-auth-{name}-{}", std::process::id()));
+    /// #357: the session is a channel. Nothing in this test binds a port,
+    /// and the response still carries the core version.
+    #[tokio::test]
+    async fn session_answers_get_system_info_without_a_socket() {
+        let dir = std::env::temp_dir().join(format!(
+            "velta-shim-session-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
         let accounts = Arc::new(RwLock::new(
-            Accounts::new(dir, true).await.expect("accounts"),
+            Accounts::new(dir.clone(), true).await.expect("accounts"),
         ));
         let state = CommandApi::from_arc(accounts.clone()).await;
-        let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("bind");
-        let port = listener.local_addr().expect("addr").port();
-        tokio::spawn(serve(
-            listener,
-            Arc::from(TOKEN),
-            state,
-            accounts,
-            Arc::new(tokio::sync::Notify::new()),
-            Duration::from_millis(500),
-            &TEST_SESSIONS,
-        ));
-        port
-    }
-
-    /// Sends `preamble`, then a get_system_info request, and returns
-    /// everything the server writes back until it closes (or 3 s pass).
-    async fn exchange(port: u16, preamble: &[u8]) -> String {
-        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        let (in_tx, in_rx) = mpsc::unbounded_channel();
+        let (out_tx, mut out_rx) = mpsc::channel(8);
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let task = tokio::spawn(run_session(state, accounts, in_rx, out_tx, stop));
+        in_tx
+            .send(r#"{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}"#.into())
+            .expect("send");
+        let line = tokio::time::timeout(Duration::from_secs(10), out_rx.recv())
             .await
-            .expect("connect");
-        stream.write_all(preamble).await.expect("write preamble");
-        let _ = stream
-            .write_all(
-                b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_system_info\",\"params\":[]}\n",
-            )
-            .await;
-        let mut out = Vec::new();
-        let mut buf = [0u8; 4096];
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
-        loop {
-            match tokio::time::timeout_at(deadline, stream.read(&mut buf)).await {
-                Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
-                Ok(Ok(n)) => {
-                    out.extend_from_slice(&buf[..n]);
-                    if out.contains(&b'\n') {
-                        break;
-                    }
-                }
-            }
-        }
-        String::from_utf8_lossy(&out).into_owned()
-    }
-
-    #[test]
-    fn ct_eq_matches_only_identical_bytes() {
-        assert!(ct_eq(b"abc", b"abc"));
-        assert!(!ct_eq(b"abc", b"abd"));
-        assert!(!ct_eq(b"abc", b"abcd"));
-        assert!(!ct_eq(b"", b"a"));
-    }
-
-    #[tokio::test]
-    async fn unauthenticated_connection_is_rejected() {
-        let port = auth_server("noauth").await;
-        // The RPC line itself is the "first line" — it is not the token.
-        let reply = exchange(port, b"").await;
+            .expect("timed out")
+            .expect("session closed");
         assert!(
-            reply.is_empty(),
-            "no byte may come back without the token: {reply}"
+            line.contains("deltachat_core_version"),
+            "reply: {line}"
         );
+        drop(in_tx);
+        let _ = task.await;
     }
 
-    #[tokio::test]
-    async fn wrong_token_is_rejected() {
-        let port = auth_server("wrong").await;
-        let wrong = format!("{}\n", TOKEN.replace('0', "1"));
-        assert!(exchange(port, wrong.as_bytes()).await.is_empty());
-        // Prefix of the right token (length mismatch) fails too.
-        assert!(exchange(port, format!("{}\n", &TOKEN[..40]).as_bytes())
-            .await
-            .is_empty());
-    }
-
-    #[tokio::test]
-    async fn oversized_auth_line_is_rejected() {
-        let port = auth_server("huge").await;
-        let huge = vec![b'a'; MAX_AUTH_LINE * 4];
-        assert!(exchange(port, &huge).await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn silent_connection_is_closed_after_the_auth_timeout() {
-        let port = auth_server("silent").await;
-        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .expect("connect");
-        let mut buf = [0u8; 16];
-        let n = tokio::time::timeout(Duration::from_secs(3), stream.read(&mut buf))
-            .await
-            .expect("server must close a silent client")
-            .unwrap_or(0);
-        assert_eq!(n, 0, "closed without data");
-    }
-
-    #[tokio::test]
-    async fn correct_token_gets_rpc_responses() {
-        let port = auth_server("ok").await;
-        let reply = exchange(port, format!("{TOKEN}\n").as_bytes()).await;
-        assert!(reply.contains("\"id\":1"), "reply: {reply}");
-        assert!(reply.contains("\"result\""), "reply: {reply}");
-        assert!(reply.contains("deltachat_core_version"), "reply: {reply}");
-    }
-
+    /// No session, no listener: a caller that is not inside this process
+    /// has nothing to connect to, and `send_line` fails closed.
     #[test]
-    fn start_core_refuses_a_weak_token() {
-        let dir = std::env::temp_dir().join("velta-shim-weak-token");
+    fn send_line_without_a_session_fails() {
         assert_eq!(
-            start_core(
-                dir.to_string_lossy().into_owned(),
-                String::new(),
-                "short".into()
-            )
-            .unwrap(),
-            -4
-        );
-        assert_eq!(
-            start_core(
-                dir.to_string_lossy().into_owned(),
-                String::new(),
-                String::new()
-            )
-            .unwrap(),
-            -4
+            send_line(
+                r#"{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}"#.into()
+            ),
+            -1
         );
     }
 
     #[test]
     fn stop_core_without_shim_is_a_noop() {
-        // STOP is process-global and other tests in this binary may hold it
-        // installed concurrently — only the return contract is asserted here;
-        // the per-start signal semantics live in stop_signal_is_per_start.
         assert_eq!(stop_core(), 0);
     }
 
@@ -536,14 +482,13 @@ mod tests {
     async fn stop_signal_is_per_start() {
         let stop = Arc::new(tokio::sync::Notify::new());
         *STOP.write().expect("stop lock") = Some(stop.clone());
-        // A waiter registered BEFORE the notify must wake immediately.
         let waiter = {
             let stop = stop.clone();
             tokio::spawn(async move { stop.notified().await })
         };
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(stop_core(), 0);
-        tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+        tokio::time::timeout(Duration::from_secs(2), waiter)
             .await
             .expect("waiter must wake on stop")
             .expect("join");

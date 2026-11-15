@@ -2,18 +2,17 @@ package org.velta.kmp
 
 import android.content.Context
 import org.velta.kmp.core.CorePlatform
+import org.velta.kmp.core.JniRpcTransport
 import org.velta.kmp.core.RpcShim
 import org.velta.kmp.core.RpcTransport
-import org.velta.kmp.core.SocketRpcTransport
 import org.velta.kmp.core.VeltaKeystore
 import org.velta.kmp.core.VeltaLock
 import java.io.File
 
 /**
  * Android platform: accounts under `filesDir/accounts`; the core runs
- * IN-PROCESS via the Rust cdylib shim (native/rpc-shim), which serves the
- * deltachat JSON-RPC surface on a loopback port — same architecture as the
- * Tauri Android shell, no exec'd sidecar (issue #192 P1b).
+ * IN-PROCESS via the Rust cdylib shim (native/rpc-shim). JSON-RPC crosses
+ * JNI (#357). No exec'd sidecar (issue #192 P1b).
  */
 class AndroidCorePlatform(private val context: Context) : CorePlatform {
 
@@ -35,26 +34,11 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
     }
 
     override fun spawnRpcServer(accountsDir: String): RpcTransport? {
-        if (!RpcShim.available) {
-            println("velta-kmp: rpc shim not packaged — build native/rpc-shim for this ABI (see README)")
-            return null
-        }
-        return try {
-            // Database encryption at rest (#178 port): the DEK comes from the
-            // Keystore wrap; null → "" runs keyless, which leaves
-            // already-encrypted databases locked instead of recreating them.
-            val dbKey = VeltaKeystore.getOrCreateDek(context) ?: ""
-            val shim = RpcShim.startCoreOnce(accountsDir, dbKey)
-            if (shim.port <= 0) {
-                println("velta-kmp: shim failed to start the core (port=${shim.port})")
-                null
-            } else {
-                SocketRpcTransport("127.0.0.1", shim.port, shim.authToken)
-            }
-        } catch (t: Throwable) {
-            println("velta-kmp: shim start threw: $t")
-            null
-        }
+        // Database encryption at rest (#178 port): the DEK comes from the
+        // Keystore wrap; null → "" runs keyless, which leaves
+        // already-encrypted databases locked instead of recreating them.
+        val dbKey = VeltaKeystore.getOrCreateDek(context) ?: ""
+        return openShim(accountsDir, dbKey)
     }
 
     override fun connectHint(): String =
@@ -70,18 +54,21 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
     override fun isAppLockOn(): Boolean = VeltaLock.on(context)
 
     /** Unlock path: the DEK comes from the auth-window unwrap, not the store. */
-    override fun spawnRpcServerWithKey(accountsDir: String, dbKey: String): RpcTransport? {
+    override fun spawnRpcServerWithKey(accountsDir: String, dbKey: String): RpcTransport? =
+        openShim(accountsDir, dbKey)
+
+    private fun openShim(accountsDir: String, dbKey: String): RpcTransport? {
         if (!RpcShim.available) {
             println("velta-kmp: rpc shim not packaged — build native/rpc-shim for this ABI (see README)")
             return null
         }
         return try {
-            val shim = RpcShim.startCoreOnce(accountsDir, dbKey)
-            if (shim.port <= 0) {
-                println("velta-kmp: shim failed to start the core (port=${shim.port})")
+            val code = RpcShim.startCoreOnce(accountsDir, dbKey)
+            if (code <= 0) {
+                println("velta-kmp: shim failed to start the core (code=$code)")
                 null
             } else {
-                SocketRpcTransport("127.0.0.1", shim.port, shim.authToken)
+                JniRpcTransport()
             }
         } catch (t: Throwable) {
             println("velta-kmp: shim start threw: $t")

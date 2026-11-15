@@ -3735,11 +3735,12 @@ pub(crate) struct RpcState {
     // use ids prefixed "bg-", routed back here by the response forwarder.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     bg_pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
-    // WebView command round-trips (#49): the rpc command parks the request's
-    // JSON-RPC id here and RETURNS the response line instead of relying on
-    // the velta-rpc broadcast, which re-encoded every answer and woke every
-    // listener. Keyed by the id as a string (number ids via Value::to_string).
-    #[cfg_attr(target_os = "android", allow(dead_code))]
+    // WebView command round-trips (#49, #357): the rpc command parks the
+    // request's JSON-RPC id here and RETURNS the response line instead of
+    // relying on the velta-rpc broadcast, which re-encoded every answer and
+    // woke every listener. Keyed by the id as a string (number ids via
+    // Value::to_string). Desktop and Android both use it. bg- and wxdc-
+    // ids never land here.
     web_pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     // Shared with the background init task: setup() stores None immediately
     // and the async core-init task fills it in once the RPC session is ready.
@@ -3777,7 +3778,6 @@ impl RpcState {
         *self.stdin.lock().unwrap() = Some(stdin);
     }
 
-    #[cfg(not(target_os = "android"))]
     pub(crate) fn take_web_pending(&self, id: &str) -> Option<tokio::sync::oneshot::Sender<String>> {
         self.web_pending.lock().unwrap().remove(id)
     }
@@ -3816,65 +3816,47 @@ async fn rpc(request: String, state: State<'_, RpcState>) -> Result<String, Stri
     // RPC adds alloc pressure and grows velta.log unbounded. Use js_log from
     // the frontend for targeted diagnostics.
     //
-    // Desktop (#49): the command's return value is the response path. The
-    // request's JSON-RPC id is parked in web_pending and the sidecar's
-    // response line for it is returned here; the velta-rpc broadcast then
-    // carries only what the core PUSHES (event notifications). Android keeps
-    // the write-only arm — its WebView speaks through the VeltaBridge and
-    // its response forwarder still emits every line.
-    #[cfg(target_os = "android")]
-    {
-        let tx = state.tx.clone();
-        tauri::async_runtime::spawn_blocking(move || write_rpc_tx(&tx, &request))
+    // The command's return value is the response path (#49 desktop, #357
+    // Android). The request's JSON-RPC id is parked in web_pending and the
+    // response line is returned here; velta-rpc then carries only what the
+    // core PUSHES. bg- batches and wxdc- fetches never use this map.
+    let Some(id_key) = sidecar::request_id_key(&request) else {
+        // No usable id (never the case for rpc-core traffic): plain write.
+        let owned = (*state).clone();
+        let req = request;
+        return tauri::async_runtime::spawn_blocking(move || owned.send_rpc(&req))
             .await
-            .map_err(|e| e.to_string())??;
-        Ok(String::new())
+            .map_err(|e| e.to_string())?
+            .map(|()| String::new());
+    };
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    {
+        // Register the waiter BEFORE writing — a fast response must not
+        // arrive while no one is registered (same rule as wxdc_rpc).
+        state
+            .web_pending
+            .lock()
+            .unwrap()
+            .insert(id_key.clone(), tx);
     }
-    #[cfg(not(target_os = "android"))]
-    {
-        let id_key = serde_json::from_str::<serde_json::Value>(&request)
-            .ok()
-            .and_then(|v| v.get("id").cloned())
-            .and_then(|id| match id {
-                serde_json::Value::String(s) => Some(s),
-                n if n.is_number() => Some(n.to_string()),
-                _ => None,
-            });
-        let Some(id_key) = id_key else {
-            // No usable id (never the case for rpc-core traffic): plain write.
-            let stdin = state.stdin.clone();
-            tauri::async_runtime::spawn_blocking(move || write_rpc_stdin(&stdin, &request))
-                .await
-                .map_err(|e| e.to_string())??;
-            return Ok(String::new());
-        };
-        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-        {
-            // Register the waiter BEFORE writing — a fast response must not
-            // arrive while no one is registered (same rule as wxdc_rpc).
-            state
-                .web_pending
-                .lock()
-                .unwrap()
-                .insert(id_key.clone(), tx);
-        }
-        let stdin = state.stdin.clone();
-        let write = tauri::async_runtime::spawn_blocking(move || write_rpc_stdin(&stdin, &request))
-            .await
-            .map_err(|e| e.to_string());
-        if let Err(e) = write {
+    let owned = (*state).clone();
+    let req = request;
+    let write = tauri::async_runtime::spawn_blocking(move || owned.send_rpc(&req))
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+    if let Err(e) = write {
+        state.web_pending.lock().unwrap().remove(&id_key);
+        return Err(e);
+    }
+    // Generous ceiling: rpc-core has its own per-call timeouts; this only
+    // stops a dead core from leaking the parked entry forever.
+    match tokio::time::timeout(std::time::Duration::from_secs(180), rx).await {
+        Ok(Ok(line)) => Ok(line),
+        Ok(Err(_)) => Err("rpc response channel dropped (sidecar restart?)".to_string()),
+        Err(_) => {
             state.web_pending.lock().unwrap().remove(&id_key);
-            return Err(e);
-        }
-        // Generous ceiling: rpc-core has its own per-call timeouts; this only
-        // stops a dead sidecar from leaking the parked entry forever.
-        match tokio::time::timeout(std::time::Duration::from_secs(180), rx).await {
-            Ok(Ok(line)) => Ok(line),
-            Ok(Err(_)) => Err("rpc response channel dropped (sidecar restart?)".to_string()),
-            Err(_) => {
-                state.web_pending.lock().unwrap().remove(&id_key);
-                Err("rpc response timed out (180s)".to_string())
-            }
+            Err("rpc response timed out (180s)".to_string())
         }
     }
 }
@@ -4587,6 +4569,16 @@ async fn init_android_core(
             }
             // NOTE: do not log every response -- it's the hot path and would
             // grow velta.log unbounded. Errors are still logged below.
+            // #357: a parked rpc command owns this id and returns the line.
+            // Do not also emit it. No waiter (a push, or a caller that
+            // already gave up) still goes out on velta-rpc. bg- and wxdc-
+            // never reach this arm.
+            if let Some(id) = sidecar::request_id_key(&line) {
+                if let Some(tx) = android_core().and_then(|s| s.take_web_pending(&id)) {
+                    let _ = tx.send(line);
+                    continue;
+                }
+            }
             ui_emit_rpc(&line);
         }
     });

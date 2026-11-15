@@ -25,7 +25,7 @@ needs the Tauri sandbox server and is not faked here.
 ```
 composeApp/src/
   commonMain/    Compose UI + AppModel + VeltaCore facade (PURE Kotlin — no java.*: compile fails even for JVM-only targets)
-  jvmCommon/     shared JVM layer: process + socket transports, java.time formatters
+  jvmCommon/     shared JVM layer: process transport, java.time formatters
   androidMain/   MainActivity (FragmentActivity: BiometricPrompt; NO registered-launcher
                  startActivityForResult — 16-bit crash, use startActivity + AppHolder),
                  AppHolder (process-wide model), VeltaForegroundService, push/VeltaPushService,
@@ -63,7 +63,7 @@ composeApp/src/
                  1:1 ports of app/js/bare-links.js / mentions.js.
   ui/Markdown.kt markdown subset + parseInviteLink (canonical i.delta.chat
                  link; 40-hex on BOTH forms; safe percent-decode).
-native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines on 127.0.0.1);
+native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
 composeApp/keystore.properties — release signing (gitignored; absent → debug-key fallback)
@@ -90,7 +90,7 @@ don't — run `assembleRelease` locally before shipping build-file changes.
 
 ## Ground rules
 
-- The JSON-RPC contract is frozen: deltachat **JSON Lines over stdio/socket**,
+- The JSON-RPC contract is frozen: deltachat **JSON Lines over stdio (desktop) or JNI (Android)**,
   **positional params** (`#[rpc(all_positional)]`), one yerpc session per
   connection. Never introduce a second API surface.
 - The PWA (`/app`) stays build-less and untouched — different client, same core.
@@ -155,7 +155,7 @@ adb -s emulator-5554 logcat -d | grep velta-kmp     # println only; shim stderr 
 ```
 
 Debugging on-device: shim stderr never reaches logcat — rely on the shim's
-distinct return codes (-1 generic, -2 bind, -3 accounts), the Kotlin
+distinct return codes (-1 generic, -3 accounts), the Kotlin
 `velta-kmp:` println lines, and the connect-ok line
 (`velta-kmp: connect ok — core v2.66.0, ...`) that lands on every successful
 handshake.
@@ -406,7 +406,10 @@ never run Gradle on the Windows side.
   event feeds the local call log.
 - `get_system_info` → map; version key is **`deltachat_core_version`**.
 - Responses carry `"jsonrpc":"2.0"`; errors are `{"id","error":{"code","message"}}`.
-- Events = **long-poll `get_next_event`** driven in a loop (BaseDeltaChat pattern).
+- Events = **long-poll `get_next_event_batch`** (#357). One response is
+  every event already queued, oldest first; each is forwarded in order.
+  An empty batch waits 250 ms and is not a failure. Five consecutive
+  errors stop the loop.
 - Persistence = the accounts dir (`DC_ACCOUNTS_PATH`): `get_all_account_ids`,
   `get_account_info` kind `"Configured"` / `"Unconfigured"` (no `isConfigured`
   on the wire; that field is fixture-only). The core's selected account
@@ -417,15 +420,16 @@ never run Gradle on the Windows side.
   `add_account` auto-selects the new account.
 - `RpcClient.call` bounds ordinary RPCs at 30s by default
   (`RpcException(method, code -2)` names the METHOD, not `id=N`);
-  long-running calls opt out with `timeoutMs = null`: `get_next_event`
+  long-running calls opt out with `timeoutMs = null`: `get_next_event_batch`
   (unbounded long-poll), `add_transport_from_qr`, `add_transport`,
   `delete_transport`, `configure`, `secure_join`, `background_fetch`,
   `provide_backup`, `get_backup_qr`, `get_backup`, `import_backup`,
   `export_backup`.
   The shim IS restartable in-process (`startCoreOnce`/`stopCoreOnce`):
   on a dead client the model drops to "core connection lost" and
-  reconnects to the cached port — no process kill. A second `startCore`
-  is refused (cached-port singleton).
+  reconnects. A second `startCore` while the session is serving is
+  refused (one Accounts on the dir). `transport.close()` does not stop
+  the core; `stopCore` does. The next start joins the previous worker.
 - Modern write path is draft-based:
   `misc_set_draft(accountId, chatId, text?, file?, filename?, quotedMessageId?, viewType?)`
   → `misc_send_draft(accountId, chatId)`; `get_draft`/`remove_draft` alongside.
@@ -436,19 +440,15 @@ never run Gradle on the Windows side.
   in-flight calls, mark itself dead (post-death `call()` throws instantly)
   and fire `onDead` — but a deliberate `close()` never counts as death.
   `AppModel.onCoreDead` drops the UI to "core connection lost" and retries
-  once after 2 s. `RpcShim.startCoreOnce` returns the CACHED loopback port:
-  each JNI `startCore` would spawn a second core on the same accounts dir,
-  while the shim itself is a long-lived accept-loop server that survives
-  client disconnects — the port stays valid for reconnects.
-- Shim auth (#334): loopback is open to every app on the device, so
-  `startCoreOnce` mints a per-launch token (`ShimAuth.newToken()`, 32
-  SecureRandom bytes as hex, memory only) and passes it to JNI
-  `startCore(dir, dbKey, token)`. `SocketRpcTransport` writes it as the
-  FIRST line; the shim drops any connection whose first line isn't the
-  token (constant-time compare, 256-byte cap, 5 s timeout) before reading
-  an RPC line or writing a byte, and refuses to start (-4) with a token
-  under 32 chars. Pinned by the shim's `cargo test` and `ShimAuthTest`.
-  Never log or persist the token.
+  once after 2 s. `RpcShim.startCoreOnce` reuses the running session:
+  each JNI `startCore` would spawn a second core on the same accounts dir.
+  The client talks through `JniRpcTransport` (`sendLine` /
+  `onNativeLine`). There is no listening port and no auth token (#357) —
+  a second process has no socket to open. Pinned by the shim's
+  `cargo test` (`session_answers_get_system_info_without_a_socket`,
+  `send_line_without_a_session_fails`). Unexpected exit calls
+  `onNativeExit`, which clears `running` so the retry starts a new
+  session. A deliberate `close()` only detaches the listener.
 - Message-event bursts are coalesced: `MsgsChanged`/`IncomingMsg`/
   `MsgsNoticed`/`MsgDelivered` mark chats dirty and flush ONE list/chat
   reload 200 ms after the burst started (the model scope is

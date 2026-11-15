@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 
 /**
  * Answers every request from a static method→result script; methods without
- * an entry (e.g. get_next_event) simply never get a response, like a real
+ * an entry (e.g. get_next_event_batch) simply never get a response, like a real
  * long-poll. A result starting with "ERROR:" is answered as a JSON-RPC error
  * with that message instead. Records all requests for assertions.
  */

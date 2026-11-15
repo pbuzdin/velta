@@ -3,6 +3,7 @@ package org.velta.kmp.core
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
@@ -721,27 +722,34 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         }
     }
 
-    /** Long-polls one event; blocks server-side until something happens. */
-    suspend fun nextEvent(): CoreEvent =
-        client.json.decodeFromString(
-            CoreEvent.serializer(),
-            client.call("get_next_event", timeoutMs = null).toString(),
-        )
+    /**
+     * One parked `get_next_event_batch` (#357). The core returns every event
+     * already queued, oldest first. Empty is not an error: a closed channel
+     * comes back with nothing, and polling again immediately would spin.
+     */
+    private suspend fun nextEvents(): List<CoreEvent> {
+        val result = client.call("get_next_event_batch", timeoutMs = null)
+        val arr = result as? JsonArray ?: return emptyList()
+        return arr.map { el ->
+            client.json.decodeFromString(CoreEvent.serializer(), el.toString())
+        }
+    }
 
     /**
-     * Drives `get_next_event` in a loop and forwards events to [onEvent].
-     * This is the same pattern the JS `BaseDeltaChat` client uses.
+     * Drives `get_next_event_batch` and forwards each event to [onEvent],
+     * in order. Same shape as the JS client's batch poll.
      *
      * Consecutive failures end the loop: once the client is dead its calls
      * throw instantly, and retrying forever would just hot-spin a CPU core.
-     * A live-but-flaky core recovers — healthy events reset the counter.
+     * A live-but-flaky core recovers — a batch, even an empty one, resets
+     * the counter.
      */
     fun startEventLoop(scope: CoroutineScope, onEvent: suspend (CoreEvent) -> Unit): Job =
         scope.launch {
             var failures = 0
             while (isActive) {
-                val event = try {
-                    nextEvent()
+                val events = try {
+                    nextEvents()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (t: Throwable) {
@@ -753,7 +761,11 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
                     continue
                 }
                 failures = 0
-                onEvent(event)
+                if (events.isEmpty()) {
+                    delay(250)
+                    continue
+                }
+                for (event in events) onEvent(event)
             }
         }
 

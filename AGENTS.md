@@ -3141,9 +3141,10 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
   rpc-core keeps its single-stream design. The broadcast now carries only
   what the core PUSHES (id-less event notifications); a response for an id
   no one waits on anymore (frontend timeout) still falls through to the
-  emit path. Android keeps the write-only arm (its WebView speaks through
-  the VeltaBridge; responses stay on the forwarder emit). The 180s Rust
-  wait is only a leak guard — rpc-core's per-call timeouts fire first.
+  emit path. Android uses the same park-and-return (#357). The in-process
+  forwarder completes `web_pending` and does not emit that line. `bg-`
+  batches and `wxdc-` fetches keep their own routing. The 180s Rust wait
+  is only a leak guard — rpc-core's per-call timeouts fire first.
 - Account data lives in the platform app-data directory:
   - Windows: `%LOCALAPPDATA%/org.velta/accounts` (identifier `org.velta`;
     pre-rebrand desktop builds left `%LOCALAPPDATA%/chat.delta.desktop.tauri`

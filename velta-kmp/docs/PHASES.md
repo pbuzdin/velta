@@ -28,7 +28,12 @@ image viewer and opening files, in-app video and voice/audio, group
 rename/add/remove, second-device QR plus export backup, and a
 `velta://proxy` paste on Accounts. Message links on Android stay in a
 Custom Tab (in-app page if the device has no provider). **Webxdc is
-still out** — it needs the Tauri sandbox server.
+still out** — it needs the Tauri sandbox server. **#357 step 2:** the
+event loop calls `get_next_event_batch` (one round trip per burst; an
+empty batch waits 250 ms and is not a failure). **#357 step 1:** the
+Android Tauri `rpc` command returns the JSON line the way desktop does.
+**#357 step 3:** the KMP Android core is in-process over JNI. No loopback
+port and no auth token. Desktop KMP still spawns `deltachat-rpc-server`.
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate.

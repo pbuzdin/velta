@@ -39,6 +39,18 @@ pub(crate) fn route_sidecar_line(line: &str) -> Route {
     }
 }
 
+/// Envelope id as the `web_pending` key. Numbers and strings only; null and
+/// missing ids are not parked. The same key is used when the request is
+/// written and when the response line comes back (#49, #357).
+pub(crate) fn request_id_key(line: &str) -> Option<String> {
+    let env: Envelope = serde_json::from_str(line).ok()?;
+    match env.id? {
+        serde_json::Value::String(s) => Some(s),
+        n if n.is_number() => Some(n.to_string()),
+        _ => None,
+    }
+}
+
 #[cfg(not(target_os = "android"))]
 use std::fs::OpenOptions;
 #[cfg(not(target_os = "android"))]
@@ -225,13 +237,8 @@ pub(crate) fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: 
 
 #[cfg(not(target_os = "android"))]
 fn resolve_web_line(app: &tauri::AppHandle, line: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+    let Some(id) = request_id_key(line) else {
         return false;
-    };
-    let id = match value.get("id") {
-        Some(serde_json::Value::String(s)) => s.clone(),
-        Some(n) if n.is_number() => n.to_string(),
-        _ => return false,
     };
     let state = app.state::<RpcState>();
     match state.take_web_pending(&id) {
@@ -282,5 +289,27 @@ mod tests {
             Route::Emit
         );
         assert_eq!(route_sidecar_line(r#"{"result":{}}"#), Route::Emit);
+    }
+
+    #[test]
+    fn request_id_key_matches_the_parked_waiter() {
+        assert_eq!(
+            request_id_key(
+                r#"{"jsonrpc":"2.0","id":1,"method":"get_all_account_ids","params":[]}"#
+            )
+            .as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            request_id_key(r#"{"jsonrpc":"2.0","id":1,"result":[]}"#).as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            request_id_key(r#"{"id":"bg-3","result":[]}"#).as_deref(),
+            Some("bg-3")
+        );
+        assert_eq!(request_id_key(r#"{"id":null,"result":{}}"#), None);
+        assert_eq!(request_id_key(r#"{"result":{}}"#), None);
+        assert_eq!(request_id_key("not json"), None);
     }
 }

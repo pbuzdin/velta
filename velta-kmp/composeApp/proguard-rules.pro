@@ -1,6 +1,11 @@
 # JNI: the shim resolves these by symbol name — never rename.
+# onNativeLine / onNativeExit are called from Rust by name.
 -keepclasseswithmembernames class org.velta.kmp.core.RpcShim {
     native <methods>;
+}
+-keepclassmembers class org.velta.kmp.core.RpcShim {
+    public static void onNativeLine(java.lang.String);
+    public static void onNativeExit();
 }
 
 # kotlinx.serialization (R8 full mode): keep serializers for the wire models.
