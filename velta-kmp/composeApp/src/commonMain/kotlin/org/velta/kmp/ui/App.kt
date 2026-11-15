@@ -121,6 +121,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -2614,6 +2615,9 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                             }
                             val dxc = cur.x - x0
                             val dyc = cur.y - y0
+                            // Stable gestureSkipTarget: a drag that began on a
+                            // control (the audio bar's seek) is not a back swipe.
+                            if (!engaged && model.gestureSkipDown) break
                             if (!engaged) {
                                 if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) break
                                 if (dxc > -engage || Math.abs(dxc) < Math.abs(dyc)) continue
@@ -3127,6 +3131,7 @@ private fun Composer(model: AppModel) {
                 TextButton(onClick = { model.pendingAttachment = null }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
             }
         }
+        model.voiceRec?.let { rec -> VoiceRecBar(model, rec) }
         model.sendError?.let {
             Text(
                 L.t("Send failed") + ": " + it,
@@ -3154,6 +3159,7 @@ private fun Composer(model: AppModel) {
                     expanded = showAttachMenu,
                     stickersReady = true,
                     cameraAvailable = model.cameraCapture != null,
+                    voiceAvailable = model.voiceRecorder != null,
                     onDismiss = { showAttachMenu = false },
                     onPick = { kind ->
                         showAttachMenu = false
@@ -3167,6 +3173,10 @@ private fun Composer(model: AppModel) {
                     onCamera = {
                         showAttachMenu = false
                         model.cameraCapture?.invoke()
+                    },
+                    onVoice = {
+                        showAttachMenu = false
+                        model.startVoice()
                     },
                 )
             }
@@ -3209,9 +3219,11 @@ private fun Composer(model: AppModel) {
                 )
             }
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                // Stable: while recording, Send stops and sends the voice message.
+                val recording = model.voiceRec != null
                 IconButton(
-                    onClick = { model.send() },
-                    enabled = !model.sending &&
+                    onClick = { if (recording) model.stopVoice(true) else model.send() },
+                    enabled = recording || !model.sending &&
                         (model.composerText.isNotBlank() || model.pendingAttachment != null),
                     modifier = Modifier.size(48.dp),
                 ) {
@@ -3219,7 +3231,7 @@ private fun Composer(model: AppModel) {
                         VeltaIcons.send,
                         contentDescription = L.t("Send"),
                         modifier = Modifier.size(26.dp),
-                        tint = if (model.sending || (model.composerText.isBlank() && model.pendingAttachment == null)) {
+                        tint = if (!recording && (model.sending || (model.composerText.isBlank() && model.pendingAttachment == null))) {
                             Velta.tokens.textDim
                         } else {
                             Velta.tokens.accentText
@@ -3240,10 +3252,12 @@ private fun AttachMenu(
     expanded: Boolean,
     stickersReady: Boolean,
     cameraAvailable: Boolean,
+    voiceAvailable: Boolean,
     onDismiss: () -> Unit,
     onPick: (AppModel.AttachKind) -> Unit,
     onStickers: () -> Unit,
     onCamera: () -> Unit,
+    onVoice: () -> Unit,
 ) {
     if (!expanded) return
     Popup(alignment = Alignment.BottomStart, offset = IntOffset(0, -240)) {
@@ -3260,6 +3274,9 @@ private fun AttachMenu(
                     AttachMenuItem(VeltaIcons.camera, L.t("Camera")) { onDismiss(); onCamera() }
                 }
                 AttachMenuItem(VeltaIcons.file, L.t("File")) { onDismiss(); onPick(AppModel.AttachKind.FILE) }
+                if (voiceAvailable) {
+                    AttachMenuItem(VeltaIcons.mic, L.t("Voice message")) { onDismiss(); onVoice() }
+                }
                 if (stickersReady) {
                     AttachMenuItem(VeltaIcons.sticker, L.t("Stickers")) { onDismiss(); onStickers() }
                 }
@@ -3394,6 +3411,17 @@ private fun InviteCard(url: String, onJoin: () -> Unit) {
 
 private val MEDIA_VIEWTYPES = setOf("Image", "Gif", "Sticker")
 
+/** Stable GESTURE_SKIP_SELECTOR (button, input, audio): a touch that
+ *  starts here never becomes a reply or back swipe. Runs after the
+ *  parents' down handlers (Initial pass goes parent → child), before any
+ *  move reaches them. */
+private fun Modifier.gestureSkip(model: AppModel): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        model.gestureSkipDown = true
+    }
+}
+
 /** A bubble tap target with no ripple (stable media/file cards). The
  *  bubble's own gesture loop consumes long-press and select taps, so
  *  those never reach here. */
@@ -3471,6 +3499,7 @@ private fun MessageBubble(
         val slop = viewConfig.touchSlop
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            model.gestureSkipDown = false
             pressHref[0] = ""
             val x0 = down.position.x
             val y0 = down.position.y
@@ -3520,6 +3549,7 @@ private fun MessageBubble(
                 val dxc = cur.x - x0
                 val dyc = cur.y - y0
                 if (!moved && (Math.abs(dxc) > slop || Math.abs(dyc) > slop)) moved = true
+                if (model.gestureSkipDown) swipeOk = false
                 if (!swipeOk) continue
                 if (!engaged) {
                     if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) { swipeOk = false; continue }
@@ -3691,9 +3721,9 @@ private fun MessageBubble(
                     } else when (message.viewType) {
                         // Web .msg-video: #101010 band with a play button and
                         // size/duration chips; a tap hands the file to the system player.
-                        "Video" -> Box(Modifier.tapOpens { model.openMessageFile(message) }) { VideoCard(message, tokens) }
-                        // Web .msg-voice/.msg-audio: play circle + meta. Static.
-                        "Audio", "Voice" -> AudioCard(message, tokens)
+                        "Video" -> Box(Modifier.tapOpens { model.tapVideo(message) }) { VideoCard(message, tokens) }
+                        // Web .msg-audio: stable's own player bar (audio-player.js).
+                        "Audio", "Voice" -> AudioBubble(model, message, tokens)
                         // Web .msg-file: 44px accent circle + name + size; a tap opens it.
                         "File" -> Box(Modifier.tapOpens { model.openMessageFile(message) }) { FileCard(message, tokens) }
                         "Webxdc" -> FileCard(message, tokens)
@@ -3888,7 +3918,116 @@ private fun VideoCard(message: MessageObject, tokens: VeltaTokens) {
     }
 }
 
-/** Web .msg-voice/.msg-audio: 42px play circle + name/duration. Static card. */
+/** Web .msg-audio: the .vp bar once the file is here (play, seek, speed,
+ *  "00:03 / 00:04"); before that a card whose tap downloads and plays. */
+@Composable
+private fun AudioBubble(model: AppModel, message: MessageObject, tokens: VeltaTokens) {
+    if (message.id in model.audioFailed) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+            Icon(VeltaIcons.mic, contentDescription = null, modifier = Modifier.size(22.dp), tint = tokens.textDim)
+            Text(L.t("Audio can't be played"), fontSize = 14.sp, color = tokens.textDim)
+        }
+        return
+    }
+    val ready = (message.downloadState ?: "Done") == "Done" && message.file != null
+    if (!ready || model.audioEngine == null) {
+        Box(Modifier.tapOpens { model.toggleAudio(message) }) { AudioCard(message, tokens) }
+        return
+    }
+    val now = model.audioNow?.takeIf { it.msgId == message.id }
+    val playing = now?.playing == true
+    val totalMs = maxOf(now?.durMs ?: 0L, message.duration ?: 0L)
+    val posMs = now?.posMs ?: 0L
+    var dragging by remember(message.id) { mutableStateOf<Float?>(null) }
+    val label = if (message.viewType == "Voice") L.t("Voice message") else L.t("Audio")
+    Row(
+        Modifier
+            .gestureSkip(model)
+            .widthIn(min = 240.dp, max = 320.dp)
+            .fillMaxWidth()
+            .height(40.dp)
+            .background(Color(0x2E000000), RoundedCornerShape(20.dp))
+            .padding(start = 4.dp, end = 10.dp)
+            .semantics { contentDescription = label },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(tokens.accent)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = null) { model.toggleAudio(message) }
+                .semantics { contentDescription = if (playing) L.t("Pause") else L.t("Play") },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(if (playing) VeltaIcons.pauseFilled else VeltaIcons.playFilled, contentDescription = null, modifier = Modifier.size(20.dp), tint = tokens.onAccent)
+        }
+        androidx.compose.material3.Slider(
+            value = (dragging ?: posMs.toFloat()).coerceIn(0f, totalMs.toFloat().coerceAtLeast(0f)),
+            onValueChange = { dragging = it },
+            onValueChangeFinished = { dragging?.let { model.seekAudio(message, it.toLong()) }; dragging = null },
+            valueRange = 0f..totalMs.toFloat().coerceAtLeast(1f),
+            enabled = totalMs > 0,
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = tokens.accent,
+                activeTrackColor = tokens.accent,
+                inactiveTrackColor = tokens.textDim.copy(alpha = 0.35f),
+            ),
+            modifier = Modifier.weight(1f).semantics { contentDescription = L.t("Seek") },
+        )
+        Box(
+            Modifier
+                .height(24.dp)
+                .widthIn(min = 36.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0x387F7F7F))
+                .clickable(role = androidx.compose.ui.semantics.Role.Button) { model.cycleVoiceSpeed() }
+                .semantics { contentDescription = L.t("Playback speed") + ": " + speedLabel(model.voiceSpeed) }
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(speedLabel(model.voiceSpeed), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tokens.accentText)
+        }
+        Text(
+            audioTimeLabel(dragging?.toLong() ?: posMs, totalMs),
+            fontSize = 12.sp,
+            color = tokens.text,
+            maxLines = 1,
+            modifier = Modifier.alpha(0.85f),
+        )
+    }
+}
+
+/** Stable #voice-rec: red dot, "Recording 0:07", Cancel, Send. */
+@Composable
+private fun VoiceRecBar(model: AppModel, rec: AppModel.VoiceRec) {
+    val tokens = Velta.tokens
+    var elapsed by remember(rec) { mutableStateOf(0L) }
+    LaunchedEffect(rec) {
+        while (true) {
+            elapsed = ((model.clockMillis() - rec.startedAt) / 1000).coerceAtLeast(0)
+            kotlinx.coroutines.delay(500)
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).background(tokens.danger, CircleShape))
+        Spacer(Modifier.size(10.dp))
+        Text(
+            L.t("Recording {time}").replace("{time}", formatDurationSec(elapsed)),
+            fontSize = 14.sp,
+            color = tokens.text,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = { model.stopVoice(false) }) { Text(L.t("Cancel"), color = tokens.accentText) }
+        TextButton(onClick = { model.stopVoice(true) }) { Text(L.t("Send"), color = tokens.accentText) }
+    }
+}
+
+/** Web .msg-voice/.msg-audio before download: 42px play circle + name/duration. */
 @Composable
 private fun AudioCard(message: MessageObject, tokens: VeltaTokens) {
     Row(
@@ -3969,9 +4108,6 @@ private fun formatBytes(bytes: Long): String {
     }
 }
 
-/** "1:23" — the web's m:ss duration chip (wire duration is ms). */
-private fun formatDuration(ms: Long): String {
-    val total = (ms / 1000).coerceAtLeast(0)
-    return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
-}
+/** "01:23" — the web's formatDuration chip (wire duration is ms). */
+private fun formatDuration(ms: Long): String = formatDurationSec(ms / 1000)
 

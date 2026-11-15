@@ -72,8 +72,11 @@ for the per-phase ledger and what's left.
   previews pass the core's own emoji through (no doubled 📷). **Media and
   files**: tap a photo, GIF or sticker for the full-screen viewer (pinch
   zoom up to 8×, double tap 2.5×, drag while zoomed, tap or Back to
-  close; a received sticker first offers "Add sticker"); tap a video or
-  file to open it in another app (an original-named copy via
+  close; a received sticker first offers "Add sticker"); a video plays in the
+  in-app player (Stretch, 0.5–2× speed, resumes where you left off; a
+  tap plays/pauses); voice and audio play inline on stable's bar (seek,
+  1×/1.5×/2×, "00:03 / 00:04"); attach → Voice message records AAC
+  (.m4a) with Cancel / Send; tap a file to open it in another app (an original-named copy via
   FileProvider; "No app can open this file" offers Save as…; HTML opens
   as plain text). **Touch
   gestures**: swipe the chat list left/right to step through the category

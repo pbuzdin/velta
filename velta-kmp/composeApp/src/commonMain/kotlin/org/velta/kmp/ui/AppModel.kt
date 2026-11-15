@@ -1510,6 +1510,8 @@ class AppModel(
             chatConfirm = PendingConfirm(contactRequestConfirm(item.name)) { acceptContactRequest(item) }
             return
         }
+        stopAudio()
+        stopVoice(send = false)
         screen = Screen.Chat(item.id, item.name, item.isGroup)
         accountId?.let { notifier?.cancel(it, item.id) }
         composerText = ""
@@ -1553,6 +1555,8 @@ class AppModel(
 
     /** Persist or clear the draft of the open chat when leaving it. */
     fun backToChatList() {
+        stopAudio()
+        stopVoice(send = false)
         saveOpenDraft()
         composerText = ""
         replyTo = null
@@ -1800,6 +1804,11 @@ class AppModel(
      *  "account-changing"): drop it so the new profile refetches. The call
      *  log stays device-wide like stable's velta-call-log. */
     private fun resetAccountCaches() {
+        stopAudio()
+        stopVoice(send = false)
+        audioFailed = emptySet()
+        videoBox = null
+        lightbox = null
         chats = emptyList()
         archivedChats = emptyList()
         contacts = emptyList()
@@ -2062,6 +2071,213 @@ class AppModel(
     /** True on Android: images open in the lightbox (stable documentOpenPlan). */
     var mediaInLightbox = false
 
+    // ---- #334 step 11: media playback (stable openVideoLightbox,
+    // audio-player.js, the composer's voice recorder) ----
+
+    /** True on Android: a video tap opens the in-app player (stable
+     *  openVideoLightbox); otherwise it goes to the system's player. */
+    var videoInApp = false
+
+    data class VideoBox(val path: String, val caption: String)
+    var videoBox by mutableStateOf<VideoBox?>(null)
+
+    var videoRate by mutableStateOf(savedVideoRate(platform.pref(VIDEO_RATE_KEY)))
+        private set
+
+    fun setVideoRateChoice(rate: Float) {
+        if (rate !in VIDEO_RATES) return
+        videoRate = rate
+        platform.setPref(VIDEO_RATE_KEY, speedLabel(rate).removeSuffix("×"))
+    }
+
+    /** Where to resume [path] (seconds; 0 = from the start). */
+    fun videoResumeAt(path: String, durationSec: Long): Long =
+        videoResumeSeconds(parseVideoPos(platform.pref(VIDEO_POS_KEY))[path], durationSec)
+
+    /** Stable commit(): keep a resumable position, forget a finished one;
+     *  under a second of play never overwrites the bookmark. */
+    fun saveVideoPosition(path: String, positionSec: Long, durationSec: Long) {
+        if (durationSec <= 0) return
+        val keep = videoResumeSeconds(positionSec, durationSec)
+        if (keep == 0L && positionSec < 1) return
+        val next = rememberVideoPos(parseVideoPos(platform.pref(VIDEO_POS_KEY)), path, keep)
+        platform.setPref(VIDEO_POS_KEY, encodeVideoPos(next))
+    }
+
+    fun tapVideo(message: MessageObject) {
+        if (!videoInApp) { openMessageFile(message); return }
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            val msg = ensureDownloaded(veltaCore, id, message) ?: return@launch
+            val path = msg.file ?: return@launch
+            if (accountId != id) return@launch
+            stopAudio()
+            videoBox = VideoBox(path, msg.fileName?.ifBlank { null } ?: L.t("Video"))
+        }
+    }
+
+    /** Set by a touch that starts on a bubble control (the audio bar) so
+     *  the reply / back swipes leave that drag alone. UI-only, not state. */
+    internal var gestureSkipDown = false
+
+    /** Platform audio output; null = audio opens in another app. */
+    var audioEngine: AudioEngine? = null
+
+    data class AudioNow(val msgId: Long, val path: String, val playing: Boolean, val posMs: Long, val durMs: Long)
+    var audioNow by mutableStateOf<AudioNow?>(null)
+        private set
+    var voiceSpeed by mutableStateOf(storedVoiceSpeed(platform.pref(VOICE_SPEED_KEY)))
+        private set
+    /** Messages whose audio failed to play ("Audio can't be played"). */
+    var audioFailed by mutableStateOf<Set<Long>>(emptySet())
+        private set
+    private var audioTicker: Job? = null
+
+    /** Play/pause on a voice or audio bar. Starting one stops any other. */
+    fun toggleAudio(message: MessageObject) {
+        val engine = audioEngine ?: run { openMessageFile(message); return }
+        val cur = audioNow
+        if (cur != null && cur.msgId == message.id) {
+            if (cur.playing) pauseAudio() else startAudio(engine, cur.msgId, cur.path, cur.posMs, cur.durMs)
+            return
+        }
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            val msg = ensureDownloaded(veltaCore, id, message) ?: return@launch
+            val path = msg.file ?: return@launch
+            if (accountId != id) return@launch
+            stopAudio()
+            startAudio(engine, msg.id, path, 0, msg.duration ?: 0)
+        }
+    }
+
+    private fun startAudio(engine: AudioEngine, msgId: Long, path: String, fromMs: Long, knownDurMs: Long) {
+        val ok = engine.start(
+            path, fromMs, voiceSpeed,
+            onEnd = {
+                audioTicker?.cancel()
+                val now = audioNow
+                if (now?.msgId == msgId) audioNow = now.copy(playing = false, posMs = 0, durMs = maxOf(now.durMs, engine.durationMs()))
+            },
+            onError = { audioPlaybackFailed(msgId) },
+        )
+        if (!ok) { audioPlaybackFailed(msgId); return }
+        audioNow = AudioNow(msgId, path, true, fromMs, maxOf(knownDurMs, engine.durationMs()))
+        audioTicker?.cancel()
+        audioTicker = scope.launch {
+            while (true) {
+                delay(250)
+                val now = audioNow ?: break
+                if (now.msgId != msgId || !now.playing) break
+                audioNow = now.copy(posMs = engine.positionMs(), durMs = maxOf(now.durMs, engine.durationMs()))
+            }
+        }
+    }
+
+    private fun audioPlaybackFailed(msgId: Long) {
+        audioTicker?.cancel()
+        if (audioNow?.msgId == msgId) audioNow = null
+        audioFailed = audioFailed + msgId
+    }
+
+    fun pauseAudio() {
+        val now = audioNow ?: return
+        audioTicker?.cancel()
+        val engine = audioEngine
+        engine?.pause()
+        audioNow = now.copy(playing = false, posMs = engine?.positionMs() ?: now.posMs)
+    }
+
+    /** Seek on the bar; a bar that is not playing remembers the spot. */
+    fun seekAudio(message: MessageObject, ms: Long) {
+        val now = audioNow
+        if (now != null && now.msgId == message.id) {
+            audioEngine?.seek(ms)
+            audioNow = now.copy(posMs = ms)
+            return
+        }
+        val path = message.file ?: return
+        if (now?.playing == true) stopAudio()
+        audioNow = AudioNow(message.id, path, false, ms, message.duration ?: 0)
+    }
+
+    fun cycleVoiceSpeed() {
+        voiceSpeed = nextVoiceSpeed(voiceSpeed)
+        platform.setPref(VOICE_SPEED_KEY, speedLabel(voiceSpeed).removeSuffix("×"))
+        if (audioNow?.playing == true) audioEngine?.setRate(voiceSpeed)
+    }
+
+    /** Leaving the chat (or the account) stops playback like stable's
+     *  torn-down <audio>. */
+    fun stopAudio() {
+        audioTicker?.cancel()
+        if (audioNow != null) audioEngine?.release()
+        audioNow = null
+    }
+
+    /** Platform microphone; null = no "Voice message" item. */
+    var voiceRecorder: VoiceRecorder? = null
+
+    data class VoiceRec(val chatId: Long, val startedAt: Long)
+    var voiceRec by mutableStateOf<VoiceRec?>(null)
+        private set
+    private var voiceStarting = false
+
+    /** Attach menu "Voice message": start recording in the open chat. */
+    fun startVoice() {
+        val chat = screen as? Screen.Chat ?: return
+        val recorder = voiceRecorder ?: run { showToast(voiceStartError(VOICE_UNAVAILABLE), 4000); return }
+        if (voiceRec != null || voiceStarting) return
+        voiceStarting = true
+        scope.launch {
+            try {
+                val path = recorder.start(voiceFileName(wallClockMillis()))
+                if ((screen as? Screen.Chat)?.chatId != chat.chatId) { recorder.cancel(); return@launch }
+                stopAudio()
+                voicePath = path
+                voiceRec = VoiceRec(chat.chatId, clockMillis())
+            } catch (t: Throwable) {
+                showToast(voiceStartError(t.message ?: t.toString()), 4000)
+            } finally {
+                voiceStarting = false
+            }
+        }
+    }
+
+    /** Recording bar Cancel / Send (the composer's send button sends). */
+    fun stopVoice(send: Boolean) {
+        val rec = voiceRec ?: return
+        val recorder = voiceRecorder ?: return
+        voiceRec = null
+        if (!send) { voicePath = null; recorder.cancel(); return }
+        val path = voicePath
+        voicePath = null
+        val hasAudio = recorder.stop()
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        if (!hasAudio || path == null) {
+            showToast(L.t("Couldn't send voice message: recording was empty"), 4000)
+            return
+        }
+        val quote = replyTo?.id
+        replyTo = null
+        scope.launch {
+            try {
+                veltaCore.sendMessage(id, rec.chatId, "", "Voice", path, path.substringAfterLast('/'), quotedMessageId = quote)
+                if (accountId != id) return@launch
+                val open = screen as? Screen.Chat
+                if (open?.chatId == rec.chatId) loadMessages(rec.chatId, open.isGroup)
+                unarchiveAfterSend(veltaCore, id, rec.chatId)
+            } catch (t: Throwable) {
+                if (accountId == id) showToast(L.t("Couldn't send voice message: ") + (t.message ?: t.toString()), 4000)
+            }
+        }
+    }
+
+    private var voicePath: String? = null
+
     /** Image / sticker tap in a bubble. A received sticker first asks to
      *  add it to the collection, then opens the viewer either way. */
     fun tapMedia(message: MessageObject) {
@@ -2092,7 +2308,7 @@ class AppModel(
                     // so no browser runs the untrusted page (stable: iframe).
                     OpenPlan.Html, OpenPlan.Native -> {
                         val open = openFile ?: return@launch
-                                val mime = if (documentOpenPlan(path, name, mediaInLightbox) == OpenPlan.Html) "text/plain" else msg.fileMime
+                        val mime = if (documentOpenPlan(path, name, mediaInLightbox) == OpenPlan.Html) "text/plain" else msg.fileMime
                         when (val err = open(path, name, mime)) {
                             null -> {}
                             "no-app" -> if (accountId == id) {

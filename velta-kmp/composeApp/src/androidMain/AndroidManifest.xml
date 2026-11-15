@@ -14,6 +14,8 @@
     <!-- Invite-QR scanning (P4 slice 11b): camera only while the scan screen
          is open; ZXing decodes locally, nothing leaves the device. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Voice messages (#334 step 11): the mic only while recording. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:label="Velta KMP"
