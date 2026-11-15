@@ -295,7 +295,7 @@ internal fun parseInviteLink(raw: String): String? {
  * undecoded value; java.net.URLDecoder was both crashy (`%zz`) and wrong
  * ('+' → space).
  */
-private fun decodeUriComponent(s: String): String {
+internal fun decodeUriComponent(s: String): String {
     if ('%' !in s) return s
     val out = StringBuilder()
     val bytes = ArrayList<Byte>(s.length)

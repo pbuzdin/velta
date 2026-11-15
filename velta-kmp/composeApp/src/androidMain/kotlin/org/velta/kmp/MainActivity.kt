@@ -273,6 +273,8 @@ class MainActivity : FragmentActivity() {
         }
         consumeChatIntent(intent)
         consumeLinkIntent(intent)
+        // A recreated activity gets the original intent again: share once.
+        if (savedInstanceState == null) consumeShareIntent(intent)
         setContent {
             App(model)
             LaunchedEffect(Unit) { model.connect() }
@@ -282,8 +284,63 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         consumeChatIntent(intent)
         consumeLinkIntent(intent)
+        consumeShareIntent(intent)
+    }
+
+    /**
+     * #334 step 7 — ACTION_SEND / SEND_MULTIPLE (stable routeOpenedBatch):
+     * a shared text that is one invite / chatmail link opens like a tapped
+     * link; other text and the streams become one share burst for the
+     * "Share to…" picker. Streams are copied into the cache off the main
+     * thread (the core reads plain paths), as the attachment picker does.
+     */
+    private fun consumeShareIntent(intent: Intent?) {
+        val action = intent?.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        val uris = LinkedHashSet<Uri>()
+        if (action == Intent.ACTION_SEND) {
+            @Suppress("DEPRECATION")
+            (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)?.let { uris += it }
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let { uris += it }
+        }
+        intent.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris += it } }
+        intent.action = null
+        val items = ArrayList<org.velta.kmp.ui.ShareItem>()
+        when (val routed = text?.let { org.velta.kmp.ui.classifySharedText(it) }) {
+            is org.velta.kmp.ui.SharedText.Link -> model.onQrScanned(routed.link)
+            is org.velta.kmp.ui.SharedText.Text -> items += org.velta.kmp.ui.ShareItem(text = routed.text)
+            else -> Unit
+        }
+        if (uris.isEmpty()) {
+            model.receiveShare(items)
+            return
+        }
+        Thread {
+            for (uri in uris) {
+                try {
+                    var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+                    contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0 && cursor.moveToFirst()) displayName = cursor.getString(idx) ?: displayName
+                    }
+                    val safeName = displayName.replace(Regex("[/\\\\]"), "_")
+                    val staged = File(cacheDir, "share-${System.currentTimeMillis()}-$safeName")
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        staged.outputStream().use { output -> input.copyTo(output) }
+                    } ?: continue
+                    items += org.velta.kmp.ui.ShareItem(file = staged.absolutePath, name = displayName)
+                } catch (t: Throwable) {
+                    println("velta-kmp: share staging failed: $t")
+                }
+            }
+            model.receiveShare(items)
+        }.start()
     }
 
     /** Invite / chatmail-code links (manifest VIEW filters): same path as

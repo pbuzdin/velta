@@ -627,7 +627,11 @@ class AppModel(
     /** Scanner result or deep link. On the welcome splash it feeds stable's
      * create / second-device paths; otherwise the Join screen, pre-filled
      * and immediately checked. */
-    fun onQrScanned(text: String) {
+    fun onQrScanned(raw: String) {
+        // #334 step 7: velta.cc/join/? and mirror invite links (manifest VIEW
+        // filters, shares) are normalized onto the canonical i.delta.chat
+        // form first — the core only parses that (invites.js).
+        val text = parseInviteLink(raw) ?: raw
         if (core == null || !connected) {
             pendingScan = text
             return
@@ -2534,6 +2538,109 @@ class AppModel(
                 if (groupInvite?.chatId == chat.id) groupInvite = groupInvite?.copy(link = link)
             } catch (t: Throwable) {
                 if (groupInvite?.chatId == chat.id) groupInvite = groupInvite?.copy(error = t.message ?: t.toString())
+            }
+        }
+    }
+
+    // ---- Share-in (#334 step 7, app.js offerShare / deliverShare) ----
+
+    /** Shares that arrived before the app could show them (a cold start
+     *  from the share sheet): held until the chat list is up, then one
+     *  picker per burst, never two at a time (share-in createShareInbox). */
+    private val heldShares = ArrayList<ShareItem>()
+
+    /** The open "Share to…" picker's burst. */
+    var sharePick by mutableStateOf<SharePlan?>(null)
+
+    fun receiveShare(items: List<ShareItem>) {
+        val batch = items.filter { it.text != null || it.file != null }
+        if (batch.isEmpty()) return
+        synchronized(heldShares) { heldShares += batch }
+        flushShares()
+    }
+
+    private fun shareReady(): Boolean =
+        connected && accountId != null && !locked && screen != Screen.Login
+
+    fun flushShares() {
+        if (!shareReady() || sharePick != null) return
+        val batch = synchronized(heldShares) {
+            if (heldShares.isEmpty()) return
+            heldShares.toList().also { heldShares.clear() }
+        }
+        sharePick = sharePlan(batch)
+        ensureContactBots()
+        loadShareAccounts()
+    }
+
+    private fun loadShareAccounts() {
+        val veltaCore = core ?: return
+        scope.launch { runCatching { accounts = veltaCore.allAccounts() } }
+    }
+
+    fun cancelShare() {
+        sharePick = null
+        flushShares()
+    }
+
+    /** Picker profile chip: switch, then the picker re-lists that profile. */
+    fun pickShareAccount(id: Long) {
+        val veltaCore = core ?: return
+        scope.launch {
+            try {
+                switchAccountNow(veltaCore, id)
+            } catch (t: Throwable) {
+                showToast(L.t("Switch failed: ") + (t.message ?: t.toString()), 4000)
+            }
+        }
+    }
+
+    fun shareTargetsFor(query: String, cat: String): List<ChatListItem> = shareTargets(chats, query, cat, ::chatIsBot)
+
+    /** Open the picked chat and hand it the share (chat-view receiveShare):
+     *  text and one photo/video go to the composer, documents and several
+     *  files are sent right away ("Sent to {name}"). */
+    fun pickShareChat(chat: ChatListItem) {
+        val plan = sharePick ?: return
+        sharePick = null
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        openChat(chat)
+        scope.launch {
+            try {
+                val full = runCatching { veltaCore.fullChat(id, chat.id) }.getOrNull()
+                if (full != null && (full["canSend"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "false") {
+                    val msg = "You can't write in this chat" // stable has no translation either
+                    throw IllegalStateException(L.t(msg))
+                }
+                if (accountId != id) return@launch
+                val names = plan.files.map { it.name ?: it.file!!.substringAfterLast('/') }
+                when (val kind = shareStageKind(names)) {
+                    "text", "image", "video" -> {
+                        if (kind != "text") pendingAttachment = plan.files[0].file!! to names[0]
+                        composerText = composerWithShare(composerText, plan.text)
+                    }
+                    else -> {
+                        if (plan.files.size == 1) {
+                            veltaCore.sendMessage(id, chat.id, plan.text, coreViewtype(shareViewtype(names[0])), plan.files[0].file, names[0])
+                        } else {
+                            if (plan.text.isNotEmpty()) veltaCore.sendMessage(id, chat.id, plan.text)
+                            plan.files.forEachIndexed { i, f ->
+                                if (accountId == id) veltaCore.sendMessage(id, chat.id, "", coreViewtype(shareViewtype(names[i])), f.file, names[i])
+                            }
+                        }
+                        if (accountId != id) return@launch
+                        unarchiveAfterSend(veltaCore, id, chat.id)
+                        showToast(L.t("Sent to {name}").replace("{name}", chat.name))
+                        refreshChats()
+                        if ((screen as? Screen.Chat)?.chatId == chat.id) loadMessages(chat.id)
+                    }
+                }
+            } catch (t: Throwable) {
+                println("velta-kmp: share failed: $t")
+                if (accountId == id) showToast(L.t("Couldn't share: ") + (t.message ?: t.toString()), 4000)
+            } finally {
+                flushShares()
             }
         }
     }
