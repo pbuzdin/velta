@@ -242,17 +242,13 @@ never run Gradle on the Windows side.
   `velta-invite-domain`, the default stores by REMOVING the key):
   `rewriteInviteHost` slices the canonical `https://i.delta.chat/#`
   prefix and re-hosts the payload byte-identical (velta.cc → the
-  `/join/?` universal form, mirrors → `/host/#`); **non-i.delta.chat
-  domains render `BrandedQrSquare`** — the web's brandedQrSvg: LOCALLY
-  built white 512² square, 48px quiet zone, matrix scaled 416/size, the
-  VELTA_QR_LOGO badge dead-center (white ring r56, #1c1c1c disc r48, V
-  mark 84×84); the **i.delta.chat tab keeps the core's 515×630 card**
-  (`InviteQrCard` via `qrCardGeom`: positions `atX`/`atY` include the
-  letterbox, sizes `sz` do not — QR at translate(57.5, 75) scale
-  400/size, card 511×626 corner 40 stroke 2, caption
-  "Scan to chat with {name}" at baseline 515, identity disc centered on
-  the QR at (257.5, 275) radii 56.2/47.2, Velta mark in the footer slot).
-  Link chip +
+  `/join/?` universal form, i.delta.chat keeps that core URL, mirrors →
+  `/host/#`). **Every tab draws `BrandedQrSquare`** — the web's
+  brandedQrSvg: LOCALLY built white 512² square, 48px quiet zone, matrix
+  scaled 416/size, the VELTA_QR_LOGO badge dead-center (white ring r56,
+  #1c1c1c disc r48, V mark 84×84). The web still mounts the core's
+  515×630 card on the i.delta.chat tab; KMP uses the square there too
+  so the tabs match. Link chip +
   Copy/Share ride the SELECTED domain's link (injected `shareText` seam,
   ACTION_SEND on Android); Scan tab reuses ScanActivity, desktop hides
   it), Search (live name filter, min 2 chars, first 30 + the Archived tab
@@ -585,11 +581,10 @@ Relay chips on the QR screen remain unported.
   separate: computing a size from a `cx(x)`-style position helper silently
   includes the letterbox offset once one exists (the QR modules rendered
   ~14% oversize and collided with the caption). The same helper later
-  stretched the card and grew the identity disc (`cx(511)`, `cx(56.2)`):
-  `qrCardGeom` keeps width, corner, stroke, and disc radii on `sz`.
-  `QrCardTest.cardSizesStayInCardUnits` pins those numbers at box 630.
-  Same class as the zigzag `right`-mutation trap: layout math that
-  holds pre-offset breaks after.
+  stretched the card and grew the identity disc. The Your-QR tabs no
+  longer draw that card: every domain, including i.delta.chat, uses
+  `BrandedQrSquare`. Same class as the zigzag `right`-mutation trap:
+  layout math that holds pre-offset breaks after.
 - On-device "it didn't change" checks: `install -r` racing a live app
   process can leave the OLD UI on screen even with lastUpdateTime
   updated — force-stop + relaunch before believing a stale screenshot.

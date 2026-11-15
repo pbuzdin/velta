@@ -998,3 +998,10 @@ run one, so the issue stays open.
 
 **Still open:** webxdc, QR relay chips, the rest of #358 after mentions
 and markdown, N4 release signing.
+
+## 2026-11-15 (3) — i.delta.chat QR matches the other tabs
+
+The i.delta.chat tab drew the core 515×630 card while every other domain
+drew `BrandedQrSquare`. That tab now draws `BrandedQrSquare` too. The
+copied link is still `https://i.delta.chat/#…`. The web keeps the core
+card on that tab.

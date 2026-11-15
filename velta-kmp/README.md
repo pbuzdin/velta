@@ -61,9 +61,9 @@ part of #334 step 11: they need the shipping app's sandbox server.
   toggles: Contacts (`get_contacts` + "Show only known contacts"), Calls
   (local ended-call log), Your QR code (the Tauri look: per-domain tabs —
   velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info, plus extra
-  hosts from Settings → Invite link domains — with the white branded
-  square QR + dark V badge for velta.cc's `/join/?…` universal links
-  and the core's 515×630 invite card for i.delta.chat, copy/share),
+  hosts from Settings → Invite link domains — every tab draws the same
+  white branded square QR + dark V badge, including i.delta.chat; the
+  copied link is still that domain's URL, copy/share),
   Search (live filter +
   Archived tab), and Start something (new chat / group / channel with
   real create flows, join invite, add relay, add account); chat view

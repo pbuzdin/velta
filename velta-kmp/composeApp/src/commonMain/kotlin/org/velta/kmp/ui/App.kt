@@ -1103,9 +1103,10 @@ private fun QrView(model: AppModel) {
                         model.inviteLink != null -> {
                             Spacer(Modifier.size(6.dp)) // web .qr-view gap 12
                             // Domain tabs (web mountInviteDomains): builtin
-                            // hosts, velta.cc first/default. velta.cc and the
-                            // mirrors render the branded square QR; the
-                            // i.delta.chat tab keeps the core's card.
+                            // hosts, velta.cc first/default. Every tab,
+                            // including i.delta.chat, draws the same branded
+                            // square. The web still mounts the core card on
+                            // that tab; the link text stays the core URL.
                             Row(
                                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1132,11 +1133,7 @@ private fun QrView(model: AppModel) {
                             Spacer(Modifier.size(8.dp))
                             val link = rewriteInviteHost(model.inviteLink!!, model.inviteDomain)
                                 ?: model.inviteLink!!
-                            if (model.inviteDomain == "i.delta.chat") {
-                                InviteQrCard(model)
-                            } else {
-                                BrandedQrSquare(link)
-                            }
+                            BrandedQrSquare(link)
                             Text(
                                 link,
                                 fontSize = 12.5.sp,
@@ -1833,176 +1830,6 @@ private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: Strin
 }
 
 /**
- * Pixel layout of the core invite card inside a square box (qr_code_generator.rs:
- * viewBox 515×630, letterboxed with meet). [sz] values are card units times
- * scale — never a position helper, which also adds the letterbox inset.
- */
-internal data class QrCardLayout(
-    val cardX: Float,
-    val cardY: Float,
-    val cardW: Float,
-    val cardH: Float,
-    val corner: Float,
-    val stroke: Float,
-    val qrX: Float,
-    val qrY: Float,
-    val cell: Float,
-    val discX: Float,
-    val discY: Float,
-    val ringR: Float,
-    val discR: Float,
-)
-
-internal fun qrCardGeom(box: Float, modules: Int): QrCardLayout {
-    val s = box / 630f
-    val cardLeft = (box - 515f * s) / 2f
-    fun atX(v: Float) = cardLeft + v * s
-    fun atY(v: Float) = v * s
-    fun sz(v: Float) = v * s
-    return QrCardLayout(
-        cardX = atX(2f),
-        cardY = atY(2f),
-        cardW = sz(511f),
-        cardH = sz(626f),
-        corner = sz(40f),
-        stroke = sz(2f),
-        qrX = atX(57.5f),
-        qrY = atY(75f),
-        cell = sz(400f) / modules,
-        discX = atX(257.5f),
-        discY = atY(275f),
-        ringR = sz(56.2f),
-        discR = sz(47.2f),
-    )
-}
-
-/**
- * The core's invite CARD (qr_code_generator.rs inner_generate_secure_join_qr_code,
- * 515×630) drawn in Compose: #f2f2f2 rounded card with a #c6c6c6 border, the
- * optimally-encoded QR matrix at (57.5, 75) scaled 400/size, the bold caption
- * (web/core stock string "Scan to chat with {name}", wrapped 32 chars, 27px
- * or 19px), the center identity disc (ring #f2f2f2 r56.2, disc r47.2 in the
- * self contact's color + white letter) and the footer mark (the core inlines
- * a DC wordmark image KMP doesn't ship — the Velta logo mark stands in).
- * The web mounts this exact card and only re-encodes the module path.
- */
-@Composable
-private fun InviteQrCard(model: AppModel) {
-    val qr = remember(model.inviteLink) {
-        runCatching { QrEncode.encode(model.inviteLink!!) }.getOrNull()
-    }
-    val density = LocalDensity.current
-    var boxPx by remember { mutableIntStateOf(0) }
-    val wDp = with(density) { boxPx.toDp() }
-    val u = wDp.value / 630f // dp per card unit — the square box letterboxes the card by height
-    val caption = captionLines(
-        // Core stock string (SetupContactQRDescription fallback, stock_str.rs:197) —
-        // owned by the core, not a web locale key. Name chain: displayname →
-        // account addr → the link's a= param (the link demonstrably carries it).
-        "Scan to chat with ${model.inviteName.ifBlank {
-            model.accountAddr ?: linkAddr(model.inviteLink) ?: ""
-        }}",
-    )
-    val captionFs = if (caption.size <= 2) 27f else 19f
-    val captionShift = if (caption.size <= 2) 0f else -10f
-    val letter = model.inviteName.trim().firstOrNull()?.uppercase()
-        ?: linkAddr(model.inviteLink)?.firstOrNull()?.uppercaseChar()?.toString()
-        ?: "#"
-    val discColor = model.inviteColor?.takeIf { it.startsWith("#") }
-        ?.let { runCatching { Accent.toColor(it) }.getOrNull() }
-        ?: prismTileColor(model.inviteName.ifBlank { model.accountAddr ?: linkAddr(model.inviteLink) ?: "?" })
-
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .onSizeChanged { boxPx = it.width },
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val g = qrCardGeom(size.width, qr?.size ?: 1)
-            // Card: rect x2 y2 511×626 rx40, fill #f2f2f2, stroke #c6c6c6 w2.
-            drawRoundRect(
-                Color(0xFFF2F2F2),
-                topLeft = Offset(g.cardX, g.cardY),
-                size = androidx.compose.ui.geometry.Size(g.cardW, g.cardH),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(g.corner),
-            )
-            drawRoundRect(
-                Color(0xFFC6C6C6),
-                topLeft = Offset(g.cardX, g.cardY),
-                size = androidx.compose.ui.geometry.Size(g.cardW, g.cardH),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(g.corner),
-                style = Stroke(width = g.stroke),
-            )
-            // QR group: translate(57.5, 75), scale 400/size (core L203-208).
-            if (qr != null) {
-                for (y in 0 until qr.size) for (x in 0 until qr.size) {
-                    if (qr[x, y]) {
-                        drawRect(
-                            Color.Black,
-                            topLeft = Offset(g.qrX + x * g.cell, g.qrY + y * g.cell),
-                            size = androidx.compose.ui.geometry.Size(g.cell, g.cell),
-                        )
-                    }
-                }
-            }
-            // Identity disc centered on the QR (core L289-303: center (257.5, 275)).
-            drawCircle(Color(0xFFF2F2F2), radius = g.ringR, center = Offset(g.discX, g.discY))
-            drawCircle(discColor, radius = g.discR, center = Offset(g.discX, g.discY))
-        }
-        // Caption block (bold, black, centered; first baseline y=515+shift).
-        Text(
-            caption.joinToString("\n"),
-            color = Color.Black,
-            fontWeight = FontWeight.Bold,
-            fontSize = (captionFs * u).sp,
-            lineHeight = (captionFs * 1.2f * u).sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .offset(y = ((515f + captionShift - captionFs * 1.05f) * u).dp),
-        )
-        // The white letter on the disc (dominant-baseline central + 6.136 shift →
-        // glyph center at y 278.936, weight 400 per the core).
-        Text(
-            letter,
-            color = Color.White,
-            fontWeight = FontWeight.Normal,
-            fontSize = (61.36f * u).sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .offset(y = ((278.936f - 61.36f * 0.55f) * u).dp),
-        )
-        // Footer mark: the core inlines a 198×35 DC wordmark KMP doesn't
-        // ship — the Velta mark at the same slot (height 35).
-        Image(
-            painterResource(Res.drawable.v_logo),
-            contentDescription = null,
-            modifier = Modifier
-                .offset(y = ((567f - captionShift) * u).dp)
-                .height((35f * u).dp),
-            contentScale = ContentScale.Fit,
-        )
-    }
-}
-
-/** Core textwrap (qr_code_generator.rs L250-257): word-wrap at 38 chars when
- * the description is longer than 76, else 32. */
-private fun captionLines(text: String): List<String> {
-    val width = if (text.length > 76) 38 else 32
-    val lines = mutableListOf<String>()
-    for (word in text.split(" ")) {
-        val last = lines.lastOrNull()
-        if (last == null) lines.add(word)
-        else if (last.length + 1 + word.length <= width) lines[lines.size - 1] = "$last $word"
-        else lines.add(word)
-    }
-    return lines
-}
-
-/**
  * Web rewriteInviteHost (invite-domains.js:20-27): slices the canonical
  * `https://i.delta.chat/#` prefix off the core link — the payload stays
  * byte-identical — and re-hosts it. velta.cc gets the `/join/?` universal
@@ -2066,10 +1893,6 @@ internal fun BrandedQrSquare(link: String) {
         )
     }
 }
-
-/** The `a=` address param of an i.delta.chat invite link (after the #fragment). */
-private fun linkAddr(link: String?): String? =
-    link?.let { Regex("[?&]a=([^&]+)").find(it)?.groupValues?.get(1)?.replace("%40", "@") }
 
 @Composable
 private fun SearchMark() {
