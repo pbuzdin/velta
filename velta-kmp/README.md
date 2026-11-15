@@ -3,7 +3,8 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-13):** Android delivery track (Rust-UI flip, #314, #192).
+**Status (2026-11-13):** work in progress (#192); the Tauri app remains
+Velta's shipping Android app.
 N1 (Prism + fingerprint identity matrix), N2 (conversation notifications,
 RPC timeout/recovery, shim teardown, chat paging), and N3 (glass on the
 composer and header) are in, and the **#321 visual shell is complete —
@@ -26,8 +27,8 @@ for the per-phase ledger and what's left.
 | Surface | Codebase | Status |
 |---|---|---|
 | PWA (`../app`) | build-less web UI | flagship, unchanged |
-| Tauri shell (`../velta-app`) | wraps the PWA | unchanged until KMP parity |
-| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | **work in progress** (Android delivery track), issue #192 |
+| Tauri shell (`../velta-app`) | wraps the PWA | the shipping desktop and Android app |
+| **KMP client (this dir)** | Compose UI + JSON-RPC core bridge | **work in progress**, issue #192 |
 
 ## What works today
 

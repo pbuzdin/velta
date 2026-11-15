@@ -49,7 +49,7 @@ the 2026-11-14 entry).**
    wants them (~halves the APK again).
 2. Crash reporting.
 3. CI release lane (signed artifacts on tag).
-4. `org.velta` switchover decision.
+4. App id: KMP builds as `org.velta.kmp`; `org.velta` is the shipping Tauri app.
 
 **Separate relay project (client side done):** end-to-end push needs
 PLAN-UNIFIEDPUSH.MD items 1–3 (notifier keypair swap, ntfy, maildir hook).
@@ -393,12 +393,13 @@ for Play delivery.
 
 **Remaining in P5**: production keystore + distribution channel, crash
 reporting, CI release lane (signed artifacts), the push-epic relay side,
-and the `org.velta` switchover decision.
+and the app id (KMP is `org.velta.kmp`; `org.velta` is the shipping Tauri app).
 
 ## 2026-11-12 — KMP back in work, N0/N1
 
 KMP is back in active work as a work in progress (the Rust UI preview
-stays a separate experiment, #314). Shipped:
+stays a separate work-in-progress experiment, #314; the Tauri app remains
+the shipping Android app). Shipped:
 
 - **Design port (N1)** — Prism person colors + the fingerprint identity
   matrix, bit-identical to the PWA (vectors pinned in PrismIdentityTest,
@@ -521,7 +522,7 @@ logcat visibility, `RpcException` codes could distinguish timeouts in UI.
 **Missing / next (N4):** background delivery of notifications still needs
 the relay-side UnifiedPush notifier. Still open on the client: Storage
 and Chats-in-common profile rows, video/audio playback, the brand app
-icon, ktlint/detekt, and N4 (release keystore, `org.velta` switchover).
+icon, ktlint/detekt, and N4 (release keystore; KMP stays `org.velta.kmp`, `org.velta` is the shipping Tauri app).
 
 ## 2026-11-12 — #321 step 2: web-parity icons, emoji buttons dropped
 
@@ -801,7 +802,7 @@ Recon verdict: per-relay strip + QR card are app-layer work (shipped here);
 typing previews + P2P local groups BOTH depend on the Velta Loop engine
 (velta-app/src-tauri/src/p2p.rs, 7023 lines + groups.rs — Tauri-coupled but
 headless-runnable per bin/p2p-hub.rs) — that lift is tracked as its own
-slice (issue #330), started after this commit.
+slice (issue #332), started after this commit.
 
 **SHIPPED**
 - **Per-relay strip states** (web renderRelayLine + parseConnectivityHtml +

@@ -46,16 +46,16 @@ a numbered version or move the tag to include it.
 
 - **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
-- **`velta-kmp/`** — **the native Android client** (Compose Multiplatform,
-  core in-process via the rpc-shim cdylib, #192). Android delivery track
-  after the Rust-UI flip (2026-11-12). N1–N3 are in AND the #321 visual
+- **`velta-kmp/`** — a work-in-progress native Android client (Compose
+  Multiplatform, core in-process via the rpc-shim cdylib, #192). The
+  Tauri app remains Velta's shipping Android app. N1–N3 are in AND the #321 visual
   shell is complete (2026-11-13, audited): Prism + fingerprint identity
   matrix, conversation notifications, RPC timeout/recovery, AGSL glass
   on the composer and header, theme tokens + 96 web-parity icons +
   stable composer/header + bubbles/quote/markdown/list rows + appearance
   settings (themes, custom accent, en/ru/fr) + attach menu + the
-  chat-list bottom bar. Next is N4 (release signing and the `org.velta`
-  switchover); still open: #323–#329 fidelity follow-ups, relay-side
+  chat-list bottom bar. Next is N4 (release signing; KMP builds as
+  `org.velta.kmp`, `org.velta` is the shipping Tauri app); still open: #323–#329 fidelity follow-ups, relay-side
   UnifiedPush delivery, ktlint/detekt.
   `build-kmp.yml` builds and tests on every master push touching
   `velta-kmp/**` or `core/**`: the `shim` job builds the core `.so` for
@@ -70,7 +70,7 @@ a numbered version or move the tag to include it.
   staleness gates fail.
 - **`rust-ui/preview/`** (branch `rust-ui-preview`) — a renderer/design
   lab and work-in-progress experiment (Masonry + winit; skia/vello
-  hybrid/gpu + glass compositing), not a successor to the web UI; it keeps
+  hybrid/gpu + glass compositing); a WIP experiment only, it keeps
   the renderer knowledge (vello/gpu deadlocks on Adreno,
   vello_hybrid draws no color emoji, skia met the set). Verdict: #314;
   write-up: velta.cc/news/rust-ui-take.html.
