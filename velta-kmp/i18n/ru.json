@@ -1,0 +1,17 @@
+{
+  "Account {id}": "Аккаунт {id}",
+  "Battery exempt": "Батарея без ограничений",
+  "Battery optimization": "Оптимизация батареи",
+  "Battery restricted": "Батарея ограничена",
+  "Check": "Проверить",
+  "Not a Delta Chat QR — just text": "Это не QR-код Delta Chat — просто текст",
+  "Relay status": "Состояние релеев",
+  "Sign in": "Войти",
+  "Sign-in code: {host}": "Код входа: {host}",
+  "Untranslated text stays in English.": "Непереведённый текст остаётся на английском.",
+  "Working…": "Выполняется…",
+  "current": "текущий",
+  "exempt — background sync survives battery savers": "без ограничений — фоновая синхронизация работает и при экономии заряда",
+  "not set up — sign in to configure": "не настроен — войдите, чтобы настроить",
+  "restricted — tap to allow background sync": "ограничена — нажмите, чтобы разрешить фоновую синхронизацию"
+}

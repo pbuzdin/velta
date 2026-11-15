@@ -36,3 +36,31 @@ test("every used key exists in BOTH packs (web is the source of truth)", () => {
 test("packs are non-trivial (real port, not stubs)", () => {
   assert.ok(keys.length >= 30, `expected >= 30 used keys, got ${keys.length}`);
 });
+
+// #334 step 9: KMP-only screens (account rows, battery row, join screen…)
+// keep their strings in velta-kmp/i18n/<lang>.json, never a web key.
+test("KMP-only packs: same keys in ru and fr, no web duplicates, placeholders kept, all used", async () => {
+  const { kmpPack, literalStrings } = await import(pathToFileURL(join(ROOT, "tools", "gen-kmp-strings.mjs")).href);
+  const ru = kmpPack("ru");
+  const fr = kmpPack("fr");
+  assert.deepEqual(Object.keys(ru).sort(), Object.keys(fr).sort());
+  const holes = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join();
+  const used = literalStrings();
+  for (const lang of ["ru", "fr"]) {
+    const web = JSON.parse(readFileSync(join(ROOT, "app/locales", `${lang}.json`), "utf8"));
+    const pack = lang === "ru" ? ru : fr;
+    for (const [k, v] of Object.entries(pack)) {
+      assert.ok(!(k in web), `${lang}: ${JSON.stringify(k)} is a web key — use app/locales`);
+      assert.ok(v, `${lang}: empty translation for ${JSON.stringify(k)}`);
+      assert.equal(holes(v), holes(k), `${lang}: placeholders differ in ${JSON.stringify(k)}`);
+      assert.ok(used.has(k), `${lang}: ${JSON.stringify(k)} is not used by the KMP client`);
+    }
+  }
+});
+
+test("a literal that is a pack key ships even without a literal L.t call", () => {
+  // e.g. L.t(when (cat) { "unread" -> "Unread" … }) and rule tables.
+  for (const k of ["Unread", "After 1 week", "Calls: the relay hands out TURN credentials"]) {
+    assert.ok(keys.includes(k), `${k} missing from the generated packs`);
+  }
+});
