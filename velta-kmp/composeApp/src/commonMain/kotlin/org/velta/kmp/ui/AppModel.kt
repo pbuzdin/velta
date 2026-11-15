@@ -720,7 +720,7 @@ class AppModel(
                         screen = Screen.ChatList
                         refreshRelayLine()
                     }
-                    else -> joinError = "this QR is not an invite (kind: ${qr.kind})"
+                    else -> joinError = L.t("That QR code isn't a Velta or Delta Chat invite")
                 }
             } catch (t: Throwable) {
                 val message = t.message ?: t.toString()
@@ -1638,15 +1638,15 @@ class AppModel(
             val probe = synchronized(reloadLock) { relayProbes[domainKey] }
             var state = relaySegmentDisplayState(seg.state, probe?.ok, probe?.failedSince, now)
             var isSend = segsSendRelay(parse.segs.size, seg.domain, effectiveSend)
-            val base = if (seg.domain.isNotEmpty()) "${seg.domain}: ${seg.text}" else seg.text.ifEmpty { "Relay" }
+            val base = if (seg.domain.isNotEmpty()) "${seg.domain}: ${seg.text}" else seg.text.ifEmpty { L.t("Relay") }
             var title = when (state) {
-                "unreachable" -> "$base: not accepting new connections (web check failed)"
-                "offline" -> "$base: offline (not accepting connections for a while)"
+                "unreachable" -> L.t("{relay}: not accepting new connections (web check failed)").replace("{relay}", base)
+                "offline" -> L.t("{relay}: offline (not accepting connections for a while)").replace("{relay}", base)
                 else -> base
             }
             if (isSend && state != "offline" && relaySeverity(parse.smtpState) > relaySeverity(state)) {
                 state = parse.smtpState ?: state // the SMTP dot outranks the segment (web 1321-1323)
-                title = "$base — sending"
+                title = "$base " + L.t("· sending")
             }
             if (seg.quota.isNotEmpty()) title = "$title · ${seg.quota}"
             RelaySegDisplay(seg.domain, state, title, isSend)

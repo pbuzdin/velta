@@ -1,0 +1,17 @@
+{
+  "Account {id}": "Compte {id}",
+  "Battery exempt": "Batterie sans restriction",
+  "Battery optimization": "Optimisation de la batterie",
+  "Battery restricted": "Batterie restreinte",
+  "Check": "Vérifier",
+  "Not a Delta Chat QR — just text": "Ce n'est pas un QR Delta Chat — juste du texte",
+  "Relay status": "État des relais",
+  "Sign in": "Se connecter",
+  "Sign-in code: {host}": "Code de connexion : {host}",
+  "Untranslated text stays in English.": "Le texte non traduit reste en anglais.",
+  "Working…": "En cours…",
+  "current": "actuel",
+  "exempt — background sync survives battery savers": "sans restriction — la synchronisation en arrière-plan résiste aux économiseurs de batterie",
+  "not set up — sign in to configure": "non configuré — connectez-vous pour le configurer",
+  "restricted — tap to allow background sync": "restreinte — touchez pour autoriser la synchronisation en arrière-plan"
+}

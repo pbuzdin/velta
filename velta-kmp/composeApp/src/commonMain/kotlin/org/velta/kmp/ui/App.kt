@@ -237,12 +237,12 @@ private fun AccountsScreen(model: AppModel) {
                         Text(
                             account.displayName?.takeIf { it.isNotBlank() }
                                 ?: account.addr?.takeIf { it.isNotBlank() }
-                                ?: if (account.configured) "Account ${account.id}" else "Not set up",
+                                ?: if (account.configured) L.t("Account {id}").replace("{id}", account.id.toString()) else L.t("Not set up"),
                             fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
                         )
                         if (!account.configured) {
                             Text(
-                                "not set up — sign in to configure",
+                                L.t("not set up — sign in to configure"),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -250,7 +250,7 @@ private fun AccountsScreen(model: AppModel) {
                     }
                     if (current) {
                         Text(
-                            "current",
+                            L.t("current"),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -372,17 +372,17 @@ private fun BatteryRow(model: AppModel) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Battery optimization")
+            Text(L.t("Battery optimization"))
             Text(
-                if (exempt) "exempt — background sync survives battery savers"
-                else "restricted — tap to allow background sync",
+                if (exempt) L.t("exempt — background sync survives battery savers")
+                else L.t("restricted — tap to allow background sync"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Icon(
             if (exempt) VeltaIcons.tick1 else VeltaIcons.warn,
-            contentDescription = if (exempt) "Battery exempt" else "Battery restricted",
+            contentDescription = if (exempt) L.t("Battery exempt") else L.t("Battery restricted"),
             modifier = Modifier.size(18.dp),
             tint = if (exempt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
         )
@@ -417,8 +417,8 @@ private fun JoinScreen(model: AppModel) {
                     model.joinText = it
                     model.joinChecked = null
                 },
-                label = { Text("Invite code or QR text") },
-                placeholder = { Text("DCACCOUNT:… or DCJOIN:…") },
+                label = { Text(L.t("Invite link")) },
+                placeholder = { Text("DCACCOUNT:… / https://i.delta.chat/#…") },
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -426,10 +426,10 @@ private fun JoinScreen(model: AppModel) {
             Button(
                 onClick = { model.checkJoin() },
                 enabled = !model.joinBusy && model.joinText.isNotBlank(),
-            ) { Text("Check") }
+            ) { Text(L.t("Check")) }
             if (model.requestQrScan != null) {
                 Spacer(Modifier.size(8.dp))
-                TextButton(onClick = { model.requestQrScan?.invoke() }) { Icon(VeltaIcons.camera, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Scan a QR instead") }
+                TextButton(onClick = { model.requestQrScan?.invoke() }) { Icon(VeltaIcons.camera, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text(L.t("Scan a QR code")) }
             }
             model.joinError?.let {
                 Spacer(Modifier.size(8.dp))
@@ -437,12 +437,15 @@ private fun JoinScreen(model: AppModel) {
             }
             if (checked != null) {
                 Spacer(Modifier.size(16.dp))
+                val host = checked.domain ?: "?"
                 val summary = when {
-                    checked.isAccountInvite -> "Relay invite for ${checked.domain ?: "?"} — sets up this app for that relay"
-                    checked.isLoginInvite -> "Sign-in code for ${checked.domain ?: "?"} — sets up this app with that account"
-                    checked.isSecureJoin -> "Secure-join invite${checked.grpname?.let { " — $it" } ?: ""}"
-                    checked.kind == "text" -> "Not a Delta Chat QR — just text"
-                    else -> "QR of kind “${checked.kind}” — not supported here yet"
+                    // invite-cards.js: a dcaccount: link is an "Account invite".
+                    checked.isAccountInvite -> L.t("Account invite: {host}").replace("{host}", host)
+                    checked.isLoginInvite -> L.t("Sign-in code: {host}").replace("{host}", host)
+                    checked.isSecureJoin && checked.grpname != null -> L.t("Join group") + " — " + checked.grpname
+                    checked.isSecureJoin -> L.t("Velta invite")
+                    checked.kind == "text" -> L.t("Not a Delta Chat QR — just text")
+                    else -> L.t("That QR code isn't a Velta or Delta Chat invite")
                 }
                 Text(summary, textAlign = TextAlign.Center)
                 if (checked.isAccountInvite || checked.isLoginInvite || checked.isSecureJoin) {
@@ -453,8 +456,8 @@ private fun JoinScreen(model: AppModel) {
                     ) {
                         Text(
                             when {
-                                checked.isAccountInvite -> "Set up relay"
-                                checked.isLoginInvite -> "Sign in"
+                                checked.isAccountInvite -> L.t("Create an account on {host}").replace("{host}", host)
+                                checked.isLoginInvite -> L.t("Sign in")
                                 else -> L.t("Join")
                             },
                         )
@@ -463,7 +466,7 @@ private fun JoinScreen(model: AppModel) {
             }
             if (model.joinBusy) {
                 Spacer(Modifier.size(12.dp))
-                Text("working…", style = MaterialTheme.typography.bodySmall)
+                Text(L.t("Working…"), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -1442,6 +1445,7 @@ private fun ChannelDialog(model: AppModel) {
 @Composable
 private fun RelayZone(model: AppModel, detailShown: Boolean) {
     val accountColor = relayColorFor(relayBarState(model.relayConnectivity))
+    val relayStatusLabel = L.t("Relay status")
     val segments = model.relaySegments
     Box(Modifier.fillMaxWidth().height(26.dp)) {
         Row(
@@ -1450,7 +1454,7 @@ private fun RelayZone(model: AppModel, detailShown: Boolean) {
                 .height(6.dp)
                 .align(Alignment.Center)
                 .clickable { model.openRelays() }
-                .semantics { contentDescription = "Relay status" },
+                .semantics { contentDescription = relayStatusLabel },
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (segments.isEmpty()) {
@@ -1645,7 +1649,7 @@ private fun ListBar(model: AppModel) {
                         onClick = { menuOpen = false; model.openAccounts() },
                     )
                     DropdownMenuItem(
-                        text = { Text("Invite") },
+                        text = { Text(L.t("Invite link")) },
                         onClick = {
                             menuOpen = false
                             model.joinChecked = null
@@ -2374,7 +2378,7 @@ private fun SettingsScreen(model: AppModel) {
                 }
             }
             Text(
-                "Untranslated text stays in English.",
+                L.t("Untranslated text stays in English."),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
@@ -2423,7 +2427,7 @@ private fun RelaysScreen(model: AppModel) {
             if (model.relays.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        if (model.relaysLoading) L.t("Loading…") else "No relays yet",
+                        if (model.relaysLoading) L.t("Loading…") else L.t("No relays configured."),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -2434,8 +2438,10 @@ private fun RelaysScreen(model: AppModel) {
                         HorizontalDivider()
                     }
                     item {
+                        // Stable puts these words in the letters' titles
+                        // (relayFlagsHtml); touch has no hover, so list them.
                         Text(
-                            "C calls · I iroh · P push · D instant delivery — grey means the relay does not advertise it (or it is not known yet)",
+                            RELAY_FLAG_LABELS.joinToString("\n") { (letter, key) -> "$letter — ${L.t(key)}" },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(16.dp),
@@ -2465,10 +2471,10 @@ private fun RelayCardItem(card: org.velta.kmp.core.RelayCard, onRemove: () -> Un
         }
         val details = buildList {
             meta?.comment?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
-            meta?.admin?.trim()?.takeIf { it.isNotEmpty() }?.let { add("Admin: $it") }
+            meta?.admin?.trim()?.takeIf { it.isNotEmpty() }?.let { add(L.t("Admin: {admin}").replace("{admin}", it)) }
             val rcpt = meta?.maxSmtpRcptTo
-            if (rcpt != null && rcpt > 0) add("Up to $rcpt recipients per message")
-            if (meta?.canCompress == true) add("compressed connection")
+            if (rcpt != null && rcpt > 0) add(L.t("Up to {rcpt} recipients per message").replace("{rcpt}", rcpt.toString()))
+            if (meta?.canCompress == true) add(L.t("compressed connection"))
         }
         details.forEach { line ->
             Text(
@@ -2881,13 +2887,10 @@ private fun stateIcon(state: Int): ImageVector? = when (state) {
     else -> null
 }
 
-/** "1 week" / "5 min" / "45 s" — the disappearing-timer value. */
-private fun humantimeSecs(secs: Int): String = when {
-    secs <= 0 -> L.t("Off")
-    secs % 86400 == 0 -> "${secs / 86400} day${if (secs / 86400 > 1) "s" else ""}"
-    secs % 3600 == 0 -> "${secs / 3600} hour${if (secs / 3600 > 1) "s" else ""}"
-    secs % 60 == 0 -> "${secs / 60} min"
-    else -> "$secs s"
+/** app.js formatEphemeralTimer — "After 1 week" / "On (45 s)" / "Off". */
+private fun ephemeralTimerLabel(secs: Int): String {
+    val (key, n) = ephemeralTimerKey(secs)
+    return if (n != null) L.t(key).replace("{n}", n.toString()) else L.t(key)
 }
 
 /** "0E69 2C68 … 1009" / "3DD1 … BED9" — 5 groups of 4 per line.
@@ -3009,16 +3012,16 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
 @Composable
 private fun profileRows(p: AppModel.ProfileData) {
     val rows = buildList {
-        add("Apps" to p.apps.toString())
-        add("Photos" to p.photos.toString())
-        add("Videos" to p.videos.toString())
-        add("Audio" to p.audio.toString())
-        add("Files" to p.files.toString())
+        add(L.t("Apps") to p.apps.toString())
+        add(L.t("Photos") to p.photos.toString())
+        add(L.t("Videos") to p.videos.toString())
+        add(L.t("Audio") to p.audio.toString())
+        add(L.t("Files") to p.files.toString())
         if (p.addr.isNotEmpty()) add(L.t("Address") to p.addr)
         p.fingerprint?.let { add(L.t("Profile key") to groupedFpr(it)) }
         add(L.t("Last seen") to relativeLastSeen(p.lastSeenSeconds))
         add(L.t("Notifications") to if (p.muted) L.t("Off") else L.t("On"))
-        add("Disappearing messages" to humantimeSecs(p.ephemeralSecs))
+        add(L.t("Disappearing messages") to ephemeralTimerLabel(p.ephemeralSecs))
     }
     rows.forEach { (k, v) ->
         Row(
@@ -3125,7 +3128,7 @@ private fun Composer(model: AppModel) {
         }
         model.sendError?.let {
             Text(
-                "send failed: $it",
+                L.t("Send failed") + ": " + it,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.labelSmall,
             )
@@ -3295,7 +3298,7 @@ private fun StickerPicker(
         ) {
             if (packs.isEmpty()) {
                 Text(
-                    "No sticker packs installed",
+                    htmlBreaks(L.t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.")),
                     modifier = Modifier.padding(16.dp),
                     color = Velta.tokens.textDim,
                     fontSize = 14.sp,
