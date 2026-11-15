@@ -1915,6 +1915,7 @@ class AppModel(
                 veltaCore.sendDraft(id, chat.chatId)
                 pendingAttachment = null
                 loadMessages(chat.chatId, chat.isGroup)
+                unarchiveAfterSend(veltaCore, id, chat.chatId)
             } catch (t: Throwable) {
                 sendError = t.message ?: t.toString()
                 // Restore what the user composed so nothing is lost.
@@ -2326,6 +2327,202 @@ class AppModel(
         selectTextFor = null
         deleteConfirmIds = null
         tombstones = emptySet()
+        chatMenu = null
+        chatConfirm = null
+        groupInvite = null
+    }
+
+    // ---- Chat menus (#334 step 5, app.js chatContextMenu / bindChatHeadMenu) ----
+
+    /** An open chat menu: the list long-press / right-click menu or the ⋮
+     *  head menu, anchored at a window point (px). [spans] = the
+     *  "Delete old messages…" second menu at the same point. */
+    data class ChatMenuState(
+        val chat: MenuChat,
+        val entries: List<ChatMenuEntry>,
+        val x: Float,
+        val y: Float,
+        val head: Boolean = false,
+        val spans: Boolean = false,
+    )
+
+    var chatMenu by mutableStateOf<ChatMenuState?>(null)
+
+    /** A stable confirmModal waiting for an answer. */
+    data class PendingConfirm(val spec: ConfirmSpec, val onOk: () -> Unit)
+
+    var chatConfirm by mutableStateOf<PendingConfirm?>(null)
+
+    /** ui.js showInvite for a group: link null while the core works. */
+    data class GroupInviteState(val chatId: Long, val name: String, val link: String? = null, val error: String? = null)
+
+    var groupInvite by mutableStateOf<GroupInviteState?>(null)
+
+    private fun chatItemById(chatId: Long): ChatListItem? =
+        chats.firstOrNull { it.id == chatId } ?: archivedChats.firstOrNull { it.id == chatId }
+
+    /** The open chat as the head menu sees it (stable activeChat()). */
+    fun activeMenuChat(): MenuChat? {
+        val open = screen as? Screen.Chat ?: return null
+        val adminId = sheetChat.groupAdminId
+        chatItemById(open.chatId)?.let { return menuChatOf(it, adminId) }
+        return MenuChat(
+            id = open.chatId,
+            name = open.title,
+            kind = when {
+                sheetChat.isSaved -> "saved"
+                open.isGroup || sheetChat.isGroup -> "group"
+                else -> "single"
+            },
+            groupAdminId = adminId,
+        )
+    }
+
+    fun openChatListMenu(item: ChatListItem, x: Float, y: Float) {
+        val chat = menuChatOf(item)
+        chatMenu = ChatMenuState(chat, chatListMenu(chat), x, y)
+    }
+
+    fun openChatHeadMenu(x: Float, y: Float) {
+        val chat = activeMenuChat() ?: return
+        chatMenu = ChatMenuState(chat, chatHeadMenu(chat), x, y, head = true)
+    }
+
+    fun closeChatMenu() {
+        chatMenu = null
+    }
+
+    fun onChatMenuAction(action: ChatAction) {
+        val menu = chatMenu ?: return
+        val chat = menu.chat
+        if (action == ChatAction.DeleteOld) {
+            // Stable re-opens a second menu at the same point.
+            chatMenu = menu.copy(spans = true)
+            return
+        }
+        chatMenu = null
+        when (action) {
+            ChatAction.TogglePin -> chatFlags(chat.id, pinned = !chat.pinned)
+            ChatAction.ToggleMute -> chatMute(chat.id, !chat.muted)
+            ChatAction.ToggleArchive -> chatFlags(chat.id, archived = !chat.archived)
+            ChatAction.MarkRead -> markChatRead(chat.id)
+            ChatAction.DeleteChat -> chatConfirm = PendingConfirm(deleteChatConfirm(chat)) { deleteChatNow(chat) }
+            ChatAction.ChatInfo -> openProfile(chat.id, chat.name)
+            ChatAction.GroupInviteQr -> showGroupInvite(chat)
+            ChatAction.LeaveGroup -> chatConfirm = PendingConfirm(leaveConfirm(chat)) { leaveGroupNow(chat) }
+            ChatAction.ClearHistory -> chatConfirm = PendingConfirm(CLEAR_HISTORY_CONFIRM) { clearHistoryNow(chat) }
+            ChatAction.DeleteOld -> Unit
+        }
+    }
+
+    /** A span picked in the "Delete old messages…" menu. */
+    fun onDeleteOldSpan(label: String, ageMs: Long, translatedLabel: String) {
+        val chat = chatMenu?.chat ?: return
+        chatMenu = null
+        chatConfirm = PendingConfirm(deleteOldConfirm(chat, translatedLabel)) {
+            deleteOlderNow(chat, wallClockMillis() - ageMs)
+        }
+    }
+
+    fun answerChatConfirm(ok: Boolean) {
+        val pending = chatConfirm ?: return
+        chatConfirm = null
+        if (ok) pending.onOk()
+    }
+
+    /** Runs [block] for the account that was current when the action began
+     *  (stable accountIsCurrent(epoch)); errors go to a toast. */
+    private fun chatJob(errorPrefix: String?, block: suspend (VeltaCore, Long) -> Unit) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                block(veltaCore, id)
+            } catch (t: Throwable) {
+                println("velta-kmp: chat action failed: $t")
+                if (errorPrefix != null && accountId == id) showToast(errorPrefix + (t.message ?: t.toString()), 4000)
+            } finally {
+                if (accountId == id) refreshChats()
+            }
+        }
+    }
+
+    /** rpc-core setChatFlags pin / archive. */
+    fun chatFlags(chatId: Long, pinned: Boolean? = null, archived: Boolean? = null) =
+        chatJob(null) { c, id -> c.setChatVisibility(id, chatId, visibilityFor(pinned, archived)) }
+
+    /** rpc-core setChatFlags mute (Forever / NotMuted). */
+    fun chatMute(chatId: Long, muted: Boolean) =
+        chatJob(null) { c, id -> c.setChatMute(id, chatId, muteKind(muted)) }
+
+    fun markChatRead(chatId: Long) =
+        chatJob(null) { c, id -> c.marknoticedChat(id, chatId) }
+
+    private fun deleteChatNow(chat: MenuChat) = chatJob(L.t("Couldn't delete chat: ")) { c, id ->
+        if (deleteChatLeavesFirst(chat)) runCatching { c.leaveGroup(id, chat.id) }
+        if (accountId != id) return@chatJob
+        c.deleteChat(id, chat.id)
+        if (accountId == id && (screen as? Screen.Chat)?.chatId == chat.id) backToChatList()
+    }
+
+    private fun leaveGroupNow(chat: MenuChat) = chatJob(L.t("Couldn't leave: ")) { c, id ->
+        c.leaveGroup(id, chat.id)
+        // The left chat turns read-only in place (stable hides the composer).
+        if (accountId == id && (screen as? Screen.Chat)?.chatId == chat.id) sheetChat = sheetChat.copy(readOnly = true)
+    }
+
+    private fun clearHistoryNow(chat: MenuChat) = chatJob(null) { c, id ->
+        val ids = c.messageIds(id, chat.id)
+        ids.chunked(DELETE_CHUNK).forEach { if (accountId == id) c.deleteMessages(id, it, forAll = false) }
+        if (accountId == id && (screen as? Screen.Chat)?.chatId == chat.id) loadMessages(chat.id)
+    }
+
+    private fun deleteOlderNow(chat: MenuChat, cutoffMs: Long) = chatJob(L.t("Couldn't delete: ")) { c, id ->
+        val all = c.messageIds(id, chat.id)
+        val old = ArrayList<Long>()
+        for (page in all.chunked(500)) {
+            if (accountId != id) return@chatJob
+            old += idsOlderThan(c.messages(id, page).map { Triple(it.id, it.timestamp, it.isPinned) }, cutoffMs)
+        }
+        var deleted = 0
+        for (chunk in old.chunked(DELETE_CHUNK)) {
+            if (accountId != id) break
+            c.deleteMessages(id, chunk, forAll = false)
+            deleted += chunk.size
+        }
+        if (accountId != id) return@chatJob
+        showToast(
+            when (deletedToastKey(deleted)) {
+                "Nothing older than that" -> L.t("Nothing older than that")
+                "1 message deleted" -> L.t("1 message deleted")
+                else -> L.t("Messages deleted: {n}").replace("{n}", deleted.toString())
+            },
+        )
+        if ((screen as? Screen.Chat)?.chatId == chat.id) loadMessages(chat.id)
+    }
+
+    /** chat-view.js `_sendArchivedAware`: writing in an archived chat
+     *  unarchives it (only in the account that sent). */
+    private suspend fun unarchiveAfterSend(veltaCore: VeltaCore, id: Long, chatId: Long) {
+        if (accountId != id || archivedChats.none { it.id == chatId }) return
+        try {
+            veltaCore.setChatVisibility(id, chatId, "Normal")
+            refreshChats()
+        } catch (_: Throwable) { /* core refused — keep the flag as is */ }
+    }
+
+    fun showGroupInvite(chat: MenuChat) {
+        groupInvite = GroupInviteState(chat.id, chat.name)
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                val link = veltaCore.inviteQr(id, chat.id).first
+                if (groupInvite?.chatId == chat.id) groupInvite = groupInvite?.copy(link = link)
+            } catch (t: Throwable) {
+                if (groupInvite?.chatId == chat.id) groupInvite = groupInvite?.copy(error = t.message ?: t.toString())
+            }
+        }
     }
 
     // ---- Mentions: member list per chat (names + fingerprint codes) ----
@@ -2461,6 +2658,7 @@ class AppModel(
             try {
                 veltaCore.sendSticker(id, chat.chatId, path)
                 loadMessages(chat.chatId, chat.isGroup)
+                unarchiveAfterSend(veltaCore, id, chat.chatId)
             } catch (t: Throwable) {
                 sendError = t.message ?: t.toString()
             }

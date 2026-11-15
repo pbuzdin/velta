@@ -441,6 +441,33 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    /** rpc-core setChatFlags pin/archive → set_chat_visibility ("Normal"/"Pinned"/"Archived"). */
+    suspend fun setChatVisibility(accountId: Long, chatId: Long, visibility: String) {
+        client.call(
+            "set_chat_visibility",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(visibility)),
+        )
+    }
+
+    /** rpc-core setChatFlags mute: MuteDuration is internally tagged ({kind: …}). */
+    suspend fun setChatMute(accountId: Long, chatId: Long, kind: String) {
+        val duration = buildJsonObject { put("kind", kind) }
+        client.call(
+            "set_chat_mute_duration",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), duration),
+        )
+    }
+
+    /** rpc-core leaveGroup. */
+    suspend fun leaveGroup(accountId: Long, chatId: Long) {
+        client.call("leave_group", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)))
+    }
+
+    /** rpc-core deleteChat. */
+    suspend fun deleteChat(accountId: Long, chatId: Long) {
+        client.call("delete_chat", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)))
+    }
+
     /** rpc-core saveSticker (collection "Default"). */
     suspend fun saveSticker(accountId: Long, messageId: Long, collection: String = "Default") {
         client.call(

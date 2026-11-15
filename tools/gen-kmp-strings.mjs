@@ -28,7 +28,9 @@ export function usedKeys() {
         // headers mention L.t("…") and would otherwise feed themselves
         // back in as a "used key".
         const src = readFileSync(p, "utf8").replace(/^[ \t]*\/\/[^\n]*/gm, "");
-        for (const m of src.matchAll(/\bL\.t\("((?:[^"\\]|\\.)*)"\)/g)) keys.add(m[1]);
+        // Kotlin escapes (\" \\ \n) are JSON-compatible: unescape so a key
+        // with quotes ("Delete \"{name}\"…") matches the pack's real string.
+        for (const m of src.matchAll(/\bL\.t\("((?:[^"\\]|\\.)*)"\)/g)) keys.add(JSON.parse(`"${m[1]}"`));
       }
     }
   };
