@@ -468,6 +468,11 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         client.call("delete_chat", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)))
     }
 
+    /** rpc-core acceptChat: a contact request becomes a normal chat. */
+    suspend fun acceptChat(accountId: Long, chatId: Long) {
+        client.call("accept_chat", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)))
+    }
+
     /** rpc-core saveSticker (collection "Default"). */
     suspend fun saveSticker(accountId: Long, messageId: Long, collection: String = "Default") {
         client.call(

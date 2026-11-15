@@ -83,6 +83,10 @@ internal fun chatMenuLabel(label: String): String = when (label) {
     "Delete all messages in this chat?" -> L.t("Delete all messages in this chat?")
     "Delete every message in \"{name}\" older than {label}? Pinned messages are kept. This cannot be undone." ->
         L.t("Delete every message in \"{name}\" older than {label}? Pinned messages are kept. This cannot be undone.")
+    "Contact request" -> L.t("Contact request")
+    "\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply." ->
+        L.t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.")
+    "Accept" -> L.t("Accept")
     // OLD_MESSAGE_SPANS: stable t()s them too; the packs lack some (English shows).
     "1 day" -> L.t("1 day")
     "1 year" -> L.t("1 year")

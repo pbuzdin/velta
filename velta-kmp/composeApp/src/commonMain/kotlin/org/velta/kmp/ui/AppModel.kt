@@ -1500,6 +1500,12 @@ class AppModel(
     }
 
     fun openChat(item: ChatListItem) {
+        // #334 step 6 (app.js openChat "deaddrop"): a contact request asks
+        // first; Accept unblocks it, toasts, and opens the now-normal chat.
+        if (item.isContactRequest) {
+            chatConfirm = PendingConfirm(contactRequestConfirm(item.name)) { acceptContactRequest(item) }
+            return
+        }
         screen = Screen.Chat(item.id, item.name, item.isGroup)
         accountId?.let { notifier?.cancel(it, item.id) }
         composerText = ""
@@ -2509,6 +2515,13 @@ class AppModel(
             veltaCore.setChatVisibility(id, chatId, "Normal")
             refreshChats()
         } catch (_: Throwable) { /* core refused — keep the flag as is */ }
+    }
+
+    private fun acceptContactRequest(item: ChatListItem) = chatJob(null) { c, id ->
+        c.acceptChat(id, item.id)
+        if (accountId != id) return@chatJob
+        showToast(L.t("Contact request accepted"))
+        openChat(item.copy(isContactRequest = false))
     }
 
     fun showGroupInvite(chat: MenuChat) {
