@@ -237,6 +237,7 @@ internal object LangFr {
         "Nothing found." to "Rien trouvé.",
         "Nothing older than that" to "Rien de plus ancien",
         "Notifications" to "Notifications",
+        "Notify me when mentioned in muted chats" to "Me prévenir quand on me mentionne dans une discussion muette",
         "Off" to "Désactivé",
         "Older than {label}" to "Plus ancien que {label}",
         "On" to "Activé",

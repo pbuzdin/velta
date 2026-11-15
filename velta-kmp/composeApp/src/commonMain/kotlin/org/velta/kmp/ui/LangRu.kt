@@ -237,6 +237,7 @@ internal object LangRu {
         "Nothing found." to "Ничего не найдено.",
         "Nothing older than that" to "Сообщений старше нет",
         "Notifications" to "Уведомления",
+        "Notify me when mentioned in muted chats" to "Сообщать, когда меня упоминают в беззвучном чате",
         "Off" to "Выкл",
         "Older than {label}" to "Старше {label}",
         "On" to "Вкл",

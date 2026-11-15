@@ -108,6 +108,8 @@ internal fun findBareLinks(seg: String): List<BareLink> {
         var p = hostEnd
         val port = PORT_OK.find(seg.substring(p, minOf(p + 8, seg.length)))
         if (port != null) {
+            val n = port.value.drop(1).toIntOrNull()
+            if (n == null || n > 65535) continue
             p += port.value.length
         } else if (p < seg.length && seg[p] == ':' && p + 1 < seg.length && !seg[p + 1].isWhitespace()) {
             continue // "foo.com:bar"

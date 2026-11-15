@@ -2494,6 +2494,18 @@ private fun SettingsScreen(model: AppModel) {
                 isError = custom.isNotBlank() && Accent.normHex(custom) == null,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
+            SettingsSection(L.t("Notifications"))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { model.onSetMentionInMuted(!model.mentionInMuted) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = model.mentionInMuted, onCheckedChange = { model.onSetMentionInMuted(it) })
+                Text(L.t("Notify me when mentioned in muted chats"))
+            }
             SettingsSection(L.t("Language"))
             L.LANGS.forEach { (code, nativeName) ->
                 Row(
@@ -3321,6 +3333,38 @@ private fun Composer(model: AppModel) {
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+        val openChat = model.screen as? AppModel.Screen.Chat
+        val mentionQ = if (openChat?.isGroup == true) mentionQuery(model.composerText) else null
+        val mentionMembers = if (openChat != null) model.chatMembers[openChat.chatId].orEmpty() else emptyList()
+        val mentionPicks = if (mentionQ == null) emptyList() else {
+            val others = mentionMembers.count { it.id != 1L }
+            if (mentionQ.query.isEmpty() && others > BARE_AT_MAX) emptyList()
+            else filterMembers(mentionMembers, mentionQ.query)
+        }
+        if (mentionPicks.isNotEmpty()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .background(Velta.tokens.bgSidebar, RoundedCornerShape(12.dp))
+                    .border(1.dp, Velta.tokens.border, RoundedCornerShape(12.dp)),
+            ) {
+                mentionPicks.forEach { member ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { model.insertMention(member) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(member.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (member.code.isNotEmpty()) {
+                            Text(member.code, color = Velta.tokens.textDim, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
         }
         // Velta stable composer (app/index.html footer.composer): 48dp icon
         // buttons, a 48dp-min 16dp-radius input wrap on bgSidebar, no Material

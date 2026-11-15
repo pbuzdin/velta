@@ -133,6 +133,37 @@ class MarkdownTest {
         assertEquals(0, s.getUrlAnnotations("URL", "javascript:alert(1)").size)
         assertEquals("[x](javascript:alert(1))", s.text.substringAfter("ftp://x "))
     }
+
+    @Test
+    fun httpLinksAndTrimmedPunctuation() {
+        val s = markdownAnnotated("see https://x.com. and http://a.b/c", accent, bg, ink)
+        assertEquals("see https://x.com. and http://a.b/c", s.text)
+        assertTrue(s.getUrlAnnotations("URL", "https://x.com").isNotEmpty(), "trailing dot stays outside")
+        assertTrue(s.getUrlAnnotations("URL", "http://a.b/c").isNotEmpty(), "http links")
+    }
+
+    @Test
+    fun hashtagRulesRejectNumbersAndGluedTags() {
+        val s = markdownAnnotated("C# #123 ##no a#b #Velta", accent, bg, ink)
+        val tags = s.getStringAnnotations("HASHTAG", 0, s.length).map { it.item }
+        assertEquals(listOf("#Velta"), tags)
+    }
+
+    @Test
+    fun quoteBlocksPlusBulletsAndNestedEmphasis() {
+        val members = listOf(org.velta.kmp.ui.MentionMember(7, "Pavel", "A1B2"))
+        val s = markdownAnnotated("> hi\n+ item\n**@Pavel** *`code`*", accent, bg, ink, members)
+        assertTrue(s.text.startsWith("│ hi\n•  item\n"))
+        assertTrue(s.getStringAnnotations("MENTION", 0, s.length).any { it.item == "7" })
+        assertTrue(s.getStringAnnotations("CODE", 0, s.length).any { it.item == "code" })
+        assertTrue(s.spanStyles.any { it.item.fontWeight == FontWeight.Bold && s.text.substring(it.start, it.end).contains("@Pavel") })
+    }
+
+    @Test
+    fun hugePortIsNotABareLink() {
+        val s = markdownAnnotated("see example.com:99999/a", accent, bg, ink)
+        assertTrue(s.getStringAnnotations("URL", 0, s.length).none { it.item.contains("99999") })
+    }
 }
 
 /** AnnotatedString.getUrlAnnotations exists on newer Compose; provide a

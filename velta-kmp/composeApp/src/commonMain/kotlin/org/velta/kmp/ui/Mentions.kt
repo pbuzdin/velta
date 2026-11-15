@@ -68,6 +68,71 @@ private fun resolveAt(seg: String, i: Int, members: List<MentionMember>): Mentio
     return MentionRange(i, end, member, "", member.id == 1L)
 }
 
+/** First 4 hex of a real fingerprint (40+ hex). Derived-only keys stay blank. */
+internal fun fprCode(fpr: String?): String {
+    val hex = fpr.orEmpty().filter { it.isDigit() || it in 'A'..'F' || it in 'a'..'f' }.uppercase()
+    return if (hex.length >= 40) hex.take(4) else ""
+}
+
+/** What the picker inserts, trailing space included (mentions.js mentionToken). */
+internal fun mentionToken(member: MentionMember): String {
+    val name = member.name.trim()
+    return if (member.code.isNotEmpty()) "@$name (${member.code}) " else "@$name "
+}
+
+/** The "@query" being typed at the caret, or null (mentions.js mentionQuery). */
+internal data class MentionQuery(val start: Int, val query: String)
+
+internal fun mentionQuery(value: String, caret: Int = value.length): MentionQuery? {
+    val end = caret.coerceIn(0, value.length)
+    val v = value.substring(0, end)
+    val at = v.lastIndexOf('@')
+    if (at < 0) return null
+    if (at > 0 && !Regex("[\\s(\\[{\"'«]").containsMatchIn(v[at - 1].toString())) return null
+    val q = v.substring(at + 1)
+    if (q.length > 40 || Regex("\\n|^\\s|\\s{2}|@|\\(").containsMatchIn(q)) return null
+    return MentionQuery(at, q)
+}
+
+/** Bare "@" lists everyone only in small groups (mentions.js BARE_AT_MAX). */
+internal const val BARE_AT_MAX = 10
+
+/** Others, prefix before word-prefix before substring (mentions.js filterMembers). */
+internal fun filterMembers(members: List<MentionMember>, query: String, limit: Int = 8): List<MentionMember> {
+    val q = query.lowercase()
+    return members.mapNotNull { m ->
+        if (m.id == 1L || m.name.isBlank()) return@mapNotNull null
+        val n = m.name.lowercase()
+        val rank = when {
+            q.isEmpty() -> 1
+            n.startsWith(q) -> 0
+            n.split(Regex("\\s+")).any { it.startsWith(q) } -> 1
+            q in n -> 2
+            else -> return@mapNotNull null
+        }
+        rank to m
+    }.sortedWith(compareBy({ it.first }, { it.second.name.lowercase() })).take(limit).map { it.second }
+}
+
+/**
+ * Does [text] mention me? Code match is rename-proof. [mentionInMuted] is the
+ * settings switch (default on): a muted chat still notifies.
+ */
+internal fun mentionsMe(text: String, name: String, code: String): Boolean {
+    if (name.isBlank() && code.isBlank()) return false
+    if (code.isNotBlank()) {
+        val re = Regex("(^|[^\\p{L}\\p{M}\\p{N}_.@+%&/:#-])@[^\\n@()]{1,64}? \\(([0-9A-Fa-f]{4})\\)")
+        if (re.findAll(text).any { it.groupValues[2].equals(code, ignoreCase = true) }) return true
+    }
+    if (name.isBlank()) return false
+    return findMentions(text, listOf(MentionMember(1L, name, code))).any { it.me }
+}
+
+internal fun mutedChatAllows(muted: Boolean, mentioned: Boolean, mentionInMuted: Boolean = true): Boolean {
+    if (!muted) return true
+    return mentionInMuted && mentioned
+}
+
 /** Scan one plain-text segment for @mentions of [members]. */
 internal fun findMentions(seg: String, members: List<MentionMember>): List<MentionRange> {
     val out = mutableListOf<MentionRange>()

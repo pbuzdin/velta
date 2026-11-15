@@ -1872,6 +1872,8 @@ class AppModel(
         contactBotsError = null
         identities = emptyMap()
         chatMembers = emptyMap()
+        selfMentionAccount = 0L
+        selfMentionMember = null
         senderNames = emptyMap()
         stickerPacks = emptyMap()
         profile = null
@@ -3407,6 +3409,15 @@ class AppModel(
     var lang by mutableStateOf(platform.pref("velta-lang")?.takeIf { it in L.LANGS.map { it.first } } ?: "en")
         private set
 
+    /** mentions.js notify gate. Absent key = on; "0" = off. */
+    var mentionInMuted by mutableStateOf(platform.pref("velta-notify-muted-mentions") != "0")
+        private set
+
+    fun onSetMentionInMuted(on: Boolean) {
+        mentionInMuted = on
+        platform.setPref("velta-notify-muted-mentions", if (on) null else "0")
+    }
+
     init {
         // The web applies the stored language before first paint (i18n.js);
         // the model construction is the KMP equivalent hook.
@@ -3457,7 +3468,7 @@ class AppModel(
                     val fpr = runCatching {
                         identityFingerprintFromEncrInfo(veltaCore.contactEncryptionInfo(id, cid) ?: "")
                     }.getOrNull()
-                    MentionMember(cid, name, fpr?.take(4)?.uppercase() ?: "")
+                    MentionMember(cid, name, fprCode(fpr))
                 }
                 if (accountId == id) chatMembers = chatMembers + (chatId to members)
             } catch (t: Throwable) {
@@ -3699,13 +3710,45 @@ class AppModel(
         val n = notifier ?: return
         val veltaCore = core ?: return
         val item = runCatching { veltaCore.chatlistItems(eventAccount, listOf(chatId)).firstOrNull() }.getOrNull()
-        if (item?.isMuted == true) return
-        val msgId = event.event?.get("msgId")?.toString()?.trim('"')?.toLongOrNull()
-        val text = msgId?.let { mid ->
-            runCatching { veltaCore.messages(eventAccount, listOf(mid)).firstOrNull()?.text }.getOrNull()
-        } ?: ""
+        val text = incomingText(veltaCore, eventAccount, event)
+        if (item?.isMuted == true && !allowsMutedMention(eventAccount, text)) return
         val fallback = L.t("New message")
         n.notifyIncoming(eventAccount, chatId, item?.name?.ifBlank { null } ?: fallback, text.ifBlank { fallback })
+    }
+
+    private suspend fun incomingText(veltaCore: VeltaCore, accountId: Long, event: CoreEvent): String {
+        val msgId = event.event?.get("msgId")?.toString()?.trim('"')?.toLongOrNull() ?: return ""
+        return runCatching { veltaCore.messages(accountId, listOf(msgId)).firstOrNull()?.text }.getOrNull().orEmpty()
+    }
+
+    /** Muted chats stay quiet unless the text @mentions us and the switch is on. */
+    private suspend fun allowsMutedMention(accountId: Long, text: String): Boolean {
+        if (!mentionInMuted) return false
+        val me = selfForMentions(accountId) ?: return false
+        return mentionsMe(text, me.name, me.code)
+    }
+
+    private var selfMentionAccount = 0L
+    private var selfMentionMember: MentionMember? = null
+
+    private suspend fun selfForMentions(accountId: Long): MentionMember? {
+        if (selfMentionAccount == accountId) return selfMentionMember
+        val veltaCore = core ?: return null
+        val c = runCatching { veltaCore.contact(accountId, 1L) }.getOrNull() ?: return null
+        val name = c.displayName.ifBlank { c.name }
+        val fpr = runCatching {
+            identityFingerprintFromEncrInfo(veltaCore.contactEncryptionInfo(accountId, 1L) ?: "")
+        }.getOrNull()
+        val me = MentionMember(1L, name, fprCode(fpr))
+        selfMentionAccount = accountId
+        selfMentionMember = me
+        return me
+    }
+
+    /** Replace the @query at the end of the composer with the member token. */
+    fun insertMention(member: MentionMember) {
+        val q = mentionQuery(composerText) ?: return
+        composerText = composerText.substring(0, q.start) + mentionToken(member)
     }
 
     // ---- Foreground + read receipts + notification taps (#334) ----

@@ -10,13 +10,12 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * Compose port of the web's markdown pipeline (app/js/markdown.js +
- * bare-links.js + mentions.js + invites.js): **bold**, __underline__,
- * *italic* / _italic_, `code` spans (annotation CODE — click-to-copy),
- * [label](https://…) links + bare scheme-less addresses (bare-links tiers),
- * @mentions of chat members, #hashtags, velta invite links (annotation
- * INVITE — the bubble renders the join card), and "- "/"* " / "1." list
- * lines. Escape-first on the web = build spans over the RAW string here;
- * only https URLs become links.
+ * bare-links.js + hashtags.js + mentions.js + invites.js): **bold**,
+ * __underline__, *italic* / _italic_, `code` spans (annotation CODE —
+ * click-to-copy), [label](http(s)://…) links + bare scheme-less addresses,
+ * @mentions, #hashtags, invite links (annotation INVITE), "> " quote lines,
+ * and "- "/"* "/"+" / "1." list lines. Code, links, mentions and hashtags
+ * are held out of the emphasis pass so `**@Name**` and `` *`code`* `` nest.
  */
 internal const val ANN_URL = "URL"
 internal const val ANN_CODE = "CODE"
@@ -25,6 +24,19 @@ internal const val ANN_INVITE = "INVITE"
 /** #134: a #hashtag; a tap opens "Search in chat" prefilled with it. */
 internal const val ANN_HASHTAG = "HASHTAG"
 
+private val QUOTE_LINE = Regex("^>{1,3} ?(.*)$")
+private val NUMBERED_LINE = Regex("^\\d{1,9}[.)] ")
+private val MD_LINK = Regex("\\[([^\\]\\n]+)]\\((https?://[^)\\s]*)\\)", RegexOption.IGNORE_CASE)
+private val SCHEME_URL = Regex("https?://[^\\s<]+", RegexOption.IGNORE_CASE)
+private val BOLD = Regex("\\*\\*([^*\\n]+)\\*\\*")
+private val UNDER = Regex("(?<![\\w_])__([^_\\n]+)__(?![\\w_])")
+private val IT_STAR = Regex("(?<![\\w*])\\*([^*\\n]+)\\*(?![\\w*])")
+private val IT_UNDER = Regex("(?<![\\w_])_([^_\\n]+)_(?![\\w_])")
+private val PLACEHOLDER = Regex("\u0000(\\d+)\u0000")
+private val TAG = Regex("#([\\p{L}\\p{M}\\p{N}_]+)")
+private val HASH_BAD_BEFORE = Regex("[\\p{L}\\p{M}\\p{N}_&#/:.@-]")
+private val HAS_LETTER = Regex("\\p{L}")
+
 internal fun markdownAnnotated(
     text: String,
     accent: Color,
@@ -32,216 +44,261 @@ internal fun markdownAnnotated(
     textColor: Color,
     members: List<MentionMember> = emptyList(),
 ): AnnotatedString {
+    // textColor is the bubble ink; emphasis uses the default span color.
     if (text.isBlank()) return AnnotatedString(text)
     val builder = AnnotatedString.Builder()
     val lines = text.split("\n")
     lines.forEachIndexed { index, rawLine ->
         if (index > 0) builder.append("\n")
+        val quoted = QUOTE_LINE.find(rawLine)
+        if (quoted != null) {
+            builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+            builder.append("│ ")
+            appendInline(builder, quoted.groupValues[1], accent, codeBackground, members)
+            builder.pop()
+            return@forEachIndexed
+        }
         val trimmed = rawLine.trimStart()
+        val indent = rawLine.take(rawLine.length - trimmed.length)
         when {
-            trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-                builder.append(rawLine.take(rawLine.length - trimmed.length))
+            trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") -> {
+                builder.append(indent)
                 builder.append("•  ")
-                appendInline(builder, trimmed.drop(2), accent, codeBackground, textColor, members)
+                appendInline(builder, trimmed.drop(2), accent, codeBackground, members)
             }
-            Regex("^\\d+[.)] ").containsMatchIn(trimmed) -> {
-                builder.append(rawLine.take(rawLine.length - trimmed.length))
-                appendInline(builder, trimmed, accent, codeBackground, textColor, members)
+            NUMBERED_LINE.containsMatchIn(trimmed) -> {
+                builder.append(indent)
+                appendInline(builder, trimmed, accent, codeBackground, members)
             }
-            else -> appendInline(builder, rawLine, accent, codeBackground, textColor, members)
+            else -> appendInline(builder, rawLine, accent, codeBackground, members)
         }
     }
     return builder.toAnnotatedString()
 }
 
-private const val URL_RE = "https://[\\p{L}\\p{N}._~:/?#\\[\\]@!$&'()*+,;=%-]+"
-private const val EM_RE = "(\\*\\*([^*\\n]+)\\*\\*)|(__([^_\\n]+)__)|(\\*([^*\\n]+)\\*)|(_([^_\\n]+)_)"
+/** hashtags.js: a #word with at least one letter, not glued to the left, max 64. */
+internal fun findHashtags(seg: String): List<IntRange> {
+    val out = mutableListOf<IntRange>()
+    for (m in TAG.findAll(seg)) {
+        val i = m.range.first
+        val tag = m.groupValues[1]
+        if (i > 0 && HASH_BAD_BEFORE.containsMatchIn(seg[i - 1].toString())) continue
+        if (!HAS_LETTER.containsMatchIn(tag) || Regex("^\\p{M}").containsMatchIn(tag)) continue
+        if (tag.codePointCount(0, tag.length) > 64) continue
+        out += m.range
+    }
+    return out
+}
+
+private data class Hold(
+    val text: String,
+    val ann: String?,
+    val value: String?,
+    val style: SpanStyle,
+    val extra: SpanStyle? = null,
+)
+
+private data class Piece(val start: Int, val end: Int, val hold: Hold)
 
 private fun appendInline(
     builder: AnnotatedString.Builder,
+    content0: String,
+    accent: Color,
+    codeBackground: Color,
+    members: List<MentionMember>,
+) {
+    val content = content0.replace("\u0000", "")
+    if (content.isEmpty()) return
+    val pieces = collectPieces(content, accent, codeBackground, members)
+    val holds = mutableListOf<Hold>()
+    val work = StringBuilder()
+    var at = 0
+    for (p in pieces) {
+        if (p.start > at) work.append(content.substring(at, p.start))
+        holds += p.hold
+        work.append("\u0000${holds.lastIndex}\u0000")
+        at = p.end
+    }
+    if (at < content.length) work.append(content.substring(at))
+    emitFormatted(builder, work.toString(), holds)
+}
+
+private fun collectPieces(
     content: String,
     accent: Color,
     codeBackground: Color,
-    textColor: Color,
     members: List<MentionMember>,
-) {
-    var i = 0
-    val urlRe = Regex(URL_RE)
-    val emRe = Regex(EM_RE)
-    while (i < content.length) {
-        val code = content.indexOf("`", i).takeIf { it >= 0 && content.indexOf("`", it + 1) >= 0 }
-        val link = content.indexOf("[", i).takeIf { it >= 0 }
-        val em = emRe.find(content, i)
-        val url = urlRe.find(content, i)
-        val hash = content.indexOf("#", i).takeIf {
-            it != null && it >= 0 && it + 1 < content.length && content[it + 1].isLetterOrDigit()
-        }
-        val bare = findBareLinks(content.substring(i)).firstOrNull()?.let { it.copy(start = it.start + i, end = it.end + i) }
-        val mention = findMentions(content.substring(i), members).firstOrNull()?.let { it.copy(start = it.start + i, end = it.end + i) }
-        val first = buildList {
-            code?.let { add(it to "code") }
-            link?.let { add(it to "link") }
-            em?.let { add(it.range.first to "em") }
-            url?.let { add(it.range.first to "url") }
-            bare?.let { add(it.start to "bare") }
-            mention?.let { add(it.start to "mention") }
-            hash?.let { add(it to "hash") }
-        }.minByOrNull { it.first }
-        when (first?.second) {
-            "code" -> {
-                val open = code!!
-                val end = content.indexOf("`", open + 1)
-                appendEmphasis(builder, content.substring(i, open), accent, textColor)
-                builder.pushStringAnnotation(ANN_CODE, content.substring(open + 1, end))
-                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground))
-                builder.append(content.substring(open + 1, end))
-                builder.pop()
-                builder.pop()
-                i = end + 1
-            }
-            "link" -> {
-                val open = link!!
-                val close = content.indexOf("]", open + 1)
-                val openParen = if (close >= 0 && close + 1 < content.length && content[close + 1] == '(') close + 1 else -1
-                val endParen = if (openParen >= 0) content.indexOf(")", openParen + 1) else -1
-                val urlText = if (endParen > 0) content.substring(openParen + 1, endParen) else ""
-                if (close >= 0 && urlText.startsWith("https://", ignoreCase = true)) {
-                    appendEmphasis(builder, content.substring(i, open), accent, textColor)
-                    // Web markdown.js renders [label](invite) as a plain
-                    // anchor — invite CARDS are bare-URL-only; the bubble's
-                    // tap handler intercepts invite hrefs for the join flow.
-                    builder.pushStringAnnotation(ANN_URL, urlText)
-                    builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
-                    builder.append(content.substring(open + 1, close))
-                    builder.pop()
-                    builder.pop()
-                    i = endParen + 1
-                } else {
-                    appendEmphasis(builder, content.substring(i, open + 1), accent, textColor)
-                    i = open + 1
-                }
-            }
-            "url" -> {
-                val u = url!!
-                appendEmphasis(builder, content.substring(i, u.range.first), accent, textColor)
-                // Bare https invites get the card (inviteCardHtml), carrying
-                // the CANONICAL link so the join works from mirror hosts.
-                val canonical = parseInviteLink(u.value)
-                if (canonical != null) {
-                    builder.pushStringAnnotation(ANN_INVITE, canonical)
-                } else {
-                    builder.pushStringAnnotation(ANN_URL, u.value)
-                }
-                builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
-                builder.append(u.value)
-                builder.pop()
-                builder.pop()
-                i = u.range.last + 1
-            }
-            "bare" -> {
-                val b = bare!!
-                appendEmphasis(builder, content.substring(i, b.start), accent, textColor)
-                // Scheme-less invites (i.delta.chat/#fp typed bare) ride the
-                // same card path as their https:// spelled-out form.
-                val canonical = parseInviteLink(b.url)
-                if (canonical != null) {
-                    builder.pushStringAnnotation(ANN_INVITE, canonical)
-                } else {
-                    builder.pushStringAnnotation(ANN_URL, b.url)
-                }
-                builder.pushStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline))
-                builder.append(b.text)
-                builder.pop()
-                builder.pop()
-                i = b.end
-            }
-            "mention" -> {
-                val m = mention!!
-                appendEmphasis(builder, content.substring(i, m.start), accent, textColor)
-                builder.pushStringAnnotation(ANN_MENTION, m.member.id.toString())
-                builder.pushStyle(SpanStyle(color = accent, background = codeBackground, fontWeight = FontWeight.Medium))
-                builder.append(content.substring(m.start, m.end))
-                builder.pop()
-                builder.pop()
-                i = m.end
-            }
-            "hash" -> {
-                val h = hash!!
-                var end = h + 1
-                while (end < content.length && (content[end].isLetterOrDigit() || content[end] == '_')) end++
-                appendEmphasis(builder, content.substring(i, h), accent, textColor)
-                builder.pushStringAnnotation(ANN_HASHTAG, content.substring(h, end))
-                builder.pushStyle(SpanStyle(color = accent))
-                builder.append(content.substring(h, end))
-                builder.pop()
-                builder.pop()
-                i = end
-            }
-            "em" -> {
-                val e = em!!
-                appendEmphasis(builder, content.substring(i, e.range.first), accent, textColor)
-                val inner = when {
-                    e.groups[2] != null -> e.groups[2]!!.value
-                    e.groups[4] != null -> e.groups[4]!!.value
-                    e.groups[6] != null -> e.groups[6]!!.value
-                    else -> e.groups[8]!!.value
-                }
-                val style = when {
-                    e.groups[2] != null -> SpanStyle(fontWeight = FontWeight.Bold)
-                    e.groups[4] != null -> SpanStyle(textDecoration = TextDecoration.Underline)
-                    e.groups[6] != null -> SpanStyle(fontStyle = FontStyle.Italic)
-                    else -> SpanStyle(fontStyle = FontStyle.Italic)
-                }
-                builder.pushStyle(style)
-                builder.append(inner)
-                builder.pop()
-                i = e.range.last + 1
-            }
-            else -> {
-                builder.appendPlain(content.substring(i))
-                return
-            }
-        }
-    }
-}
-
-/** The text between markers still carries emphasis pairs — process until a
- * marker-free remainder. */
-private fun appendEmphasis(
-    builder: AnnotatedString.Builder,
-    content: String,
-    accent: Color,
-    textColor: Color,
-) {
-    if (content.isEmpty()) return
-    val emRe = Regex(EM_RE)
+): List<Piece> {
+    val pieces = mutableListOf<Piece>()
     var i = 0
     while (i < content.length) {
-        val e = emRe.find(content, i) ?: break
-        if (e.range.first > i) builder.appendPlain(content.substring(i, e.range.first))
-        val inner = when {
-            e.groups[2] != null -> e.groups[2]!!.value
-            e.groups[4] != null -> e.groups[4]!!.value
-            e.groups[6] != null -> e.groups[6]!!.value
-            else -> e.groups[8]!!.value
+        val open = content.indexOf('`', i)
+        if (open < 0) break
+        val close = content.indexOf('`', open + 1)
+        if (close < 0) break
+        val inner = content.substring(open + 1, close)
+        if (inner.isNotEmpty()) {
+            pieces += Piece(
+                open,
+                close + 1,
+                Hold(inner, ANN_CODE, inner, SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)),
+            )
         }
-        val style = when {
-            e.groups[2] != null -> SpanStyle(fontWeight = FontWeight.Bold)
-            e.groups[4] != null -> SpanStyle(textDecoration = TextDecoration.Underline)
-            e.groups[6] != null -> SpanStyle(fontStyle = FontStyle.Italic)
-            else -> SpanStyle(fontStyle = FontStyle.Italic)
-        }
-        builder.pushStyle(style)
-        builder.append(inner)
-        builder.pop()
-        i = e.range.last + 1
+        i = close + 1
     }
-    builder.appendPlain(content.substring(i))
+    val linkStyle = SpanStyle(color = accent, textDecoration = TextDecoration.Underline)
+    for (gap in gaps(content.length, pieces)) {
+        pieces += linkHits(content, gap, linkStyle)
+    }
+    for (gap in gaps(content.length, pieces)) {
+        val seg = content.substring(gap.first, gap.last + 1)
+        for (b in findBareLinks(seg)) {
+            val canonical = parseInviteLink(b.url)
+            pieces += Piece(
+                gap.first + b.start,
+                gap.first + b.end,
+                Hold(b.text, if (canonical != null) ANN_INVITE else ANN_URL, canonical ?: b.url, linkStyle),
+            )
+        }
+    }
+    for (gap in gaps(content.length, pieces)) {
+        val seg = content.substring(gap.first, gap.last + 1)
+        for (m in findMentions(seg, members)) {
+            val style = SpanStyle(
+                color = accent,
+                background = codeBackground,
+                fontWeight = if (m.me) FontWeight.Bold else FontWeight.Medium,
+            )
+            pieces += Piece(
+                gap.first + m.start,
+                gap.first + m.end,
+                Hold(seg.substring(m.start, m.end), ANN_MENTION, m.member.id.toString(), style),
+            )
+        }
+    }
+    for (gap in gaps(content.length, pieces)) {
+        val seg = content.substring(gap.first, gap.last + 1)
+        for (range in findHashtags(seg)) {
+            val text = seg.substring(range.first, range.last + 1)
+            pieces += Piece(
+                gap.first + range.first,
+                gap.first + range.last + 1,
+                Hold(text, ANN_HASHTAG, text, SpanStyle(color = accent)),
+            )
+        }
+    }
+    return pieces.sortedBy { it.start }
 }
 
-private fun AnnotatedString.Builder.appendPlain(part: String) {
-    if (part.isEmpty()) return
-    append(part)
+private fun linkHits(content: String, gap: IntRange, linkStyle: SpanStyle): List<Piece> {
+    val seg = content.substring(gap.first, gap.last + 1)
+    val out = mutableListOf<Piece>()
+    var at = 0
+    while (at < seg.length) {
+        val rest = seg.substring(at)
+        val md = MD_LINK.find(rest)
+        val url = SCHEME_URL.find(rest)
+        val mdAt = md?.range?.first
+        val urlAt = url?.range?.first
+        if (mdAt == null && urlAt == null) break
+        if (md != null && (urlAt == null || mdAt!! <= urlAt)) {
+            val (label, extra) = emphasisLabel(md.groupValues[1])
+            val href = md.groupValues[2]
+            val abs = gap.first + at + md.range.first
+            out += Piece(abs, gap.first + at + md.range.last + 1, Hold(label, ANN_URL, href, linkStyle, extra))
+            at += md.range.last + 1
+        } else {
+            val m = url!!
+            val trimmed = trimLinkEnd(m.value)
+            if (!trimmed.startsWith("http://", true) && !trimmed.startsWith("https://", true)) {
+                at += m.range.first + 1
+                continue
+            }
+            val abs = gap.first + at + m.range.first
+            val canonical = parseInviteLink(trimmed)
+            out += Piece(
+                abs,
+                abs + trimmed.length,
+                Hold(trimmed, if (canonical != null) ANN_INVITE else ANN_URL, canonical ?: trimmed, linkStyle),
+            )
+            at += m.range.first + trimmed.length
+        }
+    }
+    return out
+}
+
+private fun emphasisLabel(label: String): Pair<String, SpanStyle?> {
+    fun whole(re: Regex, style: SpanStyle): Pair<String, SpanStyle>? {
+        val m = re.find(label) ?: return null
+        if (m.range.first != 0 || m.range.last != label.lastIndex) return null
+        return m.groupValues[1] to style
+    }
+    whole(BOLD, SpanStyle(fontWeight = FontWeight.Bold))?.let { return it }
+    whole(UNDER, SpanStyle(textDecoration = TextDecoration.Underline))?.let { return it }
+    whole(IT_STAR, SpanStyle(fontStyle = FontStyle.Italic))?.let { return it }
+    whole(IT_UNDER, SpanStyle(fontStyle = FontStyle.Italic))?.let { return it }
+    return label to null
+}
+
+private fun gaps(len: Int, pieces: List<Piece>): List<IntRange> {
+    var at = 0
+    val out = mutableListOf<IntRange>()
+    for (p in pieces.sortedBy { it.start }) {
+        if (p.start > at) out += at until p.start
+        at = maxOf(at, p.end)
+    }
+    if (at < len) out += at until len
+    return out
+}
+
+private data class StyleBit(val start: Int, val end: Int, val style: SpanStyle)
+
+private fun emitFormatted(builder: AnnotatedString.Builder, work: String, holds: List<Hold>) {
+    val skip = BooleanArray(work.length)
+    val bits = mutableListOf<StyleBit>()
+    fun take(re: Regex, style: SpanStyle) {
+        for (m in re.findAll(work)) {
+            if (m.range.any { skip[it] || bits.any { b -> it in b.start until b.end } }) continue
+            val inner = m.groups[1]!!.range
+            bits += StyleBit(inner.first, inner.last + 1, style)
+            for (i in m.range) if (i < inner.first || i > inner.last) skip[i] = true
+        }
+    }
+    take(BOLD, SpanStyle(fontWeight = FontWeight.Bold))
+    take(UNDER, SpanStyle(textDecoration = TextDecoration.Underline))
+    take(IT_STAR, SpanStyle(fontStyle = FontStyle.Italic))
+    take(IT_UNDER, SpanStyle(fontStyle = FontStyle.Italic))
+    fun covering(at: Int) = bits.filter { at in it.start until it.end }
+    var i = 0
+    while (i < work.length) {
+        if (skip[i]) {
+            i++
+            continue
+        }
+        val ph = if (work[i] == '\u0000') PLACEHOLDER.find(work, i)?.takeIf { it.range.first == i } else null
+        if (ph != null) {
+            val hold = holds[ph.groupValues[1].toInt()]
+            val outer = covering(ph.range.first)
+            outer.forEach { builder.pushStyle(it.style) }
+            hold.extra?.let { builder.pushStyle(it) }
+            if (hold.ann != null) builder.pushStringAnnotation(hold.ann, hold.value ?: hold.text)
+            builder.pushStyle(hold.style)
+            builder.append(hold.text)
+            builder.pop()
+            if (hold.ann != null) builder.pop()
+            if (hold.extra != null) builder.pop()
+            repeat(outer.size) { builder.pop() }
+            i = ph.range.last + 1
+            continue
+        }
+        val here = covering(i)
+        var end = i + 1
+        while (end < work.length && !skip[end] && work[end] != '\u0000' && covering(end) == here) end++
+        here.forEach { builder.pushStyle(it.style) }
+        builder.append(work.substring(i, end))
+        repeat(here.size) { builder.pop() }
+        i = end
+    }
 }
 
 /**
