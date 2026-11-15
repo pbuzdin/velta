@@ -7,9 +7,9 @@ Read this file before touching anything in this folder.
 **2026-11-13: the #321 visual shell is COMPLETE — all five steps shipped
 and audited against the code** (theme tokens, web-parity icons, stable
 composer/header, bubbles/quote/markdown/list rows, appearance settings +
-en/ru/fr strings). KMP is the Android delivery track; the Tauri app
-remains Velta's shipping Android client; the Rust UI preview is a
-separate experiment (#314). Phase plan in #192: N1 design port
+en/ru/fr strings). KMP is a work in progress; the Tauri app remains
+Velta's shipping Android client; the Rust UI preview is a separate
+work-in-progress experiment (#314). Phase plan in #192: N1 design port
 (Prism + identity matrix — shipped, see PrismIdentityTest), N2
 conversation notifications + RPC timeout/respawn (shipped), N3 AGSL glass
 on the composer and header (shipped), N4 release signing still open.
