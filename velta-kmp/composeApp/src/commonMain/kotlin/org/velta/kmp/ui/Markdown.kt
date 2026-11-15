@@ -310,10 +310,8 @@ private fun emitFormatted(builder: AnnotatedString.Builder, work: String, holds:
  * `https://i.delta.chat/#<fp><payload>` for https forms, the raw scheme URL
  * for openpgp4fpr — because the core only parses that scheme and mirror
  * hosts are irrelevant to the join (app.js: "the core only parses that
- * scheme"). The user-registered "Invite link domains" registry is not
- * ported yet; the four builtins are.
+ * scheme"). Extra hosts live in [recognizedExtraHosts] (settings registry).
  */
-private val INVITE_HOSTS = setOf("velta.cc", "i.delta.chat", "i.deltachat.id", "i.gluek.info")
 private val FP_40 = Regex("^[0-9A-Fa-f]{40}$")
 private val FP_40_FORM = Regex("^([0-9A-Fa-f]{40})(?:[&#]([\\s\\S]*))?$")
 
@@ -330,7 +328,7 @@ internal fun parseInviteLink(raw: String): String? {
     val host = s.substring("https://".length)
         .substringBefore('/').substringBefore('?').substringBefore('#')
         .lowercase()
-    if (host !in INVITE_HOSTS) return null
+    if (host !in inviteHostSet()) return null
     // The payload rides the fragment ("#fp") or the query string; an
     // ?invite=<urlencoded> value is unwrapped first. The fragment wins when
     // both would match.

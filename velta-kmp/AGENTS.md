@@ -63,6 +63,8 @@ composeApp/src/
                  1:1 ports of app/js/bare-links.js / mentions.js.
   ui/Markdown.kt markdown subset + parseInviteLink (canonical i.delta.chat
                  link; 40-hex on BOTH forms; safe percent-decode).
+  ui/InviteSurface.kt extra hosts (`velta-invite-hosts`), invite card
+                 labels, deltachat.id short links. Relay chips stay out.
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
@@ -235,18 +237,22 @@ never run Gradle on the Windows side.
   the core stores no call log), Your QR code (`get_chat_securejoin_qr_code_svg`
   → the code text IS the canonical invite link; **per-domain tabs**
   (web mountInviteDomains: `velta.cc` default-first + i.delta.chat /
-  i.deltachat.id / i.gluek.info — `AppModel.INVITE_HOSTS`, selection
-  persisted under `velta-invite-domain`, the default stores by REMOVING
-  the key): `rewriteInviteHost` slices the canonical `https://i.delta.chat/#`
+  i.deltachat.id / i.gluek.info — `AppModel.INVITE_HOSTS` — plus extra
+  hosts from `velta-invite-hosts`; selection persisted under
+  `velta-invite-domain`, the default stores by REMOVING the key):
+  `rewriteInviteHost` slices the canonical `https://i.delta.chat/#`
   prefix and re-hosts the payload byte-identical (velta.cc → the
   `/join/?` universal form, mirrors → `/host/#`); **non-i.delta.chat
   domains render `BrandedQrSquare`** — the web's brandedQrSvg: LOCALLY
   built white 512² square, 48px quiet zone, matrix scaled 416/size, the
   VELTA_QR_LOGO badge dead-center (white ring r56, #1c1c1c disc r48, V
   mark 84×84); the **i.delta.chat tab keeps the core's 515×630 card**
-  (`InviteQrCard`: QR at translate(57.5, 75) scale 400/size, caption
+  (`InviteQrCard` via `qrCardGeom`: positions `atX`/`atY` include the
+  letterbox, sizes `sz` do not — QR at translate(57.5, 75) scale
+  400/size, card 511×626 corner 40 stroke 2, caption
   "Scan to chat with {name}" at baseline 515, identity disc centered on
-  the QR at (257.5, 275), Velta mark in the footer slot). Link chip +
+  the QR at (257.5, 275) radii 56.2/47.2, Velta mark in the footer slot).
+  Link chip +
   Copy/Share ride the SELECTED domain's link (injected `shareText` seam,
   ACTION_SEND on Android); Scan tab reuses ScanActivity, desktop hides
   it), Search (live name filter, min 2 chars, first 30 + the Archived tab
@@ -293,9 +299,11 @@ never run Gradle on the Windows side.
   (AMOLED layers on dark — `veltaEffectiveMode` pins app.js applyTheme),
   accent presets + custom #hex through `Accent.derive` (WCAG-checked),
   language radios (en/fr/ru, native names) applying LIVE (no reload —
-  compose state, not stamped DOM). Persisted via the `CorePlatform.pref`
+  compose state, not stamped DOM), and Invite link domains (add or remove
+  an extra host). Persisted via the `CorePlatform.pref`
   seam under the web's OWN localStorage keys (`dw-theme`, `velta-amoled`,
-  `velta-accent`, `velta-lang`): SharedPreferences on Android,
+  `velta-accent`, `velta-lang`, `velta-invite-hosts`, `velta-invite-domain`):
+  SharedPreferences on Android,
   java.util.prefs on desktop; "en" and the stock accent store by REMOVING
   the key (web convention).
 - Composer = web footer.composer (48dp icon buttons at 26dp icons,
@@ -304,8 +312,11 @@ never run Gradle on the Windows side.
   chat-view.js): Photo / Video / Camera (FileProvider capture) / File
   (SAF mime pre-filter) / Stickers. Bubbles = .bubble CSS (radius 14,
   6dp sender-side tail, 7/10/6 padding, bgBubbleIn/Out, width
-  min(480dp, 90%), 2dp shadow, 4dp list gap): group incoming = 42dp
-  `MessageAvatar` (Prism tile) + 13.5sp/600 sender name INSIDE the bubble
+  min(480dp, 90%), 2dp shadow, 4dp list gap): group incoming (`fromId != 1`)
+  = 42dp `MessageAvatar` (`AvatarTile` kind `"single"`: contact color,
+  photo inset on the fingerprint, initials `#f4f4f4` at 0.38×size;
+  `senderFace` prefers the wire contact, then the member row, then the
+  cache; a missing color is `#888888`) + 13.5sp/600 sender name INSIDE the bubble
   (web .msg-sender is a bubble child, stickers keep it); meta row =
   11.5sp `msgMetaSize` in textMetaIn/Out, tick tints 28→ticksRead /
   24→danger; stickers = transparent bubble, no shadow/padding, 175dp cap;
@@ -322,7 +333,10 @@ never run Gradle on the Windows side.
   main.css 907-912/3393 (light = #4d5a68 both sides, brutal out =
   #3d3410 — LocalVeltaThemeMode exposes the resolved mode).
   Markdown = Markdown.kt + BareLinks.kt + Mentions.kt (invites →
-  .invite-card → Join flow; code spans click-to-copy).
+  .invite-card → Join flow; a deltachat.id short link is fetched once
+  and the first invite URL in the page becomes the card; code spans
+  click-to-copy). The history LazyColumn is `bgChat`: the shell Surface
+  is `bgSidebar`, and a light incoming bubble is that same `#f4f4f4`.
 - **Chat screen gestures** (`touchGesturesEnabled` expect/actual in
   ui/PlatformBack.kt — Android on, desktop off, the web _mobileGestures
   coarse-pointer gate): ① category swipe (above); ② bubble reply swipe —
@@ -353,7 +367,8 @@ never run Gradle on the Windows side.
   core fulltext, newest 30 hits, a hit jumps to the message
   (`ui/SearchRules.kt`, `ui/ChatSearch.kt`).
 - **#334 step 11 (app layer).** Profile of a group: rename
-  (`set_chat_name`; groups and channels only), members, add, remove.
+  (`set_chat_name`; groups and channels only), members (36dp kind-single
+  `AvatarTile`), add, remove.
   `canRemoveMember` refuses contact 1 and, inside an admin group,
   anyone who is not the admin (`groupAdminId == 1`). `groupAdminId`
   arrives as JSON null on a normal group — `JsonPrimitive.content`
@@ -534,8 +549,12 @@ JSON null — do not read `.content` first (`JsonNull.content` throws).
 - Invite-domain keys ride the web's localStorage names via CorePlatform.pref:
 `velta-invite-domain` (selected QR domain; "velta.cc" stores by REMOVING the
 key), builtin hosts = velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info
-(web BUILTIN_HOSTS, invites.js:15). Extra user domains (drawer registry,
-`velta-invite-hosts`) not ported.
+(web BUILTIN_HOSTS, invites.js:15). Extra hosts live in `ui/InviteSurface.kt`
+(`velta-invite-hosts`, Settings → Invite link domains; an empty list
+stores by removing the key). `recognizedExtraHosts` is what
+`parseInviteLink` consults. `deltachat.id/<name>` short links are fetched
+once (memory cache) and the first invite URL in the page is the card.
+Relay chips on the QR screen remain unported.
 - Message state numbers (core/src/message.rs): 10=InFresh, 13=InNoticed,
   16=InSeen, 19=OutDraft, 20=OutPending, 24=OutFailed, 26=OutDelivered,
   28=OutMdnRcvd. Wire casing: `MessageLoadResult` kind is **"message"**
@@ -565,8 +584,12 @@ key), builtin hosts = velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info
   (QR y=255 vs the real translate y=75). And keep POSITIONS and SIZES
   separate: computing a size from a `cx(x)`-style position helper silently
   includes the letterbox offset once one exists (the QR modules rendered
-  ~14% oversize and collided with the caption). Same class as the zigzag
-  `right`-mutation trap: layout math that holds pre-offset breaks after.
+  ~14% oversize and collided with the caption). The same helper later
+  stretched the card and grew the identity disc (`cx(511)`, `cx(56.2)`):
+  `qrCardGeom` keeps width, corner, stroke, and disc radii on `sz`.
+  `QrCardTest.cardSizesStayInCardUnits` pins those numbers at box 630.
+  Same class as the zigzag `right`-mutation trap: layout math that
+  holds pre-offset breaks after.
 - On-device "it didn't change" checks: `install -r` racing a live app
   process can leave the OLD UI on screen even with lastUpdateTime
   updated — force-stop + relaunch before believing a stale screenshot.

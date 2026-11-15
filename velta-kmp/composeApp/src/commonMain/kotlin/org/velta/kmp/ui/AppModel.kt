@@ -44,7 +44,7 @@ class AppModel(
 
         /** Invite-link domains (web BUILTIN_HOSTS, invites.js:15 — velta.cc
          * default-first; mirrors AndroidManifest intent filters). */
-        val INVITE_HOSTS = listOf("velta.cc", "i.delta.chat", "i.deltachat.id", "i.gluek.info")
+        val INVITE_HOSTS = BUILTIN_INVITE_HOSTS
     }
 
     sealed interface Screen {
@@ -226,13 +226,82 @@ class AppModel(
     var inviteColor by mutableStateOf<String?>(null)
         private set
 
-    /** Selected invite-link domain (web chosenDomain, key `velta-invite-domain`;
-     * "velta.cc" stores by REMOVING the key like every web default). */
-    var inviteDomain by mutableStateOf(platform.pref("velta-invite-domain")?.takeIf { it in INVITE_HOSTS } ?: "velta.cc")
+    /** Extra invite hosts (web `velta-invite-hosts`). Builtins stay fixed. */
+    var extraInviteHosts by mutableStateOf(decodeExtraHosts(platform.pref("velta-invite-hosts")))
         private set
 
+    /** Selected invite-link domain (web chosenDomain, key `velta-invite-domain`;
+     * "velta.cc" stores by REMOVING the key like every web default). */
+    var inviteDomain by mutableStateOf(
+        platform.pref("velta-invite-domain")?.takeIf { it in INVITE_HOSTS || it in extraInviteHosts } ?: "velta.cc",
+    )
+        private set
+
+    /** Short URL → canonical invite. Memory only.
+     *  ponytail: not persisted; a restart refetches. Persist `velta-short-invites` if that refetch is annoying.
+     *  ponytail: direct GET. Route through proxy_url when a proxy-only network must expand these. */
+    var shortInvites by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+    var shortFailed by mutableStateOf<Set<String>>(emptySet())
+        private set
+    private var shortBusy by mutableStateOf<Set<String>>(emptySet())
+    private var shortJoin by mutableStateOf<Set<String>>(emptySet())
+
+    fun inviteDomains(): List<String> = INVITE_HOSTS + extraInviteHosts.filter { it !in INVITE_HOSTS }
+
+    fun onAddInviteHost(raw: String): Boolean {
+        val clean = normalizeInviteHost(raw) ?: return false
+        if (clean !in INVITE_HOSTS && clean !in extraInviteHosts) {
+            extraInviteHosts = extraInviteHosts + clean
+            persistExtraHosts()
+            showToast(L.t("{host} added").replace("{host}", clean))
+        }
+        return true
+    }
+
+    fun onRemoveInviteHost(host: String) {
+        if (host in INVITE_HOSTS) return
+        extraInviteHosts = extraInviteHosts.filter { it != host }
+        persistExtraHosts()
+        if (inviteDomain == host) onSetInviteDomain("velta.cc")
+    }
+
+    private fun persistExtraHosts() {
+        recognizedExtraHosts = extraInviteHosts.toSet()
+        platform.setPref("velta-invite-hosts", encodeExtraHosts(extraInviteHosts))
+    }
+
+    fun expandShortInvite(url: String, thenJoin: Boolean = false) {
+        if (!isShortInviteLink(url)) return
+        shortInvites[url]?.let {
+            if (thenJoin) openInviteLink(it)
+            return
+        }
+        if (thenJoin) shortJoin = shortJoin + url
+        if (url in shortBusy) return
+        if (url in shortFailed && !thenJoin) return
+        shortBusy = shortBusy + url
+        shortFailed = shortFailed - url
+        scope.launch {
+            val parsed = runCatching {
+                val (status, body) = httpGet(url)
+                if (status !in 200..299) null else firstInviteIn(inviteCandidates(body))
+            }.getOrNull()
+            shortBusy = shortBusy - url
+            if (parsed != null) {
+                shortInvites = shortInvites + (url to parsed)
+                shortFailed = shortFailed - url
+                if (url in shortJoin) openInviteLink(parsed)
+            } else {
+                shortFailed = shortFailed + url
+                if (url in shortJoin) showToast(L.t("Could not expand this short invite link"))
+            }
+            shortJoin = shortJoin - url
+        }
+    }
+
     fun onSetInviteDomain(domain: String) {
-        if (domain !in INVITE_HOSTS) return
+        if (domain !in INVITE_HOSTS && domain !in extraInviteHosts) return
         inviteDomain = domain
         platform.setPref("velta-invite-domain", if (domain == "velta.cc") null else domain)
     }
@@ -499,7 +568,7 @@ class AppModel(
     var chatMessages by mutableStateOf<List<MessageObject>>(emptyList())
     var chatLoading by mutableStateOf(false)
         private set
-    var senderNames by mutableStateOf<Map<Long, String>>(emptyMap())
+    var senderNames by mutableStateOf<Map<Long, SenderFace>>(emptyMap())
         private set
 
     /** Chat header (web velta-chat-head): avatar inputs + the status line.
@@ -3422,6 +3491,7 @@ class AppModel(
         // The web applies the stored language before first paint (i18n.js);
         // the model construction is the KMP equivalent hook.
         L.lang = lang
+        recognizedExtraHosts = extraInviteHosts.toSet()
     }
 
     fun onSetTheme(c: VeltaThemeChoice) {
@@ -3468,7 +3538,7 @@ class AppModel(
                     val fpr = runCatching {
                         identityFingerprintFromEncrInfo(veltaCore.contactEncryptionInfo(id, cid) ?: "")
                     }.getOrNull()
-                    MentionMember(cid, name, fprCode(fpr))
+                    MentionMember(cid, name, fprCode(fpr), c.color, c.profileImage, fpr)
                 }
                 if (accountId == id) chatMembers = chatMembers + (chatId to members)
             } catch (t: Throwable) {
@@ -3583,12 +3653,17 @@ class AppModel(
     private suspend fun loadSenderNames(veltaCore: VeltaCore, accountId: Long, messages: List<MessageObject>) {
         // MERGE into the known map: the paging prepend passes only the older
         // page, and a replace would drop every sender already resolved.
+        // The message payload already carries sender; contact() is only the
+        // fallback when that object was omitted.
         val names = senderNames.toMutableMap()
         for (fromId in messages.map { it.fromId }.distinct()) {
             if (fromId <= 1L) continue // 0/1: special (self/system)
-            val contact: Contact? = runCatching { veltaCore.contact(accountId, fromId) }.getOrNull()
-            val name = contact?.displayName?.ifBlank { contact.name }?.ifBlank { null } ?: continue
-            names[fromId] = name
+            val contact = messages.firstNotNullOfOrNull { if (it.fromId == fromId) it.sender else null }
+                ?: runCatching { veltaCore.contact(accountId, fromId) }.getOrNull()
+                ?: continue
+            val face = senderFace(contact, null, null, "", names[fromId])
+            if (face.name.isEmpty()) continue
+            names[fromId] = face
         }
         senderNames = names
     }

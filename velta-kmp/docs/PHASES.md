@@ -968,3 +968,33 @@ voice/audio/video (`f0ba2583`), image viewer and opening files
 **Still open on #334 step 11:** webxdc. Running an app needs the Tauri
 sandbox server (`webxdc_begin` / `webxdc_end`). A fake viewer would not
 run one, so the issue stays open.
+
+## 2026-11-15 (2) — invite domains, group avatars, chat canvas, QR card sizes
+
+**SHIPPED**
+- **Invite surface, partial.** Settings → Invite link domains stores
+  extra hosts under `velta-invite-hosts` (`ui/InviteSurface.kt`).
+  Builtins stay `velta.cc` / `i.delta.chat` / `i.deltachat.id` /
+  `i.gluek.info`. Card labels and `deltachat.id/<name>` short links
+  (one HTTPS fetch, memory cache, first invite URL in the page) are in.
+  Relay chips on the QR screen remain unported. The 2026-11-14 (4)
+  "MISSING extra user domains" line is the state before this entry.
+- **Group avatars.** An incoming group row (`fromId != 1`) uses
+  `MessageAvatar`: `AvatarTile` kind `"single"`, 42dp, from `senderFace`
+  (wire contact, then the member row, then the cache) — contact color,
+  photo, fingerprint. A missing color is `#888888` (six digits).
+  Member rows in the group profile are the same tile at 36dp. Each
+  incoming row keeps its face.
+- **Chat canvas.** The history `LazyColumn` is `bgChat`. The shell
+  `Surface` is `bgSidebar`. A light incoming bubble is the same
+  `#f4f4f4` as the sidebar, so a transparent history hid it. Bubble
+  tokens and the 1dp shadow stay as generated.
+- **i.delta.chat card.** `InviteQrCard` draws through `qrCardGeom`.
+  Positions (`atX`/`atY`) include the letterbox. Sizes (`sz`) do not.
+  Card 511×626, corner 40, stroke 2, QR origin (57.5, 75), disc
+  (257.5, 275) at radii 56.2 / 47.2. `QrCardTest` pins those at box 630.
+  velta.cc and the mirrors stay on `BrandedQrSquare`. The 2026-11-14 (4)
+  module-size note is the earlier case of the same position-as-size bug.
+
+**Still open:** webxdc, QR relay chips, the rest of #358 after mentions
+and markdown, N4 release signing.

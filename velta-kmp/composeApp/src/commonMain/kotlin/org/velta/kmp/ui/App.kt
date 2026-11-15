@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -1106,18 +1107,17 @@ private fun QrView(model: AppModel) {
                             // mirrors render the branded square QR; the
                             // i.delta.chat tab keeps the core's card.
                             Row(
-                                Modifier.fillMaxWidth(),
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                AppModel.INVITE_HOSTS.forEach { domain ->
+                                model.inviteDomains().forEach { domain ->
                                     val active = model.inviteDomain == domain
                                     Box(
                                         Modifier
-                                            .weight(1f)
                                             .clip(RoundedCornerShape(percent = 50))
                                             .background(if (active) Velta.tokens.accent else Velta.tokens.bgHover)
                                             .clickable { model.onSetInviteDomain(domain) }
-                                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                                            .padding(horizontal = 10.dp, vertical = 5.dp),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Text(
@@ -1833,9 +1833,53 @@ private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: Strin
 }
 
 /**
+ * Pixel layout of the core invite card inside a square box (qr_code_generator.rs:
+ * viewBox 515×630, letterboxed with meet). [sz] values are card units times
+ * scale — never a position helper, which also adds the letterbox inset.
+ */
+internal data class QrCardLayout(
+    val cardX: Float,
+    val cardY: Float,
+    val cardW: Float,
+    val cardH: Float,
+    val corner: Float,
+    val stroke: Float,
+    val qrX: Float,
+    val qrY: Float,
+    val cell: Float,
+    val discX: Float,
+    val discY: Float,
+    val ringR: Float,
+    val discR: Float,
+)
+
+internal fun qrCardGeom(box: Float, modules: Int): QrCardLayout {
+    val s = box / 630f
+    val cardLeft = (box - 515f * s) / 2f
+    fun atX(v: Float) = cardLeft + v * s
+    fun atY(v: Float) = v * s
+    fun sz(v: Float) = v * s
+    return QrCardLayout(
+        cardX = atX(2f),
+        cardY = atY(2f),
+        cardW = sz(511f),
+        cardH = sz(626f),
+        corner = sz(40f),
+        stroke = sz(2f),
+        qrX = atX(57.5f),
+        qrY = atY(75f),
+        cell = sz(400f) / modules,
+        discX = atX(257.5f),
+        discY = atY(275f),
+        ringR = sz(56.2f),
+        discR = sz(47.2f),
+    )
+}
+
+/**
  * The core's invite CARD (qr_code_generator.rs inner_generate_secure_join_qr_code,
  * 515×630) drawn in Compose: #f2f2f2 rounded card with a #c6c6c6 border, the
- * optimally-encoded QR matrix at (57.5,255) scaled 400/size, the bold caption
+ * optimally-encoded QR matrix at (57.5, 75) scaled 400/size, the bold caption
  * (web/core stock string "Scan to chat with {name}", wrapped 32 chars, 27px
  * or 19px), the center identity disc (ring #f2f2f2 r56.2, disc r47.2 in the
  * self contact's color + white letter) and the footer mark (the core inlines
@@ -1876,42 +1920,36 @@ private fun InviteQrCard(model: AppModel) {
         contentAlignment = Alignment.TopCenter,
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val s = size.width / 630f // px per card unit
-            val cardLeft = (size.width - 515f * s) / 2f
-            fun cx(x: Float) = cardLeft + x * s
-            fun cy(y: Float) = y * s
-            // Card: rect x2 y2 511x626 rx40, fill #f2f2f2, stroke #c6c6c6 w2.
+            val g = qrCardGeom(size.width, qr?.size ?: 1)
+            // Card: rect x2 y2 511×626 rx40, fill #f2f2f2, stroke #c6c6c6 w2.
             drawRoundRect(
                 Color(0xFFF2F2F2),
-                topLeft = Offset(cx(2f), cy(2f)),
-                size = androidx.compose.ui.geometry.Size(cx(511f), cy(626f)),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cx(40f)),
+                topLeft = Offset(g.cardX, g.cardY),
+                size = androidx.compose.ui.geometry.Size(g.cardW, g.cardH),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(g.corner),
             )
             drawRoundRect(
                 Color(0xFFC6C6C6),
-                topLeft = Offset(cx(2f), cy(2f)),
-                size = androidx.compose.ui.geometry.Size(cx(511f), cy(626f)),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cx(40f)),
-                style = Stroke(width = cx(2f)),
+                topLeft = Offset(g.cardX, g.cardY),
+                size = androidx.compose.ui.geometry.Size(g.cardW, g.cardH),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(g.corner),
+                style = Stroke(width = g.stroke),
             )
             // QR group: translate(57.5, 75), scale 400/size (core L203-208).
             if (qr != null) {
-                val cell = 400f * s / qr.size // SIZE only — cx() includes cardLeft!
-                val qx = cx(57.5f)
-                val qy = cy(75f)
                 for (y in 0 until qr.size) for (x in 0 until qr.size) {
                     if (qr[x, y]) {
                         drawRect(
                             Color.Black,
-                            topLeft = Offset(qx + x * cell, qy + y * cell),
-                            size = androidx.compose.ui.geometry.Size(cell, cell),
+                            topLeft = Offset(g.qrX + x * g.cell, g.qrY + y * g.cell),
+                            size = androidx.compose.ui.geometry.Size(g.cell, g.cell),
                         )
                     }
                 }
             }
             // Identity disc centered on the QR (core L289-303: center (257.5, 275)).
-            drawCircle(Color(0xFFF2F2F2), radius = cx(56.2f), center = Offset(cx(257.5f), cy(275f)))
-            drawCircle(discColor, radius = cx(47.2f), center = Offset(cx(257.5f), cy(275f)))
+            drawCircle(Color(0xFFF2F2F2), radius = g.ringR, center = Offset(g.discX, g.discY))
+            drawCircle(discColor, radius = g.discR, center = Offset(g.discX, g.discY))
         }
         // Caption block (bold, black, centered; first baseline y=515+shift).
         Text(
@@ -2125,30 +2163,32 @@ private fun AvatarTile(
                 modifier = Modifier.size(size * 0.55f),
                 tint = androidx.compose.ui.graphics.Color.White,
             )
-        } else if (cells != null) {
-            Column(Modifier.fillMaxSize()) {
-                listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
-                    Row(Modifier.weight(1f)) {
-                        range.forEach { i ->
-                            val (_, rgb) = cells[i]
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(
-                                        color = androidx.compose.ui.graphics.Color(
-                                            rgb[0], rgb[1], rgb[2],
+        } else {
+            if (cells != null) {
+                Column(Modifier.fillMaxSize()) {
+                    listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
+                        Row(Modifier.weight(1f)) {
+                            range.forEach { i ->
+                                val (_, rgb) = cells[i]
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .background(
+                                            color = androidx.compose.ui.graphics.Color(
+                                                rgb[0], rgb[1], rgb[2],
+                                            ),
                                         ),
-                                    ),
-                            )
+                                )
+                            }
                         }
                     }
                 }
             }
-            if (photoBitmap != null) {
-                // Web avatar.js: a single contact's photo sits ON the matrix —
-                // inset 19.17%, 2.5% padding, #1c1c1c ring, radius 24.3% (main.css:1754).
-                Box(
+            when {
+                // Web <velta-avatar kind="single">: the photo is inset on the
+                // matrix, or on the contact color until the fingerprint arrives.
+                photoBitmap != null && kind == "single" -> Box(
                     Modifier
                         .fillMaxSize()
                         .padding(size * 0.1917f)
@@ -2163,16 +2203,19 @@ private fun AvatarTile(
                         contentScale = ContentScale.Crop,
                     )
                 }
+                photoBitmap != null -> Image(
+                    photoBitmap,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                cells == null -> Text(
+                    prismInitials(name),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = (size.value * 0.38f).sp,
+                    color = Color(0xFFF4F4F4),
+                )
             }
-        } else if (photoBitmap != null) {
-            Image(
-                photoBitmap,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            Text(prismInitials(name), fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -2368,14 +2411,30 @@ private fun prismTileColor(name: String): androidx.compose.ui.graphics.Color {
     return androidx.compose.ui.graphics.Color(c[0], c[1], c[2])
 }
 
-/** Prism sender color: the person color nudged to read on the bubble surface. */
-private fun prismSenderColor(name: String, bg: androidx.compose.ui.graphics.Color): androidx.compose.ui.graphics.Color {
+/** Sender-name ink: the contact color when we have one, else the name hash.
+ *  Light bubbles darken (web --sender-light); dark and brutal lighten. */
+private fun prismSenderColor(
+    name: String,
+    bg: androidx.compose.ui.graphics.Color,
+    colorHex: String? = null,
+    lighten: Boolean = true,
+): androidx.compose.ui.graphics.Color {
     val bgRgb = intArrayOf(
         (bg.red * 255.0).roundToInt(),
         (bg.green * 255.0).roundToInt(),
         (bg.blue * 255.0).roundToInt(),
     )
-    val c = prismSender(name, bgRgb)
+    val parsed = colorHex?.let { runCatching { Accent.toColor(it) }.getOrNull() }
+    val base = if (parsed != null) {
+        intArrayOf(
+            (parsed.red * 255.0).roundToInt(),
+            (parsed.green * 255.0).roundToInt(),
+            (parsed.blue * 255.0).roundToInt(),
+        )
+    } else {
+        prismFill(name)
+    }
+    val c = prismReadableOn(base, bgRgb, 4.6, if (lighten) 1 else -1)
     return androidx.compose.ui.graphics.Color(c[0], c[1], c[2])
 }
 
@@ -2505,6 +2564,38 @@ private fun SettingsScreen(model: AppModel) {
             ) {
                 Checkbox(checked = model.mentionInMuted, onCheckedChange = { model.onSetMentionInMuted(it) })
                 Text(L.t("Notify me when mentioned in muted chats"))
+            }
+            SettingsSection(L.t("Invite link domains"))
+            model.inviteDomains().forEach { host ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(host, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (host !in AppModel.INVITE_HOSTS) {
+                        TextButton(onClick = { model.onRemoveInviteHost(host) }) {
+                            Text(L.t("Remove"))
+                        }
+                    }
+                }
+            }
+            var hostInput by remember { mutableStateOf("") }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = hostInput,
+                    onValueChange = { hostInput = it },
+                    placeholder = { Text("mirror.example.org") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = {
+                    if (model.onAddInviteHost(hostInput)) hostInput = ""
+                    else model.showToast(L.t("Enter a plain hostname, e.g. mirror.example.org"))
+                }) { Text(L.t("Add")) }
             }
             SettingsSection(L.t("Language"))
             L.LANGS.forEach { (code, nativeName) ->
@@ -2734,6 +2825,10 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                // Web .main / .history-scroll are --bg-chat. The shell surface
+                // is --bg-sidebar, and incoming bubbles share that color in
+                // light (#f4f4f4) and nearly share it in dark (#181820 vs #1c1c26).
+                .background(Velta.tokens.bgChat)
                 .onSizeChanged { listWidthPx = it.width }
                 .graphicsLayer { translationX = backDx }
                 .pointerInput(Unit) {
@@ -2797,12 +2892,25 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     // Web .service-msg: system/info messages are mono pills,
                     // not bubbles.
                     is ChatRow.Message if row.message.isInfo -> ServiceMessage(row.message)
-                    is ChatRow.Message -> MessageBubble(
-                        message = row.message,
-                        senderName = if (chat.isGroup) model.senderNames[row.message.fromId] else null,
-                        members = model.chatMembers[chat.chatId] ?: emptyList(),
-                        model = model,
-                    )
+                    is ChatRow.Message -> {
+                        val members = model.chatMembers[chat.chatId].orEmpty()
+                        MessageBubble(
+                            message = row.message,
+                            sender = if (chat.isGroup && row.message.fromId != 1L) {
+                                senderFace(
+                                    row.message.sender,
+                                    members.find { it.id == row.message.fromId },
+                                    null,
+                                    L.t("Unknown"),
+                                    model.senderNames[row.message.fromId],
+                                )
+                            } else {
+                                null
+                            },
+                            members = members,
+                            model = model,
+                        )
+                    }
                 }
             }
         }
@@ -2923,7 +3031,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     // Long-press sheet + the flows its items open (#334 step 5).
     MessageSheetHost(model)
     ForwardPicker(model) { item, onClick -> ContactLikeChatRow(item, subSize = 14.sp, onClick = onClick) }
-    MessageInfoDialog(model) { id -> model.senderNames[id] }
+    MessageInfoDialog(model) { id -> model.senderNames[id]?.name }
     SelectTextDialog(model)
     DeleteMessagesDialog(model)
 }
@@ -3194,6 +3302,15 @@ private fun GroupManageBlock(model: AppModel, p: AppModel.ProfileData) {
                     Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    AvatarTile(
+                        name = m.name,
+                        colorHex = m.color,
+                        kind = "single",
+                        size = 36.dp,
+                        identityFpr = m.fingerprint,
+                        avatarPath = m.avatarPath,
+                    )
+                    Spacer(Modifier.size(10.dp))
                     Text(m.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (canRemoveMember(menu, m.id)) {
                         TextButton(onClick = { model.askRemoveMember(m) }) { Text(L.t("Remove member")) }
@@ -3596,43 +3713,79 @@ private fun StickerPicker(
     }
 }
 
-/** Web .invite-card (invites.js): the whole card is the join button. */
+/** Web .invite-card: the text joins, the icons copy and share the link. */
 @Composable
-private fun InviteCard(url: String, onJoin: () -> Unit) {
+private fun InviteCard(
+    title: String,
+    sub: String,
+    link: String,
+    model: AppModel,
+    onJoin: () -> Unit,
+) {
     val dark = isSystemInDarkTheme()
     val bg = if (dark) Color(0x0FF4F4F4) else Color(0x0D101010)
+    val clipboard = LocalClipboardManager.current
     Row(
         Modifier
             .fillMaxWidth()
             .padding(top = 5.dp)
             .background(bg, RoundedCornerShape(10.dp))
-            .border(1.dp, Velta.tokens.border, RoundedCornerShape(10.dp))
-            .clickable(onClick = onJoin),
+            .border(1.dp, Velta.tokens.border, RoundedCornerShape(10.dp)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f).padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+        Column(
+            Modifier
+                .weight(1f)
+                .clickable(onClick = onJoin)
+                .padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        ) {
             Text(
-                L.t("Join"),
+                title,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
                 lineHeight = (15f * 1.35f).sp,
                 color = Velta.tokens.text,
             )
-            Text(
-                url,
-                fontSize = 13.sp,
-                color = Velta.tokens.textDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            if (sub.isNotEmpty()) {
+                Text(
+                    sub,
+                    fontSize = 13.sp,
+                    color = Velta.tokens.textDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Icon(
+            VeltaIcons.copy,
+            contentDescription = L.t("Copy invite link"),
+            modifier = Modifier
+                .size(36.dp)
+                .clickable {
+                    clipboard.setText(AnnotatedString(link))
+                    model.showToast(L.t("Invite link copied"))
+                }
+                .padding(7.dp),
+            tint = Velta.tokens.textDim,
+        )
+        if (model.shareText != null) {
+            Icon(
+                VeltaIcons.share,
+                contentDescription = L.t("Share invite link"),
+                modifier = Modifier
+                    .size(36.dp)
+                    .clickable { model.shareText?.invoke(link) }
+                    .padding(7.dp),
+                tint = Velta.tokens.textDim,
             )
         }
         Icon(
             VeltaIcons.chevronRight,
             contentDescription = null,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(22.dp).clickable(onClick = onJoin),
             tint = Velta.tokens.textDim,
         )
-        Spacer(Modifier.size(10.dp))
+        Spacer(Modifier.size(6.dp))
     }
 }
 
@@ -3664,7 +3817,7 @@ private fun Modifier.tapOpens(onTap: () -> Unit): Modifier = composed {
 @Composable
 private fun MessageBubble(
     message: MessageObject,
-    senderName: String?,
+    sender: SenderFace?,
     members: List<MentionMember>,
     model: AppModel,
 ) {
@@ -3823,14 +3976,14 @@ private fun MessageBubble(
     BoxWithConstraints(Modifier.weight(1f)) {
     // Stable .msg-row is full width (.out: flex-end), the BUBBLE caps at
     // min(480px, 90%) (- 50px with the avatar) — #334 bug 13.
-    val bubbleMax = bubbleMaxWidth(maxWidth.value, withAvatar = !outgoing && senderName != null).dp
+    val bubbleMax = bubbleMaxWidth(maxWidth.value, withAvatar = sender != null).dp
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
-        verticalAlignment = if (!outgoing && senderName != null) Alignment.Bottom else Alignment.Top,
+        verticalAlignment = if (sender != null) Alignment.Bottom else Alignment.Top,
     ) {
-        if (!outgoing && senderName != null) {
-            MessageAvatar(senderName)
+        if (sender != null) {
+            MessageAvatar(sender)
             Spacer(Modifier.size(8.dp))
         }
         Column(Modifier.widthIn(max = bubbleMax), horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start) {
@@ -3873,15 +4026,20 @@ private fun MessageBubble(
                         else PaddingValues(start = 10.dp, end = 10.dp, top = 7.dp, bottom = 6.dp),
                     ),
                 ) {
-                    if (!outgoing && senderName != null) {
+                    if (sender != null) {
                         // Web .msg-sender: 13.5px, semibold, person color —
                         // lives INSIDE the bubble (stickers included; the
                         // transparent bubble lets it float).
                         Text(
-                            senderName,
+                            sender.name,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = prismSenderColor(senderName, tokens.bgBubbleIn),
+                            color = prismSenderColor(
+                                sender.name,
+                                tokens.bgBubbleIn,
+                                sender.colorHex,
+                                lighten = themeMode != VeltaThemeMode.Light,
+                            ),
                             modifier = Modifier.padding(bottom = 2.dp),
                         )
                     }
@@ -4005,6 +4163,12 @@ private fun MessageBubble(
                                         // joins instead of opening the
                                         // browser (md-link invites stay
                                         // anchors — web's invite-card rule).
+                                        // A deltachat.id short link expands
+                                        // first, then joins.
+                                        if (isShortInviteLink(a.item)) {
+                                            model.expandShortInvite(a.item, thenJoin = true)
+                                            return@detectTapGestures
+                                        }
                                         val invite = parseInviteLink(a.item)
                                         if (invite != null) model.openInviteLink(invite)
                                         else model.openHttp?.invoke(a.item) ?: runCatching { uriHandler.openUri(a.item) }
@@ -4016,7 +4180,25 @@ private fun MessageBubble(
                         // Invite cards ride under the text like the web's
                         // inviteCardHtml: one card per INVITE annotation.
                         annotated.getStringAnnotations(ANN_INVITE, 0, annotated.length).forEach { a ->
-                            InviteCard(a.item) { model.openInviteLink(a.item) }
+                            val label = inviteLabel(a.item)
+                            InviteCard(label.title, label.sub, a.item, model) { model.openInviteLink(a.item) }
+                        }
+                        findShortInviteLinks(message.text).forEach { url ->
+                            val expanded = model.shortInvites[url]
+                            if (expanded == null && url !in model.shortFailed) {
+                                LaunchedEffect(url) { model.expandShortInvite(url) }
+                            }
+                            when (val link = expanded) {
+                                null -> if (url !in model.shortFailed) {
+                                    InviteCard(L.t("Expanding invite…"), url, url, model) {
+                                        model.expandShortInvite(url, thenJoin = true)
+                                    }
+                                }
+                                else -> {
+                                    val label = inviteLabel(link)
+                                    InviteCard(label.title, label.sub, link, model) { model.openInviteLink(link) }
+                                }
+                            }
                         }
                     }
                     Row(
@@ -4081,23 +4263,17 @@ private fun MessageBubble(
     }
 }
 
-/** Web <velta-avatar size="42">: Prism tile, 22% radius, initials. */
+/** Web <velta-avatar size="42" kind="single"> for an incoming group sender. */
 @Composable
-private fun MessageAvatar(name: String) {
-    Box(
-        Modifier
-            .size(42.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(prismTileColor(name)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            prismInitials(name),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFFF4F4F4),
-        )
-    }
+private fun MessageAvatar(sender: SenderFace) {
+    AvatarTile(
+        name = sender.name,
+        colorHex = sender.colorHex,
+        kind = "single",
+        size = 42.dp,
+        identityFpr = sender.fingerprint,
+        avatarPath = sender.avatarPath,
+    )
 }
 
 /** Web .velta-video-size/.velta-video-dur chip: 12px on rgba(11,11,16,.86). */

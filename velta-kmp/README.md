@@ -60,18 +60,22 @@ part of #334 step 11: they need the shipping app's sandbox server.
   bot flags), the full #329 bottom action bar and the side views it
   toggles: Contacts (`get_contacts` + "Show only known contacts"), Calls
   (local ended-call log), Your QR code (the Tauri look: per-domain tabs —
-  velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info — with the
-  white branded square QR + dark V badge for velta.cc's `/join/?…`
-  universal links and the core's invite card for i.delta.chat, copy/share),
+  velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info, plus extra
+  hosts from Settings → Invite link domains — with the white branded
+  square QR + dark V badge for velta.cc's `/join/?…` universal links
+  and the core's 515×630 invite card for i.delta.chat, copy/share),
   Search (live filter +
   Archived tab), and Start something (new chat / group / channel with
   real create flows, join invite, add relay, add account); chat view
-  (day separators, sender names in groups, media, quote blocks with
+  (day separators, sender names in groups beside a 42dp kind-single
+  avatar — contact color, photo, and fingerprint; member rows are 36dp —
+  history on `--bg-chat`, media, quote blocks with
   tap-to-jump (older history loads first, like stable), **Search in
   chat** (header search button or a tapped #hashtag: core fulltext, the
   newest 30 hits, a hit jumps to the message), markdown: bold/italic/underline/code-click-to-copy,
-  links, bare links, @mentions, hashtags, invite cards that route to
-  the Join flow), composer with drafts, the attach menu (Photo / Video /
+  links, bare links, @mentions, hashtags, invite cards (a deltachat.id
+  short link is fetched once) that route to the Join flow), composer
+  with drafts, the attach menu (Photo / Video /
   Camera / File / Stickers — camera capture via FileProvider), quick
   reactions, sticker picker, and delivery-state glyphs. Chat rows carry
   the web anatomy: 22%-radius avatar tiles (identity matrix, saved/device
@@ -96,9 +100,10 @@ part of #334 step 11: they need the shipping app's sandbox server.
   handlers, touch form factors only.
 - **Settings** — appearance: theme (Auto/Dark/Light/Brutal), the
   "Pure black (AMOLED)" flag, custom accent color (WCAG-checked
-  derivation, 8 presets + custom hex), and language (English /
-  Français / Русский, applied live). Settings persist per platform
-  under the same keys the web app uses.
+  derivation, 8 presets + custom hex), language (English /
+  Français / Русский, applied live), and Invite link domains (extra
+  hosts under `velta-invite-hosts`; the four builtins stay). Settings
+  persist per platform under the same keys the web app uses.
 - **Security** — database encryption at rest (Keystore-wrapped DEK →
   `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext);
   optional app lock (Settings → App lock: strong biometric/device-credential — locked = the

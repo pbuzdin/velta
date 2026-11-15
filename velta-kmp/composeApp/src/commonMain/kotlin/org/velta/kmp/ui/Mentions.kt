@@ -6,7 +6,53 @@ package org.velta.kmp.ui
  * code) and plain "@Name". "@" must start a word — not glued to a
  * letter/digit or an e-mail/handle character.
  */
-data class MentionMember(val id: Long, val name: String, val code: String)
+data class MentionMember(
+    val id: Long,
+    val name: String,
+    val code: String,
+    val color: String? = null,
+    val avatarPath: String? = null,
+    val fingerprint: String? = null,
+)
+
+/** What a group-message row paints: contact color + photo, member fingerprint. */
+data class SenderFace(
+    val name: String,
+    val colorHex: String?,
+    val avatarPath: String?,
+    val fingerprint: String?,
+)
+
+/**
+ * Incoming group sender. Wire contact wins, then the member row, then the
+ * name cache. Missing color is the web fallback #888.
+ */
+internal fun senderFace(
+    sender: org.velta.kmp.core.Contact?,
+    member: MentionMember?,
+    cachedName: String?,
+    fallbackName: String,
+    cached: SenderFace? = null,
+): SenderFace {
+    val name = sender?.displayName?.ifBlank { sender.name }?.ifBlank { sender.address }?.ifBlank { null }
+        ?: member?.name?.ifBlank { null }
+        ?: cachedName?.ifBlank { null }
+        ?: cached?.name?.ifBlank { null }
+        ?: fallbackName
+    val color = hex6(sender?.color) ?: hex6(member?.color) ?: hex6(cached?.colorHex) ?: "#888888"
+    val path = sender?.profileImage?.takeIf { it.isNotBlank() }
+        ?: member?.avatarPath?.takeIf { it.isNotBlank() }
+        ?: cached?.avatarPath?.takeIf { it.isNotBlank() }
+    val fpr = member?.fingerprint?.takeIf { it.isNotBlank() }
+        ?: cached?.fingerprint?.takeIf { it.isNotBlank() }
+    return SenderFace(name, color, path, fpr)
+}
+
+private fun hex6(raw: String?): String? {
+    val s = raw?.trim()?.lowercase() ?: return null
+    if (s.length != 7 || s[0] != '#') return null
+    return if (s.drop(1).all { it in '0'..'9' || it in 'a'..'f' }) s else null
+}
 
 data class MentionRange(
     val start: Int,
