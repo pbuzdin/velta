@@ -89,7 +89,9 @@ class ChatPagingTest {
             withTimeout(10_000) { while (model.screen !is AppModel.Screen.Chat) yield() }
 
             awaitRequests(transport, "get_messages", 1)
-            awaitState { model.hasMoreMessages } // open page processed
+            // loadOlderMessages is a no-op while chatLoading is still true, so
+            // wait for the open load to finish completely (CI race).
+            awaitState { model.hasMoreMessages && !model.chatLoading } // open page processed
             val firstWindow = windowOf(transport, 0)
             assertEquals(AppModel.MESSAGE_PAGE_SIZE, firstWindow.size, "open must fetch the LAST page only")
             assertEquals(totalMessages.toLong(), firstWindow.last(), "the window must cover the NEWEST ids")
@@ -133,7 +135,7 @@ class ChatPagingTest {
             model.openChat(model.chats.first())
             withTimeout(10_000) { while (model.screen !is AppModel.Screen.Chat) yield() }
             awaitRequests(transport, "get_messages", 1)
-            awaitState { model.hasMoreMessages }
+            awaitState { model.hasMoreMessages && !model.chatLoading }
             val openWindowTop = windowOf(transport, 0).first()
             model.loadOlderMessages()
             awaitRequests(transport, "get_messages", 2)
