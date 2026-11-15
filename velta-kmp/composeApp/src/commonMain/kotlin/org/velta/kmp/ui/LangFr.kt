@@ -388,6 +388,7 @@ internal object LangFr {
         "Unarchive" to "Désarchiver",
         "Unblock" to "Débloquer",
         "Undo" to "Annuler",
+        "Unknown" to "Inconnu",
         "Unknown chat" to "Discussion inconnue",
         "Unknown parameter: {name}" to "Paramètre inconnu : {name}",
         "Unlock" to "Déverrouiller",

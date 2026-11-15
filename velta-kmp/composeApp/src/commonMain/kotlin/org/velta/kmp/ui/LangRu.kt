@@ -388,6 +388,7 @@ internal object LangRu {
         "Unarchive" to "Вернуть из архива",
         "Unblock" to "Разблокировать",
         "Undo" to "Отменить",
+        "Unknown" to "Неизвестно",
         "Unknown chat" to "Неизвестный чат",
         "Unknown parameter: {name}" to "Неизвестный параметр: {name}",
         "Unlock" to "Разблокировать",
