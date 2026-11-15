@@ -75,6 +75,7 @@ class RelaysTest {
             assertNull(model.relays[1].metadata)
 
             model.removeRelay("second@other.example")
+            model.answerChatConfirm(true) // #334 step 8: removal is confirmed first
             withTimeout(10_000) {
                 while (true) {
                     val deletedIdx = transport.requests

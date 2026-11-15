@@ -115,6 +115,14 @@ data class ConfirmSpec(
     val args: Map<String, String> = emptyMap(),
 )
 
+/** app.js relay row [data-remove] confirmModal (title carries {addr}). */
+fun relayRemoveConfirm(addr: String) = ConfirmSpec(
+    title = "Remove {addr}?",
+    text = "The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed.",
+    ok = "Remove",
+    args = mapOf("addr" to addr),
+)
+
 /** #145: a group or broadcast must be left before delete_chat. */
 fun deleteChatLeavesFirst(chat: MenuChat): Boolean =
     chat.kind == "group" || chat.chatType == "OutBroadcast" || chat.chatType == "InBroadcast"
