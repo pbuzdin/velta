@@ -177,7 +177,8 @@ internal fun MessageSheetHost(model: AppModel) {
     val close = { model.closeMessageSheet() }
     val openLink: (String) -> Unit = { url ->
         val invite = parseInviteLink(url)
-        if (invite != null) model.openInviteLink(invite) else runCatching { uriHandler.openUri(url) }
+        if (invite != null) model.openInviteLink(invite)
+        else model.openHttp?.invoke(url) ?: runCatching { uriHandler.openUri(url) }
     }
     val copied = L.t("Copied")
     val run: (SheetAction) -> Unit = { a ->

@@ -7,6 +7,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -335,8 +336,43 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    /** This device offers its profile. Blocks until another device takes it. */
+    suspend fun provideBackup(accountId: Long) {
+        client.call("provide_backup", RpcClient.params(RpcClient.param(accountId)), timeoutMs = null)
+    }
+
+    /** QR text for the running [provideBackup]. Blocks until the provider is ready. */
+    suspend fun getBackupQr(accountId: Long): String {
+        val el = client.call("get_backup_qr", RpcClient.params(RpcClient.param(accountId)), timeoutMs = null)
+        val p = el as? JsonPrimitive ?: return ""
+        return if (p.isString) p.content else ""
+    }
+
+    /** Write a backup tar into [destination] (a directory the core can write). */
+    suspend fun exportBackup(accountId: Long, destination: String) {
+        client.call(
+            "export_backup",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(destination), RpcClient.nullParam()),
+            timeoutMs = null,
+        )
+    }
+
+    suspend fun stopOngoingProcess(accountId: Long) {
+        client.call("stop_ongoing_process", RpcClient.params(RpcClient.param(accountId)))
+    }
+
     suspend fun setConfig(accountId: Long, key: String, value: String?) {
         client.call("set_config", RpcClient.params(RpcClient.param(accountId), RpcClient.param(key), RpcClient.param(value)))
+    }
+
+    suspend fun getConfig(accountId: Long, key: String): String? {
+        val el = client.call("get_config", RpcClient.params(RpcClient.param(accountId), RpcClient.param(key)))
+        val p = el as? JsonPrimitive ?: return null
+        return if (p.isString) p.content else null
+    }
+
+    suspend fun maybeNetwork() {
+        client.call("maybe_network")
     }
 
     /** Pre-claims a device-message label so the core never posts it (stable
@@ -461,6 +497,20 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
     /** rpc-core leaveGroup. */
     suspend fun leaveGroup(accountId: Long, chatId: Long) {
         client.call("leave_group", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)))
+    }
+
+    suspend fun removeContactFromChat(accountId: Long, chatId: Long, contactId: Long) {
+        client.call(
+            "remove_contact_from_chat",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(contactId)),
+        )
+    }
+
+    suspend fun setChatName(accountId: Long, chatId: Long, name: String) {
+        client.call(
+            "set_chat_name",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(name)),
+        )
     }
 
     /** rpc-core deleteChat. */

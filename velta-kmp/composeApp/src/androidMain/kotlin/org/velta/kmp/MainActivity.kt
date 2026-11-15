@@ -259,6 +259,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         // Shared with the foreground service: one model, one core, one event loop.
         model = AppHolder.obtain(applicationContext)
+        InAppBrowser.attach(this)
+        model.openHttp = { InAppBrowser.open(it) }
         model.cameraCapture = {
             val out = File(
                 cacheDir,
@@ -280,6 +282,10 @@ class MainActivity : FragmentActivity() {
         }
         model.requestQrScan = { startQrScan() }
         model.backupPicker = { pickBackup.launch(arrayOf("application/x-tar", "application/gzip", "application/octet-stream", "*/*")) }
+        model.backupExportDir = { File(cacheDir, "backup-out").apply { mkdirs() }.absolutePath }
+        model.newestFileIn = { dir ->
+            File(dir).listFiles()?.filter { it.isFile }?.maxByOrNull { it.lastModified() }?.let { it.absolutePath to it.name }
+        }
         model.saveFile = { path, name, mime -> saveToDownloads(path, name, mime) }
         model.openFile = { path, name, mime -> openWithSystem(path, name, mime) }
         model.mediaInLightbox = true
@@ -426,6 +432,11 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         // Returning from the system battery dialog — re-read the exemption.
         model.refreshBattery()
+    }
+
+    override fun onDestroy() {
+        InAppBrowser.detach(this)
+        super.onDestroy()
     }
 
     override fun onStart() {

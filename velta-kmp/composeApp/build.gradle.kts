@@ -51,6 +51,7 @@ kotlin {
         androidMain.get().dependsOn(jvmCommon)
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
+            implementation(libs.androidx.browser)
             implementation(libs.unifiedpush.connector)
             implementation(libs.androidx.biometric)
             implementation(libs.androidx.fragment.ktx)

@@ -162,6 +162,8 @@ fun App(model: AppModel) {
         Surface(modifier = Modifier.fillMaxSize()) {
             if (model.locked) {
                 LockScreen(model)
+            } else if (model.contactPick != null) {
+                PickContactsScreen(model)
             } else {
                 when (val current = model.screen) {
                     AppModel.Screen.Login -> WelcomeScreen(model)
@@ -177,6 +179,8 @@ fun App(model: AppModel) {
             CreatedNotice(model)
             // #334 step 5: chat-list / ⋮ menus, their confirmations, group invite.
             if (!model.locked) ChatMenuHost(model)
+            if (!model.locked && model.renameDraft != null) RenameChatDialog(model)
+            if (!model.locked && model.secondDeviceOpen) SecondDeviceSheet(model)
         }
     }
 }
@@ -286,7 +290,133 @@ private fun AccountsScreen(model: AppModel) {
             item {
                 AppLockRow(model)
             }
+            item { BackupRows(model) }
+            item { ProxyRow(model) }
         }
+    }
+}
+
+/** #334 step 11: this device offers a profile QR, or writes a backup tar. */
+@Composable
+private fun BackupRows(model: AppModel) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !model.secondDeviceOpen) { model.startSecondDevice() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(L.t("Add as a second device…"), modifier = Modifier.weight(1f))
+        }
+        HorizontalDivider()
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = model.backupExportDir != null && !model.backupBusy) { model.exportBackup() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (model.backupBusy) L.t("Exporting…") else L.t("Export backup"),
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/** #334 step 11: paste a velta://proxy link. One URL, every account. */
+@Composable
+private fun ProxyRow(model: AppModel) {
+    var link by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(L.t("SOCKS5 proxy"))
+        Text(
+            if (model.proxyUrl.isNullOrBlank()) L.t("Not set up")
+            else L.t("Mail goes through {name}.").replace("{name}", model.proxyLabel.ifBlank { model.proxyUrl ?: "" }),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = link,
+            onValueChange = { link = it },
+            singleLine = true,
+            placeholder = { Text("velta://proxy") },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        Row {
+            TextButton(onClick = { model.applyProxyLink(link) }, enabled = link.isNotBlank()) {
+                Text(L.t("Add and use"))
+            }
+            if (!model.proxyUrl.isNullOrBlank()) {
+                TextButton(onClick = { model.clearProxy() }) { Text(L.t("Turn off")) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SecondDeviceSheet(model: AppModel) {
+    PlatformBackHandler { model.cancelSecondDevice() }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Velta.tokens.bg)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(16.dp),
+    ) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(L.t("Add as a second device…"), fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.size(12.dp))
+            val qr = model.secondDeviceQr
+            if (qr == null) {
+                Text(L.t("Preparing QR…"))
+            } else {
+                BrandedQrSquare(qr)
+                if (model.shareText != null) {
+                    TextButton(onClick = { model.shareText?.invoke(qr) }) { Text(L.t("Share")) }
+                }
+            }
+            model.transferPercent?.let {
+                Text(L.t("Sending profile"), modifier = Modifier.padding(top = 8.dp))
+            }
+            Text(
+                L.t("On the new device, tap \"Receive a profile on this device\" and scan or paste this code. Keep both devices on this screen until the transfer finishes."),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            model.secondDeviceError?.let {
+                Text(
+                    L.t("Couldn't prepare the transfer:") + " " + it,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            TextButton(onClick = { model.cancelSecondDevice() }, modifier = Modifier.padding(top = 8.dp)) {
+                Text(L.t("Cancel"))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenameChatDialog(model: AppModel) {
+    val initial = model.renameDraft ?: return
+    var name by remember(initial) { mutableStateOf(initial) }
+    VeltaDialog(
+        title = L.t("Rename"),
+        confirmLabel = L.t("Save"),
+        confirmEnabled = groupName(name) != null,
+        onConfirm = { model.commitRename(name) },
+        onDismiss = { model.renameDraft = null },
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            singleLine = true,
+            placeholder = { Text(L.t("Group name")) },
+        )
     }
 }
 
@@ -479,11 +609,6 @@ private fun JoinScreen(model: AppModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatListScreen(model: AppModel) {
-    // The contact picker takes over the screen (web pickContactModal).
-    if (model.contactPick != null) {
-        PickContactsScreen(model)
-        return
-    }
     var searchTab by remember { mutableStateOf("search") }
     var headPx by remember { mutableIntStateOf(0) }
     val headDp = with(LocalDensity.current) { headPx.toDp() }
@@ -1248,7 +1373,9 @@ private fun PickContactsScreen(model: AppModel) {
         }
         KnownToggleRow(model)
         val known = model.knownContactIds()
-        val shown = if (model.knownContactsOnly) model.contacts.filter { it.id in known } else model.contacts
+        val shown = model.visiblePickContacts(
+            if (model.knownContactsOnly) model.contacts.filter { it.id in known } else model.contacts,
+        )
         if (shown.isEmpty()) {
             SideViewEmpty(L.t("Nobody here yet — untick “Show only known contacts” to see everyone."))
         } else {
@@ -3023,9 +3150,49 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
             }
             Spacer(Modifier.size(8.dp))
             HorizontalDivider()
+            GroupManageBlock(model, p)
             profileRows(p)
             Spacer(Modifier.size(24.dp))
         }
+    }
+}
+
+/** #334 step 11: rename, members, add / remove. Full list — virtualize if a group passes a few hundred. */
+@Composable
+private fun GroupManageBlock(model: AppModel, p: AppModel.ProfileData) {
+    val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+    if (!canRename(kind) && kind != "group") return
+    val menu = MenuChat(p.chatId, p.chatName, kind, p.chatType, groupAdminId = p.groupAdminId)
+    Column(Modifier.fillMaxWidth()) {
+        if (canRename(kind)) {
+            TextButton(onClick = { model.beginRename() }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(L.t("Rename"))
+            }
+        }
+        if (kind == "group") {
+            Text(
+                L.t("Members"),
+                style = MaterialTheme.typography.labelMedium,
+                color = Velta.tokens.textDim,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp).align(Alignment.Start),
+            )
+            val members = model.chatMembers[p.chatId].orEmpty()
+            members.forEach { m ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(m.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (canRemoveMember(menu, m.id)) {
+                        TextButton(onClick = { model.askRemoveMember(m) }) { Text(L.t("Remove member")) }
+                    }
+                }
+            }
+            if (canAddMembers(menu)) {
+                TextButton(onClick = { model.startAddMembers() }) { Text(L.t("Add members")) }
+            }
+        }
+        HorizontalDivider()
     }
 }
 
@@ -3796,7 +3963,7 @@ private fun MessageBubble(
                                         // anchors — web's invite-card rule).
                                         val invite = parseInviteLink(a.item)
                                         if (invite != null) model.openInviteLink(invite)
-                                        else runCatching { uriHandler.openUri(a.item) }
+                                        else model.openHttp?.invoke(a.item) ?: runCatching { uriHandler.openUri(a.item) }
                                         return@detectTapGestures
                                     }
                                 }

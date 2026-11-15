@@ -3,8 +3,8 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-13):** work in progress (#192); the Tauri app remains
-Velta's shipping Android app.
+**Status (2026-11-15):** work in progress (#192); the Tauri app remains
+Velta's shipping Android app. #334 step 11 is in except webxdc.
 N1 (Prism + fingerprint identity matrix), N2 (conversation notifications,
 RPC timeout/recovery, shim teardown, chat paging), and N3 (glass on the
 composer and header) are in, and the **#321 visual shell is complete —
@@ -22,7 +22,8 @@ signed with the shared `composeApp/debug.keystore` and take epoch minutes
 at build time as versionCode — one clock for CI and local builds, so the
 newest build installs over any older one; ABI splits keep the phone APK
 ~28 MB, and every CI APK carries the core shim (#334). See [docs/PHASES.md](docs/PHASES.md)
-for the per-phase ledger and what's left.
+for the per-phase ledger and what's left. Webxdc apps are the open
+part of #334 step 11: they need the shipping app's sandbox server.
 
 | Surface | Codebase | Status |
 |---|---|---|
@@ -49,6 +50,11 @@ for the per-phase ledger and what's left.
   confirm; the last relay cannot be removed).
 - **Accounts** — Menu → Accounts switcher; the core's selected account persists across
   restarts (probed), so the choice survives with zero local storage.
+  **Add as a second device** shows a backup QR until the other device
+  takes it (cancel stops the transfer). **Export backup** writes a tar
+  and asks where to save it. **SOCKS5 proxy**: paste a `velta://proxy`
+  link; mail on every account goes through that server until you turn
+  it off. There is no saved-proxy list (the shipping app has that).
 - **Messaging** — chat list with the #57 category chips (All / Unread /
   People / Groups / Channels / Bots / System, persisted selection, lazy
   bot flags), the full #329 bottom action bar and the side views it
@@ -80,7 +86,10 @@ for the per-phase ledger and what's left.
   1×/1.5×/2×, "00:03 / 00:04"); attach → Voice message records AAC
   (.m4a) with Cancel / Send; tap a file to open it in another app (an original-named copy via
   FileProvider; "No app can open this file" offers Save as…; HTML opens
-  as plain text). **Touch
+  as plain text). **Links** on Android open in a Custom Tab inside
+  Velta (an in-app page when the phone has no Custom Tab provider);
+  desktop opens the system browser. Invites still join instead of
+  browsing. **Touch
   gestures**: swipe the chat list left/right to step through the category
   chips, swipe a bubble right to reply (haptic at the commit line), swipe
   the history left to go back — thresholds ported from the web's touch
@@ -106,7 +115,9 @@ for the per-phase ledger and what's left.
   notifier still pending); battery-allowance row for OEM savers.
 - **Profile** — the contact sheet: fingerprint identity matrix (or Prism
   tile), media counts, profile key, last seen, notifications and
-  disappearing-messages state, block/unblock.
+  disappearing-messages state, block/unblock. A group profile can
+  rename the group, list members, add members, and remove someone
+  other than yourself (in an admin group, only the admin).
 - **Notifications** — one conversation card per account + chat on a
   Messages channel, for every account (events route by `contextId`);
   muted chats are skipped, and the open chat only while the app is

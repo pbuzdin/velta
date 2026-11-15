@@ -54,9 +54,14 @@ a numbered version or move the tag to include it.
   on the composer and header, theme tokens + 96 web-parity icons +
   stable composer/header + bubbles/quote/markdown/list rows + appearance
   settings (themes, custom accent, en/ru/fr) + attach menu + the
-  chat-list bottom bar. Next is N4 (release signing; KMP builds as
-  `org.velta.kmp`, `org.velta` is the shipping Tauri app); still open: #323–#329 fidelity follow-ups, relay-side
-  UnifiedPush delivery, ktlint/detekt.
+  chat-list bottom bar. #329 is closed. #334 step 11 is in except
+  webxdc: search in chat, image/file open, in-app video and voice,
+  group rename/add/remove, second-device QR and export backup, SOCKS5
+  via `velta://proxy`, and Android message links in a Custom Tab
+  (in-app page when the device has no provider). Next is N4 (release
+  signing; KMP builds as `org.velta.kmp`, `org.velta` is the shipping
+  Tauri app); still open: #323–#328 fidelity follow-ups, webxdc,
+  relay-side UnifiedPush delivery, ktlint/detekt.
   `build-kmp.yml` builds and tests on every master push touching
   `velta-kmp/**` or `core/**`: the `shim` job builds the core `.so` for
   arm64-v8a + x86_64, the `build` job bundles it into jniLibs, fails if

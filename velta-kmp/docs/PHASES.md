@@ -1,7 +1,7 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-14 after the review-fix round,
-touch-gesture port, and chat-header port. Every phase lists what SHIPPED,
+Tracking issue #192. Updated 2026-11-15 after #334 step 11 (search,
+media, groups, backup, proxy, in-app links). Every phase lists what SHIPPED,
 how it was VERIFIED, and what is still MISSING — no "done" without the
 gaps next to it.
 
@@ -23,7 +23,12 @@ corrected to invites.js semantics (canonical i.delta.chat links, 40-hex
 on both forms, safe percent-decode). **2026-11-14: the main screen now
 matches web stable end to end — #57 category chips + the full #329 bar
 with Contacts / Calls / QR / Search / Start-something side views (see
-the 2026-11-14 entry).**
+the 2026-11-14 entry).** **2026-11-15, #334 step 11:** search in chat,
+image viewer and opening files, in-app video and voice/audio, group
+rename/add/remove, second-device QR plus export backup, and a
+`velta://proxy` paste on Accounts. Message links on Android stay in a
+Custom Tab (in-app page if the device has no provider). **Webxdc is
+still out** — it needs the Tauri sandbox server.
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate.
@@ -40,8 +45,9 @@ the 2026-11-14 entry).**
   New-chat side views shipped (see the 2026-11-14 ledger entry).
 
 **P4 leftovers (small):**
-1. Video/audio playback in bubbles (images already render).
-2. Brand logo assets (app icon, in-app mark).
+1. Webxdc apps (the Tauri `webxdc_serve` sandbox is not in this client).
+2. Storage and Chats-in-common profile rows.
+3. Brand logo assets (app icon, in-app mark).
 
 **P5 — release track (slice 1 done):**
 1. Production keystore + distribution channel decision (release lane
@@ -520,9 +526,10 @@ logcat visibility, `RpcException` codes could distinguish timeouts in UI.
   `adjustNothing` plus one `ime` union `navigationBars` padding.
 
 **Missing / next (N4):** background delivery of notifications still needs
-the relay-side UnifiedPush notifier. Still open on the client: Storage
-and Chats-in-common profile rows, video/audio playback, the brand app
+the relay-side UnifiedPush notifier. Still open on the client: webxdc,
+Storage and Chats-in-common profile rows, the brand app
 icon, ktlint/detekt, and N4 (release keystore; KMP stays `org.velta.kmp`, `org.velta` is the shipping Tauri app).
+Video, voice, and file open shipped with #334 step 11.
 
 ## 2026-11-12 — #321 step 2: web-parity icons, emoji buttons dropped
 
@@ -592,7 +599,6 @@ picker (misc_get_stickers packs, send_sticker). Tests pin bare-link
 tiers, mention resolution (both forms), invite annotation, and that
 non-https never links.
 
-<<<<<<< HEAD
 ## 2026-11-13 — step 4 fidelity fixes: invites.js semantics pinned
 
 The web-parity audit of the step-4 completion found three places where the
@@ -873,7 +879,8 @@ CI-green; phone-verified on the vivo):**
   device messages / bot / last seen {when}) via AppModel.chatHead (sync
   list-item data + async fullChat/contact), info zone + menu dots open
   the Profile for ALL chats. Still missing vs web: typing indicator
-  (#332), online flag (no KMP contact field), in-chat search.
+  (#332) and an online flag (no KMP contact field). Search in chat
+  shipped with #334 step 11.
 
 ## 2026-11-14 (4) — QR view = Tauri look (domain tabs + branded square) + Loop lift M1
 
@@ -918,3 +925,41 @@ P2P local groups — the two remaining "no KMP counterpart" features).
 `velta-invite-hosts`) — builtins only; #102 "delayed" strip state (no
 send-failure feed); relay-detail chips ported by the parallel session's
 gesture round (documented in AGENTS).
+
+## 2026-11-15 — #334 step 11 remainder + in-app links
+
+Already on master before this entry: search in chat (`13cd7d37`),
+voice/audio/video (`f0ba2583`), image viewer and opening files
+(`21c7d454`). This entry is the rest of the app-layer slice.
+
+**SHIPPED**
+- **Groups** — profile: rename (`set_chat_name`, groups and channels),
+  member list, add (the contact picker), remove. Self is not removed
+  (Leave does that). Inside an admin group only the admin
+  (`groupAdminId == 1`) may add or remove. `FullChat.groupAdminId` is
+  JSON `null` on a normal group; reading `JsonPrimitive.content` throws
+  and used to drop the whole profile.
+- **Second device and export** — Accounts offers a backup QR
+  (`provide_backup` + `get_backup_qr`, cancel = `stop_ongoing_process`)
+  and Export backup (a tar in a cache dir, then the platform save
+  dialog). Welcome already receives a code and restores a file.
+  Those four RPCs plus `get_backup` / `import_backup` opt out of the
+  30s RPC timeout.
+- **SOCKS5** — paste a `velta://proxy` link (`ui/ProxyRules.kt`, the
+  `app/js/proxy.js` parser plus the socks5 URL from `proxy_store.rs`).
+  `proxy_url` / `proxy_enabled` are written on every account, then
+  `maybe_network`. There is no saved-proxy list (that keeper is the
+  Tauri shell). Labels are not NFC-normalized. The IPv6 check has no
+  IPv4-tail form.
+- **Android links** — a message http(s) link opens a Custom Tab from
+  the Activity (`androidx.browser` 1.8.0). The default browser wins
+  when it hosts tabs (`pickCustomTabProvider`); the manifest `<queries>`
+  block is what makes that provider visible on API 30+. No provider,
+  or a failed launch, opens a second WebView with no JS bridge and no
+  file access. mailto/tel/market leave that page; other schemes are
+  dropped. The arrow is the way out to the system browser. Desktop
+  still uses the system browser. Invites still go to Join.
+
+**Still open on #334 step 11:** webxdc. Running an app needs the Tauri
+sandbox server (`webxdc_begin` / `webxdc_end`). A fake viewer would not
+run one, so the issue stays open.

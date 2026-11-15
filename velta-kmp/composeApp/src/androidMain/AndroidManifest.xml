@@ -17,6 +17,19 @@
     <!-- Voice messages (#334 step 11): the mic only while recording. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Custom Tabs (InAppBrowser): without these, package visibility hides
+         every provider on API 30+ and a link opens as a full browser task. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:label="Velta KMP"
         android:icon="@mipmap/ic_launcher"

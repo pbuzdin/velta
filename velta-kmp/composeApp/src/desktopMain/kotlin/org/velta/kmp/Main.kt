@@ -29,6 +29,12 @@ fun main() = application {
         // result into its own scope. The scope's `window` is the ComposeWindow
         // (a java.awt.Frame).
         val awtFrame = window as java.awt.Frame
+        model.backupExportDir = {
+            File(System.getProperty("java.io.tmpdir"), "velta-backup").apply { mkdirs() }.absolutePath
+        }
+        model.newestFileIn = { dir ->
+            File(dir).listFiles()?.filter { it.isFile }?.maxByOrNull { it.lastModified() }?.let { it.absolutePath to it.name }
+        }
         model.attachmentPicker = {
             Thread {
                 val dialog = FileDialog(awtFrame, "Attach file", FileDialog.LOAD)

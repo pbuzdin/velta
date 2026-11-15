@@ -268,6 +268,9 @@ class AppModel(
     /** Platform-injected share (Android ACTION_SEND); null = no Share button (web canShareLink). */
     var shareText: ((String) -> Unit)? = null
 
+    /** Android message links: Custom Tab, else an in-app page. Null = system browser (desktop). */
+    var openHttp: ((String) -> Unit)? = null
+
     // ---- Archived (the search view's tab + the list-end link row). ----
     var archivedChats by mutableStateOf<List<ChatListItem>>(emptyList())
         private set
@@ -331,6 +334,7 @@ class AppModel(
                 pickedMembers = picked
                 showGroupNameDialog = true
             }
+            "members" -> addMembers(picked)
         }
         pendingPickFlow = null
     }
@@ -338,6 +342,13 @@ class AppModel(
     fun cancelContactPick() {
         contactPick = null
         pendingPickFlow = null
+    }
+
+    /** Hide people already in the group when the picker is adding members. */
+    fun visiblePickContacts(list: List<Contact>): List<Contact> {
+        if (pendingPickFlow != "members") return list
+        val ids = profile?.chatId?.let { chatMembers[it] }?.map { it.id }?.toSet() ?: emptySet()
+        return contactsToAdd(list, ids)
     }
 
     /** Group-name dialog visible (after a multi-pick). */
@@ -432,6 +443,8 @@ class AppModel(
         val audio: Int,
         val files: Int,
         val apps: Int,
+        val chatType: String = "",
+        val groupAdminId: Long? = null,
     )
 
     var profile by mutableStateOf<ProfileData?>(null)
@@ -952,12 +965,39 @@ class AppModel(
      * "Restore from a backup…". The staged path lands in [onBackupPicked]. */
     var backupPicker: (() -> Unit)? = null
 
+    /** Writable directory the core drops an export tar into, and the newest
+     * file in it (path, name) once [exportBackup] returns. */
+    var backupExportDir: (() -> String)? = null
+    var newestFileIn: ((String) -> Pair<String, String>?)? = null
+
     /** Test seam: the invite claim's HTTPS GET. */
     internal var httpGet: suspend (String) -> Pair<Int, String> = { httpGetText(it) }
 
     private var obPhases: List<Pair<Int, String>> = emptyList()
     private var obPhaseIdx = 0
-    private var imexKind: String? = null // "receive" | "restore" while a transfer runs
+    private var imexKind: String? = null // "receive" | "restore" | "send" | "export"
+    private var transferGen = 0
+
+    /** Second-device QR (this phone is the old device). */
+    var secondDeviceOpen by mutableStateOf(false)
+        private set
+    var secondDeviceQr by mutableStateOf<String?>(null)
+        private set
+    var secondDeviceError by mutableStateOf<String?>(null)
+        private set
+    var transferPercent by mutableStateOf<Int?>(null)
+        private set
+    var backupBusy by mutableStateOf(false)
+        private set
+
+    /** Stored proxy_url of the open account, and a short label. */
+    var proxyUrl by mutableStateOf<String?>(null)
+        private set
+    var proxyLabel by mutableStateOf("")
+        private set
+
+    /** Rename dialog draft; null = closed. */
+    var renameDraft by mutableStateOf<String?>(null)
     private var afterNickname: (suspend (VeltaCore, Long) -> Unit)? = null
 
     /** Claimed invite credentials, parked so a configure failure retries
@@ -1091,6 +1131,10 @@ class AppModel(
         val kind = imexKind ?: return
         if (p !in 1..999) return
         val n = (p + 5) / 10
+        if (kind == "send" || kind == "export") {
+            transferPercent = n
+            return
+        }
         val text = if (kind == "receive") L.t("Receiving profile… {n}%").replace("{n}", n.toString())
         else L.t("Restoring profile… {n}%").replace("{n}", n.toString())
         // One live percentage line instead of one line per event.
@@ -1372,6 +1416,7 @@ class AppModel(
     fun openProfile(chatId: Long, title: String) {
         screen = Screen.Profile(chatId, title)
         profile = null
+        loadChatMembers(chatId)
         scope.launch { loadProfile(chatId) }
     }
 
@@ -1403,8 +1448,11 @@ class AppModel(
         profileLoading = true
         try {
             val chat = veltaCore.fullChat(id, chatId) ?: return
-            fun jstr(o: kotlinx.serialization.json.JsonObject, k: String) =
-                (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            fun jstr(o: kotlinx.serialization.json.JsonObject, k: String): String? {
+                val p = o[k] as? kotlinx.serialization.json.JsonPrimitive ?: return null
+                // JsonNull.content throws; regular groups send groupAdminId: null.
+                return if (p is kotlinx.serialization.json.JsonNull) null else p.content
+            }
             fun jbool(o: kotlinx.serialization.json.JsonObject, k: String) =
                 (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
             val isSingle = jstr(chat, "chatType") == "Single"
@@ -1453,6 +1501,8 @@ class AppModel(
                 audio = veltaCore.chatMediaIds(id, chatId, "Audio", "Voice", null).size,
                 files = veltaCore.chatMediaIds(id, chatId, "File", null, null).size,
                 apps = veltaCore.chatMediaIds(id, chatId, "Webxdc", null, null).size,
+                chatType = jstr(chat, "chatType") ?: "",
+                groupAdminId = jstr(chat, "groupAdminId")?.toLongOrNull(),
             )
         } catch (t: Throwable) {
             println("velta-kmp: profile $chatId failed: $t")
@@ -1480,8 +1530,10 @@ class AppModel(
             val id = accountId ?: return@launch
             runCatching {
                 val chat = veltaCore.fullChat(id, item.id) ?: return@launch
-                fun jstr(o: kotlinx.serialization.json.JsonObject, k: String) =
-                    (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                fun jstr(o: kotlinx.serialization.json.JsonObject, k: String): String? {
+                    val p = o[k] as? kotlinx.serialization.json.JsonPrimitive ?: return null
+                    return if (p is kotlinx.serialization.json.JsonNull) null else p.content
+                }
                 val ids = (chat["contactIds"] as? kotlinx.serialization.json.JsonArray)
                     ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
                 sheetChat = SheetChat(
@@ -1748,6 +1800,7 @@ class AppModel(
         refreshAccounts()
         refreshBattery()
         refreshAppLockState()
+        refreshProxy()
     }
 
     fun backFromAccounts() {
@@ -2827,6 +2880,193 @@ class AppModel(
         c.leaveGroup(id, chat.id)
         // The left chat turns read-only in place (stable hides the composer).
         if (accountId == id && (screen as? Screen.Chat)?.chatId == chat.id) sheetChat = sheetChat.copy(readOnly = true)
+    }
+
+    private fun profileMenu(p: ProfileData): MenuChat = MenuChat(
+        id = p.chatId,
+        name = p.chatName,
+        kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType),
+        chatType = p.chatType,
+        groupAdminId = p.groupAdminId,
+    )
+
+    fun beginRename() {
+        val p = profile ?: return
+        if (!canRename(profileMenu(p).kind)) return
+        renameDraft = p.chatName
+    }
+
+    fun commitRename(raw: String) {
+        val name = groupName(raw) ?: return
+        val chatId = profile?.chatId ?: return
+        renameDraft = null
+        chatJob("") { c, id ->
+            c.setChatName(id, chatId, name)
+            if (accountId != id) return@chatJob
+            profile = profile?.copy(chatName = name)
+            val s = screen
+            if (s is Screen.Profile && s.chatId == chatId) screen = s.copy(title = name)
+            loadProfile(chatId)
+        }
+    }
+
+    fun startAddMembers() {
+        val p = profile ?: return
+        if (!canAddMembers(profileMenu(p))) return
+        pendingPickFlow = "members"
+        contactPick = ContactPickRequest("Add members", multi = true)
+    }
+
+    private fun addMembers(picked: List<Contact>) {
+        val chatId = profile?.chatId ?: return
+        val ids = chatMembers[chatId]?.map { it.id }?.toSet() ?: emptySet()
+        val add = contactsToAdd(picked, ids)
+        if (add.isEmpty()) return
+        chatJob("") { c, id ->
+            add.forEach { c.addContactToChat(id, chatId, it.id) }
+            if (accountId == id) loadChatMembers(chatId)
+        }
+    }
+
+    fun askRemoveMember(member: MentionMember) {
+        val p = profile ?: return
+        if (!canRemoveMember(profileMenu(p), member.id)) return
+        chatConfirm = PendingConfirm(
+            ConfirmSpec("Remove member", "Remove {name}", ok = "Remove", args = mapOf("name" to member.name)),
+        ) { removeMemberNow(p.chatId, member.id) }
+    }
+
+    private fun removeMemberNow(chatId: Long, contactId: Long) = chatJob("") { c, id ->
+        c.removeContactFromChat(id, chatId, contactId)
+        if (accountId == id) loadChatMembers(chatId)
+    }
+
+    /** Old device: show a QR the new device scans (stable provide_backup). */
+    fun startSecondDevice() {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        if (secondDeviceOpen) return
+        val gen = ++transferGen
+        secondDeviceOpen = true
+        secondDeviceQr = null
+        secondDeviceError = null
+        transferPercent = null
+        imexKind = "send"
+        scope.launch {
+            try {
+                veltaCore.provideBackup(id)
+                if (transferGen == gen) showToast(L.t("Profile transferred to the second device"))
+            } catch (t: Throwable) {
+                if (transferGen == gen) secondDeviceError = t.message ?: t.toString()
+            } finally {
+                if (transferGen == gen && secondDeviceError == null) {
+                    secondDeviceOpen = false
+                    secondDeviceQr = null
+                    if (imexKind == "send") imexKind = null
+                }
+            }
+        }
+        scope.launch {
+            try {
+                val qr = veltaCore.getBackupQr(id)
+                if (transferGen == gen) secondDeviceQr = qr
+            } catch (t: Throwable) {
+                if (transferGen == gen && secondDeviceQr == null) secondDeviceError = t.message ?: t.toString()
+            }
+        }
+    }
+
+    fun cancelSecondDevice() {
+        transferGen++
+        secondDeviceOpen = false
+        secondDeviceQr = null
+        secondDeviceError = null
+        transferPercent = null
+        if (imexKind == "send") imexKind = null
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore != null && id != null) scope.launch { runCatching { veltaCore.stopOngoingProcess(id) } }
+    }
+
+    /** Export a backup tar, then hand it to the platform save dialog. */
+    fun exportBackup() {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val dir = backupExportDir?.invoke() ?: return
+        if (backupBusy || secondDeviceOpen) return
+        backupBusy = true
+        imexKind = "export"
+        transferPercent = null
+        scope.launch {
+            try {
+                veltaCore.exportBackup(id, dir)
+                val file = newestFileIn?.invoke(dir)
+                val err = if (file != null) saveFile?.invoke(file.first, file.second, "application/x-tar") else null
+                if (accountId == id) {
+                    if (err != null && err != "cancelled") showToast(err, 4000)
+                    else if (file != null && err == null) showToast(L.t("Backup saved."))
+                }
+            } catch (t: Throwable) {
+                if (accountId == id) showToast(t.message ?: t.toString(), 4000)
+            } finally {
+                backupBusy = false
+                if (imexKind == "export") imexKind = null
+                transferPercent = null
+            }
+        }
+    }
+
+    fun refreshProxy() {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            val url = runCatching { veltaCore.getConfig(id, "proxy_url") }.getOrNull()?.takeIf { it.isNotBlank() }
+            if (accountId == id) {
+                proxyUrl = url
+                if (proxyLabel.isEmpty() || url == null) proxyLabel = url?.let { proxyHostOf(it) } ?: ""
+            }
+        }
+    }
+
+    fun applyProxyLink(raw: String) {
+        val link = try {
+            parseProxyLink(raw)
+        } catch (e: ProxyLinkError) {
+            showToast(proxyErrorLine(L.t(e.key), e), 4000)
+            return
+        }
+        val veltaCore = core ?: return
+        val url = socksUrl(link)
+        scope.launch {
+            try {
+                for (id in veltaCore.allAccountIds()) {
+                    veltaCore.setConfig(id, "proxy_url", url)
+                    veltaCore.setConfig(id, "proxy_enabled", "1")
+                }
+                runCatching { veltaCore.maybeNetwork() }
+                proxyUrl = url
+                proxyLabel = link.label.ifBlank { "${link.host}:${link.port}" }
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString(), 4000)
+            }
+        }
+    }
+
+    fun clearProxy() {
+        val veltaCore = core ?: return
+        scope.launch {
+            try {
+                for (id in veltaCore.allAccountIds()) {
+                    veltaCore.setConfig(id, "proxy_url", null)
+                    veltaCore.setConfig(id, "proxy_enabled", "0")
+                }
+                runCatching { veltaCore.maybeNetwork() }
+                proxyUrl = null
+                proxyLabel = ""
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString(), 4000)
+            }
+        }
     }
 
     private fun clearHistoryNow(chat: MenuChat) = chatJob(null) { c, id ->

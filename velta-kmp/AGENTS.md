@@ -13,7 +13,12 @@ work-in-progress experiment (#314). Phase plan in #192: N1 design port
 (Prism + identity matrix — shipped, see PrismIdentityTest), N2
 conversation notifications + RPC timeout/respawn (shipped), N3 AGSL glass
 on the composer and header (shipped), N4 release signing still open.
-Fidelity follow-ups live in #323–#329.
+Fidelity follow-ups live in #323–#328 (#329 closed 2026-11-14).
+#334 steps 1–10 are in. Step 11 is in except webxdc: search in chat,
+image viewer and opening files, in-app video and voice, group
+rename/add/remove, second-device QR plus export backup, SOCKS5 via
+`velta://proxy`, and Android message links in a Custom Tab. Webxdc
+needs the Tauri sandbox server and is not faked here.
 
 ## Layout
 
@@ -293,16 +298,6 @@ never run Gradle on the Windows side.
   `velta-accent`, `velta-lang`): SharedPreferences on Android,
   java.util.prefs on desktop; "en" and the stock accent store by REMOVING
   the key (web convention).
-- Settings screen (#321 step 5): theme radios (Auto/Dark/Light/Brutal) +
-  "Pure black (AMOLED)" flag shown only while the effective theme is dark
-  (AMOLED layers on dark — `veltaEffectiveMode` pins app.js applyTheme),
-  accent presets + custom #hex through `Accent.derive` (WCAG-checked),
-  language radios (en/fr/ru, native names) applying LIVE (no reload —
-  compose state, not stamped DOM). Persisted via the `CorePlatform.pref`
-  seam under the web's OWN localStorage keys (`dw-theme`, `velta-amoled`,
-  `velta-accent`, `velta-lang`): SharedPreferences on Android,
-  java.util.prefs on desktop; "en" and the stock accent store by REMOVING
-  the key (web convention).
 - Composer = web footer.composer (48dp icon buttons at 26dp icons,
   48dp-min 16dp-radius input wrap on bgSidebar + 1dp border, naked
   BasicTextField 15.5sp/1.3, armed-send tint). Attach menu (web
@@ -353,8 +348,32 @@ never run Gradle on the Windows side.
   contactIds) and lastSeen (contact fetch) land async. The whole info
   zone opens the Profile screen; the right-edge button is the web's
   chat-menu dots (dotsVertical) for ALL chats — groups had no header
-  entry point before. Call buttons stay hidden (no calls in KMP) and
-  search-in-chat ships no dead button (no KMP in-chat search yet).
+  entry point before. Call buttons stay hidden (no calls in KMP).
+  Search in chat is the header search button (and a tapped #hashtag):
+  core fulltext, newest 30 hits, a hit jumps to the message
+  (`ui/SearchRules.kt`, `ui/ChatSearch.kt`).
+- **#334 step 11 (app layer).** Profile of a group: rename
+  (`set_chat_name`; groups and channels only), members, add, remove.
+  `canRemoveMember` refuses contact 1 and, inside an admin group,
+  anyone who is not the admin (`groupAdminId == 1`). `groupAdminId`
+  arrives as JSON null on a normal group — `JsonPrimitive.content`
+  throws; the profile reader skips `JsonNull`. Accounts: "Add as a
+  second device" runs `provide_backup` and `get_backup_qr` together
+  (cancel = `stop_ongoing_process`); Export backup writes a tar into
+  the platform cache dir and hands the newest file to `saveFile`.
+  Welcome already receives and restores. SOCKS5 is a pasted
+  `velta://proxy` link (`ui/ProxyRules.kt` = `app/js/proxy.js` plus
+  `proxy_store.rs` `url_of`): `set_config` `proxy_url` /
+  `proxy_enabled` on every account, then `maybe_network`. No
+  saved-proxy keeper. Labels are not NFC-normalized. Android http(s)
+  links: `InAppBrowser` launches a Custom Tab from the Activity
+  (`androidx.browser` 1.8.0). `pickCustomTabProvider` prefers the
+  default browser when it hosts tabs — the manifest `<queries>` for
+  `CustomTabsService` and https VIEW is required on API 30+ or every
+  provider is invisible and the link leaves the app. No provider, or
+  a failed launch, opens a second WebView (JS on, no bridge, no file
+  access; mailto/tel/market leave, other schemes drop). Desktop keeps
+  the system browser via `LocalUriHandler`. Webxdc is not implemented.
 - One GraphicsLayer records the scrolling content. Header and composer are
   overlay siblings that sample it. `rememberGraphicsLayer` lives in
   `androidx.compose.ui.graphics` (CMP 1.9), not the `layer` package.
@@ -400,7 +419,9 @@ never run Gradle on the Windows side.
   (`RpcException(method, code -2)` names the METHOD, not `id=N`);
   long-running calls opt out with `timeoutMs = null`: `get_next_event`
   (unbounded long-poll), `add_transport_from_qr`, `add_transport`,
-  `delete_transport`, `configure`, `secure_join`, `background_fetch`.
+  `delete_transport`, `configure`, `secure_join`, `background_fetch`,
+  `provide_backup`, `get_backup_qr`, `get_backup`, `import_backup`,
+  `export_backup`.
   The shim IS restartable in-process (`startCoreOnce`/`stopCoreOnce`):
   on a dead client the model drops to "core connection lost" and
   reconnects to the cached port — no process kill. A second `startCore`
@@ -507,6 +528,9 @@ has no java.net.HttpsURLConnection), 60 s min gap, failing ≥10 min = offline
 grey, failing-while-green = unreachable amber. `ScriptedRpcTransport` answers
 `get_connectivity_html` with "" by default so scripted tests never hang the
 strip (an unscripted call would leave refreshRelayLine suspended forever).
+`get_config` defaults to JSON `null`: Accounts calls it for `proxy_url`,
+and an unscripted call hangs the same way. `getConfig` returns null for
+JSON null — do not read `.content` first (`JsonNull.content` throws).
 - Invite-domain keys ride the web's localStorage names via CorePlatform.pref:
 `velta-invite-domain` (selected QR domain; "velta.cc" stores by REMOVING the
 key), builtin hosts = velta.cc / i.delta.chat / i.deltachat.id / i.gluek.info

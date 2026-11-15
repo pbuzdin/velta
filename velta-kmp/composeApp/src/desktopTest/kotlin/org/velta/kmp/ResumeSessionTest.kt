@@ -30,7 +30,11 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
         /** Answer for a harmless read-only method tests never script — the
          * connectivity-HTML parse feeds the chat-list strip (an unscripted
          * call would hang the refresh coroutine instead of failing a test). */
-        val DEFAULT_ANSWERS = mapOf("get_connectivity_html" to "\"\"")
+        val DEFAULT_ANSWERS = mapOf(
+            "get_connectivity_html" to "\"\"",
+            // Accounts screen reads the proxy; an unscripted call must not hang.
+            "get_config" to "null",
+        )
     }
 
     val requests = CopyOnWriteArrayList<String>()
