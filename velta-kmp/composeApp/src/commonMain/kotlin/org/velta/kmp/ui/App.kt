@@ -72,6 +72,15 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
@@ -162,6 +171,8 @@ fun App(model: AppModel) {
                 }
             }
             CreatedNotice(model)
+            // #334 step 5: chat-list / ⋮ menus, their confirmations, group invite.
+            if (!model.locked) ChatMenuHost(model)
         }
     }
 }
@@ -658,7 +669,11 @@ private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> 
                 state = listState,
             ) {
                 items(shown, key = { it.id }) { item ->
-                    ChatListRow(item, model.identities[item.id]) { model.openChat(item) }
+                    ChatListRow(
+                        item,
+                        model.identities[item.id],
+                        onMenu = { x, y -> model.openChatListMenu(item, x, y) },
+                    ) { model.openChat(item) }
                     HorizontalDivider()
                 }
                 if (showArchivedLink) {
@@ -1822,7 +1837,7 @@ private fun captionLines(text: String): List<String> {
  */
 private const val CORE_INVITE_PREFIX = "https://i.delta.chat/#"
 
-private fun rewriteInviteHost(link: String, domain: String): String? {
+internal fun rewriteInviteHost(link: String, domain: String): String? {
     if (!link.startsWith(CORE_INVITE_PREFIX)) return null
     val payload = link.removePrefix(CORE_INVITE_PREFIX)
     return when (domain) {
@@ -1839,7 +1854,7 @@ private fun rewriteInviteHost(link: String, domain: String): String? {
  * (white ring r56, #1c1c1c disc r48, the V mark at 84×84/214,216).
  */
 @Composable
-private fun BrandedQrSquare(link: String) {
+internal fun BrandedQrSquare(link: String) {
     val qr = remember(link) { runCatching { QrEncode.encode(link) }.getOrNull() }
     val density = LocalDensity.current
     var boxPx by remember { mutableIntStateOf(0) }
@@ -2028,13 +2043,61 @@ private fun AvatarTile(
 }
 
 @Composable
-private fun ChatListRow(item: ChatListItem, identityFpr: String?, onClick: () -> Unit) {
+private fun ChatListRow(
+    item: ChatListItem,
+    identityFpr: String?,
+    onMenu: ((Float, Float) -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
+    // #334 step 5 (app.js createChatItem "contextmenu"): a long-press (the
+    // platform long-press timeout, as the WebView's) or a right-click opens
+    // the chat menu at the pointer. Tap still opens the chat.
+    val haptics = LocalHapticFeedback.current
+    var rowOrigin by remember { mutableStateOf(Offset.Zero) }
+    val menuLabel = L.t("Chat menu")
+    val latestMenu by rememberUpdatedState(onMenu)
+    val latestClick by rememberUpdatedState(onClick)
     Row(
         modifier = Modifier
             .rowSurface(interaction)
             .fillMaxWidth()
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .onGloballyPositioned { rowOrigin = it.positionInWindow() }
+            .then(
+                if (onMenu == null) {
+                    Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
+                } else {
+                    Modifier
+                        .pointerInput(item.id) {
+                            detectTapGestures(
+                                onTap = { latestClick() },
+                                onLongPress = { at ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    latestMenu?.invoke(rowOrigin.x + at.x, rowOrigin.y + at.y)
+                                },
+                            )
+                        }
+                        .pointerInput(item.id) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val e = awaitPointerEvent()
+                                    if (e.type == PointerEventType.Press && e.buttons.isSecondaryPressed) {
+                                        val at = e.changes.first().position
+                                        e.changes.forEach { it.consume() }
+                                        latestMenu?.invoke(rowOrigin.x + at.x, rowOrigin.y + at.y)
+                                    }
+                                }
+                            }
+                        }
+                        .semantics {
+                            role = Role.Button
+                            onClick { latestClick(); true }
+                            onLongClick(label = menuLabel) {
+                                latestMenu?.invoke(rowOrigin.x + 48f, rowOrigin.y + 24f); true
+                            }
+                        }
+                }
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2644,8 +2707,25 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     }
                 }
                 if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
-                TextButton(onClick = { model.openProfile(chat.chatId, chat.title) }) {
-                    Icon(VeltaIcons.dotsVertical, contentDescription = L.t("Chat menu"), modifier = Modifier.size(22.dp), tint = Velta.tokens.text)
+                // app.js bindChatHeadMenu + bindMenuToggle: the ⋮ opens the
+                // chat menu under its right edge (r.right - 220, r.bottom + 6)
+                // and turns into a close (X) while the menu is open.
+                var menuBtn by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+                val headOpen = model.chatMenu?.head == true
+                val pad = with(LocalDensity.current) { 220.dp.toPx() to 6.dp.toPx() }
+                TextButton(
+                    onClick = {
+                        if (headOpen) model.closeChatMenu()
+                        else model.openChatHeadMenu(menuBtn.right - pad.first, menuBtn.bottom + pad.second)
+                    },
+                    modifier = Modifier.onGloballyPositioned { menuBtn = it.boundsInWindow() },
+                ) {
+                    Icon(
+                        if (headOpen) VeltaIcons.close else VeltaIcons.dotsVertical,
+                        contentDescription = if (headOpen) L.t("Close menu") else L.t("Chat menu"),
+                        modifier = Modifier.size(22.dp),
+                        tint = Velta.tokens.text,
+                    )
                 }
             }
             }

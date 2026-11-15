@@ -570,7 +570,7 @@ private fun EmojiPickerPanel(modifier: Modifier, onBack: () -> Unit, onPick: (St
 /** Stable modal shell (ui.js showModal): full screen on phones, a card
  *  otherwise; compact keeps the floating card (confirmations). */
 @Composable
-private fun SheetModal(
+internal fun SheetModal(
     title: String,
     onClose: () -> Unit,
     compact: Boolean = false,
