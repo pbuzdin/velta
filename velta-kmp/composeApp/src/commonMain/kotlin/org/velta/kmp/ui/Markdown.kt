@@ -22,6 +22,8 @@ internal const val ANN_URL = "URL"
 internal const val ANN_CODE = "CODE"
 internal const val ANN_MENTION = "MENTION"
 internal const val ANN_INVITE = "INVITE"
+/** #134: a #hashtag; a tap opens "Search in chat" prefilled with it. */
+internal const val ANN_HASHTAG = "HASHTAG"
 
 internal fun markdownAnnotated(
     text: String,
@@ -168,8 +170,10 @@ private fun appendInline(
                 var end = h + 1
                 while (end < content.length && (content[end].isLetterOrDigit() || content[end] == '_')) end++
                 appendEmphasis(builder, content.substring(i, h), accent, textColor)
+                builder.pushStringAnnotation(ANN_HASHTAG, content.substring(h, end))
                 builder.pushStyle(SpanStyle(color = accent))
                 builder.append(content.substring(h, end))
+                builder.pop()
                 builder.pop()
                 i = end
             }

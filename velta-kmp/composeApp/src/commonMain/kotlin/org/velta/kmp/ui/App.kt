@@ -119,6 +119,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -2524,6 +2526,11 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     // the loaded window; clear the request either way.
     LaunchedEffect(model.pendingJumpToId) {
         val wanted = model.pendingJumpToId ?: return@LaunchedEffect
+        // A jump that loaded history first lets the prepend anchor settle,
+        // so the two scrolls never cancel each other.
+        if (model.pendingPrependCount > 0) {
+            withTimeoutOrNull(1000) { snapshotFlow { model.pendingPrependCount }.first { it == 0 } }
+        }
         val rows = chatRows(model.chatMessages)
         val idx = rows.indexOfFirst { it is ChatRow.Message && it.message.id == wanted }
         if (idx >= 0) listState.animateScrollToItem(idx)
@@ -2718,6 +2725,15 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     }
                 }
                 if (model.chatLoading) CircularProgressIndicator(Modifier.size(20.dp))
+                // Stable #btn-chat-search, left of the chat menu.
+                TextButton(onClick = { model.openChatSearch() }) {
+                    Icon(
+                        VeltaIcons.search,
+                        contentDescription = L.t("Search in chat"),
+                        modifier = Modifier.size(22.dp),
+                        tint = Velta.tokens.text,
+                    )
+                }
                 // app.js bindChatHeadMenu + bindMenuToggle: the ⋮ opens the
                 // chat menu under its right edge (r.right - 220, r.bottom + 6)
                 // and turns into a close (X) while the menu is open.
@@ -3577,7 +3593,7 @@ private fun MessageBubble(
     Row(
         Modifier
             .fillMaxWidth()
-            .background(if (selected) tokens.accent.copy(alpha = 0.16f) else Color.Transparent)
+            .background(if (selected || model.flashMsgId == message.id) tokens.accent.copy(alpha = 0.16f) else Color.Transparent)
             .then(
                 if (selectionMode) {
                     Modifier.clickable(
@@ -3766,6 +3782,10 @@ private fun MessageBubble(
                                     }
                                     for (a in annotated.getStringAnnotations(ANN_INVITE, pos, pos)) {
                                         model.openInviteLink(a.item)
+                                        return@detectTapGestures
+                                    }
+                                    for (a in annotated.getStringAnnotations(ANN_HASHTAG, pos, pos)) {
+                                        model.openChatSearch(a.item)
                                         return@detectTapGestures
                                     }
                                     for (a in annotated.getStringAnnotations(ANN_URL, pos, pos)) {
