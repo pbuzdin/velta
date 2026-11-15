@@ -6,10 +6,12 @@ package org.velta.kmp.ui
 
 internal object LangFr {
     val MAP: Map<String, String> = mapOf(
+        "\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply." to "« {name} » veut démarrer une conversation avec vous. Acceptez pour lire les messages et répondre.",
         "1 day" to "1 jour",
         "1 message deleted" to "1 message supprimé",
         "1 year" to "1 an",
         "Accent color" to "Couleur d'accent",
+        "Accept" to "Accepter",
         "Account created on {host}" to "Compte créé sur {host}",
         "Account created — welcome!" to "Compte créé — bienvenue !",
         "Accounts" to "Comptes",
@@ -55,6 +57,8 @@ internal object LangFr {
         "Close menu" to "Fermer le menu",
         "Confirm to continue" to "Confirmez pour continuer",
         "Connecting to the encryption core…" to "Connexion au cœur de chiffrement…",
+        "Contact request" to "Demande de contact",
+        "Contact request accepted" to "Demande de contact acceptée",
         "Contact request:" to "Demande de contact :",
         "Contacts" to "Contacts",
         "Continue" to "Continuer",

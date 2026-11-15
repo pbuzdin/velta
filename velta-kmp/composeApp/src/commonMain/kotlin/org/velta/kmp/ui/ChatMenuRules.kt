@@ -179,3 +179,13 @@ fun muteKind(muted: Boolean): String = if (muted) "Forever" else "NotMuted"
  *  right/bottom window edges. */
 fun placeMenu(x: Int, y: Int, w: Int, h: Int, winW: Int, winH: Int, near: Int = 8, far: Int = 10): Pair<Int, Int> =
     maxOf(near, minOf(x, winW - w - far)) to maxOf(near, minOf(y, winH - h - far))
+
+/** #334 step 6 — app.js openChat: a contact request (deaddrop) does not
+ *  open; stable asks first and accepts on OK (Accept is not a danger). */
+fun contactRequestConfirm(name: String): ConfirmSpec = ConfirmSpec(
+    title = "Contact request",
+    text = "\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.",
+    ok = "Accept",
+    danger = false,
+    args = mapOf("name" to name.ifEmpty { "?" }),
+)
