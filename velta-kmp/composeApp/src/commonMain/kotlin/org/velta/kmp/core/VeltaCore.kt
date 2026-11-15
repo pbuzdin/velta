@@ -475,9 +475,13 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
 
     /** rpc-core sendMessage (send_msg MessageData; both viewtype casings,
      *  as stable sends them, so either core build reads its own). */
-    suspend fun sendMessage(accountId: Long, chatId: Long, text: String, viewtype: String? = null, file: String? = null, filename: String? = null): Long? {
+    suspend fun sendMessage(accountId: Long, chatId: Long, text: String, viewtype: String? = null, file: String? = null, filename: String? = null, quotedMessageId: Long? = null): Long? {
         val data = buildJsonObject {
             put("text", text)
+            if (quotedMessageId != null) {
+                put("quotedMessageId", quotedMessageId)
+                put("quoted_message_id", quotedMessageId)
+            }
             if (viewtype != null) {
                 put("viewType", viewtype)
                 put("viewtype", viewtype)

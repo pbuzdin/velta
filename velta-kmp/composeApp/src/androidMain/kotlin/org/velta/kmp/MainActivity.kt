@@ -30,6 +30,23 @@ class MainActivity : FragmentActivity() {
 
     private lateinit var model: AppModel
 
+    /** Microphone for voice messages: asked on the first recording. */
+    private var micAnswer: kotlinx.coroutines.CompletableDeferred<Boolean>? = null
+    private val requestMic = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> micAnswer?.complete(granted); micAnswer = null }
+
+    private suspend fun askMic(): Boolean {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) return true
+        val answer = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        micAnswer?.complete(false)
+        micAnswer = answer
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            requestMic.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+        return answer.await()
+    }
+
     /** Notification permission (API 33+) — the foreground service needs it to show. */
     private val requestNotifications = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -266,6 +283,13 @@ class MainActivity : FragmentActivity() {
         model.saveFile = { path, name, mime -> saveToDownloads(path, name, mime) }
         model.openFile = { path, name, mime -> openWithSystem(path, name, mime) }
         model.mediaInLightbox = true
+        model.videoInApp = true
+        // The model outlives the activity (AppHolder): keep one engine and
+        // one recorder so a rotation never orphans playback or a recording.
+        if (model.audioEngine == null) model.audioEngine = AndroidAudioEngine()
+        val mic: suspend () -> Boolean = { askMic() }
+        (model.voiceRecorder as? AndroidVoiceRecorder)?.let { it.askMic = mic }
+            ?: run { model.voiceRecorder = AndroidVoiceRecorder(applicationContext, mic) }
         // QR view "Share a link" (web shareLink → ACTION_SEND chooser).
         model.shareText = { text ->
             val send = Intent(Intent.ACTION_SEND).apply {
