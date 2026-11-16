@@ -362,6 +362,13 @@ never run Gradle on the Windows side.
   Search in chat is the header search button (and a tapped #hashtag):
   core fulltext, newest 30 hits, a hit jumps to the message
   (`ui/SearchRules.kt`, `ui/ChatSearch.kt`).
+- **Pin tray** (#358 B, stable `_refreshPinnedBar` + `.pin-tray`): rides
+  the header glass plate under the head row, so `headPx` (list top
+  padding) includes it. `get_pinned_messages` core order, LAST = newest
+  (collapsed summary); expanded list newest first, 40% window cap,
+  ✕ only when `canUnpinInTray` (writable + adminCaps.canPin). Refresh on
+  open, pin/unpin, `PinnedMessagesChanged`, plus the 400 ms
+  MsgsChanged/MsgDeleted backstop. Rules: `ui/PinTrayRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
   `AvatarTile`), add, remove.

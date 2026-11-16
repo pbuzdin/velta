@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -2825,6 +2826,8 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     )
                 }
             }
+            // Stable #pinned-bar: the tray sits between the head and the history.
+            PinTrayBar(model)
             }
         }
         GlassPlate(
@@ -2857,6 +2860,120 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     MessageInfoDialog(model) { id -> model.senderNames[id]?.name }
     SelectTextDialog(model)
     DeleteMessagesDialog(model)
+}
+
+/** Stable chat-view.js `_refreshPinnedBar` + main.css `.pin-tray`: the
+ *  collapsed summary shows the newest pin (pin icon, bold sender, snippet,
+ *  count pill for 2+, chevron); expanded, every pin newest first, each with
+ *  an ✕ where the user may unpin. A row tap collapses and jumps. */
+@Composable
+private fun PinTrayBar(model: AppModel) {
+    val tray = pinTrayOf(model.pinnedMessages, L.t("You")) ?: return
+    val tokens = Velta.tokens
+    val canUnpin = canUnpinInTray(model.sheetChat)
+    val open = model.pinTrayOpen
+    val maxListPx = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height * 0.40f
+    val maxList = with(LocalDensity.current) { maxListPx.toDp() }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(tokens.bgSidebar)
+            .drawBehind {
+                drawRect(tokens.border, topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 1.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()))
+            },
+    ) {
+        val summaryInteraction = remember { MutableInteractionSource() }
+        Row(
+            Modifier
+                .rowSurface(summaryInteraction, hover = false)
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = summaryInteraction,
+                    indication = null,
+                ) { model.pinTrayOpen = !open }
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(VeltaIcons.pin, contentDescription = null, modifier = Modifier.size(tokens.ico1), tint = tokens.accent)
+            Spacer(Modifier.size(8.dp))
+            PinRowText(tray.newest, Modifier.weight(1f))
+            tray.count?.let { n ->
+                Spacer(Modifier.size(8.dp))
+                Box(
+                    Modifier
+                        .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(tokens.accent)
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(n, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = tokens.onAccent)
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+            Icon(
+                VeltaIcons.chevronDown,
+                contentDescription = null,
+                modifier = Modifier.size(tokens.ico2).graphicsLayer { rotationZ = if (open) 180f else 0f },
+                tint = tokens.textDim,
+            )
+        }
+        if (open) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxList)
+                    .drawBehind { drawRect(tokens.border, size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx())) }
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                for (row in tray.rows) {
+                    val interaction = remember(row.id) { MutableInteractionSource() }
+                    Row(
+                        Modifier
+                            .rowSurface(interaction)
+                            .fillMaxWidth()
+                            .clickable(interactionSource = interaction, indication = null) { model.openPinned(row.id) }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PinRowText(row, Modifier.weight(1f))
+                        if (canUnpin) {
+                            Spacer(Modifier.size(8.dp))
+                            Box(
+                                Modifier
+                                    .size(24.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(onClickLabel = L.t("Unpin")) { model.unpinFromTray(row.id) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(VeltaIcons.close, contentDescription = L.t("Unpin"), modifier = Modifier.size(tokens.ico1), tint = tokens.textDim)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** `.pb-text`: bold sender in --text, then the snippet in --text-dim, one line. */
+@Composable
+private fun PinRowText(row: PinRow, modifier: Modifier) {
+    val tokens = Velta.tokens
+    Text(
+        androidx.compose.ui.text.buildAnnotatedString {
+            pushStyle(androidx.compose.ui.text.SpanStyle(color = tokens.text, fontWeight = FontWeight.SemiBold))
+            append(row.name)
+            pop()
+            append(" ")
+            append(row.snippet)
+        },
+        modifier = modifier,
+        fontSize = 13.sp,
+        color = tokens.textDim,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 /** Web velta-chat-head statusLine: per-kind subtitle under the name.
