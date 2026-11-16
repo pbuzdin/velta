@@ -1523,8 +1523,60 @@ class AppModel(
     }
 
     fun backFromProfile() {
+        closeEphemeralDialog()
         val p = profile
         if (p != null) screen = Screen.Chat(p.chatId, p.chatName, false) else screen = Screen.ChatList
+    }
+
+    /** Disappearing-messages editor (stable openEphemeralDialog): the
+     *  chat and the selected option (null = none checked). */
+    data class EphemeralDraft(val chatId: Long, val selected: Int?)
+    var ephemeralDraft by mutableStateOf<EphemeralDraft?>(null)
+    /** Stable errToast inside the dialog (the profile screen has no toast host). */
+    var ephemeralError by mutableStateOf<String?>(null)
+        private set
+
+    /** Stable re-reads the timer when the editor opens (offline → Off). */
+    fun openEphemeralDialog() {
+        val p = profile ?: return
+        val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+        if (!showsEphemeralRow(kind) || !canSetEphemeral(kind, p.groupAdminId)) return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        ephemeralError = null
+        scope.launch {
+            val current = runCatching { veltaCore.chatEphemeralTimer(id, p.chatId) }.getOrDefault(0)
+            if (profile?.chatId != p.chatId) return@launch
+            ephemeralDraft = EphemeralDraft(p.chatId, ephemeralPreselect(current))
+        }
+    }
+
+    fun pickEphemeral(secs: Int) {
+        ephemeralDraft = ephemeralDraft?.copy(selected = secs)
+    }
+
+    fun closeEphemeralDialog() {
+        ephemeralDraft = null
+        ephemeralError = null
+    }
+
+    /** OK: set_chat_ephemeral_timer, update the row, close; an error keeps
+     *  the dialog open with stable's message. */
+    fun applyEphemeral() {
+        val draft = ephemeralDraft ?: return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val secs = ephemeralSecsToSend(draft.selected ?: 0)
+        scope.launch {
+            try {
+                veltaCore.setChatEphemeralTimer(id, draft.chatId, secs)
+                if (accountId != id) return@launch
+                profile = profile?.takeIf { it.chatId == draft.chatId }?.copy(ephemeralSecs = secs) ?: profile
+                closeEphemeralDialog()
+            } catch (t: Throwable) {
+                ephemeralError = L.t("Couldn't set disappearing messages: ") + (t.message ?: t.toString())
+            }
+        }
     }
 
     fun toggleBlockPeer() {

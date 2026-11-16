@@ -518,6 +518,23 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    /** rpc-core getChatEphemeralTimer: seconds, 0 = off. */
+    suspend fun chatEphemeralTimer(accountId: Long, chatId: Long): Int {
+        val result = client.call(
+            "get_chat_ephemeral_timer",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+        return (result as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0
+    }
+
+    /** rpc-core setChatEphemeralTimer (the core posts its own system notice). */
+    suspend fun setChatEphemeralTimer(accountId: Long, chatId: Long, seconds: Int) {
+        client.call(
+            "set_chat_ephemeral_timer",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(seconds)),
+        )
+    }
+
     suspend fun setChatName(accountId: Long, chatId: Long, name: String) {
         client.call(
             "set_chat_name",
