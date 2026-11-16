@@ -1031,6 +1031,13 @@ class AppModel(
         pendingAttachment = path to (displayName ?: path.substringAfterLast('/'))
     }
 
+    /** The pre-send editor saved a new picture: it replaces the staged one
+     *  (stable btn-media-crop → _setPendingMedia with the cropped blob). */
+    fun onAttachmentEdited(path: String, displayName: String) {
+        if (pendingAttachment == null) return
+        pendingAttachment = path to displayName
+    }
+
     private var core: VeltaCore? = null
     private var transport: RpcTransport? = null
     private var connecting = false

@@ -3787,28 +3787,7 @@ private fun Composer(model: AppModel) {
                 TextButton(onClick = { model.replyTo = null }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
             }
         }
-        if (attachment != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    VeltaIcons.attach,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.size(6.dp))
-                Text(
-                    attachment.second,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                )
-                TextButton(onClick = { model.pendingAttachment = null }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
-            }
-        }
+        if (attachment != null) AttachmentPreview(model, attachment.first, attachment.second)
         model.voiceRec?.let { rec -> VoiceRecBar(model, rec) }
         model.sendError?.let {
             Text(

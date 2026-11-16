@@ -15,6 +15,7 @@ import org.velta.kmp.core.RpcShim
 class VeltaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        org.velta.kmp.ui.EditScratch.dir = java.io.File(cacheDir, "edits")
         if (!RpcShim.available) println("velta-kmp: core shim not loaded at process start")
         AppHolder.obtain(this)
         registerNetworkCallback()
