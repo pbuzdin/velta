@@ -203,7 +203,7 @@ jobs:
           GOT_V=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           [ "$GOT_V" = "$WANT_V" ] || { echo "::error::cached APK versionName '$GOT_V' != tauri.conf.json '$WANT_V'"; exit 1; }
           WANT_ID=$(grep -o 'applicationId = "[^"]*"' velta-app/src-tauri/gen/android/app/build.gradle.kts | cut -d'"' -f2)
-          GOT_ID=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*package:name='\([^']*\)'.*/\1/p")
+          GOT_ID=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p")
           [ "$GOT_ID" = "$WANT_ID" ] || { echo "::error::cached APK applicationId '$GOT_ID' != build.gradle.kts '$WANT_ID'"; exit 1; }
           echo "Cached APK identity verified: $WANT_ID $WANT_V"
 
