@@ -2318,6 +2318,14 @@ thinking, code comments, commit messages, and docs — is English, matching the
 project's working language. (User correction 2026-09-21 after mixed-language
 replies; applies regardless of which tools or modes are active.)
 
+**Contribution flow: PRs with tests (user rule 2026-11-16).** Every change
+lands via topic branch → tests → pull request → merge on green. No direct
+pushes to `master`. Tests are the suites covering the touched area (§4:
+`app/` node suites, KMP `desktopTest`, core `cargo nextest`); for CSS-only
+geometry changes a small checked-in e2e/geometry script is the test. Tags and
+`gh release` operations are pipeline refs, not content changes — point them
+at the merged PR commit.
+
 ### 6.1 Rust
 
 - The core crate is `#![forbid(unsafe_code)]` and enables a long list of lints in
