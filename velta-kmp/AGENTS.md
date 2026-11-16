@@ -414,7 +414,13 @@ never run Gradle on the Windows side.
   runs `AppModel.catchUpFetch` through AppHolder (a headless model when
   the process was killed): start_io + one 30 s `background_fetch`, the
   same path a UnifiedPush wake-up takes. App lock on + no core = skip (no
-  key without the user). Rules: `ui/BackgroundRules.kt`.
+  key without the user). `VeltaApplication` (stable VeltaApp) loads the
+  shim and builds the shared model in every process (language applied
+  for headless notifications); the core still starts on demand.
+  `core/BootReceiver` (BOOT_COMPLETED, MY_PACKAGE_REPLACED) re-arms the
+  job and starts VeltaForegroundService unless app lock is on; the
+  service itself stops when app lock is on and no core runs.
+  Rules: `ui/BackgroundRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
   `AvatarTile`), add, remove.
