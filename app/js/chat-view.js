@@ -33,11 +33,30 @@ if (!/CriOS|FxiOS|EdgiOS/.test(ua) && /Chrome\/|Chromium\/|Edg\//.test(ua)) {
 function composerFieldSized() {
   return typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 }
+// Expanding-composer state on #main-composer: `expanded` = field spans the
+// composer with the buttons on a row below (typing anywhere, or focus on
+// touch); `has-text` = the sticker trigger is gone, a sticker send is a
+// message of its own and never rides alongside text.
+function syncComposerState(input) {
+  const bar = input?.closest?.(".composer");
+  if (!bar) return;
+  const hasText = input.value.trim().length > 0;
+  bar.classList.toggle("has-text", hasText);
+  // DOM-mock test environments have neither matchMedia nor layout state.
+  const touch = globalThis.matchMedia?.("(pointer: coarse)")?.matches === true;
+  bar.classList.toggle("expanded",
+    hasText || (touch && document.activeElement === input));
+}
 function sizeComposer(input) {
   if (!input) return;
+  syncComposerState(input);
   if (composerFieldSized()) { input.style.height = ""; return; }
+  // Cap at three text lines (the CSS max-height on #composer-input);
+  // 26px = the field's vertical padding.
+  const line = typeof getComputedStyle === "function" ? parseFloat(getComputedStyle(input).lineHeight) || 20 : 20;
+  const cap = 3 * line + 26;
   input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px";
+  input.style.height = Math.min(input.scrollHeight, cap) + "px";
 }
 
 // Decoded-dimension memory for media the core had no dimensions for: those
@@ -4229,6 +4248,10 @@ export class ChatView {
     input.autocomplete = "off";
     input.enterKeyHint = localStorage?.getItem("velta-send-enter") !== "0" ? "send" : "enter";
     input.addEventListener("input", () => { grow(); this._scheduleLinkPreview(); });
+    // Focus/blur drive the touch-only half of `expanded` (typing is covered
+    // by the input listener via sizeComposer -> syncComposerState).
+    input.addEventListener("focus", () => syncComposerState(input));
+    input.addEventListener("blur", () => syncComposerState(input));
     // Typing hint (local chats only; core.sendTyping is a no-op when the
     // setting is off). Empty box = stopped.
     input.addEventListener("input", () => {

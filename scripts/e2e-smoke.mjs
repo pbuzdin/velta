@@ -41,6 +41,63 @@ try {
   assert.equal(await page.locator('#composer-input').inputValue(), '')
   assert.deepEqual(errors, [])
   console.log('OK: demo boot, chat open, message send, no unexpected browser errors')
+
+  // Expanding composer: typing expands the field to a full-width column with
+  // the buttons on a row below, hides the sticker trigger (a sticker send is
+  // a message of its own), caps the field at three lines; clearing collapses.
+  const bar = page.locator('#main-composer')
+  const state = () => bar.evaluate(el => ({
+    display: getComputedStyle(el).display,
+    expanded: el.classList.contains('expanded'),
+    hasText: el.classList.contains('has-text'),
+  }))
+  assert.equal((await state()).display, 'flex', 'rest: single-row flex composer')
+  await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth > 0, undefined, { timeout: 2000 })
+    .catch(() => { throw new Error('rest: sticker did not return after send') })
+  const restGut = await page.evaluate(() => {
+    const r = s => document.querySelector(s).getBoundingClientRect()
+    const a = r('#btn-attach'); const w = r('.composer-input-wrap'); const d = r('#btn-send')
+    return [Math.round(w.left - a.right), Math.round(d.left - w.right)]
+  })
+  assert.deepEqual(restGut, [8, 8], 'rest: equal gutters around the field')
+  await page.locator('#composer-input').fill('M '.repeat(80))
+  assert.deepEqual(await state(), { display: 'grid', expanded: true, hasText: true }, 'typing: expanded grid')
+  await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth === 0, { timeout: 2000 })
+  // Wait out the 180ms composer-drop animation before measuring geometry.
+  const below = await page.waitForFunction(() => {
+    const r = s => document.querySelector(s).getBoundingClientRect()
+    const a = r('#btn-attach'); const w = r('.composer-input-wrap'); const d = r('#btn-send')
+    const v = [a.top - w.bottom, a.left - w.left, w.right - d.right].map(Math.round)
+    return v[0] === 8 && v[1] === 0 && v[2] === 0 ? v : null
+  }, undefined, { timeout: 2000 }).then(h => h.jsonValue())
+  assert.deepEqual(below, [8, 0, 0], 'expanded: buttons row below, flush with the field edges')
+  const h = await page.locator('#composer-input').evaluate(el => el.clientHeight)
+  assert.ok(h > 55 && h <= 95, `field capped at three lines, clientHeight ${h}`)
+  await page.locator('#composer-input').fill('')
+  assert.deepEqual(await state(), { display: 'flex', expanded: false, hasText: false }, 'clear: collapsed again')
+  await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth > 0, { timeout: 2000 })
+
+  // Touch: focus alone expands, blur collapses (no text needed either way).
+  const touch = await browser.newPage({ viewport: { width: 390, height: 800 } })
+  const touchErrors = []
+  touch.on('pageerror', e => touchErrors.push(e.message))
+  await touch.addInitScript(() => {
+    localStorage.setItem('velta-mock', '1')
+    const real = window.matchMedia.bind(window)
+    window.matchMedia = q => q.includes('pointer: coarse')
+      ? { matches: true, media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }
+      : real(q)
+  })
+  await touch.goto(`http://127.0.0.1:${server.address().port}/index.html`)
+  await touch.locator('.chat-item', { hasText: 'Ada Byron' }).first().click({ timeout: 15000 })
+  await touch.locator('#chat-view').waitFor({ state: 'visible' })
+  await touch.locator('#composer-input').focus()
+  assert.equal(await touch.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'grid', 'touch: focus alone expands')
+  await touch.evaluate(() => document.activeElement?.blur())
+  assert.equal(await touch.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'flex', 'touch: blur collapses')
+  assert.deepEqual(touchErrors, [])
+  await touch.close()
+  console.log('OK: expanding composer — rest/typing/clear + touch focus/blur')
 } finally {
   await browser.close()
   server.close()
