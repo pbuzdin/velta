@@ -123,6 +123,8 @@ data class Contact(
     val profileImage: String? = null,
     val lastSeen: Long = 0,
     val isBlocked: Boolean = false,
+    /** Profile bio (the self contact carries the selfstatus). */
+    val status: String = "",
     /** Core sends camelCase isBot on every ContactObject (web _mapContact). */
     val isBot: Boolean = false,
 )
