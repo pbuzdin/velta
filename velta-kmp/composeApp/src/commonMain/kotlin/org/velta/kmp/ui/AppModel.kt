@@ -1670,8 +1670,11 @@ class AppModel(
                 }
             }
         }
+        pinnedMessages = emptyList()
+        pinTrayOpen = false
         loadMessages(item.id)
         loadChatMembers(item.id)
+        refreshPins()
         refreshChats()
     }
 
@@ -2613,9 +2616,67 @@ class AppModel(
             try {
                 veltaCore.setPinned(id, message.id, !pinned)
                 reloadOpenChat()
+                refreshPins()
             } catch (t: Throwable) {
                 showToast((if (pinned) L.t("Couldn't unpin: ") else L.t("Couldn't pin: ")) + (t.message ?: t.toString()), 4000)
             }
+        }
+    }
+
+    // ---- Pin tray (stable chat-view.js _refreshPinnedBar, #358 B) ----
+
+    /** Pinned messages of the open chat, in the core's order (last = newest). */
+    var pinnedMessages by mutableStateOf<List<MessageObject>>(emptyList())
+        private set
+    /** The tray's expanded state (stable `<details open>`); kept across refreshes. */
+    var pinTrayOpen by mutableStateOf(false)
+    private var pinRefreshJob: Job? = null
+    private var pinBackstopJob: Job? = null
+
+    /** Re-read the open chat's pins (get_pinned_messages + get_messages). */
+    fun refreshPins() {
+        val chat = screen as? Screen.Chat ?: run { pinnedMessages = emptyList(); return }
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        pinRefreshJob?.cancel()
+        pinRefreshJob = scope.launch {
+            val ids = runCatching { veltaCore.pinnedMessageIds(id, chat.chatId) }.getOrDefault(emptyList())
+            if (!stillOn(id, chat.chatId)) return@launch
+            val byId = if (ids.isEmpty()) emptyMap()
+            else runCatching { veltaCore.messages(id, ids) }.getOrDefault(emptyList()).associateBy { it.id }
+            if (!stillOn(id, chat.chatId)) return@launch
+            pinnedMessages = ids.mapNotNull { byId[it] }
+            if (pinnedMessages.isEmpty()) pinTrayOpen = false
+        }
+    }
+
+    /** Stable's 400 ms debounced backstop (msgs-changed / msgs-deleted). */
+    private fun queuePinRefresh() {
+        pinBackstopJob?.cancel()
+        pinBackstopJob = scope.launch {
+            delay(PIN_REFRESH_DEBOUNCE_MS)
+            refreshPins()
+        }
+    }
+
+    /** Tray row tap: collapse and jump to the message. */
+    fun openPinned(msgId: Long) {
+        pinTrayOpen = false
+        jumpToMessage(msgId)
+    }
+
+    /** Tray ✕: unpin, then refresh the tray at once. */
+    fun unpinFromTray(msgId: Long) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.setPinned(id, msgId, false)
+            } catch (t: Throwable) {
+                showToast(L.t("Couldn't unpin: ") + (t.message ?: t.toString()), 4000)
+            }
+            refreshPins()
+            reloadOpenChat()
         }
     }
 
@@ -3739,6 +3800,14 @@ class AppModel(
         val eventAccount = event.accountId ?: accountId
         val forCurrent = eventAccount == accountId
         val chatId = event.chatId()?.takeIf { it > 0L }
+        val openChatId = (screen as? Screen.Chat)?.chatId
+        if (forCurrent && openChatId != null && pinTrayRefreshes(event.kind)) {
+            if (event.kind == "PinnedMessagesChanged") {
+                if (chatId == openChatId) refreshPins()
+            } else if (chatId == null || chatId == openChatId) {
+                queuePinRefresh()
+            }
+        }
         when (event.kind) {
             "ConnectivityChanged" -> if (forCurrent) refreshRelayLine()
             "ConfigureProgress" -> {

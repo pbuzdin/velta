@@ -478,6 +478,17 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    /** rpc-core getPinnedMessages: every pinned message id of a chat, in the core's order. */
+    suspend fun pinnedMessageIds(accountId: Long, chatId: Long): List<Long> {
+        val result = client.call(
+            "get_pinned_messages",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+        return (result as? JsonArray)?.mapNotNull {
+            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+        } ?: emptyList()
+    }
+
     /** rpc-core setChatFlags pin/archive → set_chat_visibility ("Normal"/"Pinned"/"Archived"). */
     suspend fun setChatVisibility(accountId: Long, chatId: Long, visibility: String) {
         client.call(

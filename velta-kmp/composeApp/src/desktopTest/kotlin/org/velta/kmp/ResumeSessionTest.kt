@@ -34,6 +34,8 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
             "get_connectivity_html" to "\"\"",
             // Accounts screen reads the proxy; an unscripted call must not hang.
             "get_config" to "null",
+            // Every chat open reads its pin tray.
+            "get_pinned_messages" to "[]",
         )
     }
 
