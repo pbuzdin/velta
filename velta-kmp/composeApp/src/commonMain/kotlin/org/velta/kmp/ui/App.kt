@@ -2406,6 +2406,13 @@ private fun SettingsScreen(model: AppModel) {
                 Checkbox(checked = model.mentionInMuted, onCheckedChange = { model.onSetMentionInMuted(it) })
                 Text(L.t("Notify me when mentioned in muted chats"))
             }
+            // Stable drawer "Auto-download limit" + "Text-only mode" (#358).
+            SettingsSection(L.t("Auto-download limit"))
+            SettingsRadios(DOWNLOAD_LIMIT_OPTIONS, model.downloadLimit) { model.onSetDownloadLimit(it) }
+            SettingsHint(L.t(DOWNLOAD_LIMIT_HINT))
+            SettingsSection(L.t("Text-only mode"))
+            SettingsRadios(TEXT_ONLY_OPTIONS, model.textOnlyMode) { model.onSetTextOnlyMode(it) }
+            SettingsHint(L.t(TEXT_ONLY_HINT))
             SettingsSection(L.t("Invite link domains"))
             model.inviteDomains().forEach { host ->
                 Row(
@@ -2460,6 +2467,34 @@ private fun SettingsScreen(model: AppModel) {
             )
         }
     }
+}
+
+/** One radio per (value, English label) option; the whole row is the target. */
+@Composable
+private fun SettingsRadios(options: List<Pair<String, String>>, selected: String, onPick: (String) -> Unit) {
+    options.forEach { (value, label) ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .selectable(selected = selected == value, role = androidx.compose.ui.semantics.Role.RadioButton) { onPick(value) }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = selected == value, onClick = null)
+            Text(L.t(label), modifier = Modifier.padding(start = 12.dp))
+        }
+    }
+}
+
+@Composable
+private fun SettingsHint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = Velta.tokens.textDim,
+        modifier = Modifier.padding(top = 4.dp),
+    )
 }
 
 @Composable
@@ -4007,7 +4042,8 @@ private fun MessageBubble(
     // side; padding 7px 10px 6px; 1px shadow; tokens bgBubbleIn/Out. Stickers
     // strip the fill entirely (.bubble.sticker: transparent, no shadow, no
     // padding, image capped at 175px).
-    val sticker = message.viewType == "Sticker" && message.file != null
+    val sticker = message.viewType == "Sticker" && message.file != null &&
+        (message.downloadState ?: "Done") == "Done" && !model.attachmentCovered(message)
     val bubbleShape = RoundedCornerShape(
         topStart = tokens.radiusBubble,
         topEnd = tokens.radiusBubble,
@@ -4271,8 +4307,17 @@ private fun MessageBubble(
                             }
                         }
                     }
-                    val mediaShown = message.viewType in MEDIA_VIEWTYPES && message.file != null
-                    if (mediaShown) {
+                    // Text-only mode hides the attachment behind a card; media not
+                    // on the device yet gets stable's download card.
+                    val covered = model.attachmentCovered(message)
+                    val needsDownload = !covered && needsDownloadCard(message)
+                    val mediaShown = !covered && !needsDownload &&
+                        message.viewType in MEDIA_VIEWTYPES && message.file != null
+                    if (covered) {
+                        HiddenAttachmentCard(model, message, tokens, if (outgoing) quoteName else tokens.accent)
+                    } else if (needsDownload) {
+                        Box(Modifier.tapOpens { model.downloadMedia(message) }) { DownloadCard(message, tokens) }
+                    } else if (mediaShown) {
                         MediaFromDisk(
                             message.file!!,
                             message.dimensionsWidth,
@@ -4679,6 +4724,61 @@ private fun FileCard(message: MessageObject, tokens: VeltaTokens) {
                 Text(formatBytes(bytes), fontSize = 12.5.sp, color = tokens.textDim)
             }
         }
+    }
+}
+
+/** chat-view.js download card (.msg-file.download-btn): download icon,
+ *  name or kind, then "Downloading…" / size / "Tap to download". */
+@Composable
+private fun DownloadCard(message: MessageObject, tokens: VeltaTokens) {
+    AttachmentCardRow(
+        icon = VeltaIcons.download,
+        name = L.t(downloadCardName(message)),
+        sub = L.t(downloadCardSub(message, message.fileBytes?.takeIf { it > 0 }?.let { formatBytes(it) })),
+        tokens = tokens,
+    )
+}
+
+/** chat-view.js `_hiddenCard` (.msg-textonly): shield, name or kind,
+ *  "Hidden — Text-only mode" and the only action, Show / Download and show. */
+@Composable
+private fun HiddenAttachmentCard(model: AppModel, message: MessageObject, tokens: VeltaTokens, actionColor: Color) {
+    AttachmentCardRow(
+        icon = VeltaIcons.shield,
+        name = message.fileName?.takeIf { it.isNotEmpty() } ?: L.t(hiddenKindLabel(message.viewType)),
+        sub = L.t("Hidden — Text-only mode"),
+        tokens = tokens,
+    ) {
+        TextButton(onClick = { model.revealAttachment(message) }) {
+            Text(L.t(revealActionLabel(message.downloadState)), color = actionColor, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun AttachmentCardRow(
+    icon: ImageVector,
+    name: String,
+    sub: String,
+    tokens: VeltaTokens,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.widthIn(min = 210.dp),
+    ) {
+        Box(
+            Modifier.size(44.dp).background(tokens.accent, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = tokens.onAccent)
+        }
+        Column(Modifier.weight(1f, fill = false)) {
+            Text(name, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = tokens.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(sub, fontSize = 12.5.sp, color = tokens.textDim)
+        }
+        trailing?.invoke()
     }
 }
 

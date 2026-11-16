@@ -113,6 +113,9 @@ data class SheetContext(
     val replyCount: Int = 0,
     /** Touch UI (stable _offerSelectText): KMP is phone-first, always true. */
     val touch: Boolean = true,
+    /** Text-only mode hides the attachment: no Download / Save sticker
+     *  (stable passes `covered` to messageSheetActions). */
+    val covered: Boolean = false,
 )
 
 /**
@@ -132,9 +135,9 @@ fun messageSheetActions(m: MessageObject, ctx: SheetContext): List<SheetAction> 
     if (!ctx.chat.readOnly) items += SheetAction.Reply
     if (ctx.replyCount > 0) items += SheetAction.ShowReplies
     if (canEditMsg(m)) items += SheetAction.Edit
-    if (vt == "sticker" && !own && !m.file.isNullOrEmpty()) items += SheetAction.SaveSticker
+    if (!ctx.covered && vt == "sticker" && !own && !m.file.isNullOrEmpty()) items += SheetAction.SaveSticker
     val ds = m.downloadState ?: "Done"
-    if ((vt == "image" || vt == "video" || vt == "file") && (!m.file.isNullOrEmpty() || ds != "Done")) {
+    if (!ctx.covered && (vt == "image" || vt == "video" || vt == "file") && (!m.file.isNullOrEmpty() || ds != "Done")) {
         items += SheetAction.Download
     }
     if (!ctx.chat.readOnly && canPin(ctx.chat)) items += if (m.isPinned) SheetAction.Unpin else SheetAction.Pin
