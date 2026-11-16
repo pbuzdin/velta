@@ -1982,7 +1982,7 @@ private fun Modifier.rowSurface(
  * 1:1 peers with a key wear the fingerprint identity matrix (web avatar.js);
  * photos decode over the tile; everything else a color/Prism initials tile. */
 @Composable
-private fun AvatarTile(
+internal fun AvatarTile(
     name: String,
     colorHex: String?,
     kind: String?,
@@ -3074,22 +3074,29 @@ private fun ChatScreen(
             PinTrayBar(model)
             }
         }
-        GlassPlate(
-            backdrop,
-            host,
+        Column(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .onSizeChanged { footPx = it.height }
-                .padding(
-                    if (lens) PaddingValues(start = 10.dp, end = 10.dp, bottom = 8.dp)
-                    else PaddingValues(0.dp),
-                ),
-            radius = if (lens) 22.dp else 0.dp,
-            lens = lens,
+                .onSizeChanged { footPx = it.height },
         ) {
-            Column {
-                Composer(model)
+            // Variant A floating card (#334): reply / edit / attachment above the plate.
+            ComposerCard(model, Modifier.padding(horizontal = 10.dp))
+            GlassPlate(
+                backdrop,
+                host,
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        if (lens) PaddingValues(start = 10.dp, end = 10.dp, bottom = 8.dp)
+                        else PaddingValues(0.dp),
+                    ),
+                radius = if (lens) 22.dp else 0.dp,
+                lens = lens,
+            ) {
+                Column {
+                    Composer(model)
+                }
             }
         }
         // Stable #btn-go-down: away from the newest message, the way back
@@ -3747,47 +3754,7 @@ private fun Composer(model: AppModel) {
         )
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        // Stable #reply-preview in edit mode: "Editing message" + the text.
-        if (editing != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    VeltaIcons.edit,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.size(6.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(L.t("Editing message"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1)
-                    Text(editing.text.take(60), style = MaterialTheme.typography.labelMedium, color = Velta.tokens.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                TextButton(onClick = { model.cancelEdit() }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
-            }
-        }
-        if (reply != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    VeltaIcons.reply,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    reply.text.take(60),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                )
-                TextButton(onClick = { model.replyTo = null }) { Icon(VeltaIcons.close, contentDescription = L.t("Close")) }
-            }
-        }
-        if (attachment != null) AttachmentPreview(model, attachment.first, attachment.second)
+        // Reply / edit / staged attachment: ComposerCard floats above the plate.
         model.voiceRec?.let { rec -> VoiceRecBar(model, rec) }
         model.sendError?.let {
             Text(
