@@ -11,6 +11,9 @@
     <!-- Battery-saver exemptions keep the sync service alive on OEM ROMs
          (P4 slice 10); the system dialog lets the user decide. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Periodic catch-up (BackgroundFetchJob): a persisted JobScheduler job
+         needs this to survive a reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Invite-QR scanning (P4 slice 11b): camera only while the scan screen
          is open; ZXing decodes locally, nothing leaves the device. -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -114,6 +117,13 @@
             android:name=".core.VeltaForegroundService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging" />
+
+        <!-- Periodic catch-up (#358): 15-minute JobScheduler fetch, stable's
+             BackgroundFetchJob; covers no push distributor and OEM freezers. -->
+        <service
+            android:name=".core.BackgroundFetchJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <service
             android:name=".push.VeltaPushService"

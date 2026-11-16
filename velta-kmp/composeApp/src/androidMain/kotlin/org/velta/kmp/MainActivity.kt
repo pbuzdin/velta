@@ -344,6 +344,8 @@ class MainActivity : FragmentActivity() {
             LaunchedEffect(Unit) { model.connect() }
         }
         org.velta.kmp.push.VeltaPushService.maybeRegister(this)
+        // Periodic catch-up (stable MainActivity: BackgroundFetchJob.schedule).
+        org.velta.kmp.core.BackgroundFetchJob.schedule(this)
     }
 
     override fun onNewIntent(intent: Intent) {
