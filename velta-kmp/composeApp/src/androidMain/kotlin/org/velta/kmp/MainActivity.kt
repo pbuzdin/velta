@@ -474,6 +474,13 @@ class MainActivity : FragmentActivity() {
         model.onAppForeground(false)
         // App backgrounded: hold the process so the core keeps syncing
         // ("Use background connection" off: no service).
+        // A rotation is NOT a backgrounding: the recreated activity's
+        // onStart stops this service milliseconds later, before it reaches
+        // startForeground() — Android answers that with
+        // ForegroundServiceDidNotStartInTimeException, a crash on every
+        // rotation while "Use background connection" is on (the default).
+        // isChangingConfigurations separates the two cases.
+        if (isChangingConfigurations) return
         if (model.backgroundConnection) VeltaForegroundService.start(this)
     }
 }
