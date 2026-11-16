@@ -143,7 +143,29 @@ jobs:
           workspaces: ./velta-app/src-tauri
           cache-bin: false
 
+      # Gradle dependency cache: pays only on cache-miss runs (releases),
+      # where AGP/deps would otherwise re-download every time.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.gradle/caches
+          key: gradle-android-${{ hashFiles('velta-app/src-tauri/gen/android/**/*.gradle*', 'velta-app/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      # The unsigned APK bakes in the Rust .so, the JS frontend, the
+      # applicationId/label patch (gen/android is rewritten in place above)
+      # and the version — every one of those is in the key, so a hit means a
+      # byte-equivalent build. A hit skips cargo AND gradle; the APK is still
+      # signed fresh below (signed artifacts are never cached). Exact key
+      # only, no restore-keys fallback — a near-hit is worthless here.
+      - name: Restore unsigned APK
+        id: apk
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: velta-app/src-tauri/gen/android/app/build/outputs/apk
+          key: apk-unsigned-aarch64-rust1.98-${{ hashFiles('velta-app/src-tauri/**', 'app/**', 'core/**', 'packages/attachment-crypto/**', '.github/workflows/build-android.yml') }}
+
       - name: Build Android APK (arm64-v8a)
+        if: steps.apk.outputs.cache-hit != 'true'
         working-directory: ./velta-app
         env:
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
@@ -155,6 +177,26 @@ jobs:
           export AR_aarch64_linux_android="$NDK/bin/llvm-ar"
           export RANLIB_aarch64_linux_android="$NDK/bin/llvm-ranlib"
           cargo tauri android build --apk --target aarch64
+
+      # Belt and suspenders on a cache hit: the restored APK must be present
+      # and must carry the identity this run would have produced. Catches any
+      # key blind spot (hash collision is impossible; a blind spot like a new
+      # input patched into a file the key does not hash is not).
+      - name: Verify cached APK identity
+        if: steps.apk.outputs.cache-hit == 'true'
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          APK=$(find velta-app/src-tauri/gen/android/app/build/outputs/apk -name '*-release-unsigned.apk' | head -n1)
+          test -s "$APK" || { echo "::error::APK cache hit but no unsigned APK inside"; exit 1; }
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          WANT_V=$(node -p "require('./velta-app/src-tauri/tauri.conf.json').version")
+          GOT_V=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          [ "$GOT_V" = "$WANT_V" ] || { echo "::error::cached APK versionName '$GOT_V' != tauri.conf.json '$WANT_V'"; exit 1; }
+          WANT_ID=$(grep -o 'applicationId = "[^"]*"' velta-app/src-tauri/gen/android/app/build.gradle.kts | cut -d'"' -f2)
+          GOT_ID=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*package:name='\([^']*\)'.*/\1/p")
+          [ "$GOT_ID" = "$WANT_ID" ] || { echo "::error::cached APK applicationId '$GOT_ID' != build.gradle.kts '$WANT_ID'"; exit 1; }
+          echo "Cached APK identity verified: $WANT_ID $WANT_V"
 
       - name: Prepare release keystore
         env:
