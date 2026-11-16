@@ -29,17 +29,24 @@ class VeltaPushService : PushService() {
             Log.e(TAG, "endpoint without key set - ignoring")
             return
         }
+        AndroidPushBridge.prefs(this).edit()
+            .putLong(AndroidPushBridge.KEY_LAST_ENDPOINT, System.currentTimeMillis())
+            .putString(AndroidPushBridge.KEY_REG_FAILED, "")
+            .apply()
         val token = "webpush:${endpoint.url}|${key.pubKey}|${key.auth}"
         AppHolder.obtain(applicationContext).onPushEndpoint(token)
     }
 
     override fun onMessage(message: PushMessage, instance: String) {
         Log.d(TAG, "push received - waking the core")
+        // Settings › Push notifications "Last push".
+        AndroidPushBridge.prefs(this).edit().putLong(AndroidPushBridge.KEY_LAST_PUSH, System.currentTimeMillis()).apply()
         AppHolder.obtain(applicationContext).onPushWakeup()
     }
 
     override fun onRegistrationFailed(reason: FailedReason, instance: String) {
         Log.w(TAG, "UnifiedPush registration failed: ${reason.name}")
+        AndroidPushBridge.prefs(this).edit().putString(AndroidPushBridge.KEY_REG_FAILED, reason.name).apply()
     }
 
     override fun onUnregistered(instance: String) {
@@ -60,10 +67,15 @@ class VeltaPushService : PushService() {
          * Auto-register on app start. Only the no-questions case: a single
          * distributor or a resolved system default, or one the user already
          * picked. Several distributors without a default are skipped
-         * silently (a picker UI is a later slice).
+         * silently — Settings › Push notifications has the picker. An
+         * explicit Off there always wins (stable UnifiedPushService).
          */
         fun maybeRegister(context: Context) {
             try {
+                if (AndroidPushBridge.optedOut(context)) {
+                    Log.d(TAG, "UnifiedPush off by user choice")
+                    return
+                }
                 if (UnifiedPush.getSavedDistributor(context) == null) {
                     val resolved = UnifiedPush.resolveDefaultDistributor(context)
                     if (resolved is ResolvedDistributor.Found) {

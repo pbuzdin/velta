@@ -146,6 +146,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -2420,6 +2421,8 @@ private fun SettingsScreen(model: AppModel) {
                     Text(L.t("Use background connection"))
                 }
             }
+            // Stable drawer "Push notifications" (push-settings.js, Android only).
+            if (model.pushBridge != null) PushSettingsSection(model)
             // Stable drawer "Auto-download limit" + "Text-only mode" (#358).
             SettingsSection(L.t("Auto-download limit"))
             SettingsRadios(DOWNLOAD_LIMIT_OPTIONS, model.downloadLimit) { model.onSetDownloadLimit(it) }
@@ -2481,6 +2484,34 @@ private fun SettingsScreen(model: AppModel) {
             )
         }
     }
+}
+
+/** stable push-settings.js pushBodyHtml: state line (live), distributor
+ *  radios + Off, or the ntfy link when none is installed, relay support,
+ *  last push. Re-read on entry. */
+@Composable
+private fun PushSettingsSection(model: AppModel) {
+    LaunchedEffect(Unit) { model.refreshPush() }
+    val s = model.pushStatus ?: return
+    SettingsSection(L.t("Push notifications"))
+    Text(
+        describePushState(s) { L.t(it) },
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+    )
+    val options = pushOptions(s)
+    if (options.isNotEmpty()) {
+        Column(Modifier.selectableGroup().semantics { contentDescription = L.t("Push app") }) {
+            SettingsRadios(options, pushSelectedValue(s)) { model.onPickPushApp(it) }
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { model.openHttp?.invoke(PUSH_APP_URL) }) { Text(L.t("Get a push app (ntfy)")) }
+        }
+        SettingsHint(L.t("install one for instant delivery."))
+    }
+    SettingsHint(describeRelaySupport(model.relays.map { it.metadata?.supportsPush }) { L.t(it) })
+    SettingsHint(describeLastPush(s.lastPush, wallClockSeconds() * 1000, ::formatDateHeader, ::formatTimestamp) { L.t(it) })
 }
 
 /** One radio per (value, English label) option; the whole row is the target. */

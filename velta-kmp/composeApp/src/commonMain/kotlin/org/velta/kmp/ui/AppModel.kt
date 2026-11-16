@@ -2318,6 +2318,40 @@ class AppModel(
         if (!on) showToast(L.t("Background connection off — messages arrive when you open Velta"))
     }
 
+    /** Platform-injected (Android): UnifiedPush state for Settings › Push notifications. */
+    var pushBridge: PushBridge? = null
+
+    var pushStatus by mutableStateOf<PushStatus?>(null)
+        private set
+
+    /** Re-read the push state (Settings open, app resumed after installing
+     *  a push app, after a pick) and the relays for the support line. */
+    fun refreshPush() {
+        val bridge = pushBridge ?: return
+        pushStatus = runCatching { bridge.status() }.getOrElse {
+            println("velta-kmp: push status failed: $it")
+            PushStatus()
+        }
+        if (connected) refreshRelays()
+    }
+
+    /** Stable push-settings.js change handler. */
+    fun onPickPushApp(value: String) {
+        val bridge = pushBridge ?: return
+        try {
+            if (value == PUSH_OFF_VALUE) {
+                bridge.off()
+                showToast(L.t("Push notifications off"))
+            } else {
+                bridge.select(value)
+                showToast(L.t("Push app selected"))
+            }
+        } catch (t: Throwable) {
+            showToast(L.t("Couldn't change the push app: ") + (t.message ?: t.toString()))
+        }
+        refreshPush()
+    }
+
     /** The activity is started (unlike [appInForeground], false in a
      *  headless process the UI never opened). */
     var uiVisible = false
@@ -3903,6 +3937,7 @@ class AppModel(
 
     fun openSettings() {
         screen = Screen.Settings
+        refreshPush()
     }
 
     fun backFromSettings() {

@@ -317,6 +317,7 @@ class MainActivity : FragmentActivity() {
             )
         }
         model.backgroundCapable = true
+        model.pushBridge = org.velta.kmp.push.AndroidPushBridge(applicationContext)
         model.onBackgroundConnectionChanged = { on ->
             // Off: the persistent notification goes now; the periodic job and
             // push wake-ups skip themselves. On: the service starts the next
@@ -441,6 +442,8 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         // Returning from the system battery dialog — re-read the exemption.
         model.refreshBattery()
+        // Back from installing or setting up a push app: re-read push state.
+        if (model.screen == org.velta.kmp.ui.AppModel.Screen.Settings) model.refreshPush()
     }
 
     override fun onDestroy() {
