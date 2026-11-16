@@ -40,6 +40,7 @@
          push, job, boot), so each can start a headless core. -->
     <application
         android:name=".VeltaApplication"
+        android:enableOnBackInvokedCallback="true"
         android:label="Velta KMP"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

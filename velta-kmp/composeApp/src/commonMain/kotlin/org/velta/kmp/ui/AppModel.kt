@@ -2644,6 +2644,15 @@ class AppModel(
      *  the reply / back swipes leave that drag alone. UI-only, not state. */
     internal var gestureSkipDown = false
 
+    /** Stable _replySwipe / _backSwipe: while one horizontal swipe is
+     *  engaged the other may not start on the same touch. UI-only. */
+    internal var replySwipeActive = false
+    internal var backSwipeActive = false
+
+    /** The current touch began inside a system gesture zone (Android
+     *  gesture-nav edge): it belongs to system back, not to our swipes. */
+    internal var gestureEdgeDown = false
+
     /** Platform audio output; null = audio opens in another app. */
     var audioEngine: AudioEngine? = null
 
