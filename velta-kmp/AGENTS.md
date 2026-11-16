@@ -408,6 +408,13 @@ never run Gradle on the Windows side.
   cleared on mode or account change; a covered message's sheet drops
   Download and Save sticker. vCards are not covered (KMP draws no card).
   Rules: `ui/MediaGateRules.kt`.
+- **Background delivery** (#358, stable velta-app/src-tauri/gen/android):
+  `core/BackgroundFetchJob` is stable's 15-minute persisted JobScheduler
+  job (id 0x564C, any network, scheduled from MainActivity.onCreate). It
+  runs `AppModel.catchUpFetch` through AppHolder (a headless model when
+  the process was killed): start_io + one 30 s `background_fetch`, the
+  same path a UnifiedPush wake-up takes. App lock on + no core = skip (no
+  key without the user). Rules: `ui/BackgroundRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
   `AvatarTile`), add, remove.

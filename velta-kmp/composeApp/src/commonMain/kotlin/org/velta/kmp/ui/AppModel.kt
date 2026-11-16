@@ -2300,15 +2300,32 @@ class AppModel(
 
     /** A push message arrived: fetch. Results surface through the event loop. */
     fun onPushWakeup() {
-        scope.launch {
-            try {
-                ensureConnected()
-                core?.startIoForAllAccounts()
-                core?.backgroundFetch(30.0)
-                println("velta-kmp: push-triggered fetch done")
-            } catch (t: Throwable) {
-                println("velta-kmp: push fetch failed: $t")
-            }
+        scope.launch { catchUpFetch("push") }
+    }
+
+    /**
+     * One bounded catch-up (push wake-up or the periodic BackgroundFetchJob,
+     * stable's pushWakeup): bring the core up headless if needed, start io,
+     * run one `background_fetch`. New messages surface through the event
+     * loop as notifications. false = skipped or failed.
+     */
+    suspend fun catchUpFetch(reason: String): Boolean {
+        if (catchUpDecision(platform.isAppLocked(), connected) == CatchUp.SkipLocked) {
+            println("velta-kmp: $reason fetch skipped (app locked)")
+            return false
+        }
+        return try {
+            ensureConnected()
+            val veltaCore = core ?: return false
+            veltaCore.startIoForAllAccounts()
+            veltaCore.backgroundFetch(BackgroundPolicy.FETCH_SECS)
+            println("velta-kmp: $reason fetch done")
+            true
+        } catch (t: kotlinx.coroutines.CancellationException) {
+            throw t
+        } catch (t: Throwable) {
+            println("velta-kmp: $reason fetch failed: $t")
+            false
         }
     }
 
