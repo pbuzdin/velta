@@ -860,8 +860,93 @@ class AppModel(
         screen = if (accountId != null) Screen.ChatList else Screen.Login
     }
 
+    // ---- Own-profile editor (stable showEditProfile / editProfileFlow, #358 C) ----
+
+    data class ProfileEditor(
+        val name: String,
+        val description: String,
+        /** The status the editor opened with (selfstatus is written only when it changed). */
+        val oldStatus: String,
+        val currentAvatar: String?,
+        val color: String?,
+        val picked: String? = null,
+        val removed: Boolean = false,
+        val busy: Boolean = false,
+        val error: String? = null,
+    )
+
+    var profileEditor by mutableStateOf<ProfileEditor?>(null)
+        private set
+    /** The next picked file is the editor's picture, not an attachment. */
+    private var avatarPickArmed = false
+
+    fun openProfileEditor() {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            val info = runCatching { veltaCore.accountInfo(id) }.getOrNull()
+            val self = runCatching { veltaCore.contact(id, 1) }.getOrNull()
+            if (accountId != id) return@launch
+            profileEditor = ProfileEditor(
+                name = clampProfileName(info?.displayName.orEmpty()),
+                description = self?.status.orEmpty(),
+                oldStatus = self?.status.orEmpty(),
+                currentAvatar = self?.profileImage?.takeIf { it.isNotBlank() },
+                color = self?.color,
+            )
+        }
+    }
+
+    fun editProfileName(value: String) { profileEditor = profileEditor?.copy(name = clampProfileName(value)) }
+    fun editProfileDescription(value: String) { profileEditor = profileEditor?.copy(description = value) }
+    fun removeProfilePhoto() { profileEditor = profileEditor?.copy(removed = true, picked = null) }
+
+    /** "Change picture": the platform image picker; the result lands in onAttachmentPicked. */
+    fun pickProfilePhoto() {
+        val picker = attachmentPicker ?: run {
+            profileEditor = profileEditor?.copy(error = L.t("Couldn't load picture: ") + "no picker")
+            return
+        }
+        avatarPickArmed = true
+        picker(AttachKind.PHOTO)
+    }
+
+    fun closeProfileEditor() {
+        profileEditor = null
+        avatarPickArmed = false
+    }
+
+    /** Save: editProfileFlow's set_config writes, then "Profile updated". */
+    fun saveProfileEditor() {
+        val ed = profileEditor ?: return
+        if (ed.busy) return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val edit = profileEditOf(ed.name, ed.description, ed.picked, ed.removed)
+        profileEditor = ed.copy(busy = true, error = null)
+        scope.launch {
+            try {
+                for ((key, value) in profileConfigWrites(edit, ed.oldStatus)) {
+                    veltaCore.setConfig(id, key, value)
+                    if (accountId != id) return@launch
+                }
+                closeProfileEditor()
+                showToast(L.t("Profile updated"))
+                (screen as? Screen.Profile)?.let { loadProfile(it.chatId) }
+            } catch (t: Throwable) {
+                profileEditor = profileEditor?.copy(busy = false, error = L.t("Couldn't update profile: ") + (t.message ?: t.toString()))
+            }
+        }
+    }
+
     /** Called by the platform after a file was picked and staged readable. */
     fun onAttachmentPicked(path: String, displayName: String?) {
+        if (avatarPickArmed && profileEditor != null) {
+            avatarPickArmed = false
+            profileEditor = profileEditor?.copy(picked = path, removed = false)
+            return
+        }
+        avatarPickArmed = false
         pendingAttachment = path to (displayName ?: path.substringAfterLast('/'))
     }
 

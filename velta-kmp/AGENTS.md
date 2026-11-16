@@ -387,6 +387,15 @@ never run Gradle on the Windows side.
   `get_chat_ephemeral_timer`, radios over EPHEMERAL_OPTIONS + the note,
   OK = `set_chat_ephemeral_timer` (the core posts the notice); errors stay
   in the dialog. Rules: `ui/EphemeralRules.kt`.
+- **Own-profile editor** (#358 C, stable showEditProfile +
+  editProfileFlow): "Edit profile" leads Settings (KMP has no drawer) and
+  sits on the self contact's Profile. 84dp preview, Change picture (the
+  shared `attachmentPicker(PHOTO)`; `avatarPickArmed` routes the next
+  `onAttachmentPicked` into the editor, not the composer) / Remove photo,
+  name (max 64), description. Save = `set_config` displayname →
+  selfavatar → selfstatus (only when changed), blanks as null; errors stay
+  in the dialog. Settings and Profile host a ToastHost now.
+  Rules: `ui/ProfileEditRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
   `AvatarTile`), add, remove.

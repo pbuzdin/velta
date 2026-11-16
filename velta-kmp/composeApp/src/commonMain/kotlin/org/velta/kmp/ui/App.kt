@@ -189,6 +189,7 @@ fun App(model: AppModel) {
             if (!model.locked) ChatMenuHost(model)
             if (!model.locked && model.renameDraft != null) RenameChatDialog(model)
             if (!model.locked && model.ephemeralDraft != null) EphemeralDialog(model)
+            if (!model.locked && model.profileEditor != null) ProfileEditorDialog(model)
             if (!model.locked && model.secondDeviceOpen) SecondDeviceSheet(model)
         }
     }
@@ -2313,6 +2314,8 @@ private fun SettingsScreen(model: AppModel) {
                 },
             )
         },
+        // Stable toast()/errToast() lines (profile editor results).
+        bottomBar = { ToastHost(model) },
     ) { inner ->
         Column(
             Modifier
@@ -2321,6 +2324,8 @@ private fun SettingsScreen(model: AppModel) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
+            // Stable drawer head: "Edit profile" (KMP has no drawer — Settings leads with it).
+            TextButton(onClick = { model.openProfileEditor() }) { Text(L.t("Edit profile")) }
             SettingsSection(L.t("Theme"))
             VeltaThemeChoice.entries.forEach { c ->
                 Row(
@@ -3245,6 +3250,8 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
                 },
             )
         },
+        // Stable toast()/errToast() lines (profile editor results).
+        bottomBar = { ToastHost(model) },
     ) { inner ->
         val p = model.profile
         if (p == null) {
@@ -3317,6 +3324,9 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
                 )
             }
             Spacer(Modifier.size(8.dp))
+            if (showsEditProfile(p.contactId)) {
+                TextButton(onClick = { model.openProfileEditor() }) { Text(L.t("Edit profile")) }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { model.backFromProfile() }) { Text(L.t("Send message")) }
                 if (p.contactId != null) {
@@ -3382,6 +3392,60 @@ private fun GroupManageBlock(model: AppModel, p: AppModel.ProfileData) {
             }
         }
         HorizontalDivider()
+    }
+}
+
+/** Stable ui.js showEditProfile: 84dp avatar preview (18% radius), Change
+ *  picture / Remove photo, name (max 64, "Your name" hint), description
+ *  textarea, Cancel / Save. */
+@Composable
+private fun ProfileEditorDialog(model: AppModel) {
+    val ed = model.profileEditor ?: return
+    VeltaDialog(
+        title = L.t("Edit profile"),
+        confirmLabel = L.t("Save"),
+        onConfirm = { model.saveProfileEditor() },
+        onDismiss = { model.closeProfileEditor() },
+        confirmEnabled = !ed.busy,
+    ) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.padding(top = 6.dp, bottom = 2.dp)) {
+                AvatarTile(
+                    name = ed.name.ifBlank { "?" },
+                    colorHex = ed.color,
+                    kind = "single",
+                    size = 84.dp,
+                    avatarPath = previewAvatar(ed.currentAvatar, ed.picked, ed.removed),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextButton(onClick = { model.pickProfilePhoto() }, enabled = !ed.busy) { Text(L.t("Change picture")) }
+                if (showsRemovePhoto(ed.currentAvatar, ed.picked, ed.removed)) {
+                    TextButton(onClick = { model.removeProfilePhoto() }, enabled = !ed.busy) { Text(L.t("Remove photo")) }
+                }
+            }
+            OutlinedTextField(
+                value = ed.name,
+                onValueChange = { model.editProfileName(it) },
+                singleLine = true,
+                enabled = !ed.busy,
+                placeholder = { Text(L.t("Your name")) },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Name") },
+            )
+            Spacer(Modifier.size(8.dp))
+            OutlinedTextField(
+                value = ed.description,
+                onValueChange = { model.editProfileDescription(it) },
+                minLines = 3,
+                enabled = !ed.busy,
+                placeholder = { Text(L.t("Description")) },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Description") },
+            )
+            ed.error?.let {
+                Spacer(Modifier.size(8.dp))
+                Text(it, fontSize = 13.sp, color = Velta.tokens.danger)
+            }
+        }
     }
 }
 
