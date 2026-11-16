@@ -2,6 +2,10 @@ package org.velta.kmp.ui
 
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.LinearEasing
@@ -184,6 +188,7 @@ fun App(model: AppModel) {
             // #334 step 5: chat-list / ⋮ menus, their confirmations, group invite.
             if (!model.locked) ChatMenuHost(model)
             if (!model.locked && model.renameDraft != null) RenameChatDialog(model)
+            if (!model.locked && model.ephemeralDraft != null) EphemeralDialog(model)
             if (!model.locked && model.secondDeviceOpen) SecondDeviceSheet(model)
         }
     }
@@ -3326,7 +3331,7 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
             Spacer(Modifier.size(8.dp))
             HorizontalDivider()
             GroupManageBlock(model, p)
-            profileRows(p)
+            profileRows(model, p)
             Spacer(Modifier.size(24.dp))
         }
     }
@@ -3380,9 +3385,50 @@ private fun GroupManageBlock(model: AppModel, p: AppModel.ProfileData) {
     }
 }
 
+/** Stable openEphemeralDialog: radios over EPHEMERAL_OPTIONS, the note,
+ *  Cancel / OK (OK applies via the core, which posts its own notice). */
+@Composable
+private fun EphemeralDialog(model: AppModel) {
+    val draft = model.ephemeralDraft ?: return
+    VeltaDialog(
+        title = L.t("Disappearing messages"),
+        confirmLabel = L.t("OK"),
+        onConfirm = { model.applyEphemeral() },
+        onDismiss = { model.closeEphemeralDialog() },
+    ) {
+        Column(Modifier.selectableGroup()) {
+            for ((label, secs) in EPHEMERAL_OPTIONS) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .selectable(
+                            selected = draft.selected == secs,
+                            role = androidx.compose.ui.semantics.Role.RadioButton,
+                        ) { model.pickEphemeral(secs) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = draft.selected == secs, onClick = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(L.t(label), color = Velta.tokens.text)
+                }
+            }
+        }
+        Spacer(Modifier.size(8.dp))
+        Text(L.t(EPHEMERAL_NOTE), fontSize = 13.sp, color = Velta.tokens.textDim)
+        model.ephemeralError?.let {
+            Spacer(Modifier.size(8.dp))
+            Text(it, fontSize = 13.sp, color = Velta.tokens.danger)
+        }
+    }
+}
+
 /** The contact-sheet data rows (media counts, address, key, timers). */
 @Composable
-private fun profileRows(p: AppModel.ProfileData) {
+private fun profileRows(model: AppModel, p: AppModel.ProfileData) {
+    val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+    val ephKey = L.t("Disappearing messages")
     val rows = buildList {
         add(L.t("Apps") to p.apps.toString())
         add(L.t("Photos") to p.photos.toString())
@@ -3393,12 +3439,25 @@ private fun profileRows(p: AppModel.ProfileData) {
         p.fingerprint?.let { add(L.t("Profile key") to groupedFpr(it)) }
         add(L.t("Last seen") to relativeLastSeen(p.lastSeenSeconds))
         add(L.t("Notifications") to if (p.muted) L.t("Off") else L.t("On"))
-        add(L.t("Disappearing messages") to ephemeralTimerLabel(p.ephemeralSecs))
+        // Stable showChatInfo: groups and 1:1 chats only; admin-only in admin groups.
+        if (showsEphemeralRow(kind)) add(ephKey to ephemeralTimerLabel(p.ephemeralSecs))
     }
+    val canSetTimer = canSetEphemeral(kind, p.groupAdminId)
     rows.forEach { (k, v) ->
+        val eph = k == ephKey
         Row(
             Modifier
                 .fillMaxWidth()
+                .then(
+                    when {
+                        eph && canSetTimer -> Modifier.clickable { model.openEphemeralDialog() }
+                        eph -> Modifier.semantics {
+                            disabled()
+                            stateDescription = L.t(EPHEMERAL_ADMIN_ONLY)
+                        }
+                        else -> Modifier
+                    },
+                )
                 .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

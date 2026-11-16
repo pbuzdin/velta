@@ -380,6 +380,13 @@ never run Gradle on the Windows side.
   no receipts for skipped rows) + jump. The manual read-up-to-here
   marker is not ported: stable removed its menu item (7fb50b17, #38).
   Rules: `ui/ReadPositionRules.kt`.
+- **Disappearing messages** (#358 C, stable showChatInfo row +
+  openEphemeralDialog): Profile row for groups and 1:1 only; tappable
+  when `canSetEphemeral` (admin groups: admin only, else disabled with
+  "Only the group admin can do this" as its state). The dialog re-reads
+  `get_chat_ephemeral_timer`, radios over EPHEMERAL_OPTIONS + the note,
+  OK = `set_chat_ephemeral_timer` (the core posts the notice); errors stay
+  in the dialog. Rules: `ui/EphemeralRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
   `AvatarTile`), add, remove.
