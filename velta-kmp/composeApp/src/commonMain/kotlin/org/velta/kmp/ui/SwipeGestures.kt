@@ -52,11 +52,16 @@ internal class SwipeOffset {
     /** Committed slide off-screen (stable .18s ease-out), then [then]. */
     fun slideOut(scope: CoroutineScope, target: Float, fancy: Boolean, then: () -> Unit) {
         stop()
-        if (!fancy) { value = 0f; then(); return }
+        // Reduced motion: switch at once, offset untouched (no flash back to 0).
+        if (!fancy) { then(); return }
         job = scope.launch {
             animate(value, target, animationSpec = tween(SwipeSpec.COMMIT_SLIDE_MS, easing = FastOutSlowInEasing)) { v, _ ->
                 value = v
             }
+            // Land exactly on the target, then switch screens in the same
+            // frame — the pane is never drawn back at rest.
+            value = target
+            job = null
             then()
         }
     }

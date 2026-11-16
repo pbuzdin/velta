@@ -154,3 +154,11 @@ fun backExitTarget(currentOffset: Float, widthPx: Float, fromLeftEdge: Boolean?)
     fromLeftEdge == true -> widthPx
     else -> -widthPx
 }
+
+/**
+ * Whether the chat stack composes the chat list: always without an open
+ * chat, and while a chat is open only when it is slid off its rest
+ * position (peeking). Across a committed swipe-back this stays true — the
+ * list that peeked is the list that remains, so nothing is recreated.
+ */
+fun stackShowsList(chatOpen: Boolean, offsetPx: Float): Boolean = !chatOpen || offsetPx != 0f
