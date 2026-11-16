@@ -131,6 +131,12 @@ jobs:
       # cache-bin:false — rust-cache otherwise manages ~/.cargo/bin itself
       # and WIPES it when its key changes (it changed with the 1.4.10
       # version bump), deleting the cargo-tauri binary restored above.
+      #
+      # The in-process Android core is linked into libvelta_app.so together
+      # with the app crate inside `cargo tauri android build`, so it cannot
+      # be skipped independently the way a sidecar can. rust-cache is the
+      # incremental compile cache; the signed APK is never cached (keystore
+      # + JS frontend). Release (workflow_call) always runs the full build.
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:

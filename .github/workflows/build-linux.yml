@@ -53,6 +53,15 @@ jobs:
       - name: Install tauri-cli (prebuilt)
         run: npm install -g @tauri-apps/cli@^2
 
+      # Hash sidecar inputs BEFORE rust-cache restores core/target/, which
+      # would change hashFiles('core/**'). Restore the binary AFTER rust-cache
+      # so a restored target tree cannot overwrite it.
+      # Release (workflow_call) reuses this cache: same inputs produce the
+      # same unsigned sidecar, so a hit is safe. Signed installers are not cached.
+      - name: Record sidecar cache key
+        id: sidecar-key
+        run: echo "hash=${{ hashFiles('core/**', 'packages/attachment-crypto/**', '.github/workflows/build-linux.yml') }}" >> "$GITHUB_OUTPUT"
+
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -66,7 +75,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: core/target/release/deltachat-rpc-server
-          key: sidecar-linux-debian12-glibc236-rust1.98-${{ hashFiles('core/**') }}
+          key: sidecar-linux-debian12-glibc236-rust1.98-release-${{ steps.sidecar-key.outputs.hash }}
 
       - name: Build deltachat-rpc-server sidecar
         if: steps.sidecar.outputs.cache-hit != 'true'

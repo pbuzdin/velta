@@ -40,17 +40,14 @@ jobs:
       - name: Install tauri-cli (prebuilt)
         run: npm install -g @tauri-apps/cli@^2
 
-      # Restore the sidecars built for this exact core state and skip both
-      # core builds. Runs BEFORE rust-cache so hashFiles sees only sources,
-      # never a restored core/target tree.
-      - name: Restore built sidecars
-        id: sidecar
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            core/target/aarch64-apple-darwin/release/deltachat-rpc-server
-            core/target/x86_64-apple-darwin/release/deltachat-rpc-server
-          key: sidecar-macos-${{ hashFiles('core/**') }}
+      # Hash sidecar inputs BEFORE rust-cache restores core/target/. Restore
+      # the binaries AFTER rust-cache so a restored target tree cannot
+      # overwrite them. Release (workflow_call) reuses this cache: same
+      # inputs produce the same unsigned sidecars, so a hit is safe. Signed
+      # installers / DMGs are not cached.
+      - name: Record sidecar cache key
+        id: sidecar-key
+        run: echo "hash=${{ hashFiles('core/**', 'packages/attachment-crypto/**', '.github/workflows/build-macos.yml') }}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -58,6 +55,15 @@ jobs:
           workspaces: |
             ./core
             ./velta-app/src-tauri
+
+      - name: Restore built sidecars
+        id: sidecar
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            core/target/aarch64-apple-darwin/release/deltachat-rpc-server
+            core/target/x86_64-apple-darwin/release/deltachat-rpc-server
+          key: sidecar-macos-aarch64-x86_64-rust1.98-release-${{ steps.sidecar-key.outputs.hash }}
 
       - name: Build deltachat-rpc-server sidecars (arm64 + x86_64)
         if: steps.sidecar.outputs.cache-hit != 'true'
