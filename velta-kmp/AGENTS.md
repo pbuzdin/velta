@@ -396,6 +396,18 @@ never run Gradle on the Windows side.
   selfavatar → selfstatus (only when changed), blanks as null; errors stay
   in the dialog. Settings and Profile host a ToastHost now.
   Rules: `ui/ProfileEditRules.kt`.
+- **Auto-download limit + Text-only mode** (#358 D, stable drawer radios,
+  savedDownloadLimit, text-only-mode.js, `_hiddenCard`): Settings radios.
+  The limit is a device pref (`velta-download-limit`, 640 KB migrates to
+  1 MB) mirrored to each account's `download_limit` at resume, welcome,
+  login, switch and on change (tests answer `set_config` by default).
+  Media not downloaded yet show stable's download card (tap =
+  `download_full_message`). Text-only (`velta-text-only`; default
+  "unknown" = contact requests only) swaps covered attachments for the
+  shield card (Show / Download and show); reveals are per session and
+  cleared on mode or account change; a covered message's sheet drops
+  Download and Save sticker. vCards are not covered (KMP draws no card).
+  Rules: `ui/MediaGateRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
   `AvatarTile`), add, remove.

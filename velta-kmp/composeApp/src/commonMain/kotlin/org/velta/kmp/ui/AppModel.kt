@@ -172,6 +172,87 @@ class AppModel(
         platform.setPref("velta-known-contacts-only", if (on) null else "0")
     }
 
+    // ── Auto-download limit + Text-only mode (#358, MediaGateRules.kt) ──
+
+    /** Device-global, like stable: mirrored into each account's core
+     *  `download_limit` at resume / login / switch and on change. */
+    var downloadLimit by mutableStateOf(
+        savedDownloadLimit(platform.pref(DOWNLOAD_LIMIT_KEY)).let { (v, rewrite) ->
+            if (rewrite) platform.setPref(DOWNLOAD_LIMIT_KEY, v)
+            v
+        },
+    )
+        private set
+
+    private suspend fun syncDownloadLimit(veltaCore: VeltaCore, id: Long) {
+        runCatching { veltaCore.setConfig(id, "download_limit", downloadLimit) }
+            .onFailure { println("velta-kmp: download_limit sync failed: $it") }
+    }
+
+    fun onSetDownloadLimit(value: String) {
+        if (value == downloadLimit || DOWNLOAD_LIMIT_OPTIONS.none { it.first == value }) return
+        val previous = downloadLimit
+        downloadLimit = value
+        platform.setPref(DOWNLOAD_LIMIT_KEY, value)
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.setConfig(id, "download_limit", value)
+                showToast(L.t(downloadLimitToast(value)))
+            } catch (t: Throwable) {
+                downloadLimit = previous
+                platform.setPref(DOWNLOAD_LIMIT_KEY, previous)
+                showToast(L.t("Couldn't save download limit: ") + (t.message ?: t.toString()))
+            }
+        }
+    }
+
+    var textOnlyMode by mutableStateOf(textOnlyModeOf(platform.pref(TEXT_ONLY_KEY)))
+        private set
+
+    /** Attachments the user chose to show this session (stable reveals). */
+    var revealedMedia by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    fun onSetTextOnlyMode(mode: String) {
+        val m = textOnlyModeOf(mode)
+        if (m == textOnlyMode) return
+        textOnlyMode = m
+        platform.setPref(TEXT_ONLY_KEY, textOnlyStored(m))
+        revealedMedia = emptySet()
+        showToast(L.t("Text-only mode: {state}").replace("{state}", L.t(textOnlyLabel(m))))
+    }
+
+    /** Text-only mode hides this message's attachment right now. */
+    fun attachmentCovered(message: MessageObject): Boolean {
+        if (!coversAttachment(message, textOnlyMode, chatHead?.kind)) return false
+        val id = accountId ?: return true
+        return revealKey(id, message.id) !in revealedMedia
+    }
+
+    /** Hidden card button: download first when needed, then show. */
+    fun revealAttachment(message: MessageObject) {
+        val id = accountId ?: return
+        revealedMedia = revealedMedia + revealKey(id, message.id)
+        if ((message.downloadState ?: "Done") != "Done") downloadMedia(message)
+    }
+
+    /** Stable `_downloadMedia`: fetch the full message, then refresh it. */
+    fun downloadMedia(message: MessageObject) {
+        if (message.downloadState == "InProgress") return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.downloadFullMessage(id, message.id)
+                reloadOpenChat()
+            } catch (t: Throwable) {
+                showToast(L.t("Download failed: ") + (t.message ?: t.toString()))
+            }
+        }
+    }
+
     /** Tap a contact → create/open the 1:1 chat (web contacts view row). */
     fun openContactChat(contact: Contact) {
         val veltaCore = core ?: return
@@ -1089,6 +1170,7 @@ class AppModel(
         if (account != null) {
             accountId = account.id
             accountAddr = account.addr
+            syncDownloadLimit(veltaCore, account.id)
             // Write the choice back (the fallback may not be the core's
             // selected id) and arm mail. A failure must not hide the local list.
             runCatching { veltaCore.selectAccount(account.id) }
@@ -1252,6 +1334,7 @@ class AppModel(
         val id = accountId ?: unconfiguredAccountId ?: veltaCore.addAccount()
         accountId = id
         unconfiguredAccountId = null
+        syncDownloadLimit(veltaCore, id)
         return id
     }
 
@@ -1527,6 +1610,7 @@ class AppModel(
                     ?: veltaCore.addAccount()
                 accountId = id
                 unconfiguredAccountId = null
+                syncDownloadLimit(veltaCore, id)
                 veltaCore.addTransport(id, addr.trim(), password)
                 status = "configuring"
                 veltaCore.configure(id)
@@ -2099,6 +2183,7 @@ class AppModel(
             println("velta-kmp: selectAccount failed: $t")
         }
         accountId = id
+        revealedMedia = emptySet()
         composerText = ""
         replyTo = null
         pendingAttachment = null
@@ -2110,6 +2195,7 @@ class AppModel(
         } catch (t: Throwable) {
             println("velta-kmp: accountInfo failed: $t")
         }
+        syncDownloadLimit(veltaCore, id)
         loadChats()
         screen = Screen.ChatList
     }
@@ -2695,7 +2781,12 @@ class AppModel(
         return sheetOrder(
             messageSheetActions(
                 m,
-                SheetContext(chat = sheetChat, linkHref = target.linkHref, canShareLink = shareText != null),
+                SheetContext(
+                    chat = sheetChat,
+                    linkHref = target.linkHref,
+                    canShareLink = shareText != null,
+                    covered = attachmentCovered(target.message),
+                ),
             ),
         )
     }

@@ -36,6 +36,8 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
             "get_config" to "null",
             // Every chat open reads its pin tray.
             "get_pinned_messages" to "[]",
+            // Resume / login / switch mirror the auto-download limit.
+            "set_config" to "null",
             // An unread chat asks for its "Unread messages" line on open.
             "get_first_unread_message_of_chat" to "null",
         )
