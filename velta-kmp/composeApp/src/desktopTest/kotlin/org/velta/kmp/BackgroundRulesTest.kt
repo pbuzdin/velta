@@ -11,6 +11,13 @@ import org.velta.kmp.ui.AppModel
 import org.velta.kmp.ui.BackgroundPolicy
 import org.velta.kmp.ui.CatchUp
 import org.velta.kmp.ui.backgroundConnectionOn
+import org.velta.kmp.ui.dontKillMyAppUrl
+import org.velta.kmp.ui.makerLabel
+import org.velta.kmp.ui.maybeNetworkDue
+import org.velta.kmp.ui.noticeSenderName
+import org.velta.kmp.ui.noticeText
+import org.velta.kmp.ui.shouldAskBattery
+import org.velta.kmp.ui.shouldAskNotificationPermission
 import org.velta.kmp.ui.bootStartsSync
 import org.velta.kmp.ui.syncServiceRuns
 import org.velta.kmp.ui.catchUpDecision
@@ -26,7 +33,7 @@ class BackgroundRulesTest {
     fun policyMatchesStable() {
         assertEquals(15 * 60 * 1000L, BackgroundPolicy.PERIODIC_MS)
         assertEquals(0x564C, BackgroundPolicy.JOB_ID)
-        assertEquals(30.0, BackgroundPolicy.FETCH_SECS)
+        assertEquals(15.0, BackgroundPolicy.FETCH_SECS)
         assertTrue(BackgroundPolicy.JOB_MAX_MS > BackgroundPolicy.FETCH_SECS * 1000)
     }
 
@@ -109,6 +116,75 @@ class BackgroundRulesTest {
         }
     }
 
+    @Test
+    fun maybeNetworkIsThrottled() {
+        assertTrue(maybeNetworkDue(available = true, connected = true, nowMs = 10_000, lastMs = 0))
+        assertFalse(maybeNetworkDue(available = true, connected = true, nowMs = 10_000, lastMs = 8_000))
+        assertFalse(maybeNetworkDue(available = false, connected = true, nowMs = 10_000, lastMs = 0), "lost needs nothing")
+        assertFalse(maybeNetworkDue(available = true, connected = false, nowMs = 10_000, lastMs = 0))
+    }
+
+    @Test
+    fun batteryPromptAskedOnce() {
+        assertTrue(shouldAskBattery(exempt = false, dismissed = false, askedThisRun = false, configured = true, backgroundConnection = true))
+        assertFalse(shouldAskBattery(exempt = false, dismissed = true, askedThisRun = false, configured = true, backgroundConnection = true))
+        assertFalse(shouldAskBattery(exempt = false, dismissed = false, askedThisRun = true, configured = true, backgroundConnection = true))
+        assertFalse(shouldAskBattery(exempt = true, dismissed = false, askedThisRun = false, configured = true, backgroundConnection = true))
+        assertFalse(shouldAskBattery(exempt = null, dismissed = false, askedThisRun = false, configured = true, backgroundConnection = true))
+        assertFalse(shouldAskBattery(exempt = false, dismissed = false, askedThisRun = false, configured = false, backgroundConnection = true))
+        assertFalse(shouldAskBattery(exempt = false, dismissed = false, askedThisRun = false, configured = true, backgroundConnection = false))
+        assertEquals("https://dontkillmyapp.com/xiaomi", dontKillMyAppUrl("Redmi"))
+        assertEquals("https://dontkillmyapp.com/nokia", dontKillMyAppUrl("HMD Global"))
+        assertEquals("https://dontkillmyapp.com/", dontKillMyAppUrl("Fairphone2000"))
+        assertEquals("Xiaomi", makerLabel("xiaomi"))
+        assertEquals("", makerLabel(null))
+        assertTrue(shouldAskNotificationPermission(33, granted = false, askedBefore = false))
+        assertFalse(shouldAskNotificationPermission(33, granted = false, askedBefore = true))
+        assertFalse(shouldAskNotificationPermission(32, granted = false, askedBefore = false))
+    }
+
+    @Test
+    fun conversationNoticeLines() {
+        assertEquals("Bot", noticeSenderName("Bot", "Alice", "a", "Chat"))
+        assertEquals("Alice", noticeSenderName(null, "Alice", "a", "Chat"))
+        assertEquals("Chat", noticeSenderName(null, "", "", "Chat"))
+        assertEquals("hi", noticeText("hi", "Text", false, "New message"))
+        assertEquals("Photo", noticeText("", "Image", true, "New message"))
+        assertEquals("Voice message", noticeText(" ", "Voice", true, "New message"))
+        assertEquals("New message", noticeText("", "Text", false, "New message"))
+    }
+
+    @Test
+    fun batteryPromptRemembersTheAnswer() = runBlocking {
+        val prefs = HashMap<String, String?>()
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-bg-battery-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = ScriptedRpcTransport(answers())
+            override fun pref(key: String): String? = prefs[key]
+            override fun setPref(key: String, value: String?) { prefs[key] = value }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val model = AppModel(platform, scope)
+            var asked = 0
+            model.batteryCheck = { false }
+            model.requestBatteryExemption = { asked++ }
+            model.connect()
+            kotlinx.coroutines.withTimeout(10_000) { while (!model.batteryPromptOpen) kotlinx.coroutines.yield() }
+            model.answerBatteryPrompt(true)
+            assertEquals(1, asked)
+            assertEquals("1", prefs["velta-battery-opt-dismissed"])
+            model.maybeAskBattery()
+            assertFalse(model.batteryPromptOpen, "answered once: never again")
+            val next = AppModel(platform, scope)
+            next.batteryCheck = { false }
+            next.maybeAskBattery()
+            assertFalse(next.batteryPromptOpen, "remembered across launches")
+        } finally {
+            scope.cancel()
+        }
+    }
+
     private fun answers() = mapOf(
         "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
         "get_all_account_ids" to "[1]",
@@ -134,7 +210,7 @@ class BackgroundRulesTest {
             assertTrue(model.catchUpFetch("scheduled"))
             val fetchIdx = transport.requests.indexOfFirst { "\"background_fetch\"" in it }
             assertTrue(fetchIdx >= 0, "fetched")
-            assertTrue(transport.requests[fetchIdx].contains("30"), transport.requests[fetchIdx])
+            assertTrue(transport.requests[fetchIdx].contains("15"), transport.requests[fetchIdx])
             assertTrue(transport.requests.lastIndexOf(transport.requests.last { "\"start_io_for_all_accounts\"" in it }) < fetchIdx)
         } finally {
             scope.cancel()

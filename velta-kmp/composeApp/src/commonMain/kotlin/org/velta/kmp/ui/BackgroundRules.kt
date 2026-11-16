@@ -15,8 +15,9 @@ object BackgroundPolicy {
     /** Stable's job id ("VL"). */
     const val JOB_ID = 0x564C
 
-    /** Core-side bound of one `background_fetch` (seconds). */
-    const val FETCH_SECS = 30.0
+    /** Core-side bound of one `background_fetch` (seconds; stable
+     *  BG_FETCH_TIMEOUT_SECS, lowered from 30). */
+    const val FETCH_SECS = 15.0
 
     /** The whole job: a cold core can take ~20 s before the 30 s fetch
      *  (stable FETCH_MAX_SECS = 55). */
@@ -78,3 +79,90 @@ val BOOT_ACTIONS = setOf(
  *  service only when a core can actually run (app lock needs the user). */
 fun bootStartsSync(action: String?, appLocked: Boolean, backgroundConnection: Boolean = true): Boolean =
     action in BOOT_ACTIONS && !appLocked && backgroundConnection
+
+// ── Polish (#358 Background delivery, item 5) ──
+
+/** stable kick_maybe_network: at most one `maybe_network` per 3 s; a lost
+ *  network needs nothing (the core notices dead sockets itself). */
+const val MAYBE_NETWORK_MIN_GAP_MS = 3_000L
+
+fun maybeNetworkDue(available: Boolean, connected: Boolean, nowMs: Long, lastMs: Long): Boolean =
+    available && connected && nowMs - lastMs >= MAYBE_NETWORK_MIN_GAP_MS
+
+/** stable battery-prompt.js: asked ONCE — any answer or close is remembered. */
+const val BATTERY_DISMISSED_KEY = "velta-battery-opt-dismissed"
+
+/** Ask only when known not exempt, never answered, not yet this run, with a
+ *  configured account and the background connection on (KMP: without it
+ *  there is nothing to keep alive). */
+fun shouldAskBattery(
+    exempt: Boolean?,
+    dismissed: Boolean,
+    askedThisRun: Boolean,
+    configured: Boolean,
+    backgroundConnection: Boolean,
+): Boolean = exempt == false && !dismissed && !askedThisRun && configured && backgroundConnection
+
+private const val DKMA = "https://dontkillmyapp.com/"
+private val DKMA_MAKERS = mapOf(
+    "xiaomi" to "xiaomi", "redmi" to "xiaomi", "poco" to "xiaomi",
+    "huawei" to "huawei", "honor" to "huawei",
+    "samsung" to "samsung",
+    "oneplus" to "oneplus",
+    "oppo" to "oppo",
+    "realme" to "realme",
+    "vivo" to "vivo",
+    "asus" to "asus",
+    "lenovo" to "lenovo",
+    "motorola" to "motorola",
+    "meizu" to "meizu",
+    "nokia" to "nokia", "hmd global" to "nokia",
+    "sony" to "sony",
+    "google" to "google",
+    "wiko" to "wiko",
+    "blackview" to "blackview",
+)
+
+/** The dontkillmyapp.com page for a Build.MANUFACTURER value (index if unknown). */
+fun dontKillMyAppUrl(maker: String?): String =
+    DKMA_MAKERS[maker.orEmpty().trim().lowercase()]?.let { DKMA + it } ?: DKMA
+
+/** Display name for the maker ("Xiaomi"), or "" when unknown. */
+fun makerLabel(maker: String?): String =
+    maker.orEmpty().trim().replaceFirstChar { it.uppercase() }
+
+/** Notification permission (Android 13+): asked once, not on every launch. */
+const val NOTIFY_PERMISSION_ASKED_KEY = "velta-notify-permission-asked"
+
+fun shouldAskNotificationPermission(sdk: Int, granted: Boolean, askedBefore: Boolean): Boolean =
+    sdk >= 33 && !granted && !askedBefore
+
+/** One incoming message for a MessagingStyle conversation notification
+ *  (stable Notifications.show / Delta Chat's look: chat title for groups,
+ *  sender as the message's person, plain text). */
+data class IncomingNotice(
+    val accountId: Long,
+    val chatId: Long,
+    val chatName: String,
+    val isGroup: Boolean,
+    val senderName: String,
+    val text: String,
+    val timestampMs: Long,
+    val chatAvatar: String? = null,
+    val senderAvatar: String? = null,
+)
+
+/** Sender line: the override name (bots, mailing lists), else the contact. */
+fun noticeSenderName(overrideSenderName: String?, displayName: String?, name: String?, fallback: String): String =
+    overrideSenderName?.takeIf { it.isNotBlank() }
+        ?: displayName?.takeIf { it.isNotBlank() }
+        ?: name?.takeIf { it.isNotBlank() }
+        ?: fallback
+
+/** Body: the text, else the attachment kind ("Photo", "Voice message"…,
+ *  localized by [t]), else [fallback]. */
+fun noticeText(text: String, viewType: String, hasFile: Boolean, fallback: String, t: (String) -> String = { it }): String = when {
+    text.isNotBlank() -> text
+    hasFile || viewType !in setOf("Text", "Unknown") -> t(hiddenKindLabel(viewType))
+    else -> fallback
+}

@@ -4,6 +4,9 @@
     <!-- Core sockets (IMAP/SMTP + the loopback RPC shim) need INTERNET;
          Android gates every AF_INET socket, loopback included, on it. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Network callback (VeltaApplication): maybe_network when a network
+         comes back. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Keep the core syncing while the screen is off (P4 slice 6). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />

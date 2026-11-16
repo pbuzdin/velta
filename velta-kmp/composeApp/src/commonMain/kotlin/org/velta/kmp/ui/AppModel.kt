@@ -1184,6 +1184,7 @@ class AppModel(
             refreshRelayLine()
             status = "resumed ${account.addr ?: ""}".trim()
             consumePendingOpen()
+            maybeAskBattery()
         } else {
             status = "connected"
             screen = Screen.Login
@@ -1638,6 +1639,11 @@ class AppModel(
      * replace each other. */
     interface IncomingNotifier {
         fun notifyIncoming(accountId: Long, chatId: Long, chatName: String, text: String)
+
+        /** Rich form (sender, group, time, avatars) for MessagingStyle;
+         *  platforms without it get the plain line. */
+        fun notifyMessage(notice: IncomingNotice) =
+            notifyIncoming(notice.accountId, notice.chatId, notice.chatName, notice.text)
         fun cancel(accountId: Long, chatId: Long)
     }
 
@@ -2316,6 +2322,42 @@ class AppModel(
         platform.setPref(BACKGROUND_CONNECTION_KEY, if (on) null else "0")
         onBackgroundConnectionChanged?.invoke(on)
         if (!on) showToast(L.t("Background connection off — messages arrive when you open Velta"))
+    }
+
+    private var lastMaybeNetworkMs = 0L
+
+    /** Platform network callback (stable CoreService → kick_maybe_network):
+     *  a network came up → nudge the core to reconnect now, at most every 3 s. */
+    fun onNetworkAvailable(available: Boolean) {
+        val now = wallClockMillis()
+        if (!maybeNetworkDue(available, connected, now, lastMaybeNetworkMs)) return
+        lastMaybeNetworkMs = now
+        val veltaCore = core ?: return
+        scope.launch { runCatching { veltaCore.maybeNetwork() }.onFailure { println("velta-kmp: maybe_network failed: $it") } }
+    }
+
+    /** Platform-injected Build.MANUFACTURER (battery prompt's dontkillmyapp link). */
+    var deviceMaker: String = ""
+
+    /** Stable askBatteryExemption: the one-time "Keep messages arriving" dialog. */
+    var batteryPromptOpen by mutableStateOf(false)
+        private set
+    private var batteryAskedThisRun = false
+
+    /** Ask once (any answer is remembered), only for a configured account
+     *  with the background connection on and Android restricting us. */
+    fun maybeAskBattery() {
+        val exempt = batteryCheck?.invoke()
+        batteryExempt = exempt
+        if (!shouldAskBattery(exempt, platform.pref(BATTERY_DISMISSED_KEY) == "1", batteryAskedThisRun, accountId != null && accountAddr != null, backgroundConnection)) return
+        batteryAskedThisRun = true
+        batteryPromptOpen = true
+    }
+
+    fun answerBatteryPrompt(allow: Boolean) {
+        batteryPromptOpen = false
+        platform.setPref(BATTERY_DISMISSED_KEY, "1")
+        if (allow) requestBatteryAllowance()
     }
 
     /** Platform-injected (Android): UnifiedPush state for Settings › Push notifications. */
@@ -4222,15 +4264,29 @@ class AppModel(
         val n = notifier ?: return
         val veltaCore = core ?: return
         val item = runCatching { veltaCore.chatlistItems(eventAccount, listOf(chatId)).firstOrNull() }.getOrNull()
-        val text = incomingText(veltaCore, eventAccount, event)
+        val msg = incomingMessage(veltaCore, eventAccount, event)
+        val text = msg?.text.orEmpty()
         if (item?.isMuted == true && !allowsMutedMention(eventAccount, text)) return
         val fallback = L.t("New message")
-        n.notifyIncoming(eventAccount, chatId, item?.name?.ifBlank { null } ?: fallback, text.ifBlank { fallback })
+        val chatName = item?.name?.ifBlank { null } ?: fallback
+        n.notifyMessage(
+            IncomingNotice(
+                accountId = eventAccount,
+                chatId = chatId,
+                chatName = chatName,
+                isGroup = item?.chatType == "Group" || item?.chatType == "Mailinglist",
+                senderName = noticeSenderName(msg?.overrideSenderName, msg?.sender?.displayName, msg?.sender?.name, chatName),
+                text = if (msg == null) fallback else noticeText(text, msg.viewType, !msg.file.isNullOrEmpty() || !msg.fileName.isNullOrEmpty(), fallback) { L.t(it) },
+                timestampMs = (msg?.timestamp?.takeIf { it > 0 } ?: wallClockSeconds()) * 1000,
+                chatAvatar = item?.avatarPath,
+                senderAvatar = msg?.sender?.profileImage,
+            ),
+        )
     }
 
-    private suspend fun incomingText(veltaCore: VeltaCore, accountId: Long, event: CoreEvent): String {
-        val msgId = event.event?.get("msgId")?.toString()?.trim('"')?.toLongOrNull() ?: return ""
-        return runCatching { veltaCore.messages(accountId, listOf(msgId)).firstOrNull()?.text }.getOrNull().orEmpty()
+    private suspend fun incomingMessage(veltaCore: VeltaCore, accountId: Long, event: CoreEvent): MessageObject? {
+        val msgId = event.event?.get("msgId")?.toString()?.trim('"')?.toLongOrNull() ?: return null
+        return runCatching { veltaCore.messages(accountId, listOf(msgId)).firstOrNull() }.getOrNull()
     }
 
     /** Muted chats stay quiet unless the text @mentions us and the switch is on. */
