@@ -69,11 +69,15 @@ export function mountInviteDomains(holder, { svg, link }, apply) {
   const hosts = inviteDomains();
   let sel = chosenDomain(hosts);
   const show = () => {
-    // i.delta.chat keeps the core's styled card; every other domain gets a
-    // plain QR that already carries the Velta logo.
-    const isCore = sel === CORE_HOST || !String(link || "").startsWith(CORE_PREFIX);
-    const l = isCore ? link : rewriteInviteHost(link, sel);
-    apply(isCore ? svg : brandedQrSvg(l), l, isCore);
+    // Every tab draws the same branded square (KMP parity — App.kt led the
+    // way); the core's own styled card is gone. The copied/shared LINK on
+    // the i.delta.chat tab stays the core URL, so Delta Chat users scanning
+    // it land in the same place as before — only the image is Velta's.
+    // svg (the core card) is kept in the signature: the caller still hands
+    // it over and it remains the fallback for non-core invite payloads.
+    const coreForm = !String(link || "").startsWith(CORE_PREFIX);
+    const l = coreForm ? link : rewriteInviteHost(link, sel);
+    apply(brandedQrSvg(l), l, coreForm);
   };
   if (holder && link && String(link).startsWith(CORE_PREFIX)) {
     holder.innerHTML = domainTabsHtml(hosts, sel);
