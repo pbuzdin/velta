@@ -45,6 +45,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -181,7 +183,7 @@ fun App(model: AppModel) {
                     AppModel.Screen.Settings -> SettingsScreen(model)
                     AppModel.Screen.Accounts -> AccountsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
-                    is AppModel.Screen.Chat -> ChatScreen(model, current)
+                    is AppModel.Screen.Chat -> ChatBackHost(model, current)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
                 }
             }
@@ -620,7 +622,7 @@ private fun JoinScreen(model: AppModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatListScreen(model: AppModel) {
+private fun ChatListScreen(model: AppModel, peek: Boolean = false) {
     var searchTab by remember { mutableStateOf("search") }
     var headPx by remember { mutableIntStateOf(0) }
     val headDp = with(LocalDensity.current) { headPx.toDp() }
@@ -634,7 +636,7 @@ private fun ChatListScreen(model: AppModel) {
         }
     }
     // Android back inside a side view returns to the chats list first.
-    PlatformBackHandler(enabled = model.listView != "chats") {
+    PlatformBackHandler(enabled = !peek && model.listView != "chats") {
         model.toggleListView("chats")
     }
     GlassHost(
@@ -2687,7 +2689,73 @@ private fun RelayFlag(letter: String, on: Boolean?) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
+private fun ChatBackHost(model: AppModel, chat: AppModel.Screen.Chat) {
+    // Swipe-back host (#334): the chat slides with the finger (or the
+    // Android 14+ predictive back progress) while the chat list peeks
+    // underneath with parallax, scale and dim; reduced motion keeps the
+    // peek flat and skips the springs.
+    val back = remember(chat.chatId) { SwipeOffset() }
+    val scope = rememberCoroutineScope()
+    val fancy = !rememberReducedMotion()
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val widthPx = constraints.maxWidth.toFloat()
+        // Remembered so per-frame offset changes never recompose ChatScreen.
+        val commitBack: (Boolean?) -> Unit = remember(back, widthPx, fancy) {
+            { fromLeft ->
+                model.backSwipeActive = false
+                back.slideOut(scope, backExitTarget(back.value, widthPx, fromLeft), fancy) {
+                    model.backToChatList()
+                }
+            }
+        }
+        val onCommit = remember(commitBack) { { commitBack(null) } }
+        val peeking by remember(back) { derivedStateOf { back.value != 0f } }
+        PlatformPredictiveBackHandler(
+            onProgress = { p, fromLeft -> back.snapTo(if (fancy) predictiveOffset(p, widthPx, fromLeft) else 0f) },
+            onCancel = { back.settle(scope, 0f, fancy) },
+            onBack = commitBack,
+        )
+        if (peeking) {
+            Box(
+                Modifier.fillMaxSize().graphicsLayer {
+                    val peek = peekFor(back.value, widthPx, fancy)
+                    translationX = peek.translationX
+                    scaleX = peek.scale
+                    scaleY = peek.scale
+                },
+            ) { ChatListScreen(model, peek = true) }
+            // Dim + touch shield: the peeking list is a picture, not a target.
+            Box(
+                Modifier.fillMaxSize()
+                    .drawBehind { drawRect(Color.Black.copy(alpha = peekFor(back.value, widthPx, fancy).dim)) }
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false).consume()
+                        }
+                    },
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                translationX = back.value
+                // Lift the sliding pane off the list (a soft edge shadow).
+                shadowElevation = if (back.value != 0f && fancy) 12.dp.toPx() else 0f
+            },
+        ) {
+            ChatScreen(model, chat, back, widthPx, fancy, onCommit = onCommit)
+        }
+    }
+}
+
+@Composable
+private fun ChatScreen(
+    model: AppModel,
+    chat: AppModel.Screen.Chat,
+    back: SwipeOffset,
+    paneWidthPx: Float,
+    fancy: Boolean,
+    onCommit: () -> Unit,
+) {
     val listState = rememberLazyListState()
     // Paging (#223): near the top (oldest end) fetch the page before the
     // loaded window; a prepend is compensated so the viewport stays anchored.
@@ -2732,10 +2800,8 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         }
     }
 
-    // System back (Android) returns to the chat list; desktop uses ‹ Back.
-    PlatformBackHandler {
-        model.backToChatList()
-    }
+    // System back (Android) returns to the chat list through ChatBackHost's
+    // predictive handler; desktop uses ‹ Back.
 
     // Read receipts (#334, web per-visible-row markSeen): report the message
     // rows on screen; the model marks unseen incoming ones while the app is
@@ -2792,12 +2858,15 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     var footPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     // Web back-swipe (chat-view.js:5460-5540): dragging the history leftward
-    // slides the pane with the finger; past min(72dp, 28% width) it commits
-    // to the chat list. The .18s slide animations are skipped in Compose —
-    // commit switches the screen, cancel snaps home.
+    // slides the whole chat pane with the finger; past min(72dp, 28% width)
+    // it commits to the chat list (ChatBackHost animates the exit), else it
+    // springs home. Touches starting in the system gesture edges are left to
+    // Android's own back gesture.
     val haptics = LocalHapticFeedback.current
-    var backDx by remember { mutableStateOf(0f) }
-    var listWidthPx by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val gestureInsets = WindowInsets.systemGestures
+    val layoutDir = LocalLayoutDirection.current
+    var listLeftPx by remember { mutableStateOf(0f) }
     val lens = model.replyTo == null && model.editingMsg == null && model.pendingAttachment == null
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(
@@ -2812,51 +2881,66 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 // is --bg-sidebar, and incoming bubbles share that color in
                 // light (#f4f4f4) and nearly share it in dark (#181820 vs #1c1c26).
                 .background(Velta.tokens.bgChat)
-                .onSizeChanged { listWidthPx = it.width }
-                .graphicsLayer { translationX = backDx }
+                .onGloballyPositioned { listLeftPx = it.positionInWindow().x - back.value }
                 .pointerInput(Unit) {
                     if (!touchGesturesEnabled) return@pointerInput
-                    val engage = 12.dp.toPx()
+                    val engage = SwipeSpec.ENGAGE_DP.dp.toPx()
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        val x0 = down.position.x
-                        val y0 = down.position.y
-                        var engaged = false
-                        var dx = 0f
-                        var haptic = false
+                        // Runs before the bubbles (Initial pass is parent → child):
+                        // reset the per-touch flags they read.
+                        model.gestureSkipDown = false
+                        model.replySwipeActive = false
+                        model.backSwipeActive = false
+                        val windowX = listLeftPx + back.value + down.position.x
+                        model.gestureEdgeDown = inSystemGestureZone(
+                            windowX,
+                            paneWidthPx,
+                            gestureInsets.getLeft(this, layoutDir).toFloat(),
+                            gestureInsets.getRight(this, layoutDir).toFloat(),
+                        )
+                        // Grab a pane that is still springing home.
+                        val base = back.value
+                        back.stop()
+                        if (base != 0f && !model.gestureEdgeDown) model.backSwipeActive = true
+                        var engaged = base != 0f && model.backSwipeActive
+                        // Deltas, not absolute positions: the pane under the
+                        // finger moves, so positions drift with it.
+                        var dxc = 0f
+                        var dyc = 0f
+                        var past = false
+                        val commit = backCommitPx(paneWidthPx, 1.dp.toPx())
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                            val cur = event.changes.firstOrNull()?.position
-                            if (event.changes.none { it.pressed } || cur == null) {
+                            val change = event.changes.firstOrNull()
+                            if (event.changes.none { it.pressed } || change == null) {
                                 if (engaged) {
-                                    // Commit: dragged past min(72dp, 28% width).
-                                    if (dx <= -Math.min(72.dp.toPx(), listWidthPx * 0.28f)) {
-                                        model.backToChatList()
-                                    }
-                                    backDx = 0f
+                                    // A cancel (system took the touch) arrives pre-consumed.
+                                    val cancelled = event.changes.all { it.isConsumed }
+                                    if (releaseCommits(back.value, commit, cancelled)) onCommit()
+                                    else back.settle(scope, 0f, fancy)
                                 }
+                                model.backSwipeActive = false
                                 break
                             }
-                            val dxc = cur.x - x0
-                            val dyc = cur.y - y0
-                            // Stable gestureSkipTarget: a drag that began on a
-                            // control (the audio bar's seek) is not a back swipe.
-                            if (!engaged && model.gestureSkipDown) break
+                            if (event.changes.size > 1 && !engaged) break
+                            dxc += change.position.x - change.previousPosition.x
+                            dyc += change.position.y - change.previousPosition.y
                             if (!engaged) {
-                                if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) break
-                                if (dxc > -engage || Math.abs(dxc) < Math.abs(dyc)) continue
-                                engaged = true
-                            }
-                            dx = dxc.coerceIn(-(listWidthPx.toFloat()), 0f)
-                            backDx = dx
-                            if (dx <= -Math.min(72.dp.toPx(), listWidthPx * 0.28f)) {
-                                if (!haptic) {
-                                    haptic = true
-                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                // Stable gestureSkipTarget / _replySwipe / edge zones.
+                                if (!backSwipeAllowed(model.replySwipeActive, model.gestureEdgeDown, model.gestureSkipDown)) break
+                                when (swipeAxis(dxc, dyc, engage, positive = false)) {
+                                    SwipeAxis.Vertical -> break
+                                    SwipeAxis.Undecided -> continue
+                                    SwipeAxis.Horizontal -> { engaged = true; model.backSwipeActive = true }
                                 }
-                            } else {
-                                haptic = false
                             }
+                            back.value = backFollow(base + dxc, paneWidthPx)
+                            val t = thresholdTick(past, back.value, commit)
+                            past = t.past
+                            if (t.tick) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                            // Engaged: the history must not scroll under the swipe.
+                            event.changes.forEach { it.consume() }
                         }
                     }
                 },
@@ -4131,10 +4215,17 @@ private fun MessageBubble(
         else -> Color(0xFF9AA3B5)
     }
     // Web reply swipe (chat-view.js:3035-3110): drag the bubble rightward —
-    // engages at 12dp, follows the finger up to 64dp, ticks at the 48dp
-    // commit line, and a release past the line opens the reply draft.
+    // engages at 12dp, ticks at the 48dp commit line, and a release past the
+    // line opens the reply draft. KMP polish: rubber-band past the line, a
+    // reply arrow that fades/grows in the gap and pops at the line, and a
+    // spring home (all flat under reduced motion).
     val haptics = LocalHapticFeedback.current
-    var replyDx by remember(message.id) { mutableStateOf(0f) }
+    val reply = remember(message.id) { SwipeOffset() }
+    val replyPop = remember(message.id) { SwipeOffset().also { it.value = 1f } }
+    val replyScope = rememberCoroutineScope()
+    val replyFancy = !rememberReducedMotion()
+    val replyArrow = androidx.compose.ui.graphics.vector.rememberVectorPainter(VeltaIcons.reply)
+    val replyCommitPx = with(LocalDensity.current) { SwipeSpec.REPLY_COMMIT_DP.dp.toPx() }
     val quoteName = if (outgoing) tokens.quoteNameOut else tokens.quoteName
     val quoteBg = tokens.bgReply
     // Web .msg-meta: 11.5px in --text-meta-in/--text-meta-out; ticks read
@@ -4156,23 +4247,29 @@ private fun MessageBubble(
     val liveHeld by rememberUpdatedState(held)
     val actionsLabel = L.t("Message actions")
     val gestures = Modifier.pointerInput(message.id) {
-        val engage = 12.dp.toPx()
-        val commit = 48.dp.toPx()
-        val clamp = 64.dp.toPx()
+        val engage = SwipeSpec.ENGAGE_DP.dp.toPx()
+        val commit = SwipeSpec.REPLY_COMMIT_DP.dp.toPx()
+        val extra = SwipeSpec.REPLY_RUBBER_DP.dp.toPx()
         val slop = viewConfig.touchSlop
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            model.gestureSkipDown = false
             pressHref[0] = ""
-            val x0 = down.position.x
-            val y0 = down.position.y
+            // Grab a bubble that is still springing home.
+            val base = reply.value
+            reply.stop()
             var lastUptime = down.uptimeMillis
             var swipeOk = touchGesturesEnabled && !liveSelection && !liveHeld && !model.sheetChat.readOnly
             var engaged = false
             var moved = false
             var longPressed = false
-            var dx = 0f
-            var haptic = false
+            var rawDx = base
+            var dyc = 0f
+            var past = false
+            fun release(commitIt: Boolean) {
+                model.replySwipeActive = false
+                if (commitIt) model.startReply(message)
+                reply.settle(replyScope, 0f, replyFancy)
+            }
             while (true) {
                 val event = if (!longPressed && !moved && !engaged) {
                     val left = (LONG_PRESS_MS - (lastUptime - down.uptimeMillis)).coerceAtLeast(1L)
@@ -4188,46 +4285,66 @@ private fun MessageBubble(
                 }
                 event.changes.firstOrNull()?.let { lastUptime = it.uptimeMillis }
                 // A second finger never means long-press or reply (web touchstart).
-                if (event.changes.size > 1) { moved = true; swipeOk = false; replyDx = 0f }
-                val cur = event.changes.firstOrNull()?.position
-                if (event.changes.none { it.pressed } || cur == null) {
+                if (event.changes.size > 1) {
+                    moved = true
+                    swipeOk = false
+                    if (engaged) { engaged = false; release(false) }
+                }
+                val change = event.changes.firstOrNull()
+                if (event.changes.none { it.pressed } || change == null) {
+                    // A cancel (system took the touch) arrives pre-consumed.
+                    val cancelled = event.changes.all { it.isConsumed }
                     when {
                         // The sheet is up: the lift must not also tap a link.
                         longPressed -> event.changes.forEach { it.consume() }
-                        !moved && !engaged && liveSelection -> {
+                        !moved && !engaged && liveSelection && !cancelled -> {
                             event.changes.forEach { it.consume() }
                             model.toggleSelect(message.id)
                         }
                     }
                     // Release past the commit line opens the reply draft
                     // (web endReplySwipe(true)); either way the bubble springs home.
-                    if (engaged && dx >= commit) model.startReply(message)
-                    replyDx = 0f
+                    if (engaged) release(releaseCommits(rawDx, commit, cancelled))
+                    else if (reply.value != 0f) reply.settle(replyScope, 0f, replyFancy)
                     break
                 }
                 if (longPressed) {
                     event.changes.forEach { it.consume() }
                     continue
                 }
-                val dxc = cur.x - x0
-                val dyc = cur.y - y0
+                // Deltas, not positions: the bubble moves under the finger.
+                rawDx += change.position.x - change.previousPosition.x
+                dyc += change.position.y - change.previousPosition.y
+                val dxc = rawDx - base
                 if (!moved && (Math.abs(dxc) > slop || Math.abs(dyc) > slop)) moved = true
-                if (model.gestureSkipDown) swipeOk = false
                 if (!swipeOk) continue
                 if (!engaged) {
-                    if (Math.abs(dyc) > engage && Math.abs(dyc) >= Math.abs(dxc)) { swipeOk = false; continue }
-                    if (dxc < engage || Math.abs(dxc) < Math.abs(dyc)) continue
-                    engaged = true
-                }
-                dx = dxc.coerceIn(0f, clamp)
-                replyDx = dx
-                if (dx >= commit) {
-                    if (!haptic) {
-                        haptic = true
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (!replySwipeAllowed(model.backSwipeActive, model.gestureEdgeDown, model.gestureSkipDown)) {
+                        swipeOk = false
+                        if (reply.value != 0f) reply.settle(replyScope, 0f, replyFancy)
+                        continue
                     }
-                } else {
-                    haptic = false
+                    when (swipeAxis(dxc, dyc, engage, positive = true)) {
+                        SwipeAxis.Vertical -> {
+                            swipeOk = false
+                            if (reply.value != 0f) reply.settle(replyScope, 0f, replyFancy)
+                            continue
+                        }
+                        SwipeAxis.Undecided -> if (base == 0f) continue
+                        SwipeAxis.Horizontal -> Unit
+                    }
+                    engaged = true
+                    model.replySwipeActive = true
+                }
+                reply.value = replyFollow(rawDx, commit, extra, replyFancy)
+                val t = thresholdTick(past, rawDx, commit)
+                past = t.past
+                if (t.tick) {
+                    haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                    if (replyFancy) {
+                        replyPop.snapTo(SwipeSpec.ARROW_POP_SCALE)
+                        replyPop.settle(replyScope, 1f, fancy = true)
+                    }
                 }
                 event.changes.forEach { it.consume() }
             }
@@ -4300,7 +4417,19 @@ private fun MessageBubble(
                     .widthIn(max = bubbleMax)
                     .heightIn(min = 20.dp)
                     .onSizeChanged { bubbleH = it.height }
-                    .graphicsLayer { translationX = replyDx }
+                    .replyArrowBehind(
+                        dx = { reply.value },
+                        commitPx = replyCommitPx,
+                        pop = { replyPop.value },
+                        painter = replyArrow,
+                        // Past the line the disc fills with accent and the
+                        // arrow takes onAccent (the AA pair for accent fills).
+                        disc = { if (reply.value >= replyCommitPx) tokens.accent else tokens.bgBubbleIn },
+                        tint = { if (reply.value >= replyCommitPx) tokens.onAccent else tokens.textDim },
+                        discPx = with(density) { 32.dp.toPx() },
+                        iconPx = with(density) { 18.dp.toPx() },
+                    )
+                    .graphicsLayer { translationX = reply.value }
                     .then(gestures),
             ) {
                 Column(
