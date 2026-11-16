@@ -21,25 +21,50 @@ jobs:
   # The in-process Android core (native/rpc-shim → libvelta_rpc_shim.so) is
   # NOT committed. It's built on every run and bundled into every APK below
   # (#334) — an APK without it only shows "core shim missing".
+  #
+  # The finished .so files are cached by their inputs. rust-cache alone still
+  # recompiles/links the LTO release (recently ~4 min even on a rust-cache
+  # hit). On an artifact-cache hit, skip rustup, rust-cache, and the build;
+  # the APK job still verifies each split contains its ABI's .so.
   shim:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Runner NDK + rustc are not in the source hash. rustc is preinstalled
+      # on ubuntu-latest; the NDK comes from the image (same as before).
+      - name: Locate NDK + rustc for the cache key
+        run: |
+          NDK=$(ls -d "$ANDROID_HOME"/ndk/* | tail -1)
+          echo "NDK=$NDK" >> "$GITHUB_ENV"
+          echo "NDK_VERSION=$(basename "$NDK")" >> "$GITHUB_ENV"
+          echo "RUSTC_VERSION=$(rustc -vV | sed -n 's/^release: //p')" >> "$GITHUB_ENV"
+
+      - name: Restore built shim
+        id: shim
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: jniLibs
+          # crate + vendored core + attachment-crypto (path dep of core) +
+          # this workflow (profile, targets, flags) + NDK + rustc.
+          # core/ is already the quilt-applied tree; apply-core-patches is
+          # not run in this job.
+          key: kmp-shim-android-aarch64-x86_64-release-${{ env.NDK_VERSION }}-rust${{ env.RUSTC_VERSION }}-${{ hashFiles('velta-kmp/native/rpc-shim/**', 'core/**', 'packages/attachment-crypto/**', '.github/workflows/build-kmp.yml') }}
+
       - name: Rust android targets
+        if: steps.shim.outputs.cache-hit != 'true'
         run: rustup target add aarch64-linux-android x86_64-linux-android
 
       - name: Rust cache
+        if: steps.shim.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: velta-kmp/native/rpc-shim -> target
           key: android
 
-      - name: Locate NDK
-        run: echo "NDK=$(ls -d $ANDROID_HOME/ndk/* | tail -1)" >> "$GITHUB_ENV"
-
       - name: Build shim (aarch64 + x86_64)
+        if: steps.shim.outputs.cache-hit != 'true'
         working-directory: ${{ env.SHIM_DIR }}
         env:
           TC: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin
@@ -67,11 +92,22 @@ jobs:
 
       # Laid out as jniLibs/<abi>/ so the APK job can drop it in as-is.
       - name: Stage jniLibs
+        if: steps.shim.outputs.cache-hit != 'true'
         run: |
           mkdir -p jniLibs/arm64-v8a jniLibs/x86_64
           cp "$SHIM_DIR/target/aarch64-linux-android/release/libvelta_rpc_shim.so" jniLibs/arm64-v8a/
           cp "$SHIM_DIR/target/x86_64-linux-android/release/libvelta_rpc_shim.so" jniLibs/x86_64/
+
+      - name: Check staged shim
+        run: |
+          set -euo pipefail
+          test -s jniLibs/arm64-v8a/libvelta_rpc_shim.so
+          test -s jniLibs/x86_64/libvelta_rpc_shim.so
           ls -la jniLibs/*
+          for so in jniLibs/*/*.so; do
+            echo "$so: $(stat -c %s "$so") bytes" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo "shim-cache-hit=${{ steps.shim.outputs.cache-hit }}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload shim artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

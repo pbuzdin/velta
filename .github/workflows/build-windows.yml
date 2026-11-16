@@ -49,6 +49,16 @@ jobs:
           choco install nasm -y
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
 
+      # Hash sidecar inputs BEFORE rust-cache restores core/target/, which
+      # would change hashFiles('core/**'). Restore the exe AFTER rust-cache
+      # so a restored target tree cannot overwrite it.
+      # Release (workflow_call) reuses this cache: same inputs produce the
+      # same unsigned sidecar, so a hit is safe. Signed installers are not cached.
+      - name: Record sidecar cache key
+        id: sidecar-key
+        shell: bash
+        run: echo "hash=${{ hashFiles('core/**', 'packages/attachment-crypto/**', '.github/workflows/build-windows.yml') }}" >> "$GITHUB_OUTPUT"
+
       # One cache for BOTH Rust workspaces: two rust-cache steps in one job
       # overwrite each other's restored ~/.cargo state and defeat the cache.
       - name: Cache Rust builds
@@ -60,14 +70,12 @@ jobs:
 
       # Frontend-only updates don't change the sidecar: restore the exe built
       # for this exact core state and skip the ~8-minute core build entirely.
-      # The cache key hashes core sources BEFORE the Rust cache restores
-      # target/ into the tree, so only real source changes move the key.
       - name: Restore built sidecar
         id: sidecar
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: core/target/release/deltachat-rpc-server.exe
-          key: sidecar-exe-${{ hashFiles('core/**') }}
+          key: sidecar-windows-msvc-x86_64-rust1.98-release-${{ steps.sidecar-key.outputs.hash }}
 
       - name: Build deltachat-rpc-server sidecar
         if: steps.sidecar.outputs.cache-hit != 'true'
