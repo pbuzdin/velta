@@ -433,6 +433,16 @@ never run Gradle on the Windows side.
   "velta_push", written by VeltaPushService); radios + Off or the ntfy
   link; Off wins over auto-registration. The relay line uses the relays'
   supports_push metadata. Rules: `ui/PushSettingsRules.kt`.
+  Polish: VeltaApplication's default-network callback → `maybe_network`
+  (at most every 3 s, only when connected; lost needs nothing). The
+  battery dialog "Keep messages arriving" is asked once
+  (`velta-battery-opt-dismissed`, stable battery-prompt.js; configured
+  account, background connection on, not exempt) with the per-maker
+  dontkillmyapp link; the notification permission is asked once too.
+  Message notifications are MessagingStyle conversations
+  (`IncomingNotifier.notifyMessage` / `IncomingNotice`): group title,
+  sender person + avatar, chat avatar, follow-ups append (max 7) until
+  read, tapped or swiped. One fetch is bounded to 15 s (stable).
   Rules: `ui/BackgroundRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single

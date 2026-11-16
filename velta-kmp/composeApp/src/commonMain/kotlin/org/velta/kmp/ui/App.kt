@@ -190,6 +190,7 @@ fun App(model: AppModel) {
             if (!model.locked) ChatMenuHost(model)
             if (!model.locked && model.renameDraft != null) RenameChatDialog(model)
             if (!model.locked && model.ephemeralDraft != null) EphemeralDialog(model)
+            if (!model.locked && model.batteryPromptOpen) BatteryPromptDialog(model)
             if (!model.locked && model.profileEditor != null) ProfileEditorDialog(model)
             if (!model.locked && model.secondDeviceOpen) SecondDeviceSheet(model)
         }
@@ -1448,6 +1449,7 @@ private fun VeltaDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     confirmEnabled: Boolean = true,
+    dismissLabel: String? = null,
     body: @Composable () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -1483,7 +1485,7 @@ private fun VeltaDialog(
                     Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    TextButton(onClick = onDismiss) { Text(L.t("Cancel")) }
+                    TextButton(onClick = onDismiss) { Text(dismissLabel ?: L.t("Cancel")) }
                     Button(onClick = onConfirm, enabled = confirmEnabled) { Text(confirmLabel) }
                 }
             }
@@ -1504,10 +1506,32 @@ private fun VeltaDialog(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    TextButton(onClick = onDismiss) { Text(L.t("Cancel")) }
+                    TextButton(onClick = onDismiss) { Text(dismissLabel ?: L.t("Cancel")) }
                     Button(onClick = onConfirm, enabled = confirmEnabled) { Text(confirmLabel) }
                 }
             }
+        }
+    }
+}
+
+/** stable askBatteryExemption / batteryPromptModal: asked once; Allow opens
+ *  the system exemption dialog, any answer or close is remembered. */
+@Composable
+private fun BatteryPromptDialog(model: AppModel) {
+    val maker = makerLabel(model.deviceMaker)
+    VeltaDialog(
+        title = L.t("Keep messages arriving"),
+        confirmLabel = L.t("Allow"),
+        onConfirm = { model.answerBatteryPrompt(true) },
+        onDismiss = { model.answerBatteryPrompt(false) },
+        dismissLabel = L.t("Not now"),
+    ) {
+        Text(
+            L.t("Android stops Velta from syncing after you leave the app, so new messages wait until you open it. Allow unrestricted battery use so mail keeps arriving in the background."),
+            color = Velta.tokens.text,
+        )
+        TextButton(onClick = { model.openHttp?.invoke(dontKillMyAppUrl(model.deviceMaker)) }) {
+            Text(if (maker.isNotEmpty()) L.t("Extra steps for {maker} phones").replace("{maker}", maker) else L.t("Extra steps for your phone"))
         }
     }
 }

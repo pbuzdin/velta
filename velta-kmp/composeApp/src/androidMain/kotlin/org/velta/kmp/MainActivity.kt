@@ -317,6 +317,7 @@ class MainActivity : FragmentActivity() {
             )
         }
         model.backgroundCapable = true
+        model.deviceMaker = Build.MANUFACTURER ?: ""
         model.pushBridge = org.velta.kmp.push.AndroidPushBridge(applicationContext)
         model.onBackgroundConnectionChanged = { on ->
             // Off: the persistent notification goes now; the periodic job and
@@ -337,10 +338,18 @@ class MainActivity : FragmentActivity() {
         model.requestAppLockDisable = {
             runAuthPrompt { model.onAppLockDisabled() }
         }
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
+        // Asked once, not on every launch (stable: "asked once"); the
+        // system settings stay the way back.
+        val prefs = AndroidCorePlatform(applicationContext)
+        val notifyGranted = Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (org.velta.kmp.ui.shouldAskNotificationPermission(
+                Build.VERSION.SDK_INT,
+                notifyGranted,
+                prefs.pref(org.velta.kmp.ui.NOTIFY_PERMISSION_ASKED_KEY) == "1",
+            )
         ) {
+            prefs.setPref(org.velta.kmp.ui.NOTIFY_PERMISSION_ASKED_KEY, "1")
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         consumeChatIntent(intent)
@@ -440,8 +449,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Returning from the system battery dialog — re-read the exemption.
+        // Returning from the system battery dialog — re-read the exemption;
+        // the one-time prompt (remembered once answered).
         model.refreshBattery()
+        model.maybeAskBattery()
         // Back from installing or setting up a push app: re-read push state.
         if (model.screen == org.velta.kmp.ui.AppModel.Screen.Settings) model.refreshPush()
     }
