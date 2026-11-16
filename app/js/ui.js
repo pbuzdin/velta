@@ -1993,7 +1993,7 @@ export async function shareInviteLink(link, text) {
   } catch (err) { toast(t("Couldn't share the link: ") + (err?.message || err), 4000, { danger: true }); }
 }
 
-export function showInvite(provider, { title = t("Invite to Velta"), group = false, account = null } = {}) {
+export function showInvite(provider, { title = t("Invite to Velta"), group = false } = {}) {
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">${group
@@ -2018,19 +2018,11 @@ export function showInvite(provider, { title = t("Invite to Velta"), group = fal
     .then(({ svg, link }) => {
       const box = body.querySelector(".qr-box");
       const sb = body.querySelector("[data-share]"); if (sb) sb.disabled = !link;
-      // Domain pills (invite-domains.js): i.delta.chat keeps the core card,
-      // velta.cc/join/? (the default) and mirrors get a plain QR that already
-      // carries the Velta logo.
-      mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l, isDefault) => {
+      // Domain pills (invite-domains.js): every tab draws the same branded
+      // square; the copied/shared link still follows the chosen domain.
+      mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l) => {
         box.innerHTML = qr || "<div class='qr-loading'>QR unavailable</div>";
         body.querySelector(".invite-link").textContent = l;
-        // Overlay the Velta logo on the clear circle the core leaves in the
-        // QR center (design space 515x630, circle center at 50% / 43.65% of
-        // the rendered svg).
-        if (account && qr && isDefault) {
-          box.insertAdjacentHTML("beforeend",
-            `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
-        }
       });
     })
     .catch(err => {

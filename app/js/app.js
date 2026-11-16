@@ -6142,7 +6142,7 @@ function rebuildDrawer() {
     onSetTheme: (mode) => { state.theme = mode; applyTheme(); },
     onProfileManagement: () => openProfileManagement(),
     onPrivacySecurity: window.__TAURI__ && tauriInvoke() ? () => openPrivacySecurity() : null,
-    onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
+    onInvite: () => showInvite(inviteQrProvider(null)),
     onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),

@@ -84,5 +84,16 @@ test("wired into Invite to Velta / group invite and Your QR code", () => {
     assert.ok(s.includes("<div data-domain-tabs></div>"));
     assert.match(s, /mountInviteDomains\(\w+\.querySelector\("\[data-domain-tabs\]"\), \{ svg, link \}/);
   }
-  assert.match(ui, /if \(account && qr && isDefault\)/, "self badge only over the core card");
+});
+
+test("i.delta.chat tab draws the same branded square — the core card is gone", () => {
+  const s = readFileSync(new URL("../app/js/invite-domains.js", import.meta.url), "utf8");
+  assert.match(s, /apply\(brandedQrSvg\(l\), l, coreForm\)/, "every tab renders the branded square");
+  assert.doesNotMatch(s, /isCore \? svg/, "no core-card branch left");
+  const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
+  assert.doesNotMatch(ui, /qr-self/, "the core-card logo overlay retired with the card");
+  // The branded square still encodes the canonical i.delta.chat link.
+  const svg = D.brandedQrSvg(LINK);
+  assert.match(svg, /viewBox="0 0 512 512"/);
+  assert.match(svg, /data-velta-logo/);
 });
