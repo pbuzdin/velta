@@ -1699,7 +1699,7 @@ button.reaction-chip { font: inherit; color: inherit; }
   background: var(--bg-sidebar); border: 1px solid var(--border);
   border-radius: 14px; box-shadow: var(--shadow); padding: 10px;
 }
-.sticker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.sticker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .sticker-coll { grid-column: 1 / -1; font-size: 12px; color: var(--text-dim); margin: 6px 2px 0; }
 .sticker-coll:first-child { margin-top: 0; }
 .sticker-tile {
@@ -2090,6 +2090,13 @@ html[data-theme="light"] .msg-actions .ctx-item { background: #fff; box-shadow: 
 #lc-queue-pop[popover] {
   margin: 0; top: auto; left: auto; height: auto;
   background: var(--bg-sidebar); color: var(--text);
+}
+/* Narrow window or phone: tray spans the full width so stickers wrap with a
+   single (vertical) scroll axis — no horizontal pan. Shared by the PWA and
+   all Tauri apps via this stylesheet; must sit after the [popover] rule so
+   left:10px wins over its left:auto. */
+@media (max-width: 600px) {
+  .sticker-pop, .sticker-pop[popover] { left: 10px; width: auto; }
 }
 .toasts[popover] {
   margin: 0; border: none; background: transparent; color: inherit;
