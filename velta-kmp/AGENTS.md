@@ -427,6 +427,12 @@ never run Gradle on the Windows side.
   "never compete with the UI"). The ongoing notification opens the app
   (MAIN/LAUNCHER PendingIntent). The job lingers 1.5 s after a fetch so
   the notifications post.
+  Settings › Push notifications (stable push-settings.js +
+  UnifiedPushBridge): `push/AndroidPushBridge` reports distributors,
+  saved, explicit Off, last push, registration ok/failed/none (prefs
+  "velta_push", written by VeltaPushService); radios + Off or the ntfy
+  link; Off wins over auto-registration. The relay line uses the relays'
+  supports_push metadata. Rules: `ui/PushSettingsRules.kt`.
   Rules: `ui/BackgroundRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
