@@ -716,6 +716,15 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         } ?: emptyList()
     }
 
+    /** rpc-core getFirstUnreadMessageId: the "Unread messages" line, null when fully read. */
+    suspend fun firstUnreadMessageId(accountId: Long, chatId: Long): Long? {
+        val result = client.call(
+            "get_first_unread_message_of_chat",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+        return (result as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()?.takeIf { it > 0L }
+    }
+
     suspend fun messages(accountId: Long, messageIds: List<Long>): List<MessageObject> {
         if (messageIds.isEmpty()) return emptyList()
         val ids = buildJsonArray { messageIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
