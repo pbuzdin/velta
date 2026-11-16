@@ -35,3 +35,15 @@ enum class CatchUp {
 /** Whether a push or the periodic job may wake the core now. */
 fun catchUpDecision(appLocked: Boolean, connected: Boolean): CatchUp =
     if (appLocked && !connected) CatchUp.SkipLocked else CatchUp.Fetch
+
+/** Broadcasts that bring background delivery back without the UI (stable
+ *  ScheduledAlarmReceiver: boot and app update start CoreService). */
+val BOOT_ACTIONS = setOf(
+    "android.intent.action.BOOT_COMPLETED",
+    "android.intent.action.MY_PACKAGE_REPLACED",
+)
+
+/** After boot / update: re-arm the periodic job always; start the sync
+ *  service only when a core can actually run (app lock needs the user). */
+fun bootStartsSync(action: String?, appLocked: Boolean): Boolean =
+    action in BOOT_ACTIONS && !appLocked

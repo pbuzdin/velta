@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import org.velta.kmp.AppHolder
+import org.velta.kmp.ui.CatchUp
 import org.velta.kmp.ui.L
+import org.velta.kmp.ui.catchUpDecision
 
 /**
  * Foreground service that keeps the app process — and with it the in-process
@@ -38,8 +40,18 @@ class VeltaForegroundService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        val model = AppHolder.obtain(applicationContext)
+        // App lock on and no core (a sticky restart or boot after a kill):
+        // there is no key without the user, so never claim to sync. Stable's
+        // CoreService likewise only keeps running with a live core.
+        val locked = org.velta.kmp.AndroidCorePlatform(applicationContext).isAppLocked()
+        if (catchUpDecision(locked, model.connected) == CatchUp.SkipLocked) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         // Rebuild the core after a process kill; a no-op when it is already up.
-        AppHolder.obtain(applicationContext).connect()
+        model.connect()
         return START_STICKY
     }
 

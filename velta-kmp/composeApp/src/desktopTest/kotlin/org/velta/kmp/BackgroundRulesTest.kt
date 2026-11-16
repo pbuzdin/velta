@@ -10,6 +10,7 @@ import org.velta.kmp.core.RpcTransport
 import org.velta.kmp.ui.AppModel
 import org.velta.kmp.ui.BackgroundPolicy
 import org.velta.kmp.ui.CatchUp
+import org.velta.kmp.ui.bootStartsSync
 import org.velta.kmp.ui.catchUpDecision
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,6 +33,15 @@ class BackgroundRulesTest {
         assertEquals(CatchUp.SkipLocked, catchUpDecision(appLocked = true, connected = false))
         assertEquals(CatchUp.Fetch, catchUpDecision(appLocked = true, connected = true))
         assertEquals(CatchUp.Fetch, catchUpDecision(appLocked = false, connected = false))
+    }
+
+    @Test
+    fun bootAndUpdateRestartSync() {
+        assertTrue(bootStartsSync("android.intent.action.BOOT_COMPLETED", appLocked = false))
+        assertTrue(bootStartsSync("android.intent.action.MY_PACKAGE_REPLACED", appLocked = false))
+        assertFalse(bootStartsSync("android.intent.action.BOOT_COMPLETED", appLocked = true), "lock waits for the user")
+        assertFalse(bootStartsSync("android.intent.action.TIME_SET", appLocked = false))
+        assertFalse(bootStartsSync(null, appLocked = false))
     }
 
     private fun answers() = mapOf(
