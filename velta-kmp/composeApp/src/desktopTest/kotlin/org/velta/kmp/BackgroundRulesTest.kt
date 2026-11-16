@@ -10,7 +10,9 @@ import org.velta.kmp.core.RpcTransport
 import org.velta.kmp.ui.AppModel
 import org.velta.kmp.ui.BackgroundPolicy
 import org.velta.kmp.ui.CatchUp
+import org.velta.kmp.ui.backgroundConnectionOn
 import org.velta.kmp.ui.bootStartsSync
+import org.velta.kmp.ui.syncServiceRuns
 import org.velta.kmp.ui.catchUpDecision
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,6 +44,69 @@ class BackgroundRulesTest {
         assertFalse(bootStartsSync("android.intent.action.BOOT_COMPLETED", appLocked = true), "lock waits for the user")
         assertFalse(bootStartsSync("android.intent.action.TIME_SET", appLocked = false))
         assertFalse(bootStartsSync(null, appLocked = false))
+    }
+
+    @Test
+    fun backgroundConnectionGatesEveryWake() {
+        assertTrue(backgroundConnectionOn(null))
+        assertFalse(backgroundConnectionOn("0"))
+        assertEquals(CatchUp.SkipOff, catchUpDecision(appLocked = false, connected = true, backgroundConnection = false))
+        assertEquals(CatchUp.SkipForeground, catchUpDecision(appLocked = false, connected = true, uiVisible = true))
+        assertFalse(bootStartsSync("android.intent.action.BOOT_COMPLETED", appLocked = false, backgroundConnection = false))
+        assertTrue(syncServiceRuns(backgroundConnection = true, appLocked = false, connected = false))
+        assertFalse(syncServiceRuns(backgroundConnection = false, appLocked = false, connected = true))
+        assertFalse(syncServiceRuns(backgroundConnection = true, appLocked = true, connected = false))
+        assertTrue(syncServiceRuns(backgroundConnection = true, appLocked = true, connected = true))
+    }
+
+    @Test
+    fun toggleOffSkipsTheFetchAndPersists() = runBlocking {
+        val prefs = HashMap<String, String?>()
+        var spawned = false
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-bg-off-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport {
+                spawned = true
+                return ScriptedRpcTransport(answers())
+            }
+            override fun pref(key: String): String? = prefs[key]
+            override fun setPref(key: String, value: String?) { prefs[key] = value }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val model = AppModel(platform, scope)
+            var applied: Boolean? = null
+            model.onBackgroundConnectionChanged = { applied = it }
+            model.onSetBackgroundConnection(false)
+            assertEquals("0", prefs["velta-notify-bg"])
+            assertEquals(false, applied)
+            assertEquals("Background connection off — messages arrive when you open Velta", model.toast)
+            assertFalse(model.catchUpFetch("push"))
+            assertFalse(spawned)
+            model.onSetBackgroundConnection(true)
+            assertEquals(null, prefs["velta-notify-bg"])
+            assertFalse(AppModel(platform, scope).backgroundConnection.not())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun visibleUiDoesNotCompete() = runBlocking {
+        val transport = ScriptedRpcTransport(answers())
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-bg-visible-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val model = AppModel(platform, scope)
+            model.onAppForeground(true)
+            assertFalse(model.catchUpFetch("scheduled"))
+            assertTrue(transport.requests.none { "\"background_fetch\"" in it })
+        } finally {
+            scope.cancel()
+        }
     }
 
     private fun answers() = mapOf(

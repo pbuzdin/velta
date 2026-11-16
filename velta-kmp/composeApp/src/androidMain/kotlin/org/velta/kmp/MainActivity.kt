@@ -316,6 +316,13 @@ class MainActivity : FragmentActivity() {
                 ),
             )
         }
+        model.backgroundCapable = true
+        model.onBackgroundConnectionChanged = { on ->
+            // Off: the persistent notification goes now; the periodic job and
+            // push wake-ups skip themselves. On: the service starts the next
+            // time the app is backgrounded.
+            if (!on) VeltaForegroundService.stop(applicationContext)
+        }
         model.requestUnlock = {
             runAuthPrompt {
                 val dek = VeltaKeystore.unlockDek(applicationContext)
@@ -451,7 +458,8 @@ class MainActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         model.onAppForeground(false)
-        // App backgrounded: hold the process so the core keeps syncing.
-        VeltaForegroundService.start(this)
+        // App backgrounded: hold the process so the core keeps syncing
+        // ("Use background connection" off: no service).
+        if (model.backgroundConnection) VeltaForegroundService.start(this)
     }
 }

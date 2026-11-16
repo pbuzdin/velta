@@ -2406,6 +2406,20 @@ private fun SettingsScreen(model: AppModel) {
                 Checkbox(checked = model.mentionInMuted, onCheckedChange = { model.onSetMentionInMuted(it) })
                 Text(L.t("Notify me when mentioned in muted chats"))
             }
+            // Stable drawer "Use background connection" (Android only).
+            if (model.backgroundCapable) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { model.onSetBackgroundConnection(!model.backgroundConnection) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = model.backgroundConnection, onCheckedChange = { model.onSetBackgroundConnection(it) })
+                    Text(L.t("Use background connection"))
+                }
+            }
             // Stable drawer "Auto-download limit" + "Text-only mode" (#358).
             SettingsSection(L.t("Auto-download limit"))
             SettingsRadios(DOWNLOAD_LIMIT_OPTIONS, model.downloadLimit) { model.onSetDownloadLimit(it) }

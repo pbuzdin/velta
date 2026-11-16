@@ -420,6 +420,13 @@ never run Gradle on the Windows side.
   `core/BootReceiver` (BOOT_COMPLETED, MY_PACKAGE_REPLACED) re-arms the
   job and starts VeltaForegroundService unless app lock is on; the
   service itself stops when app lock is on and no core runs.
+  "Use background connection" (stable `velta-notify-bg`, Settings ›
+  Notifications, Android only): off = no sync service on background, no
+  boot start, and the job / push wake-ups skip (`CatchUp.SkipOff`); a
+  wake-up also skips while the activity is started (`uiVisible`, stable
+  "never compete with the UI"). The ongoing notification opens the app
+  (MAIN/LAUNCHER PendingIntent). The job lingers 1.5 s after a fetch so
+  the notifications post.
   Rules: `ui/BackgroundRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single

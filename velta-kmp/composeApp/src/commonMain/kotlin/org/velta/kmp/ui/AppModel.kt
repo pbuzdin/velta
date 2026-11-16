@@ -2298,6 +2298,31 @@ class AppModel(
         }
     }
 
+    /** "Use background connection" (stable drawer toggle, Android only):
+     *  off = no sync service, no periodic or push wake-ups; messages arrive
+     *  when the app is opened. */
+    var backgroundConnection by mutableStateOf(backgroundConnectionOn(platform.pref(BACKGROUND_CONNECTION_KEY)))
+        private set
+
+    /** Platform-injected: the toggle exists (Android). */
+    var backgroundCapable by mutableStateOf(false)
+
+    /** Platform-injected: apply the toggle (Android stops the sync service). */
+    var onBackgroundConnectionChanged: ((Boolean) -> Unit)? = null
+
+    fun onSetBackgroundConnection(on: Boolean) {
+        if (on == backgroundConnection) return
+        backgroundConnection = on
+        platform.setPref(BACKGROUND_CONNECTION_KEY, if (on) null else "0")
+        onBackgroundConnectionChanged?.invoke(on)
+        if (!on) showToast(L.t("Background connection off — messages arrive when you open Velta"))
+    }
+
+    /** The activity is started (unlike [appInForeground], false in a
+     *  headless process the UI never opened). */
+    var uiVisible = false
+        private set
+
     /** A push message arrived: fetch. Results surface through the event loop. */
     fun onPushWakeup() {
         scope.launch { catchUpFetch("push") }
@@ -2310,8 +2335,9 @@ class AppModel(
      * loop as notifications. false = skipped or failed.
      */
     suspend fun catchUpFetch(reason: String): Boolean {
-        if (catchUpDecision(platform.isAppLocked(), connected) == CatchUp.SkipLocked) {
-            println("velta-kmp: $reason fetch skipped (app locked)")
+        val decision = catchUpDecision(platform.isAppLocked(), connected, backgroundConnection, uiVisible)
+        if (decision != CatchUp.Fetch) {
+            println("velta-kmp: $reason fetch skipped ($decision)")
             return false
         }
         return try {
@@ -4208,6 +4234,7 @@ class AppModel(
      * the visible rows get marked seen and its notification goes away. */
     fun onAppForeground(visible: Boolean) {
         appInForeground = visible
+        uiVisible = visible
         if (!visible) {
             hiddenAtMillis = if (!locked && autoLockMins > 0 && platform.isAppLockOn()) clockMillis() else null
             return

@@ -11,10 +11,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.velta.kmp.AppHolder
 import org.velta.kmp.ui.BackgroundPolicy
+import org.velta.kmp.ui.FETCH_NOTIFY_GRACE_MS
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -43,6 +45,9 @@ class BackgroundFetchJob : JobService() {
         val key = params.jobId
         running[key] = scope.launch {
             val done = withTimeoutOrNull(BackgroundPolicy.JOB_MAX_MS) { model.catchUpFetch("scheduled") } ?: false
+            // Let the event loop post what the fetch brought before the
+            // system freezes the process again.
+            if (done) delay(FETCH_NOTIFY_GRACE_MS)
             Log.d(TAG, "scheduled fetch: finished (done=$done)")
             // onStopJob removed the entry: the system already took the slot back.
             if (running.remove(key) != null) jobFinished(params, false)
