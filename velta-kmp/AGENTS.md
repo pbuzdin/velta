@@ -369,6 +369,17 @@ never run Gradle on the Windows side.
   ✕ only when `canUnpinInTray` (writable + adminCaps.canPin). Refresh on
   open, pin/unpin, `PinnedMessagesChanged`, plus the 400 ms
   MsgsChanged/MsgDeleted backstop. Rules: `ui/PinTrayRules.kt`.
+- **Read position** (#358 B, stable open / `_checkSeen` / go-down):
+  an unread chat asks `get_first_unread_message_of_chat` and opens with
+  the "Unread messages" line at the top (window widened back to it plus
+  10 rows, capped at JUMP_MAX_MESSAGES); a read chat opens at the
+  bottom (`AppModel.openScroll`, consumed by the screen; no seen reports
+  while it is pending). Seen is stable's watermark (`rowCountsAsSeen` +
+  `seenThrough`). Go-down shows when >220dp from the newest row; badge =
+  unread incoming not yet read here; a tap = `catchUp` (marknoticed_chat,
+  no receipts for skipped rows) + jump. The manual read-up-to-here
+  marker is not ported: stable removed its menu item (7fb50b17, #38).
+  Rules: `ui/ReadPositionRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
   `AvatarTile`), add, remove.

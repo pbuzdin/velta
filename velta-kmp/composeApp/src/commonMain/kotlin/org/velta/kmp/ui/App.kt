@@ -1,5 +1,7 @@
 package org.velta.kmp.ui
 
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.LinearEasing
@@ -2273,6 +2275,11 @@ private sealed interface ChatRow {
     data class Message(val message: MessageObject) : ChatRow {
         override val key: String get() = "m:${message.id}"
     }
+
+    /** Stable "Unread messages" line (`.unread-sep`). */
+    data object UnreadSep : ChatRow {
+        override val key: String get() = "unread-sep"
+    }
 }
 
 private val FLAG_ON = androidx.compose.ui.graphics.Color(0xFF2ECC71)
@@ -2585,13 +2592,13 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
         if (model.pendingPrependCount > 0) {
             withTimeoutOrNull(1000) { snapshotFlow { model.pendingPrependCount }.first { it == 0 } }
         }
-        val rows = chatRows(model.chatMessages)
+        val rows = chatRows(model.chatMessages, model.unreadLineId)
         val idx = rows.indexOfFirst { it is ChatRow.Message && it.message.id == wanted }
         if (idx >= 0) listState.animateScrollToItem(idx)
         model.pendingJumpToId = null
     }
     LaunchedEffect(model.chatMessages.size) {
-        val rows = chatRows(model.chatMessages)
+        val rows = chatRows(model.chatMessages, model.unreadLineId)
         if (rows.isEmpty()) return@LaunchedEffect
         val added = model.pendingPrependCount
         if (added > 0) {
@@ -2619,15 +2626,53 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     // Read receipts (#334, web per-visible-row markSeen): report the message
     // rows on screen; the model marks unseen incoming ones while the app is
     // in the foreground. Re-emits on scroll, reloads and foreground changes.
+    // Stable _checkSeen: seen is a WATERMARK — the lowest row that counts as
+    // seen (fully on screen, or a tall row filling the upper half) marks
+    // every loaded message up to it. Nothing while the open position settles.
     LaunchedEffect(chat.chatId) {
         snapshotFlow {
-            val rows = chatRows(model.chatMessages)
-            val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull {
-                (rows.getOrNull(it.index) as? ChatRow.Message)?.message?.id
-            }
-            visible to model.appInForeground
+            val rows = chatRows(model.chatMessages, model.unreadLineId)
+            val info = listState.layoutInfo
+            val watermark = if (model.openScroll != null) null else info.visibleItemsInfo
+                .lastOrNull { item ->
+                    rows.getOrNull(item.index) is ChatRow.Message &&
+                        rowCountsAsSeen(item.offset, item.offset + item.size, info.viewportStartOffset + info.beforeContentPadding, info.viewportEndOffset - info.afterContentPadding)
+                }
+                ?.let { (rows[it.index] as ChatRow.Message).message.id }
+            seenThrough(model.chatMessages.map { it.id }, watermark) to model.appInForeground
         }.collect { (ids, _) -> model.onMessagesVisible(ids) }
     }
+
+    // Opening position (stable open): the "Unread messages" line at the top
+    // of the history, or the newest message.
+    LaunchedEffect(model.openScroll) {
+        val target = model.openScroll ?: return@LaunchedEffect
+        val rows = chatRows(model.chatMessages, model.unreadLineId)
+        if (rows.isNotEmpty()) {
+            val idx = when (target) {
+                is OpenScroll.Unread -> rows.indexOf(ChatRow.UnreadSep).takeIf { it >= 0 }
+                    ?: rows.indexOfFirst { it is ChatRow.Message && it.message.id == target.msgId }
+                OpenScroll.Bottom -> rows.size - 1
+            }
+            listState.scrollToItem(idx.coerceIn(0, rows.size - 1))
+        }
+        model.openScroll = null
+    }
+    // Stable _nearBottom (< 220 px of history below the viewport).
+    val nearBottomPx = with(LocalDensity.current) { NEAR_BOTTOM_PX.dp.roundToPx() }
+    val atBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            nearBottom(
+                last?.index ?: -1,
+                info.totalItemsCount,
+                last?.let { it.offset + it.size - (info.viewportEndOffset - info.afterContentPadding) } ?: 0,
+                nearBottomPx,
+            )
+        }
+    }
+    val goDownScope = rememberCoroutineScope()
 
     var headPx by remember { mutableIntStateOf(0) }
     var footPx by remember { mutableIntStateOf(0) }
@@ -2645,7 +2690,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
             WindowInsets.ime.union(WindowInsets.navigationBars),
         ),
         content = {
-        val rows = chatRows(model.chatMessages)
+        val rows = chatRows(model.chatMessages, model.unreadLineId)
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -2713,6 +2758,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
             items(rows, key = { it.key }) { row ->
                 when (row) {
                     is ChatRow.Header -> DayHeader(row.text)
+                    ChatRow.UnreadSep -> UnreadSeparator()
                     // Web .service-msg: system/info messages are mono pills,
                     // not bubbles.
                     is ChatRow.Message if row.message.isInfo -> ServiceMessage(row.message)
@@ -2848,6 +2894,22 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 Composer(model)
             }
         }
+        // Stable #btn-go-down: away from the newest message, the way back
+        // (with the unread count); a tap catches up and jumps to the newest.
+        if (!atBottom && model.openScroll == null) {
+            GoDownButton(
+                count = model.goDownCount,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = with(density) { footPx.toDp() } + 12.dp),
+            ) {
+                model.catchUp()
+                goDownScope.launch {
+                    val n = chatRows(model.chatMessages, model.unreadLineId).size
+                    if (n > 0) listState.animateScrollToItem(n - 1)
+                }
+            }
+        }
         ToastHost(
             model,
             Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { footPx.toDp() }),
@@ -2956,6 +3018,57 @@ private fun PinTrayBar(model: AppModel) {
     }
 }
 
+/** Stable `.unread-sep`: accent text over a 1px accent rule; light theme
+ *  uses #155a9e (the accent misses AA on the light chat background). */
+@Composable
+private fun UnreadSeparator() {
+    val light = LocalVeltaThemeMode.current == VeltaThemeMode.Light
+    val ink = if (light) androidx.compose.ui.graphics.Color(0xFF155A9E) else Velta.tokens.accent
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(ink))
+        Text(
+            L.t("Unread messages"),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            fontSize = 13.sp,
+            color = ink,
+        )
+    }
+}
+
+/** Stable `.go-down` (52dp bgSidebar disc, shadow, chevronDown in textDim)
+ *  + `.go-down-badge` (accent pill, onAccent 12sp/600, top/right −5). */
+@Composable
+private fun GoDownButton(count: Int, modifier: Modifier, onClick: () -> Unit) {
+    val tokens = Velta.tokens
+    Box(modifier.size(58.dp), contentAlignment = Alignment.BottomStart) {
+        Box(
+            Modifier
+                .size(52.dp)
+                .shadow(4.dp, CircleShape)
+                .clip(CircleShape)
+                .background(tokens.bgSidebar)
+                .clickable(onClickLabel = L.t("Scroll to bottom"), onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(VeltaIcons.chevronDown, contentDescription = L.t("Scroll to bottom"), modifier = Modifier.size(tokens.ico4), tint = tokens.textDim)
+        }
+        goDownBadge(count)?.let { text ->
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(tokens.accent)
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tokens.onAccent)
+            }
+        }
+    }
+}
+
 /** `.pb-text`: bold sender in --text, then the snippet in --text-dim, one line. */
 @Composable
 private fun PinRowText(row: PinRow, modifier: Modifier) {
@@ -2995,7 +3108,7 @@ private fun chatHeadStatus(head: AppModel.ChatHead?): String? {
 }
 
 /** Group messages by local calendar date, inserting a header where the day changes. */
-private fun chatRows(messages: List<MessageObject>): List<ChatRow> {
+private fun chatRows(messages: List<MessageObject>, unreadLineId: Long? = null): List<ChatRow> {
     val rows = mutableListOf<ChatRow>()
     var lastDay: String? = null
     for (message in messages) {
@@ -3004,6 +3117,8 @@ private fun chatRows(messages: List<MessageObject>): List<ChatRow> {
             rows += ChatRow.Header(day)
             lastDay = day
         }
+        // Stable .unread-sep rides above the first unread message, under its day chip.
+        if (message.id == unreadLineId) rows += ChatRow.UnreadSep
         rows += ChatRow.Message(message)
     }
     return rows

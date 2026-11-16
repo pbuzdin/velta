@@ -486,6 +486,39 @@ class AppModel(
     /** Message ids already sent to markseen_msgs in this session. */
     private val seenSent = HashSet<Long>()
 
+    // ---- Read position (stable chat-view.js open / _checkSeen / go-down, #358 B) ----
+
+    /** The "Unread messages" line of the open chat, fixed for the visit. */
+    var unreadLineId by mutableStateOf<Long?>(null)
+        private set
+    /** Where the open chat should land once its first page is in; the chat
+     *  screen consumes it (no seen reports while it is pending — stable's
+     *  `_settling`). */
+    var openScroll by mutableStateOf<OpenScroll?>(null)
+    /** Unread ids already counted as read here (seen or caught up). */
+    private var readHere by mutableStateOf<Set<Long>>(emptySet())
+
+    /** Go-down badge: unread incoming messages of the open chat not yet
+     *  seen here (stable `_newWhileAway`: seeded by the unread count,
+     *  bumped by arrivals, drained as rows become seen). */
+    val goDownCount: Int
+        get() = chatMessages.count { isUnseenIncoming(it) && it.id !in readHere }
+
+    /** Go-down tap (stable): catch up — the whole chat becomes noticed,
+     *  the skipped rows send no read receipts. The screen jumps to the newest. */
+    fun catchUp() {
+        val chat = screen as? Screen.Chat ?: return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val skipped = chatMessages.filter { isUnseenIncoming(it) }.map { it.id }
+        synchronized(seenSent) { seenSent.addAll(skipped) }
+        readHere = readHere + skipped
+        scope.launch {
+            runCatching { veltaCore.marknoticedChat(id, chat.chatId) }
+                .onFailure { println("velta-kmp: marknoticed failed: $it") }
+        }
+    }
+
     /** Peer fingerprint hex per 1:1 chat id (identity matrix tiles); filled
      * asynchronously after the list lands. */
     var identities by mutableStateOf<Map<Long, String>>(emptyMap())
@@ -1672,10 +1705,28 @@ class AppModel(
         }
         pinnedMessages = emptyList()
         pinTrayOpen = false
-        loadMessages(item.id)
+        unreadLineId = null
+        readHere = emptySet()
+        openScroll = null
+        openChatMessages(item)
         loadChatMembers(item.id)
         refreshPins()
         refreshChats()
+    }
+
+    /** Stable open(): an unread chat asks the core for its first unread
+     *  message and opens there; a fully read chat opens at the bottom. */
+    private fun openChatMessages(item: ChatListItem) {
+        if (item.freshMessageCounter <= 0) { loadMessages(item.id, opening = true); return }
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            val first = runCatching {
+                kotlinx.coroutines.withTimeoutOrNull(3000) { veltaCore.firstUnreadMessageId(id, item.id) }
+            }.getOrNull()
+            if (!stillOn(id, item.id)) return@launch
+            loadMessages(item.id, opening = true, anchor = openScrollFor(item.freshMessageCounter, first))
+        }
     }
 
     /** Persist or clear the draft of the open chat when leaving it. */
@@ -3654,7 +3705,7 @@ class AppModel(
      * keep the viewport anchored; reset by the UI once consumed. */
     var pendingPrependCount by mutableStateOf(0)
 
-    private fun loadMessages(chatId: Long, isGroup: Boolean = false) {
+    private fun loadMessages(chatId: Long, isGroup: Boolean = false, opening: Boolean = false, anchor: OpenScroll = OpenScroll.Bottom) {
         val veltaCore = core
         val id = accountId
         if (veltaCore == null || id == null) return
@@ -3664,15 +3715,26 @@ class AppModel(
                 val ids = veltaCore.messageIds(id, chatId).sorted()
                 // Preserve history the user already pulled in for THIS chat;
                 // fresh opens get the newest window.
-                val from = if (loadedForChatId == chatId && loadedFromIdx in 1..ids.size) {
+                val anchorId = (anchor as? OpenScroll.Unread)?.msgId
+                val base = if (loadedForChatId == chatId && loadedFromIdx in 1..ids.size) {
                     loadedFromIdx
                 } else {
                     (ids.size - MESSAGE_PAGE_SIZE).coerceAtLeast(0)
                 }
+                val from = if (opening) minOf(base, openWindowFrom(ids, MESSAGE_PAGE_SIZE, anchorId)) else base
+                if (opening && (screen as? Screen.Chat)?.chatId != chatId) return@launch
                 loadedForChatId = chatId
                 loadedFromIdx = from
                 val messages = veltaCore.messages(id, ids.drop(from))
-                chatMessages = messages.sortedBy { it.sortTimestamp ?: it.timestamp }
+                val sorted = messages.sortedBy { it.sortTimestamp ?: it.timestamp }
+                if (opening) {
+                    if ((screen as? Screen.Chat)?.chatId != chatId) return@launch
+                    val loadedAnchor = anchorId?.takeIf { a -> sorted.any { it.id == a } }
+                    val line = unreadLineId(loadedAnchor, sorted.filter { isUnseenIncoming(it) }.map { it.id })
+                    unreadLineId = line
+                    openScroll = if (anchor is OpenScroll.Unread && line != null) OpenScroll.Unread(line) else OpenScroll.Bottom
+                }
+                chatMessages = sorted
                 hasMoreMessages = from > 0
                 if (isGroup) loadSenderNames(veltaCore, id, messages)
             } catch (t: Throwable) {
@@ -3932,11 +3994,13 @@ class AppModel(
             .map { it.id }
             .filter { synchronized(seenSent) { seenSent.add(it) } }
         if (fresh.isEmpty()) return
+        readHere = readHere + fresh
         scope.launch {
             try {
                 veltaCore.markseenMsgs(id, fresh)
             } catch (t: Throwable) {
                 synchronized(seenSent) { seenSent.removeAll(fresh.toSet()) }
+                readHere = readHere - fresh.toSet()
                 println("velta-kmp: markseen failed: $t")
             }
         }
