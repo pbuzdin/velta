@@ -209,3 +209,41 @@ Rules:
   `cargo check` says nothing about `values-*` XML; only the Gradle
   resource merge does. Dispatch `build-android.yml` before tagging when a
   release touches `res/`.
+
+## CI build caches (2026-11-16, PRs #369 + #377) — how the fast builds work and how they break
+
+The native-library cache (`984415e4`) skips the KMP shim LTO build, the
+desktop/Windows-GNU sidecars and the wasm-pack core on a content-addressed
+hit; the bundle cache (`5b9aeed1`) extends the pattern to the unsigned
+bundles themselves (Android APK dir, Windows NSIS/MSI, Linux deb/AppImage).
+A bundle hit skips cargo AND bundling; measured warm jobs: Android 107s,
+Windows 116s, Linux 122s (baselines 19m12s / 10m40s / ~11m).
+
+Rules the caches live by — break one and the failure mode is below:
+
+- **Record cache keys in an early step, never inline in the cache action.**
+  `hashFiles('src-tauri/**', 'core/**')` evaluated in the cache step runs
+  AFTER rust-cache restored `core/target/` and `src-tauri/target/`, and the
+  restored build outputs change the hash every run → the cache is silently
+  unhittable (every run looks like a miss). Key first into a step output,
+  restore with `steps.<id>.outputs.hash`.
+- **Exact keys only, no `restore-keys`.** A near-hit restores an artifact
+  built from different inputs; the identity checks below then fail the job.
+- **Identity checks run on every hit and fail loudly.** Android: aapt2
+  `versionName` must equal `tauri.conf.json`'s version and `applicationId`
+  must equal the (side-by-side-patched) `build.gradle.kts` — note aapt2
+  badging writes `package: name=` with a space. Windows: NSIS filename
+  carries the conf version; MSI + updater `.sig` present. Linux: `.deb`/
+  AppImage filenames carry the conf version; `.sig` present; the file-list
+  and GLIBC gates re-verify cached contents. A red job here means the key
+  has a blind spot — fix the key, never delete the check.
+- **Signed artifacts are never cached.** Signing reruns every time; only
+  unsigned bundles are cached.
+- **Release runs always miss** (the version bump changes `tauri.conf.json`,
+  which `src-tauri/**` hashes) — releases pay the full build by design, so
+  a stale-version installer is impossible.
+- **Caches evict after ~7 idle days** (GitHub policy): the first build of a
+  quiet week is cold (~10–19m); every subsequent run hits.
+- When a cache key changes shape (as in #377's early-record fix), the first
+  run after the change is a cold run that re-saves under the new key; the
+  second run proves the hit path plus the identity checks.
