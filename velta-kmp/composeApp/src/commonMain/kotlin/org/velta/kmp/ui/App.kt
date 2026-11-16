@@ -178,12 +178,14 @@ fun App(model: AppModel) {
             } else {
                 when (val current = model.screen) {
                     AppModel.Screen.Login -> WelcomeScreen(model)
-                    AppModel.Screen.ChatList -> ChatListScreen(model)
+                    // One branch for both: the list keeps its composition across
+                    // a swipe-back commit (no fresh list frame, no blink).
+                    AppModel.Screen.ChatList, is AppModel.Screen.Chat ->
+                        ChatStack(model, current as? AppModel.Screen.Chat)
                     AppModel.Screen.Relays -> RelaysScreen(model)
                     AppModel.Screen.Settings -> SettingsScreen(model)
                     AppModel.Screen.Accounts -> AccountsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
-                    is AppModel.Screen.Chat -> ChatBackHost(model, current)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
                 }
             }
@@ -2688,62 +2690,82 @@ private fun RelayFlag(letter: String, on: Boolean?) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Chat list + open chat in one slot (#334 swipe back). While a chat is
+ * open the list is composed only when it peeks (swipe-back or predictive
+ * back in progress). The peeking list is the SAME composition that stays on
+ * screen after the commit, so the frame after the chat leaves is identical
+ * to the frame before — the old fresh-list swap blinked.
+ */
 @Composable
-private fun ChatBackHost(model: AppModel, chat: AppModel.Screen.Chat) {
-    // Swipe-back host (#334): the chat slides with the finger (or the
-    // Android 14+ predictive back progress) while the chat list peeks
-    // underneath with parallax, scale and dim; reduced motion keeps the
-    // peek flat and skips the springs.
-    val back = remember(chat.chatId) { SwipeOffset() }
-    val scope = rememberCoroutineScope()
+private fun ChatStack(model: AppModel, chat: AppModel.Screen.Chat?) {
+    // A new SwipeOffset (at 0) per open chat; after the commit the old one is
+    // simply dropped with the chat, never reset to 0 while the chat shows.
+    val back = remember(chat?.chatId) { SwipeOffset() }
     val fancy = !rememberReducedMotion()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val widthPx = constraints.maxWidth.toFloat()
-        // Remembered so per-frame offset changes never recompose ChatScreen.
-        val commitBack: (Boolean?) -> Unit = remember(back, widthPx, fancy) {
-            { fromLeft ->
-                model.backSwipeActive = false
-                back.slideOut(scope, backExitTarget(back.value, widthPx, fromLeft), fancy) {
-                    model.backToChatList()
-                }
-            }
-        }
-        val onCommit = remember(commitBack) { { commitBack(null) } }
-        val peeking by remember(back) { derivedStateOf { back.value != 0f } }
-        PlatformPredictiveBackHandler(
-            onProgress = { p, fromLeft -> back.snapTo(if (fancy) predictiveOffset(p, widthPx, fromLeft) else 0f) },
-            onCancel = { back.settle(scope, 0f, fancy) },
-            onBack = commitBack,
-        )
-        if (peeking) {
+        val chatOpen = chat != null
+        val showList by remember(back, chatOpen) { derivedStateOf { stackShowsList(chatOpen, back.value) } }
+        if (showList) {
             Box(
                 Modifier.fillMaxSize().graphicsLayer {
-                    val peek = peekFor(back.value, widthPx, fancy)
+                    val peek = peekFor(if (chatOpen) back.value else 0f, widthPx, fancy && chatOpen)
                     translationX = peek.translationX
                     scaleX = peek.scale
                     scaleY = peek.scale
                 },
-            ) { ChatListScreen(model, peek = true) }
-            // Dim + touch shield: the peeking list is a picture, not a target.
-            Box(
-                Modifier.fillMaxSize()
-                    .drawBehind { drawRect(Color.Black.copy(alpha = peekFor(back.value, widthPx, fancy).dim)) }
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false).consume()
-                        }
-                    },
-            )
+            ) { ChatListScreen(model, peek = chatOpen) }
         }
+        if (chat != null) ChatBackHost(model, chat, back, widthPx, fancy)
+    }
+}
+
+@Composable
+private fun ChatBackHost(model: AppModel, chat: AppModel.Screen.Chat, back: SwipeOffset, widthPx: Float, fancy: Boolean) {
+    // Swipe-back host (#334): the chat slides with the finger (or the
+    // Android 14+ predictive back progress) while the chat list peeks
+    // underneath with parallax, scale and dim; reduced motion keeps the
+    // peek flat and skips the springs.
+    val scope = rememberCoroutineScope()
+    // Remembered so per-frame offset changes never recompose ChatScreen.
+    val commitBack: (Boolean?) -> Unit = remember(back, widthPx, fancy) {
+        { fromLeft ->
+            model.backSwipeActive = false
+            // The pane stays off-screen until the screen switch lands in the
+            // same frame; the offset is never reset while the chat is shown.
+            back.slideOut(scope, backExitTarget(back.value, widthPx, fromLeft), fancy) {
+                model.backToChatList()
+            }
+        }
+    }
+    val onCommit = remember(commitBack) { { commitBack(null) } }
+    val peeking by remember(back) { derivedStateOf { back.value != 0f } }
+    PlatformPredictiveBackHandler(
+        onProgress = { p, fromLeft -> back.snapTo(if (fancy) predictiveOffset(p, widthPx, fromLeft) else 0f) },
+        onCancel = { back.settle(scope, 0f, fancy) },
+        onBack = commitBack,
+    )
+    if (peeking) {
+        // Dim + touch shield: the peeking list is a picture, not a target.
         Box(
-            Modifier.fillMaxSize().graphicsLayer {
-                translationX = back.value
-                // Lift the sliding pane off the list (a soft edge shadow).
-                shadowElevation = if (back.value != 0f && fancy) 12.dp.toPx() else 0f
-            },
-        ) {
-            ChatScreen(model, chat, back, widthPx, fancy, onCommit = onCommit)
-        }
+            Modifier.fillMaxSize()
+                .drawBehind { drawRect(Color.Black.copy(alpha = peekFor(back.value, widthPx, fancy).dim)) }
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false).consume()
+                    }
+                },
+        )
+    }
+    Box(
+        Modifier.fillMaxSize().graphicsLayer {
+            translationX = back.value
+            // Lift the sliding pane off the list (a soft edge shadow).
+            shadowElevation = if (back.value != 0f && fancy) 12.dp.toPx() else 0f
+        },
+    ) {
+        ChatScreen(model, chat, back, widthPx, fancy, onCommit = onCommit)
     }
 }
 
