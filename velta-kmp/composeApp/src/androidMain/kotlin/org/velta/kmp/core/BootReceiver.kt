@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import org.velta.kmp.AndroidCorePlatform
+import org.velta.kmp.ui.BACKGROUND_CONNECTION_KEY
 import org.velta.kmp.ui.BOOT_ACTIONS
+import org.velta.kmp.ui.backgroundConnectionOn
 import org.velta.kmp.ui.bootStartsSync
 
 /**
@@ -21,12 +23,13 @@ class BootReceiver : BroadcastReceiver() {
         val action = intent.action
         if (action !in BOOT_ACTIONS) return
         BackgroundFetchJob.schedule(context)
-        val locked = AndroidCorePlatform(context.applicationContext).isAppLocked()
-        if (bootStartsSync(action, locked)) {
+        val platform = AndroidCorePlatform(context.applicationContext)
+        val bg = backgroundConnectionOn(platform.pref(BACKGROUND_CONNECTION_KEY))
+        if (bootStartsSync(action, platform.isAppLocked(), bg)) {
             Log.d(TAG, "$action: starting background sync")
             VeltaForegroundService.start(context)
         } else {
-            Log.d(TAG, "$action: app lock on, sync waits for the unlock")
+            Log.d(TAG, "$action: background connection off or app lock on, no sync")
         }
     }
 

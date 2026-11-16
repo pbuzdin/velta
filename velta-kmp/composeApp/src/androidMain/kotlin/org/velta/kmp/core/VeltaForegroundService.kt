@@ -3,15 +3,16 @@ package org.velta.kmp.core
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import org.velta.kmp.AppHolder
-import org.velta.kmp.ui.CatchUp
+import org.velta.kmp.MainActivity
 import org.velta.kmp.ui.L
-import org.velta.kmp.ui.catchUpDecision
+import org.velta.kmp.ui.syncServiceRuns
 
 /**
  * Foreground service that keeps the app process — and with it the in-process
@@ -44,8 +45,10 @@ class VeltaForegroundService : Service() {
         // App lock on and no core (a sticky restart or boot after a kill):
         // there is no key without the user, so never claim to sync. Stable's
         // CoreService likewise only keeps running with a live core.
+        // "Use background connection" off: no persistent notification, no
+        // background core (stable CoreService: startForeground, then go away).
         val locked = org.velta.kmp.AndroidCorePlatform(applicationContext).isAppLocked()
-        if (catchUpDecision(locked, model.connected) == CatchUp.SkipLocked) {
+        if (!syncServiceRuns(model.backgroundConnection, locked, model.connected)) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
             return START_NOT_STICKY
@@ -86,8 +89,21 @@ class VeltaForegroundService : Service() {
             .setContentTitle("Velta")
             .setContentText(L.t("Keeping your messages up to date"))
             .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentIntent(openAppIntent())
             .setOngoing(true)
             .build()
+    }
+
+    /** Tapping the ongoing notification opens Velta (stable CoreService
+     *  openAppIntent, #82): the launcher's MAIN/LAUNCHER intent aimed at the
+     *  singleTask MainActivity, so a running task comes to the front and a
+     *  dead one starts fresh. No extras: it opens the app where it was. */
+    private fun openAppIntent(): PendingIntent {
+        val launch = Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
+            .setClass(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        return PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     companion object {
