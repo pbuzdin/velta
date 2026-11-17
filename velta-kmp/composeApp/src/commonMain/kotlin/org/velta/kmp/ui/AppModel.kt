@@ -1658,6 +1658,10 @@ class AppModel(
         fun notifyMessage(notice: IncomingNotice) =
             notifyIncoming(notice.accountId, notice.chatId, notice.chatName, notice.text)
         fun cancel(accountId: Long, chatId: Long)
+
+        /** Posted notifications keep the icon they were posted with — the
+         *  app-icon switch in settings re-posts the live ones (Android). */
+        fun refreshIcons() {}
     }
 
     private suspend fun loadChats() {
@@ -4127,6 +4131,8 @@ class AppModel(
         appIconChoice = c
         platform.setPref(APP_ICON_PREF, if (c == AppIconChoice.Default) null else c.prefValue)
         platform.applyAppIcon(c.prefValue)
+        // Posted notifications keep their posted icon until re-posted.
+        notifier?.refreshIcons()
     }
 
     fun openSettings() {

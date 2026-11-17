@@ -79,6 +79,9 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
     /** Live conversation per chat key, so follow-ups append. */
     private val styles = ConcurrentHashMap<String, NotificationCompat.MessagingStyle>()
 
+    /** Chat avatar per live key — refreshIcons re-posts need it back. */
+    private val largeIcons = ConcurrentHashMap<String, android.graphics.Bitmap>()
+
     override fun notifyMessage(notice: IncomingNotice) {
         val manager = manager
         ensureChannel(manager)
@@ -94,7 +97,10 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
         } catch (_: RuntimeException) {
             true
         }
-        if (!showing) styles.remove(key)
+        if (!showing) {
+            styles.remove(key)
+            largeIcons.remove(key)
+        }
         val style = styles.getOrPut(key) {
             NotificationCompat.MessagingStyle(Person.Builder().setName(L.t("You")).build())
         }
@@ -111,14 +117,41 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setWhen(notice.timestampMs)
             .setShowWhen(true)
-        decode(notice.chatAvatar)?.let { builder.setLargeIcon(it) }
+        decode(notice.chatAvatar)?.let {
+            builder.setLargeIcon(it)
+            largeIcons[key] = it
+        }
         manager.notify(key, NOTIFICATION_ID, builder.build())
     }
 
     override fun cancel(accountId: Long, chatId: Long) {
         val key = AppModel.notificationKey(accountId, chatId)
         styles.remove(key)
+        largeIcons.remove(key)
         manager.cancel(key, NOTIFICATION_ID)
+    }
+
+    /** Re-post every live conversation with the current icon choice. The
+     *  sync-service notification rebuilds itself on the next service start;
+     *  these cards persist for hours and must not wait for a new message. */
+    override fun refreshIcons() {
+        for ((key, style) in styles) {
+            val parts = key.split(":")
+            val accountId = parts.getOrNull(1)?.toLongOrNull() ?: continue
+            val chatId = parts.getOrNull(2)?.toLongOrNull() ?: continue
+            val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(context.appIconSmallIconRes(context.currentAppIcon()))
+                .setStyle(style)
+                .setContentIntent(openChat(accountId, chatId, key))
+                .setAutoCancel(true)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setWhen(style.messages.lastOrNull()?.timestampMs ?: 0L)
+                .setShowWhen(true)
+                // Same messages re-posted: never re-alert on an icon refresh.
+                .setOnlyAlertOnce(true)
+            largeIcons[key]?.let { builder.setLargeIcon(it) }
+            manager.notify(key, NOTIFICATION_ID, builder.build())
+        }
     }
 
     private fun ensureChannel(manager: NotificationManager) {

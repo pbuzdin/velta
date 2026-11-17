@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import org.velta.kmp.core.CoreEvent
 import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.RpcTransport
+import org.velta.kmp.ui.AppIconChoice
 import org.velta.kmp.ui.AppModel
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
@@ -33,11 +34,15 @@ class NotifyEventsTest {
     private class Recorder : AppModel.IncomingNotifier {
         val posted = CopyOnWriteArrayList<Triple<Long, Long, String>>()
         val cancelled = CopyOnWriteArrayList<Pair<Long, Long>>()
+        var refreshes = 0
         override fun notifyIncoming(accountId: Long, chatId: Long, chatName: String, text: String) {
             posted += Triple(accountId, chatId, "$chatName|$text")
         }
         override fun cancel(accountId: Long, chatId: Long) {
             cancelled += accountId to chatId
+        }
+        override fun refreshIcons() {
+            refreshes++
         }
     }
 
@@ -96,6 +101,21 @@ class NotifyEventsTest {
         val e = Json.decodeFromString(CoreEvent.serializer(), """{"contextId":7,"event":{"kind":"MsgRead","chatId":3,"msgId":9}}""")
         assertEquals(7L, e.accountId)
         assertEquals("MsgRead", e.kind)
+    }
+
+    @Test
+    fun settingTheAppIconRefreshesLiveNotifications() = runBlocking {
+        val f = started(script())
+        try {
+            assertEquals(0, f.notifier.refreshes)
+            f.model.onSetAppIcon(AppIconChoice.Badge)
+            assertEquals(1, f.notifier.refreshes)
+            // Same choice again: no-op, no extra refresh.
+            f.model.onSetAppIcon(AppIconChoice.Badge)
+            assertEquals(1, f.notifier.refreshes)
+        } finally {
+            f.scope.cancel()
+        }
     }
 
     @Test
