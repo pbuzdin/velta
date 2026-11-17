@@ -175,3 +175,11 @@ compose.desktop {
         }
     }
 }
+
+// Full assertion messages in the console for failed desktopTest runs
+// (kotlin.test's compact logger otherwise hides expected/actual).
+tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask>().configureEach {
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
