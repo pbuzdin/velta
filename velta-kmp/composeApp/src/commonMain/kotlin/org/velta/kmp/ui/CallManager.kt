@@ -41,6 +41,7 @@ class CallManager(
         private set
     var micEnabled by mutableStateOf(true)
         private set
+    private var muted = false
 
     /** How long the Ended frame stays before Idle (web endedVisibleMs). */
     var endedVisibleMs: Long = 4000
@@ -150,12 +151,13 @@ class CallManager(
     }
 
     /** Mute flips the local track only — never replaceTrack(null) (calls.js
-     *  #141: removing the sender kills the call's audio both ways). */
-    fun toggleMute(): Boolean? {
-        val m = mediaProvider() ?: return null
-        micEnabled = !micEnabled
-        m.setMic(micEnabled)
-        return micEnabled
+     *  #141: removing the sender kills the call's audio both ways). Returns
+     *  the muted state after the flip (web contract: true = now muted). */
+    fun toggleMute(): Boolean {
+        muted = !muted
+        mediaProvider()?.setMic(!muted)
+        micEnabled = !muted
+        return muted
     }
 
     suspend fun teardown() {
