@@ -60,6 +60,8 @@ class AppModel(
         data object Settings : Screen
         data class Chat(val chatId: Long, val title: String, val isGroup: Boolean) : Screen
         data class Profile(val chatId: Long, val title: String) : Screen
+        /** A running webxdc app (P3a runtime): WebView hosts the archive. */
+        data class Webxdc(val msgId: Long, val title: String) : Screen
     }
 
     var screen by mutableStateOf<Screen>(Screen.Booting)
@@ -2610,6 +2612,14 @@ class AppModel(
             }
         }
     }
+
+    fun openWebxdc(msgId: Long, title: String) {
+        screen = Screen.Webxdc(msgId, title)
+    }
+
+    /** Webxdc runtime bridge (androidMain) — internal accessors. */
+    fun callCore(): org.velta.kmp.core.CallCore? = core
+    fun callAccountId(): Long? = accountId
 
     fun startCall(chatId: Long, hasVideo: Boolean = false) = scope.launch {
         try {

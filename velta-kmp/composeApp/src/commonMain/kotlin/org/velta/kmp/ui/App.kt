@@ -193,6 +193,7 @@ fun App(model: AppModel) {
                     AppModel.Screen.Accounts -> AccountsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
+                    is AppModel.Screen.Webxdc -> WebxdcScreen(model, current)
                 }
             }
             CreatedNotice(model)
@@ -4687,7 +4688,7 @@ private fun MessageBubble(
                         "Audio", "Voice" -> AudioBubble(model, message, tokens)
                         // Web .msg-file: 44px accent circle + name + size; a tap opens it.
                         "File" -> Box(Modifier.tapOpens { model.openMessageFile(message) }) { FileCard(message, tokens) }
-                        "Webxdc" -> FileCard(message, tokens)
+                        "Webxdc" -> Box(Modifier.tapOpens { model.openWebxdc(message.id, message.fileName ?: message.viewType) }) { FileCard(message, tokens) }
                         else -> {}
                     }
                     if (message.text.isNotBlank()) {
