@@ -48,6 +48,9 @@ class AppModel(
     }
 
     sealed interface Screen {
+        /** Startup-only: rendered as a blank themed frame until resumeSession
+         * picks Login or ChatList — never flashes onboarding to a resumed account. */
+        data object Booting : Screen
         data object Login : Screen
         data object ChatList : Screen
         data object Relays : Screen
@@ -58,7 +61,7 @@ class AppModel(
         data class Profile(val chatId: Long, val title: String) : Screen
     }
 
-    var screen by mutableStateOf<Screen>(Screen.Login)
+    var screen by mutableStateOf<Screen>(Screen.Booting)
     var status by mutableStateOf("starting")
         private set
     /** App version for the splash version line (platform-reported). */

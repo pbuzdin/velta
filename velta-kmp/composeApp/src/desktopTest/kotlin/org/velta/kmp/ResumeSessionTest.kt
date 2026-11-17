@@ -140,6 +140,41 @@ class ResumeSessionTest {
     }
 
     @Test
+    fun startsOnBootingAndJumpsStraightToChatList() = runBlocking {
+        // A configured account must never compose the onboarding screen on the
+        // way up: Booting until resumeSession decides, then straight to ChatList.
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
+                "get_account_info" to
+                    """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
+                "get_chatlist_entries" to "[5]",
+                "get_chatlist_items_by_entries" to
+                    """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"hello there","lastUpdated":1730000000000,"freshMessageCounter":2}}""",
+            ),
+        )
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-boot-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
+        }
+        val scope = testScope()
+        val model = AppModel(platform, scope)
+        try {
+            assertEquals(AppModel.Screen.Booting, model.screen)
+            model.connect()
+            withTimeout(10_000) {
+                while (model.screen != AppModel.Screen.ChatList) yield()
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun fallsBackToLoginWhenNoConfiguredAccount() = runBlocking {
         val transport = ScriptedRpcTransport(
             mapOf(

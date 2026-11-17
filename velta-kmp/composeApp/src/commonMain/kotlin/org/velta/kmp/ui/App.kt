@@ -180,6 +180,8 @@ fun App(model: AppModel) {
                 PickContactsScreen(model)
             } else {
                 when (val current = model.screen) {
+                    // Blank themed frame while the core starts — no onboarding flash.
+                    AppModel.Screen.Booting -> Unit
                     AppModel.Screen.Login -> WelcomeScreen(model)
                     // One branch for both: the list keeps its composition across
                     // a swipe-back commit (no fresh list frame, no blink).
