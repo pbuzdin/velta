@@ -155,7 +155,7 @@ function kotlinPath(path) {
   lines.push(`                pathData = addPathNodes(${JSON.stringify(path.d)}),`);
   if (path.gradient) {
     const g = path.gradient;
-    const stops = g.items.map((i) => `${f(i.offset)}f to ${hex(i.color)}`).join(", ");
+    const stops = g.items.map((i) => `${f(i.offset)} to ${hex(i.color)}`).join(", ");
     lines.push(`                fill = Brush.linearGradient(`);
     lines.push(`                    ${stops},`);
     lines.push(`                    start = Offset(${f(g.startX)}, ${f(g.startY)}), end = Offset(${f(g.endX)}, ${f(g.endY)}),`);

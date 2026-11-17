@@ -159,7 +159,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jetbrains.compose.resources.painterResource
 import org.velta.kmp.generated.resources.Res
-import org.velta.kmp.generated.resources.v_logo
 import org.velta.kmp.generated.resources.icon_preview_badge
 import org.velta.kmp.generated.resources.icon_preview_classic
 import org.velta.kmp.generated.resources.icon_preview_default
@@ -391,7 +390,7 @@ private fun SecondDeviceSheet(model: AppModel) {
             if (qr == null) {
                 Text(L.t("Preparing QR…"))
             } else {
-                BrandedQrSquare(qr)
+                BrandedQrSquare(qr, model.appIconChoice)
                 if (model.shareText != null) {
                     TextButton(onClick = { model.shareText?.invoke(qr) }) { Text(L.t("Share")) }
                 }
@@ -1149,7 +1148,7 @@ private fun QrView(model: AppModel) {
                             Spacer(Modifier.size(8.dp))
                             val link = rewriteInviteHost(model.inviteLink!!, model.inviteDomain)
                                 ?: model.inviteLink!!
-                            BrandedQrSquare(link)
+                            BrandedQrSquare(link, model.appIconChoice)
                             Text(
                                 link,
                                 fontSize = 12.5.sp,
@@ -1890,10 +1889,10 @@ internal fun rewriteInviteHost(link: String, domain: String): String? {
  * The Tauri "My code" look (web brandedQrSvg, invite-domains.js:49-53):
  * a plain white 512×512 square — quiet zone 48px, the optimally-encoded
  * matrix scaled 416/size, and the VELTA_QR_LOGO badge dead-center
- * (white ring r56, #1c1c1c disc r48, the V mark at 84×84/214,216).
+ * (white ring r56, #1c1c1c disc r48, the chosen logo mark at 84×84/214,216).
  */
 @Composable
-internal fun BrandedQrSquare(link: String) {
+internal fun BrandedQrSquare(link: String, choice: AppIconChoice) {
     val qr = remember(link) { runCatching { QrEncode.encode(link) }.getOrNull() }
     val density = LocalDensity.current
     var boxPx by remember { mutableIntStateOf(0) }
@@ -1924,11 +1923,9 @@ internal fun BrandedQrSquare(link: String) {
             drawCircle(Color.White, radius = 56f * s, center = Offset(256f * s, 256f * s))
             drawCircle(Color(0xFF1C1C1C), radius = 48f * s, center = Offset(256f * s, 256f * s))
         }
-        Image(
-            painterResource(Res.drawable.v_logo),
-            contentDescription = null,
+        VeltaLogomark(
+            choice,
             modifier = Modifier.size(logoDp),
-            contentScale = ContentScale.Fit,
         )
     }
 }

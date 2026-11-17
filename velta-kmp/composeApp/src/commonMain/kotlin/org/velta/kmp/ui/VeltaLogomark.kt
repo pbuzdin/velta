@@ -48,56 +48,56 @@ private fun buildDefaultLogomark(): ImageVector {
             addPath(
                 pathData = addPathNodes("M302.667,330.667 L430.000,330.667 L404.000,396.000 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFFC3EAFE), 1.0ff to Color(0xFF92DBFB),
+                    0.0f to Color(0xFFC3EAFE), 1.0f to Color(0xFF92DBFB),
                     start = Offset(366.667f, 330.667f), end = Offset(366.667f, 396.0f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M302.667,330.667 L404.000,396.000 L512.000,613.333 L512.000,724.000 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF57ACDF), 1.0ff to Color(0xFF1F5593),
+                    0.0f to Color(0xFF57ACDF), 1.0f to Color(0xFF1F5593),
                     start = Offset(370.667f, 350.667f), end = Offset(470.667f, 710.667f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M404.000,396.000 L430.000,330.667 L570.667,610.667 L512.000,613.333 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF6FB6E5), 1.0ff to Color(0xFF3A80C2),
+                    0.0f to Color(0xFF6FB6E5), 1.0f to Color(0xFF3A80C2),
                     start = Offset(457.333f, 350.667f), end = Offset(544.0f, 607.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M512.000,613.333 L570.667,610.667 L512.000,724.000 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF58B4EC), 1.0ff to Color(0xFF4A90C4),
+                    0.0f to Color(0xFF58B4EC), 1.0f to Color(0xFF4A90C4),
                     start = Offset(541.333f, 612.0f), end = Offset(522.667f, 724.0f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M592.000,330.667 L718.667,330.667 L624.667,391.333 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFFF8FBFE), 1.0ff to Color(0xFFF2F8FC),
+                    0.0f to Color(0xFFF8FBFE), 1.0f to Color(0xFFF2F8FC),
                     start = Offset(655.333f, 330.667f), end = Offset(655.333f, 391.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M592.000,330.667 L624.667,391.333 L574.000,502.667 L530.000,480.667 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFFF2F8FC), 1.0ff to Color(0xFFE6F1F8),
+                    0.0f to Color(0xFFF2F8FC), 1.0f to Color(0xFFE6F1F8),
                     start = Offset(610.667f, 364.0f), end = Offset(557.333f, 497.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M624.667,391.333 L718.667,330.667 L582.667,587.333 L574.000,502.667 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFFE8F2F9), 1.0ff to Color(0xFFDCEBF6),
+                    0.0f to Color(0xFFE8F2F9), 1.0f to Color(0xFFDCEBF6),
                     start = Offset(664.0f, 357.333f), end = Offset(597.333f, 577.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M530.000,480.667 L574.000,502.667 L582.667,587.333 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFFDCEBF6), 1.0ff to Color(0xFFD2E5F2),
+                    0.0f to Color(0xFFDCEBF6), 1.0f to Color(0xFFD2E5F2),
                     start = Offset(554.0f, 490.667f), end = Offset(578.667f, 584.0f),
                 ),
             )
@@ -115,63 +115,63 @@ private fun buildBadgeLogomark(): ImageVector {
             addPath(
                 pathData = addPathNodes("M302.667,330.667 L430.000,330.667 L404.000,396.000 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFFC3EAFE), 1.0ff to Color(0xFF92DBFB),
+                    0.0f to Color(0xFFC3EAFE), 1.0f to Color(0xFF92DBFB),
                     start = Offset(366.667f, 330.667f), end = Offset(366.667f, 396.0f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M302.667,330.667 L404.000,396.000 L512.000,613.333 L512.000,724.000 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF57ACDF), 1.0ff to Color(0xFF1F5593),
+                    0.0f to Color(0xFF57ACDF), 1.0f to Color(0xFF1F5593),
                     start = Offset(370.667f, 350.667f), end = Offset(470.667f, 710.667f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M404.000,396.000 L430.000,330.667 L570.667,610.667 L512.000,613.333 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF6FB6E5), 1.0ff to Color(0xFF3A80C2),
+                    0.0f to Color(0xFF6FB6E5), 1.0f to Color(0xFF3A80C2),
                     start = Offset(457.333f, 350.667f), end = Offset(544.0f, 607.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M512.000,613.333 L570.667,610.667 L512.000,724.000 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF58B4EC), 1.0ff to Color(0xFF4A90C4),
+                    0.0f to Color(0xFF58B4EC), 1.0f to Color(0xFF4A90C4),
                     start = Offset(541.333f, 612.0f), end = Offset(522.667f, 724.0f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M592.000,330.667 L718.667,330.667 L624.667,391.333 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFFC3EAFE), 1.0ff to Color(0xFF92DBFB),
+                    0.0f to Color(0xFFC3EAFE), 1.0f to Color(0xFF92DBFB),
                     start = Offset(655.333f, 330.667f), end = Offset(655.333f, 391.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M592.000,330.667 L624.667,391.333 L574.000,502.667 L530.000,480.667 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF57BAEE), 1.0ff to Color(0xFF3F8FCC),
+                    0.0f to Color(0xFF57BAEE), 1.0f to Color(0xFF3F8FCC),
                     start = Offset(610.667f, 364.0f), end = Offset(557.333f, 497.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M624.667,391.333 L718.667,330.667 L582.667,587.333 L574.000,502.667 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF4E9AD2), 1.0ff to Color(0xFF2F6DAD),
+                    0.0f to Color(0xFF4E9AD2), 1.0f to Color(0xFF2F6DAD),
                     start = Offset(664.0f, 357.333f), end = Offset(597.333f, 577.333f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M530.000,480.667 L574.000,502.667 L582.667,587.333 Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF2E6FAE), 1.0ff to Color(0xFF19447D),
+                    0.0f to Color(0xFF2E6FAE), 1.0f to Color(0xFF19447D),
                     start = Offset(554.0f, 490.667f), end = Offset(578.667f, 584.0f),
                 ),
             )
             addPath(
                 pathData = addPathNodes("M674.633,552.593H747.807A28.747,28.747 0 0 1 776.553,581.340V654.513A28.747,28.747 0 0 1 747.807,683.260H674.633A28.747,28.747 0 0 1 645.887,654.513V581.340A28.747,28.747 0 0 1 674.633,552.593Z"),
                 fill = Brush.linearGradient(
-                    0.0ff to Color(0xFF7EC8EE), 1.0ff to Color(0xFF5AA2E6),
+                    0.0f to Color(0xFF7EC8EE), 1.0f to Color(0xFF5AA2E6),
                     start = Offset(645.887f, 552.593f), end = Offset(776.553f, 683.26f),
                 ),
                 stroke = SolidColor(Color(0xFFA8DFF6)),

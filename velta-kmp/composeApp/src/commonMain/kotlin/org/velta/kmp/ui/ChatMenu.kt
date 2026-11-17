@@ -253,7 +253,7 @@ private fun GroupInviteDialog(model: AppModel) {
                 state.error != null -> Text(L.t("Couldn't create the invite:") + "\n" + state.error, fontSize = 14.sp, color = tokens.textDim)
                 link == null -> Text(L.t("Generating QR code…"), fontSize = 14.sp, color = tokens.textDim)
                 else -> {
-                    Box(Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(12.dp))) { BrandedQrSquare(link) }
+                    Box(Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(12.dp))) { BrandedQrSquare(link, model.appIconChoice) }
                     Text(link, fontSize = 13.sp, color = tokens.textDim, modifier = Modifier.padding(top = 8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 6.dp)) {
                         TextButton(onClick = { clipboard.setText(AnnotatedString(link)); model.showToast(copied) }) {
