@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import org.velta.kmp.MainActivity
 
