@@ -52,6 +52,23 @@ class MainActivity : FragmentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { }
 
+    /** Camera for video calls (P2): asked when the user turns video on. */
+    private var cameraAnswer: kotlinx.coroutines.CompletableDeferred<Boolean>? = null
+    private val requestCamera = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> cameraAnswer?.complete(granted); cameraAnswer = null }
+
+    private suspend fun askCamera(): Boolean {
+        if (checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) return true
+        val answer = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        cameraAnswer?.complete(false)
+        cameraAnswer = answer
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            requestCamera.launch(android.Manifest.permission.CAMERA)
+        }
+        return answer.await()
+    }
+
     /** Camera capture (#321 step 3 web parity): ACTION_IMAGE_CAPTURE into a
      * cache file, staged like any other attachment. */
     private var cameraOut: java.io.File? = null
@@ -296,6 +313,8 @@ class MainActivity : FragmentActivity() {
         val mic: suspend () -> Boolean = { askMic() }
         (model.voiceRecorder as? AndroidVoiceRecorder)?.let { it.askMic = mic }
             ?: run { model.voiceRecorder = AndroidVoiceRecorder(applicationContext, mic) }
+        model.callMicPermission = mic
+        model.cameraPermissionHook = { askCamera() }
         // QR view "Share a link" (web shareLink → ACTION_SEND chooser).
         model.shareText = { text ->
             val send = Intent(Intent.ACTION_SEND).apply {

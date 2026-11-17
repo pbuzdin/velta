@@ -3219,21 +3219,19 @@ private fun CallOverlay(model: AppModel) {
             .windowInsetsPadding(WindowInsets.safeDrawing),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(
-                Modifier
-                    .size(96.dp)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(tokens.bgHover),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(VeltaIcons.profile, contentDescription = null, modifier = Modifier.size(52.dp), tint = tokens.textDim)
-            }
-            Spacer(Modifier.size(16.dp))
+        // P2 video: remote fullscreen + local PiP behind the controls.
+        if (model.callVideoActive && state is CallState.Active) CallVideoStage(model)
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = tokens.text)
             Spacer(Modifier.size(8.dp))
             when (state) {
-                is CallState.Incoming -> Text(L.t("Incoming voice call"), fontSize = 14.sp, color = tokens.textDim)
+                is CallState.Incoming -> Text(
+                    if (state.hasVideo) L.t("Incoming video call") else L.t("Incoming voice call"),
+                    fontSize = 14.sp, color = tokens.textDim,
+                )
                 is CallState.Connecting, is CallState.Outgoing -> Text(L.t("Calling…"), fontSize = 14.sp, color = tokens.textDim)
                 is CallState.Active -> CallDuration()
                 else -> Text(L.t("Call ended"), fontSize = 14.sp, color = tokens.textDim)
@@ -3252,6 +3250,11 @@ private fun CallOverlay(model: AppModel) {
                             if (muted) L.t("Unmute") else L.t("Mute"),
                             if (muted) tokens.accent else tokens.textDim,
                         ) { model.calls.toggleMute() }
+                        CallButton(
+                            VeltaIcons.video,
+                            if (model.callVideoActive) L.t("Stop video") else L.t("Video"),
+                            if (model.callVideoActive) tokens.accent else tokens.textDim,
+                        ) { model.toggleCallVideo() }
                         if (model.callSpeakerAvailable) {
                             CallButton(VeltaIcons.notifications, L.t("Speaker"), tokens.textDim) { model.callSpeakerToggle?.invoke() }
                         }

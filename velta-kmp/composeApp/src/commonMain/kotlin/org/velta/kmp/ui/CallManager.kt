@@ -24,6 +24,20 @@ interface CallMedia {
     suspend fun applyRemote(sdp: String)
     fun setMic(enabled: Boolean)
     fun close()
+
+    // ---- Video (P2): the video transceiver is already negotiated sendrecv
+    // in every offer/answer — starting the camera is replaceTrack, no
+    // renegotiation. Desktop defaults: no camera capability. ----
+
+    /** Start the camera (front first) and attach it to the video
+     *  transceiver. Returns true when frames are flowing. */
+    fun startVideo(): Boolean = false
+
+    /** Camera off — Velta RELEASES the capturer (unlike DC's black frames). */
+    fun stopVideo() {}
+
+    /** Front/back switch. */
+    fun switchCamera() {}
 }
 
 /** The engine that turns the rules into signaling + media (P1a: protocol
