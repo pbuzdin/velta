@@ -160,6 +160,8 @@ import androidx.compose.ui.unit.sp
 import org.jetbrains.compose.resources.painterResource
 import org.velta.kmp.generated.resources.Res
 import org.velta.kmp.generated.resources.v_logo
+import org.velta.kmp.generated.resources.icon_preview_classic
+import org.velta.kmp.generated.resources.icon_preview_default
 import kotlin.math.roundToInt
 
 /** P1 read-path UI: login, chat list, chat view. Bare bones by design (issue #192). */
@@ -2391,6 +2393,43 @@ private fun SettingsScreen(model: AppModel) {
                     Text(L.t("Pure black (AMOLED)"))
                 }
             }
+            SettingsSection(L.t("App icon"))
+            Column(Modifier.selectableGroup()) {
+                AppIconChoice.entries.forEach { c ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .selectable(
+                                selected = model.appIconChoice == c,
+                                role = androidx.compose.ui.semantics.Role.RadioButton,
+                            ) { model.onSetAppIcon(c) }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = model.appIconChoice == c, onClick = null)
+                        Image(
+                            painterResource(
+                                when (c) {
+                                    AppIconChoice.Default -> Res.drawable.icon_preview_default
+                                    AppIconChoice.Classic -> Res.drawable.icon_preview_classic
+                                },
+                            ),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(48.dp),
+                        )
+                        Text(
+                            when (c) {
+                                AppIconChoice.Default -> L.t("Default")
+                                AppIconChoice.Classic -> L.t("Classic KMP")
+                            },
+                        )
+                    }
+                }
+            }
+            SettingsHint(L.t("Some launchers take a moment to update the icon, or may close the app."))
             SettingsSection(L.t("Accent color"))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Accent.PRESETS.forEach { preset ->

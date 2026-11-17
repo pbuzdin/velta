@@ -28,5 +28,9 @@
   "current": "текущий",
   "exempt — background sync survives battery savers": "без ограничений — фоновая синхронизация работает и при экономии заряда",
   "not set up — sign in to configure": "не настроен — войдите, чтобы настроить",
-  "restricted — tap to allow background sync": "ограничена — нажмите, чтобы разрешить фоновую синхронизацию"
+  "restricted — tap to allow background sync": "ограничена — нажмите, чтобы разрешить фоновую синхронизацию",
+  "App icon": "Иконка приложения",
+  "Default": "По умолчанию",
+  "Classic KMP": "Классическая KMP",
+  "Some launchers take a moment to update the icon, or may close the app.": "Некоторые оболочки обновляют иконку не сразу или могут закрыть приложение."
 }

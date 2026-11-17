@@ -1,6 +1,10 @@
 package org.velta.kmp
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
+import org.velta.kmp.ui.AppIconChoice
+import org.velta.kmp.ui.launcherAliasState
 import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.JniRpcTransport
 import org.velta.kmp.core.RpcShim
@@ -86,5 +90,18 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
     override fun disableAppLock(): Boolean {
         val dek = VeltaKeystore.unlockDek(context) ?: return false
         return VeltaKeystore.disableAppLock(context, dek)
+    }
+
+    /** Enable exactly one launcher alias; MainActivity itself stays enabled
+     *  so notifications and shortcuts that target it keep working. */
+    override fun applyAppIcon(choice: String) {
+        val (enable, disable) = launcherAliasState(AppIconChoice.fromPref(choice))
+        val pm = context.packageManager
+        val flags = PackageManager.DONT_KILL_APP
+        fun set(name: String, state: Int) {
+            pm.setComponentEnabledSetting(ComponentName(context, name), state, flags)
+        }
+        set(enable, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
+        set(disable, PackageManager.COMPONENT_ENABLED_STATE_DISABLED)
     }
 }

@@ -12,6 +12,7 @@ import org.velta.kmp.ui.L
 import org.velta.kmp.ui.VeltaThemeChoice
 import org.velta.kmp.ui.VeltaThemeMode
 import org.velta.kmp.ui.VeltaTokenSets
+import org.velta.kmp.ui.AppIconChoice
 import org.velta.kmp.ui.AppModel
 import org.velta.kmp.ui.veltaEffectiveMode
 import kotlin.test.Test
@@ -31,6 +32,8 @@ class SettingsTest {
         override fun setPref(key: String, value: String?) {
             if (value == null) store.remove(key) else store[key] = value
         }
+        var appliedIcon: String? = null
+        override fun applyAppIcon(choice: String) { appliedIcon = choice }
     }
 
     @Test
@@ -128,6 +131,32 @@ class SettingsTest {
             model2.onSetLang("en")
             assertNull(platform.store["velta-accent"])
             assertNull(platform.store["velta-lang"])
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun appIconChoicePersistsAndDefaultClearsThePref() {
+        val platform = MemPrefsPlatform()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val model = AppModel(platform, scope)
+        try {
+            assertEquals(AppIconChoice.Default, model.appIconChoice)
+            assertNull(platform.store["velta-app-icon"])
+            // init applies the current (default) icon so launchers stay in sync.
+            assertEquals("default", platform.appliedIcon)
+            model.onSetAppIcon(AppIconChoice.Classic)
+            assertEquals(AppIconChoice.Classic, model.appIconChoice)
+            assertEquals("classic", platform.store["velta-app-icon"])
+            assertEquals("classic", platform.appliedIcon)
+            val model2 = AppModel(platform, scope)
+            assertEquals(AppIconChoice.Classic, model2.appIconChoice)
+            assertEquals("classic", model2.appIconChoice.prefValue)
+            model2.onSetAppIcon(AppIconChoice.Default)
+            assertEquals(AppIconChoice.Default, model2.appIconChoice)
+            assertNull(platform.store["velta-app-icon"])
+            assertEquals("default", platform.appliedIcon)
         } finally {
             scope.cancel()
         }

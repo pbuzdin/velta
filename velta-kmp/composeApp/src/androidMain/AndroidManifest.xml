@@ -52,10 +52,10 @@
             android:launchMode="singleTask"
             android:exported="true"
             android:windowSoftInputMode="adjustNothing">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            <!-- MAIN/LAUNCHER lives on the activity-aliases below so the
+                 user can switch icons. MainActivity stays enabled (and
+                 exported) so notifications, share, and invite filters that
+                 target it keep working. -->
             <!-- Invite links (#334, stable's filters): contact/group invites
                  and chatmail scheme codes land on the welcome splash or the
                  Join screen. velta.cc is path-scoped to /join/ so ordinary
@@ -109,6 +109,34 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- Exactly one of these is enabled at a time (AppIconRules +
+             setComponentEnabledSetting, DONT_KILL_APP). -->
+        <activity-alias
+            android:name=".MainActivityDefault"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="true"
+            android:label="Velta KMP"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityClassic"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:label="Velta KMP"
+            android:icon="@mipmap/ic_launcher_classic"
+            android:roundIcon="@mipmap/ic_launcher_classic_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
