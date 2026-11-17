@@ -31,12 +31,103 @@ actual fun WebxdcScreen(model: AppModel, screen: AppModel.Screen.Webxdc) {
         factory = { ctx ->
             WebView(ctx).apply {
                 configureWebxdc(this, model, screen.msgId)
+                model.webxdcRealtimeSink = { dataMsgId, data ->
+                    if (dataMsgId == screen.msgId) {
+                        post {
+                            evaluateJavascript(
+                                "window.webxdc && window.webxdc._onRealtimeData(" + data.joinToString(",") + ")",
+                                null,
+                            )
+                        }
+                    }
+                }
                 loadUrl("https://xdc.local/${screen.msgId}/")
             }
         },
-        onRelease = { it.destroy() },
+        onRelease = {
+            model.webxdcRealtimeSink = null
+            model.webxdcJoined = false
+            it.destroy()
+        },
     )
 }
+
+
+    private const val INJECTED_API = """
+<script>
+(function () {
+  if (window.webxdc) return;
+  function rpc(method, params) {
+    var raw = AndroidWebxdcBridge.request(JSON.stringify({ method: method, params: params || {} }));
+    var out = JSON.parse(raw);
+    if (out && out.error) throw new Error(out.error);
+    return out;
+  }
+  var serial = 0;
+  var updateListener = null;
+  var info = null;
+  var realtimeChannel = null;
+  var interval = null;
+  window.webxdc = {
+    getInfo: function () {
+      if (!info) info = rpc("getInfo");
+      return info;
+    },
+    sendUpdate: function (update, description) {
+      rpc("sendUpdate", { update: typeof update === "string" ? update : JSON.stringify(update), description: description || "" });
+    },
+    getStatusUpdates: function (lastKnownSerial) {
+      return rpc("getStatusUpdates", { serial: lastKnownSerial || 0 });
+    },
+    setUpdateListener: function (cb, serial) {
+      updateListener = cb;
+      if (typeof serial === "number") this._serial = serial;
+      if (interval) clearInterval(interval);
+      var api = this;
+      interval = setInterval(function () {
+        try {
+          var r = api.getStatusUpdates(api._serial);
+          if (r.serial > api._serial) {
+            r.updates.forEach(function (u) { if (updateListener) updateListener(u); });
+            api._serial = r.serial;
+          }
+        } catch (e) {}
+      }, Math.max(200, (this.getInfo() && this.getInfo().sendUpdateInterval) || 1000));
+    },
+    getAllUpdates: function () {
+      return rpc("getAllUpdates").updates;
+    },
+    joinRealtimeChannel: function () {
+      rpc("realtimeJoin");
+      realtimeChannel = {
+        onmessage: null,
+        send: function (data) {
+          var bytes = typeof data === "string" ? Array.from(new TextEncoder().encode(data)) : Array.from(new Uint8Array(data));
+          AndroidWebxdcBridge.request(JSON.stringify({ method: "realtimeSend", params: { data: bytes } }));
+        },
+        leave: function () {
+          AndroidWebxdcBridge.request(JSON.stringify({ method: "realtimeLeave", params: {} }));
+        },
+      };
+      return realtimeChannel;
+    },
+    sendRealtimeData: function (data) { if (realtimeChannel) realtimeChannel.send(data); },
+    leaveRealtimeChannel: function () { if (realtimeChannel) realtimeChannel.leave(); },
+    // Host -> app delivery (WebxdcRealtimeData events from the core).
+    _onRealtimeData: function () {
+      if (!realtimeChannel || !realtimeChannel.onmessage) return;
+      var arr = Array.prototype.slice.call(arguments);
+      realtimeChannel.onmessage({ data: new Uint8Array(arr) });
+    },
+    sendToChat: function (message) {
+      return Promise.reject(new Error("sendToChat is not available in this build"));
+    },
+    selfAddr: "",
+    selfName: "",
+  };
+})();
+</script>
+"""
 
 @SuppressLint("SetJavaScriptEnabled")
 private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
@@ -65,6 +156,15 @@ private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
                 android.util.Base64.decode(b64, android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
             } catch (_: IllegalArgumentException) {
                 return notFound()
+            }
+            if (path.endsWith(".html")) {
+                val html = String(bytes, Charsets.UTF_8)
+                val withApi = if (html.contains("<head>", ignoreCase = true)) {
+                    html.replaceFirst(Regex("<head>", RegexOption.IGNORE_CASE), "<head>$INJECTED_API")
+                } else INJECTED_API + html
+                return WebResourceResponse(
+                    "text/html", "utf-8", java.io.ByteArrayInputStream(withApi.toByteArray(Charsets.UTF_8)),
+                )
             }
             return WebResourceResponse(mimeFor(path), "utf-8", java.io.ByteArrayInputStream(bytes))
         }
@@ -154,6 +254,24 @@ private class WebxdcBridge(private val model: AppModel, private val msgId: Long)
                 val update = str("update")
                 require(update.isNotEmpty()) { "empty update" }
                 core.sendWebxdcStatusUpdate(acc, msgId, update, str("description"))
+                kotlinx.serialization.json.buildJsonObject { put("done", kotlinx.serialization.json.JsonPrimitive(true)) }
+            }
+            "realtimeJoin" -> {
+                model.webxdcJoined = true
+                core.sendWebxdcRealtimeAdvertisement(acc, msgId)
+                kotlinx.serialization.json.buildJsonObject { put("done", kotlinx.serialization.json.JsonPrimitive(true)) }
+            }
+            "realtimeSend" -> {
+                require(model.webxdcJoined) { "realtime channel not joined" }
+                val data = (params["data"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+                    ?: error("no data")
+                core.sendWebxdcRealtimeData(acc, msgId, data)
+                kotlinx.serialization.json.buildJsonObject { put("done", kotlinx.serialization.json.JsonPrimitive(true)) }
+            }
+            "realtimeLeave" -> {
+                model.webxdcJoined = false
+                core.leaveWebxdcRealtime(acc, msgId)
                 kotlinx.serialization.json.buildJsonObject { put("done", kotlinx.serialization.json.JsonPrimitive(true)) }
             }
             else -> kotlinx.serialization.json.buildJsonObject {
