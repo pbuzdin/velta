@@ -1,33 +1,52 @@
 package org.velta.kmp.ui
 
 /**
- * Launcher-icon choice (default badge icon vs the previous Kotlin-coloured
- * "Classic KMP" icon). Android applies this with activity-aliases; the rule
- * is kept pure so a desktop unit test can pin "exactly one alias enabled".
+ * Launcher-icon choice: the default two-tone ice icon, the previous
+ * Kotlin-coloured "Classic KMP" icon, or the #382 "K badge" icon.
+ * Android applies this with activity-aliases; the rule is kept pure so
+ * a desktop unit test can pin "exactly one alias enabled".
  */
 enum class AppIconChoice {
     Default,
+    Badge,
     Classic,
     ;
 
     val prefValue: String
         get() = when (this) {
             Default -> "default"
+            Badge -> "badge"
             Classic -> "classic"
         }
 
     companion object {
-        /** Absent or unknown pref = the default (new) icon. */
-        fun fromPref(value: String?): AppIconChoice =
-            if (value == Classic.prefValue) Classic else Default
+        /** Absent or unknown pref = the default (ice short-stroke) icon. */
+        fun fromPref(value: String?): AppIconChoice = when (value) {
+            Badge.prefValue -> Badge
+            Classic.prefValue -> Classic
+            else -> Default
+        }
     }
 }
 
 const val LAUNCHER_ALIAS_DEFAULT = "org.velta.kmp.MainActivityDefault"
+const val LAUNCHER_ALIAS_BADGE = "org.velta.kmp.MainActivityBadge"
 const val LAUNCHER_ALIAS_CLASSIC = "org.velta.kmp.MainActivityClassic"
 
-/** The alias that must be enabled, then the one that must be disabled. */
-fun launcherAliasState(choice: AppIconChoice): Pair<String, String> = when (choice) {
-    AppIconChoice.Default -> LAUNCHER_ALIAS_DEFAULT to LAUNCHER_ALIAS_CLASSIC
-    AppIconChoice.Classic -> LAUNCHER_ALIAS_CLASSIC to LAUNCHER_ALIAS_DEFAULT
+val LAUNCHER_ALIASES = listOf(
+    LAUNCHER_ALIAS_DEFAULT,
+    LAUNCHER_ALIAS_BADGE,
+    LAUNCHER_ALIAS_CLASSIC,
+)
+
+/** The alias that must be enabled, and the ones that must be disabled. */
+data class LauncherAliasState(val enabled: String, val disabled: List<String>)
+
+fun launcherAliasState(choice: AppIconChoice): LauncherAliasState {
+    val enabled = when (choice) {
+        AppIconChoice.Default -> LAUNCHER_ALIAS_DEFAULT
+        AppIconChoice.Badge -> LAUNCHER_ALIAS_BADGE
+        AppIconChoice.Classic -> LAUNCHER_ALIAS_CLASSIC
+    }
+    return LauncherAliasState(enabled, LAUNCHER_ALIASES.filter { it != enabled })
 }

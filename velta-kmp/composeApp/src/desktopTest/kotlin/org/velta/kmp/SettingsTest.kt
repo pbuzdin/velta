@@ -146,6 +146,10 @@ class SettingsTest {
             assertNull(platform.store["velta-app-icon"])
             // init applies the current (default) icon so launchers stay in sync.
             assertEquals("default", platform.appliedIcon)
+            model.onSetAppIcon(AppIconChoice.Badge)
+            assertEquals(AppIconChoice.Badge, model.appIconChoice)
+            assertEquals("badge", platform.store["velta-app-icon"])
+            assertEquals("badge", platform.appliedIcon)
             model.onSetAppIcon(AppIconChoice.Classic)
             assertEquals(AppIconChoice.Classic, model.appIconChoice)
             assertEquals("classic", platform.store["velta-app-icon"])

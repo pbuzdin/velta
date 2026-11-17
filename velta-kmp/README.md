@@ -13,8 +13,10 @@ preview and crop/draw editor, floating reply card. N4 release signing is
 still open. The client onboards from invites or QR scans, manages relays,
 switches accounts, sends with attachments/quotes/reactions, renders
 images, encrypts its database at rest, locks behind a biometric or
-device credential, and keeps syncing in the background. The launcher uses the
-official Velta V on a dark field with a K badge (#382). Desktop tests
+device credential, and keeps syncing in the background. The default launcher is the official
+Velta V on `#0A1A2E` with a near-white ice short stroke; Settings can switch
+to the #382 K-badge icon or the earlier Classic KMP (Kotlin-coloured) icon.
+Desktop tests
 gate every push, plus a real-binary check when `VELTA_KMP_RPC_SERVER` is
 set. Debug APKs are signed with the shared `composeApp/debug.keystore`
 and take epoch minutes at build time as versionCode — one clock for CI

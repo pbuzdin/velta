@@ -66,7 +66,7 @@ interface CorePlatform {
     /**
      * Apply the user-chosen launcher icon. Android enables exactly one
      * activity-alias (`DONT_KILL_APP`); other platforms no-op. [choice] is
-     * [org.velta.kmp.ui.AppIconChoice.prefValue] (`default` / `classic`).
+     * [org.velta.kmp.ui.AppIconChoice.prefValue] (`default` / `badge` / `classic`).
      */
     fun applyAppIcon(choice: String) {}
 }

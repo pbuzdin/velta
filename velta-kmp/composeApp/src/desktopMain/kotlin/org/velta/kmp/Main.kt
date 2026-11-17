@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.jetbrains.compose.resources.painterResource
 import org.velta.kmp.generated.resources.Res
+import org.velta.kmp.generated.resources.icon_preview_badge
 import org.velta.kmp.generated.resources.icon_preview_classic
 import org.velta.kmp.generated.resources.icon_preview_default
 import org.velta.kmp.ui.App
@@ -30,8 +31,11 @@ fun main() = application {
         title = "Velta",
         state = rememberWindowState(width = 900.dp, height = 680.dp),
         icon = painterResource(
-            if (model.appIconChoice == AppIconChoice.Classic) Res.drawable.icon_preview_classic
-            else Res.drawable.icon_preview_default,
+            when (model.appIconChoice) {
+                AppIconChoice.Classic -> Res.drawable.icon_preview_classic
+                AppIconChoice.Badge -> Res.drawable.icon_preview_badge
+                AppIconChoice.Default -> Res.drawable.icon_preview_default
+            },
         ),
     ) {
         // FileDialog blocks, so it runs on its own thread; the model hops the

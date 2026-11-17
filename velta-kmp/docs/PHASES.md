@@ -62,8 +62,9 @@ fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
 **P4 leftovers (small):**
 1. Webxdc apps (the Tauri `webxdc_serve` sandbox is not in this client).
 2. Storage and Chats-in-common profile rows.
-3. In-app brand mark extras, if any — the launcher icon shipped in #382
-   (official V on #0A1A2E, corner K badge); the header already uses
+3. In-app brand mark extras, if any — the default launcher is the official
+   V on `#0A1A2E` with a near-white ice short stroke; the #382 K-badge icon
+   and Classic KMP remain App icon picker choices. The header already uses
    `v_logo.png`.
 
 **P5 — release track (slice 1 done):**
@@ -1054,9 +1055,10 @@ this in #379: every domain tab draws the branded square; see the
   `isChangingConfigurations`; a real backgrounding still starts the
   service. "Use background connection" defaults on.
 - **Launcher icon** (#382): official Velta V on `#0A1A2E` with a corner
-  K badge; `art/velta-kmp-icon.svg` + `art/make_android_icon.py`. The
-  badge stays inside the 66/108 safe circle. Golos Text credit is in
-  `THIRD_PARTY.md`.
+  K badge (art later moved to `art/velta-kmp-icon-badge.svg`; the default
+  tile is now the ice short-stroke icon). `art/make_android_icon.py`
+  maps a 1024 tile into the inner 72/108 so a badge stays inside the
+  66/108 safe circle. Golos Text credit is in `THIRD_PARTY.md`.
 - **Web QR unify** (#379, shipping app): the i.delta.chat tab also draws
   the branded square; the copied link stays the canonical
   `https://i.delta.chat/#…` URL. Backup-transfer QR is unchanged.

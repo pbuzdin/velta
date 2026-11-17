@@ -160,6 +160,7 @@ import androidx.compose.ui.unit.sp
 import org.jetbrains.compose.resources.painterResource
 import org.velta.kmp.generated.resources.Res
 import org.velta.kmp.generated.resources.v_logo
+import org.velta.kmp.generated.resources.icon_preview_badge
 import org.velta.kmp.generated.resources.icon_preview_classic
 import org.velta.kmp.generated.resources.icon_preview_default
 import kotlin.math.roundToInt
@@ -2412,6 +2413,7 @@ private fun SettingsScreen(model: AppModel) {
                             painterResource(
                                 when (c) {
                                     AppIconChoice.Default -> Res.drawable.icon_preview_default
+                                    AppIconChoice.Badge -> Res.drawable.icon_preview_badge
                                     AppIconChoice.Classic -> Res.drawable.icon_preview_classic
                                 },
                             ),
@@ -2423,6 +2425,7 @@ private fun SettingsScreen(model: AppModel) {
                         Text(
                             when (c) {
                                 AppIconChoice.Default -> L.t("Default")
+                                AppIconChoice.Badge -> L.t("K badge")
                                 AppIconChoice.Classic -> L.t("Classic KMP")
                             },
                         )
