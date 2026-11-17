@@ -48,6 +48,7 @@ function* commands(d) {
     } else {
       const need = { M: 2, L: 2, H: 1, V: 1, C: 6, Z: 0 }[m[1]];
       if (nums.length % need) throw new Error(`bad ${m[1]} arity: ${d}`);
+      if (need === 0) { yield [m[1], nums]; continue; }
       for (let i = 0; i < nums.length; i += need) yield [m[1], nums.slice(i, i + need)];
     }
   }
@@ -150,9 +151,39 @@ function squareView(b) {
 
 const KOTLIN_NAME = { default: "Default", badge: "Badge", classic: "Classic" };
 
+// SVG absolute command → PathData DSL call (the VeltaIcons.kt house style,
+// compiled in this toolchain; addPathNodes(string) is not).
+function kotlinNodes(d) {
+  const calls = [];
+  let firstM = true;
+  for (const [cmd, n] of commands(d)) {
+    switch (cmd) {
+      case "M": {
+        const fn = firstM ? "moveTo" : "lineTo";
+        firstM = false;
+        calls.push(`${fn}(${f(n[0])}, ${f(n[1])})`);
+        break;
+      }
+      case "L": calls.push(`lineTo(${f(n[0])}, ${f(n[1])})`); break;
+      case "H": calls.push(`horizontalTo(${f(n[0])})`); break;
+      case "V": calls.push(`verticalTo(${f(n[0])})`); break;
+      case "C":
+        calls.push(`curveTo(${f(n[0])}, ${f(n[1])}, ${f(n[2])}, ${f(n[3])}, ${f(n[4])}, ${f(n[5])})`);
+        break;
+      case "A":
+        calls.push(`arcTo(${f(n[0])}, ${f(n[1])}, ${f(n[2])}, ${n[3] !== 0}, ${n[4] !== 0}, ${f(n[5])}, ${f(n[6])})`);
+        break;
+      case "Z": calls.push("close()"); break;
+    }
+  }
+  return calls.join("\n                    ");
+}
+
 function kotlinPath(path) {
   const lines = ["            addPath("];
-  lines.push(`                pathData = addPathNodes(${JSON.stringify(path.d)}),`);
+  lines.push("                pathData = PathData {");
+  lines.push(`                    ${kotlinNodes(path.d)}`);
+  lines.push("                },");
   if (path.gradient) {
     const g = path.gradient;
     const stops = g.items.map((i) => `${f(i.offset)} to ${hex(i.color)}`).join(", ");
@@ -173,33 +204,32 @@ function kotlinPath(path) {
 
 function kotlinVariant(variant, paths, view) {
   const out = [];
-  out.push(`private fun build${KOTLIN_NAME[variant]}Logomark(): ImageVector {`);
-  out.push(`    val b = ImageVector.Builder(`);
+  out.push(`private fun build${KOTLIN_NAME[variant]}Logomark(): ImageVector =`);
+  out.push(`    ImageVector.Builder(`);
   out.push(`        name = "VeltaLogomark${KOTLIN_NAME[variant]}",`);
   out.push(`        defaultWidth = 48.dp, defaultHeight = 48.dp,`);
   out.push(`        viewportWidth = ${f(view.size)}, viewportHeight = ${f(view.size)},`);
-  out.push(`    )`);
-  out.push(`    b.addGroup(translationX = ${f(-view.left)}, translationY = ${f(-view.top)}) {`);
+  out.push(`    ).apply {`);
+  out.push(`        group(translationX = ${f(-view.left)}, translationY = ${f(-view.top)}) {`);
   for (const p of paths) {
-    const ind = "        " + "    ".repeat(p.groups.length);
     if (p.groups.length === 0) {
       out.push(kotlinPath(p));
     } else {
       const chain = [];
       let close = "";
       for (const g of p.groups) {
-        const gi = "        " + "    ".repeat(chain.length);
-        chain.push(`${gi}addGroup(translationX = ${f(g.tx)}, translationY = ${f(g.ty)}, scaleX = ${f(g.sx)}, scaleY = ${f(g.sy)}) {`);
+        const gi = "            " + "    ".repeat(chain.length);
+        const scale = g.sx !== 1 || g.sy !== 1 ? `, scaleX = ${f(g.sx)}, scaleY = ${f(g.sy)}` : "";
+        chain.push(`${gi}group(translationX = ${f(g.tx)}, translationY = ${f(g.ty)}${scale}) {`);
         close = `${gi}}` + (close ? "\n" + close : "");
       }
-      chain.push(kotlinPath(p).replace(/^ {12}/gm, ind));
+      chain.push(kotlinPath(p).replace(/^ {12}/gm, "            " + "    ".repeat(p.groups.length + 1)));
       chain.push(close);
       out.push(chain.join("\n"));
     }
   }
-  out.push(`    }`);
-  out.push(`    return b.build()`);
-  out.push(`}`);
+  out.push(`        }`);
+  out.push(`    }.build()`);
   return out.join("\n");
 }
 
@@ -256,7 +286,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.ui.graphics.vector.PathData
+import androidx.compose.ui.graphics.vector.group
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 
