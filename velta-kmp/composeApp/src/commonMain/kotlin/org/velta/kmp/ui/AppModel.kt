@@ -2618,8 +2618,13 @@ class AppModel(
     }
 
     /** Webxdc runtime bridge (androidMain) — internal accessors. */
-    fun callCore(): org.velta.kmp.core.CallCore? = core
+    fun callCore(): VeltaCore? = core
     fun callAccountId(): Long? = accountId
+    fun callWebxdcBlob(msgId: Long, path: String): String? {
+        val c = core ?: return null
+        val id = accountId ?: return null
+        return runCatching { c.getWebxdcBlob(id, msgId, path) }.getOrNull()
+    }
 
     fun startCall(chatId: Long, hasVideo: Boolean = false) = scope.launch {
         try {

@@ -1,4 +1,4 @@
-package org.velta.kmp
+package org.velta.kmp.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize

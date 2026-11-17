@@ -1,8 +1,9 @@
-package org.velta.kmp
+package org.velta.kmp.ui
 
 import android.annotation.SuppressLint
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import androidx.annotation.JavascriptInterface
 import android.webkit.WebView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -122,7 +123,7 @@ private fun mimeFor(path: String): String {
  *  pattern — the methods answer from the core in microseconds). */
 private class WebxdcBridge(private val model: AppModel, private val msgId: Long) {
 
-    @androidx.annotation.JavascriptInterface
+    @JavascriptInterface
     fun request(json: String): String {
         val response = runBlocking {
             runCatching { handle(json) }.getOrElse {
