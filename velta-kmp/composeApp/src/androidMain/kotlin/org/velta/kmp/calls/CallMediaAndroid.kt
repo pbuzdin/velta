@@ -288,7 +288,7 @@ class CallMediaAndroid(
                 ?: return false
             val source = factory.createVideoSource(false) // not screencast
             videoSource = source
-            val helper = SurfaceTextureHelper("velta-capture", egl.eglBaseContext)
+            val helper = SurfaceTextureHelper.create("velta-capture", egl.eglBaseContext)
             surfaceHelper = helper
             val capturer = enumerator.createCapturer(device, null)
             videoCapturer = capturer
@@ -297,7 +297,7 @@ class CallMediaAndroid(
             source.adaptOutputFormat(1280, 720, 30)
             val track = factory.createVideoTrack("velta_video_track", source)
             videoTrack = track
-            videoTx?.sender?.replaceTrack(track)
+            videoTx?.sender?.setTrack(track)
             localVideoTrack = track
             capturing = true
             return true
@@ -313,7 +313,7 @@ class CallMediaAndroid(
         try { videoCapturer?.stopCapture() } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
         } catch (_: Throwable) {}
-        videoTx?.sender?.replaceTrack(null)
+        videoTx?.sender?.setTrack(null)
         try { videoCapturer?.dispose() } catch (_: Throwable) {}
         try { surfaceHelper?.dispose() } catch (_: Throwable) {}
         try { videoSource?.dispose() } catch (_: Throwable) {}
