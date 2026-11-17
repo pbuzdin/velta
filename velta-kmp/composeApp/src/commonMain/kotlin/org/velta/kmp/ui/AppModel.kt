@@ -2564,6 +2564,18 @@ class AppModel(
     var channelBar by mutableStateOf<ChannelBarState?>(null)
         private set
 
+    /** Call signaling engine (P1a): core call events drive CallRules; the
+     *  WebRTC media adapter lands in P1b — until then outgoing placement
+     *  is refused (`startOutgoing` returns false with no media). */
+    var callMedia: CallMedia? = null
+    val calls = CallManager(
+        coreProvider = { core },
+        accountId = { accountId },
+        mediaProvider = { callMedia },
+        scope = scope,
+        getChatName = { chatId -> chatDisplayName(chatId) },
+    )
+
     /** Selection mode (stable this.selection): message ids, in tap order. */
     var selection by mutableStateOf<List<Long>>(emptyList())
         private set
@@ -4288,6 +4300,8 @@ class AppModel(
         }
         when (event.kind) {
             "ConnectivityChanged" -> if (forCurrent) refreshRelayLine()
+            "IncomingCall", "OutgoingCallAccepted", "IncomingCallAccepted", "CallEnded" ->
+                if (forCurrent) dispatchCallEvent(event)
             "ConfigureProgress" -> {
                 val comment = event.event?.get("comment")?.toString()?.trim('"')
                 if (!comment.isNullOrBlank() && comment != "null") loginProgress = comment
@@ -4326,6 +4340,37 @@ class AppModel(
     /** Conversation notification for an incoming message — skipped only for
      * the chat on screen while the app is in the foreground, and for muted
      * chats. Works for every account, not just the one on screen. */
+    /** Call events into the signaling engine (payload names camelCase with
+     *  the snake fallbacks the web keeps). */
+    private suspend fun dispatchCallEvent(event: CoreEvent) {
+        val o = event.event ?: return
+        fun jstr(k: String): String? = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+        fun jlong(k: String): Long = jstr(k)?.toLongOrNull() ?: 0L
+        fun jbool(k: String): Boolean = jstr(k) == "true"
+        val chatId = jlong("chatId")
+        val msgId = jlong("msgId")
+        when (event.kind) {
+            "IncomingCall" -> calls.onCoreEvent(
+                chatId, msgId,
+                CallEvent.IncomingCall(chatId, msgId, jstr("placeCallInfo") ?: jstr("place_call_info") ?: "", jbool("hasVideo")),
+            )
+            "OutgoingCallAccepted" -> calls.onCoreEvent(
+                chatId, msgId,
+                CallEvent.OutgoingCallAccepted(chatId, msgId, jstr("acceptCallInfo") ?: jstr("accept_call_info") ?: ""),
+            )
+            "IncomingCallAccepted" -> calls.onCoreEvent(chatId, msgId, CallEvent.IncomingCallAccepted(chatId, msgId))
+            "CallEnded" -> calls.onCoreEvent(chatId, msgId, CallEvent.CallEnded(chatId, msgId))
+        }
+    }
+
+    private suspend fun chatDisplayName(chatId: Long): String? {
+        val veltaCore = core ?: return null
+        val id = accountId ?: return null
+        return runCatching {
+            veltaCore.fullChat(id, chatId)?.get("name")?.let { it as? kotlinx.serialization.json.JsonPrimitive }?.content
+        }.getOrNull()
+    }
+
     private suspend fun notifyIncoming(eventAccount: Long, chatId: Long, event: CoreEvent) {
         val current = screen
         if (appInForeground && eventAccount == accountId && current is Screen.Chat && current.chatId == chatId) return
