@@ -1,7 +1,7 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-15 after #334 step 11 (search,
-media, groups, backup, proxy, in-app links). Every phase lists what SHIPPED,
+Tracking issue #192. Updated 2026-11-17 after the 0.9.0 / #358 wave
+(#359–#374, #378, #382) and #357 JNI. Every phase lists what SHIPPED,
 how it was VERIFIED, and what is still MISSING — no "done" without the
 gaps next to it.
 
@@ -35,8 +35,18 @@ Android Tauri `rpc` command returns the JSON line the way desktop does.
 **#357 step 3:** the KMP Android core is in-process over JNI. No loopback
 port and no auth token. Desktop KMP still spawns `deltachat-rpc-server`.
 
+**2026-11-16–17, 0.9.0 / #358 wave:** pin tray, read position, disappearing
+timer, own-profile editor, auto-download / text-only settings, 15-minute
+background catch-up, Application-class boot restart, "Use background
+connection" toggle, UnifiedPush distributor picker, maybe_network and
+MessagingStyle polish, swipe motion (SwipeRules), attachment preview +
+crop/draw editor, floating reply/edit/attachment card, swipe-back blink
+fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
+`versionName` is 0.9.0. Ledger entry below. Webxdc is still out.
+
 **#321 fidelity follow-ups (filed, open):**
-- #323 mention @-autocomplete picker + mentionsMe notify gate.
+- #323 mention @-autocomplete picker + mentionsMe notify gate (picker +
+  `mentionsMe` landed in `496e3faf`; the issue is still open).
 - #324 invite surface: short links, relay chips, domain registry, card
   copy/share.
 - #325 markdown: `> ` quote blocks, hashtag rules, trimLinkEnd, nested
@@ -52,7 +62,9 @@ port and no auth token. Desktop KMP still spawns `deltachat-rpc-server`.
 **P4 leftovers (small):**
 1. Webxdc apps (the Tauri `webxdc_serve` sandbox is not in this client).
 2. Storage and Chats-in-common profile rows.
-3. Brand logo assets (app icon, in-app mark).
+3. In-app brand mark extras, if any — the launcher icon shipped in #382
+   (official V on #0A1A2E, corner K badge); the header already uses
+   `v_logo.png`.
 
 **P5 — release track (slice 1 done):**
 1. Production keystore + distribution channel decision (release lane
@@ -1003,5 +1015,52 @@ and markdown, N4 release signing.
 
 The i.delta.chat tab drew the core 515×630 card while every other domain
 drew `BrandedQrSquare`. That tab now draws `BrandedQrSquare` too. The
-copied link is still `https://i.delta.chat/#…`. The web keeps the core
-card on that tab.
+copied link is still `https://i.delta.chat/#…`. (The web later matched
+this in #379: every domain tab draws the branded square; see the
+2026-11-16–17 entry.)
+
+## 2026-11-16–17 — 0.9.0 / #358 wave, rotation fix, launcher icon
+
+**SHIPPED**
+- **#357** (already noted in Remaining work): Android core is in-process
+  over JNI; no loopback port. Desktop still spawns `deltachat-rpc-server`.
+- **Pin tray** (#359): pinned messages in the chat view, `ui/PinTrayRules.kt`.
+- **Read position** (#360): "Unread messages" line and go-down button.
+- **Disappearing-messages timer** (#361): setter on the chat profile
+  (`ui/EphemeralRules.kt`); admin groups stay admin-only.
+- **Own-profile editor** (#362): name, picture, description.
+- **Auto-download limit and text-only mode** (#363): Settings radios,
+  same keys as stable.
+- **Background** (#364–#368): 15-minute catch-up job, `VeltaApplication`
+  boot restart and headless start, "Use background connection" toggle +
+  tap-to-open sync notification, UnifiedPush distributor picker / Off /
+  last push, maybe_network, ask-once prompts, MessagingStyle
+  conversations. `ui/BackgroundRules.kt`, `ui/PushSettingsRules.kt`.
+- **0.9.0** (#370): `versionName` / desktop `packageVersion` are 0.9.0;
+  versionCode stays epoch minutes.
+- **Swipe gestures** (#371): `ui/SwipeRules.kt` — stable 12/48 dp
+  thresholds, min(72 dp, 28 %) commit, rubber band, axis lock, system
+  gesture-nav edge zones, parallax, reply arrow, spring snap-back,
+  Android 14+ predictive back, reduced-motion (animator scale 0).
+  Positions are read outside the translated layer.
+- **Attachment preview + crop/draw editor** (#372): 96×64 letterboxed
+  thumbnail, Edit for stills (`ui/ImageEditRules.kt`: aspect presets,
+  90° rotate, brush, undo/redo).
+- **Floating composer card** (#373, variant A): one elevated card above
+  the composer for reply, edit and attachment; `ui/ComposerCardRules.kt`.
+- **Swipe-back blink fix** (#374): ChatList and Chat share one `ChatStack`
+  branch, so the peeking list is the list that remains after commit.
+- **Rotation FGS fix** (#378): `onStop` returns early on
+  `isChangingConfigurations`; a real backgrounding still starts the
+  service. "Use background connection" defaults on.
+- **Launcher icon** (#382): official Velta V on `#0A1A2E` with a corner
+  K badge; `art/velta-kmp-icon.svg` + `art/make_android_icon.py`. The
+  badge stays inside the 66/108 safe circle. Golos Text credit is in
+  `THIRD_PARTY.md`.
+- **Web QR unify** (#379, shipping app): the i.delta.chat tab also draws
+  the branded square; the copied link stays the canonical
+  `https://i.delta.chat/#…` URL. Backup-transfer QR is unchanged.
+
+**Still open:** webxdc, N4 release signing, #323–#328 fidelity
+follow-ups, relay-side UnifiedPush delivery, ktlint/detekt. CI native-lib
+cache is #369 (see `docs/agents/release-ci.md`).

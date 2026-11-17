@@ -2,6 +2,9 @@
 
 Velta KMP is GPLv3, same as the rest of this repository. This file lists
 third-party work that is bundled or incorporated, and the licence it carries.
+Code reused from deltachat-android or ArcaneChat Android (both GPLv3)
+belongs here too: keep the upstream copyright header, and record the
+upstream path next to the entry.
 
 ## Golos Text
 

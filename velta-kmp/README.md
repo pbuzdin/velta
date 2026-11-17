@@ -3,27 +3,26 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-15):** work in progress (#192); the Tauri app remains
-Velta's shipping Android app. #334 step 11 is in except webxdc.
-N1 (Prism + fingerprint identity matrix), N2 (conversation notifications,
-RPC timeout/recovery, shim teardown, chat paging), and N3 (glass on the
-composer and header) are in, and the **#321 visual shell is complete —
-all five steps shipped and audited against the code**: theme tokens from
-main.css, 96 web-parity vector icons, the stable composer + header,
-bubbles/quote/markdown/list rows, appearance settings + en/ru/fr
-strings, the attach menu (photo/video/camera/file/stickers), and the
-chat-list bottom action bar. N4 release signing is still open. The client
-onboards from invites or QR scans, manages relays, switches accounts,
-sends with attachments/quotes/reactions, renders images, encrypts its
-database at rest, locks behind biometric/device-credential, and keeps
-syncing in the background. Desktop tests gate every push, plus a
-real-binary check when `VELTA_KMP_RPC_SERVER` is set. Debug APKs are
-signed with the shared `composeApp/debug.keystore` and take epoch minutes
-at build time as versionCode — one clock for CI and local builds, so the
-newest build installs over any older one; ABI splits keep the phone APK
-~28 MB, and every CI APK carries the core shim (#334). See [docs/PHASES.md](docs/PHASES.md)
-for the per-phase ledger and what's left. Webxdc apps are the open
-part of #334 step 11: they need the shipping app's sandbox server.
+**Status (2026-11-17):** work in progress (#192); the Tauri app remains
+Velta's shipping Android app. Version is **0.9.0**. #334 step 11 is in
+except webxdc. N1–N3 and the **#321 visual shell** are complete, and the
+0.9.0 / #358 wave is in: pin tray, read position, disappearing timer,
+own-profile editor, auto-download / text-only settings, background
+catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
+preview and crop/draw editor, floating reply card. N4 release signing is
+still open. The client onboards from invites or QR scans, manages relays,
+switches accounts, sends with attachments/quotes/reactions, renders
+images, encrypts its database at rest, locks behind a biometric or
+device credential, and keeps syncing in the background. The launcher uses the
+official Velta V on a dark field with a K badge (#382). Desktop tests
+gate every push, plus a real-binary check when `VELTA_KMP_RPC_SERVER` is
+set. Debug APKs are signed with the shared `composeApp/debug.keystore`
+and take epoch minutes at build time as versionCode — one clock for CI
+and local builds, so the newest build installs over any older one; ABI
+splits keep the phone APK ~28 MB, and every CI APK carries the core shim
+(#334). See [docs/PHASES.md](docs/PHASES.md) for the per-phase ledger
+and what's left. Webxdc apps are the open part of #334 step 11: they
+need the shipping app's sandbox server.
 
 | Surface | Codebase | Status |
 |---|---|---|
@@ -76,7 +75,11 @@ part of #334 step 11: they need the shipping app's sandbox server.
   links, bare links, @mentions, hashtags, invite cards (a deltachat.id
   short link is fetched once) that route to the Join flow), composer
   with drafts, the attach menu (Photo / Video /
-  Camera / File / Stickers — camera capture via FileProvider), quick
+  Camera / File / Stickers — camera capture via FileProvider), a
+  thumbnail preview of a staged file and a crop/draw editor for
+  pictures, and a floating card above the composer for reply, edit and
+  attachment. A pinned-messages tray sits in the chat, with an Unread
+  messages line and a go-down button when you have scrolled up. Quick
   reactions, sticker picker, and delivery-state glyphs. Chat rows carry
   the web anatomy: 22%-radius avatar tiles (identity matrix, saved/device
   gradient tiles, photos), list-time stamps, draft/request red previews,
@@ -95,15 +98,18 @@ part of #334 step 11: they need the shipping app's sandbox server.
   desktop opens the system browser. Invites still join instead of
   browsing. **Touch
   gestures**: swipe the chat list left/right to step through the category
-  chips, swipe a bubble right to reply (haptic at the commit line), swipe
-  the history left to go back — thresholds ported from the web's touch
-  handlers, touch form factors only.
+  chips, swipe a bubble right to reply (arrow + haptic at the commit
+  line, spring snap-back), swipe the history left to go back (the list
+  peeks underneath; no blink at the end). Thresholds, rubber band,
+  axis lock and system-gesture edge zones live in `SwipeRules`; touch
+  form factors only, plus Android 14+ predictive back.
 - **Settings** — appearance: theme (Auto/Dark/Light/Brutal), the
   "Pure black (AMOLED)" flag, custom accent color (WCAG-checked
   derivation, 8 presets + custom hex), language (English /
   Français / Русский, applied live), and Invite link domains (extra
-  hosts under `velta-invite-hosts`; the four builtins stay). Settings
-  persist per platform under the same keys the web app uses.
+  hosts under `velta-invite-hosts`; the four builtins stay). Auto-download
+  limit and text-only mode use the same keys as the shipping app.
+  Settings persist per platform under the same keys the web app uses.
 - **Security** — database encryption at rest (Keystore-wrapped DEK →
   `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext);
   optional app lock (Settings → App lock: strong biometric/device-credential — locked = the
@@ -115,23 +121,29 @@ part of #334 step 11: they need the shipping app's sandbox server.
   platform prefs (SharedPreferences / java.util.prefs).
 - **Background** — a remoteMessaging foreground service (like stable; no
   Android 15 dataSync time cap) holds the process (screen
-  off); after a process kill the sticky service rebuilds the core
-  headlessly (`am crash` verified); UnifiedPush receiver wired (relay-side
-  notifier still pending); battery-allowance row for OEM savers.
+  off); an Application class restarts it after boot and after a process
+  kill (headless, `am crash` verified). A 15-minute catch-up job fills
+  gaps. Settings has **Use background connection** (off skips the
+  service, boot start, and wake-ups) and a UnifiedPush distributor
+  picker (or Off). Battery-allowance is asked once. Relay-side push
+  delivery is still pending.
 - **Profile** — the contact sheet: fingerprint identity matrix (or Prism
   tile), media counts, profile key, last seen, notifications and
-  disappearing-messages state, block/unblock. A group profile can
-  rename the group, list members, add members, and remove someone
-  other than yourself (in an admin group, only the admin).
-- **Notifications** — one conversation card per account + chat on a
-  Messages channel, for every account (events route by `contextId`);
-  muted chats are skipped, and the open chat only while the app is
-  visible; cards clear when the chat is opened or read elsewhere; a tap
-  switches to the right account and opens the chat. Visible unseen
-  messages get `markseen_msgs` (read receipts). Read/delivered/failed,
-  reactions, chat and contact changes and chat-list events update live
-  (#334). (Background delivery still needs the relay-side UnifiedPush
-  notifier.)
+  disappearing-messages state (the timer is settable here on groups and
+  1:1), block/unblock. **Edit profile** (from Settings) changes your
+  name, picture and description. A group profile can rename the group,
+  list members, add members, and remove someone other than yourself
+  (in an admin group, only the admin).
+- **Notifications** — MessagingStyle conversation cards (group title,
+  sender, avatars, follow-ups append) per account + chat on a Messages
+  channel, for every account (events route by `contextId`); muted chats
+  are skipped, and the open chat only while the app is visible; cards
+  clear when the chat is opened or read elsewhere; a tap switches to the
+  right account and opens the chat. A silent sync notification can
+  reopen the app. Visible unseen messages get `markseen_msgs` (read
+  receipts). Read/delivered/failed, reactions, chat and contact changes
+  and chat-list events update live (#334). (Background delivery still
+  needs the relay-side UnifiedPush notifier.)
 - **Look** — `VeltaTheme` built from tokens generated from Velta
   stable's `app/css/main.css` (#318): dark, light, brutal and AMOLED,
   selectable in Settings; Prism person colors and fingerprint identity matrices are
@@ -211,7 +223,8 @@ the arm64 debug APK is ≈ 41 MB, of which ≈ 26 MB is the stripped core
 shim (no debug or symbol sections; CI checks this). CI:
 `.github/workflows/build-kmp.yml` builds both targets and runs the tests
 on every push touching this dir (or `core/`); the `shim` job builds the
-Android core `.so` on every run, the APK job bundles it and refuses to
+Android core `.so` unless the native-lib cache hits (inputs unchanged,
+#369), the APK job bundles it and refuses to
 upload an APK without it (artifacts: `velta-kmp-arm64-apk` for phones,
 `velta-kmp-x86_64-apk` for emulators), and `shim-test` runs the shim's
 `cargo test`.
