@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 import org.velta.kmp.core.ChatListItem
 import org.velta.kmp.core.Contact
 import org.velta.kmp.core.CoreEvent
@@ -2579,6 +2580,58 @@ class AppModel(
         getChatName = { chatId -> chatDisplayName(chatId) },
     )
 
+    // Platform hooks (AppHolder, androidMain) — null on desktop.
+    var callSpeakerToggle: (() -> Unit)? = null
+    var callAudioStart: (() -> Unit)? = null
+    var callAudioStop: (() -> Unit)? = null
+    var callForeground: ((Boolean) -> Unit)? = null
+    var callMicPermission: (suspend () -> Boolean)? = null
+
+    /** Platform speakers toggle for the in-call bar (null = hidden). */
+    val callSpeakerAvailable: Boolean get() = callSpeakerToggle != null
+
+    private var lastCallAudio = false
+
+    init {
+        // Audio focus + mic FGS follow the call state (survives screens).
+        scope.launch {
+            androidx.compose.runtime.snapshotFlow { calls.state }.collect { st ->
+                val active = st is CallState.Active
+                if (active != lastCallAudio) {
+                    lastCallAudio = active
+                    if (active) {
+                        callAudioStart?.invoke()
+                        callForeground?.invoke(true)
+                    } else {
+                        callAudioStop?.invoke()
+                        callForeground?.invoke(false)
+                    }
+                }
+            }
+        }
+    }
+
+    fun startCall(chatId: Long, hasVideo: Boolean = false) = scope.launch {
+        try {
+            calls.startOutgoing(chatId, hasVideo)
+        } catch (t: Throwable) {
+            showToast(L.t("Couldn't start the call: ") + (t.message ?: t.toString()), 4000)
+        }
+    }
+
+    fun acceptCall() = scope.launch {
+        runCatching { calls.acceptIncoming() }
+            .onFailure { showToast(L.t("Couldn't accept the call: ") + (it.message ?: it.toString()), 4000) }
+    }
+
+    fun declineCall() = scope.launch { runCatching { calls.declineIncoming() } }
+
+    fun hangupCall() = scope.launch { runCatching { calls.hangup() } }
+
+    /** Fresh ICE server config for the media adapter (core webrtc config). */
+    suspend fun callIceServers(): JsonObject? =
+        core?.let { c -> accountId?.let { id -> runCatching { c.iceServers(id) }.getOrNull() } }
+
     /** Selection mode (stable this.selection): message ids, in tap order. */
     var selection by mutableStateOf<List<Long>>(emptyList())
         private set
@@ -3406,6 +3459,7 @@ class AppModel(
             ChatAction.MarkRead -> markChatRead(chat.id)
             ChatAction.DeleteChat -> chatConfirm = PendingConfirm(deleteChatConfirm(chat)) { deleteChatNow(chat) }
             ChatAction.ChatInfo -> openProfile(chat.id, chat.name)
+            ChatAction.StartCall -> startCall(chat.id)
             ChatAction.GroupInviteQr -> showGroupInvite(chat)
             ChatAction.LeaveGroup -> chatConfirm = PendingConfirm(leaveConfirm(chat)) { leaveGroupNow(chat) }
             ChatAction.ClearHistory -> chatConfirm = PendingConfirm(CLEAR_HISTORY_CONFIRM) { clearHistoryNow(chat) }

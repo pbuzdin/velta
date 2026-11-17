@@ -50,7 +50,7 @@ fun menuChatOf(item: ChatListItem, groupAdminId: Long? = null): MenuChat = MenuC
 
 enum class ChatAction {
     TogglePin, ToggleMute, MarkRead, DeleteOld, ToggleArchive, DeleteChat,
-    ChatInfo, GroupInviteQr, LeaveGroup, ClearHistory,
+    ChatInfo, GroupInviteQr, LeaveGroup, ClearHistory, StartCall,
 }
 
 /** One menu row; [action] null = the `"-"` separator. [icon] is stable's
@@ -95,6 +95,8 @@ fun canLeave(chat: MenuChat): Boolean =
  *  offered — KMP has no calls). */
 fun chatHeadMenu(chat: MenuChat): List<ChatMenuEntry> = buildList {
     add(ChatMenuEntry(ChatAction.ChatInfo, "Chat info"))
+    // 1:1 chats only — channels/groups have no caller role (P1b audio).
+    if (chat.kind == "single") add(ChatMenuEntry(ChatAction.StartCall, "Voice call"))
     if (chat.kind == "group" && canAddMembers(chat)) add(ChatMenuEntry(ChatAction.GroupInviteQr, "Group invite QR"))
     add(ChatMenuEntry(ChatAction.ToggleMute, if (chat.muted) "Unmute" else "Mute"))
     add(ChatMenuEntry(ChatAction.TogglePin, if (chat.pinned) "Unpin" else "Pin"))

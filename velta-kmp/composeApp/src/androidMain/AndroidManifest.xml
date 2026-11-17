@@ -22,6 +22,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Voice messages (#334 step 11): the mic only while recording. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Calls (P1b): the microphone FGS keeps the mic alive when the screen
+         locks mid-call (Android 14 requires the typed permission). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- Custom Tabs (InAppBrowser): without these, package visibility hides
          every provider on API 30+ and a link opens as a full browser task. -->
@@ -182,6 +185,12 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- Calls (P1b): mic foreground service while a call is active. -->
+        <service
+            android:name=".calls.CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <service
             android:name=".push.VeltaPushService"
