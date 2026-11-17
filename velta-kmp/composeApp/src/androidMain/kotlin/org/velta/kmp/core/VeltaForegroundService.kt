@@ -110,7 +110,21 @@ class VeltaForegroundService : Service() {
         private const val CHANNEL_ID = "velta-sync"
         private const val NOTIFICATION_ID = 1
 
+        private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        private var pendingStop: Runnable? = null
+
+        /** A stop right after a start can land before the service is even
+         *  created, and the system then throws
+         *  ForegroundServiceDidNotStartInTimeException — the start contract
+         *  stays violated even though the app asked to stop (seen on quick
+         *  background/foreground cycles: permission dialog, app switch).
+         *  Deferring the stop lets every start reach startForeground first;
+         *  a fresh start cancels the pending stop, so nothing flashes. */
+        private const val STOP_DELAY_MS = 400L
+
         fun start(context: Context) {
+            pendingStop?.let { mainHandler.removeCallbacks(it) }
+            pendingStop = null
             try {
                 context.startForegroundService(Intent(context, VeltaForegroundService::class.java))
             } catch (t: RuntimeException) {
@@ -121,7 +135,13 @@ class VeltaForegroundService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, VeltaForegroundService::class.java))
+            pendingStop?.let { mainHandler.removeCallbacks(it) }
+            val run = Runnable {
+                pendingStop = null
+                context.stopService(Intent(context, VeltaForegroundService::class.java))
+            }
+            pendingStop = run
+            mainHandler.postDelayed(run, STOP_DELAY_MS)
         }
     }
 }
