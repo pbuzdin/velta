@@ -6,7 +6,10 @@ import android.content.Context
 import kotlinx.serialization.json.JsonObject
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
+import org.webrtc.Camera2Enumerator
+import org.webrtc.CameraVideoCapturer
 import org.webrtc.DataChannel
+import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStreamTrack
@@ -15,6 +18,9 @@ import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.SurfaceTextureHelper
+import org.webrtc.VideoSource
+import org.webrtc.VideoTrack
 
 /**
  * WebRTC media adapter for 1:1 calls (P1b, audio only). Ports the wiring
@@ -58,6 +64,11 @@ class CallMediaAndroid(
         @Volatile
         private var factory: PeerConnectionFactory? = null
 
+        /** Shared renderer context for local preview + remote surfaces. */
+        private val egl: EglBase by lazy { EglBase.create() }
+
+        fun eglContext(): EglBase.Context = egl.eglBaseContext
+
         fun factory(context: Context): PeerConnectionFactory =
             factory ?: synchronized(this) {
                 factory ?: run {
@@ -82,6 +93,27 @@ class CallMediaAndroid(
     private var audioTrack: AudioTrack? = null
     private var dcIce: DataChannel? = null
     private var dcMuted: DataChannel? = null
+
+    // Video (P2): the transceiver is negotiated sendrecv from the start; the
+    // camera is only opened while the user has video on (Velta releases it
+    // when off — no black frames).
+    private var videoTx: RtpTransceiver? = null
+    private var videoSource: VideoSource? = null
+    private var videoCapturer: CameraVideoCapturer? = null
+    private var surfaceHelper: SurfaceTextureHelper? = null
+    private var videoTrack: VideoTrack? = null
+
+    /** Local camera track for the preview surface (compose state). */
+    var localVideoTrack by androidx.compose.runtime.mutableStateOf<VideoTrack?>(null)
+        private set
+
+    /** Remote camera track, captured from onTrack (compose state). */
+    var remoteVideoTrack by androidx.compose.runtime.mutableStateOf<VideoTrack?>(null)
+        private set
+
+    /** True while the capturer runs (camera in use). */
+    var capturing by androidx.compose.runtime.mutableStateOf(false)
+        private set
 
     private suspend fun iceServersFromCore(): List<PeerConnection.IceServer> {
         val raw = try {
@@ -116,12 +148,20 @@ class CallMediaAndroid(
             // Unified plan is the only semantics in libwebrtc 129.
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
         }
-        val observer = if (caller) null else object : PeerConnection.Observer {
+        val observer = object : PeerConnection.Observer {
             override fun onDataChannel(dc: DataChannel) {
-                when (dc.label()) {
-                    "iceTrickling" -> dcIce = dc
-                    "mutedState" -> dcMuted = dc
+                // The caller creates the channels; the callee receives them.
+                if (!caller) {
+                    when (dc.label()) {
+                        "iceTrickling" -> dcIce = dc
+                        "mutedState" -> dcMuted = dc
+                    }
                 }
+            }
+
+            override fun onTrack(transceiver: RtpTransceiver?) {
+                val track = transceiver?.receiver?.track() ?: return
+                if (track is VideoTrack) remoteVideoTrack = track
             }
 
             override fun onIceCandidate(candidate: IceCandidate) {}
@@ -135,7 +175,6 @@ class CallMediaAndroid(
             override fun onRenegotiationNeeded() {}
             override fun onAddStream(stream: org.webrtc.MediaStream?) {}
             override fun onRemoveStream(stream: org.webrtc.MediaStream?) {}
-            override fun onTrack(transceiver: RtpTransceiver?) {}
         }
         return factory(context).createPeerConnection(rtcConfig, observer) ?: error("no PeerConnection")
     }
@@ -187,7 +226,7 @@ class CallMediaAndroid(
                 mic,
                 RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, listOf(STREAM_ID)),
             )
-            pc.addTransceiver(
+            videoTx = pc.addTransceiver(
                 MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
                 RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV),
             )
@@ -202,6 +241,7 @@ class CallMediaAndroid(
             for (tx in pc.transceivers) {
                 if (tx.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO) {
                     tx.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+                    videoTx = tx
                 }
             }
             val answer = awaitSdp { pc.createAnswer(it, MediaConstraints()) }
@@ -223,6 +263,7 @@ class CallMediaAndroid(
     }
 
     override fun close() {
+        stopVideo()
         try { pc?.close() } catch (_: Throwable) {}
         try { audioSource?.dispose() } catch (_: Throwable) {}
         audioSource = null
@@ -230,6 +271,60 @@ class CallMediaAndroid(
         dcIce = null
         dcMuted = null
         pc = null
+        remoteVideoTrack = null
+    }
+
+    // ---- Video (P2) ----
+
+    override fun startVideo(): Boolean {
+        if (capturing) return true
+        val factory = factory(context)
+        try {
+            val enumerator = Camera2Enumerator(context)
+            val device = enumerator.deviceNames.firstOrNull { enumerator.isFrontFacing(it) }
+                ?: enumerator.deviceNames.firstOrNull()
+                ?: return false
+            val source = factory.createVideoSource(false) // not screencast
+            videoSource = source
+            val helper = SurfaceTextureHelper("velta-capture", egl.eglBaseContext)
+            surfaceHelper = helper
+            val capturer = enumerator.createCapturer(device, null)
+            videoCapturer = capturer
+            capturer.initialize(helper, context.applicationContext, source.capturerObserver)
+            capturer.startCapture(1280, 720, 30)
+            source.adaptOutputFormat(1280, 720, 30)
+            val track = factory.createVideoTrack("velta_video_track", source)
+            videoTrack = track
+            videoTx?.sender?.replaceTrack(track)
+            localVideoTrack = track
+            capturing = true
+            return true
+        } catch (t: Throwable) {
+            println("velta-kmp: camera start failed: " + t)
+            stopVideo()
+            return false
+        }
+    }
+
+    /** Camera off — Velta releases the capturer (unlike DC's black frames). */
+    override fun stopVideo() {
+        try { videoCapturer?.stopCapture() } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } catch (_: Throwable) {}
+        videoTx?.sender?.replaceTrack(null)
+        try { videoCapturer?.dispose() } catch (_: Throwable) {}
+        try { surfaceHelper?.dispose() } catch (_: Throwable) {}
+        try { videoSource?.dispose() } catch (_: Throwable) {}
+        videoCapturer = null
+        surfaceHelper = null
+        videoSource = null
+        videoTrack = null
+        localVideoTrack = null
+        capturing = false
+    }
+
+    override fun switchCamera() {
+        (videoCapturer as? CameraVideoCapturer)?.switchCamera(null)
     }
 
     private fun awaitSet(block: (SdpObserver) -> Unit) {

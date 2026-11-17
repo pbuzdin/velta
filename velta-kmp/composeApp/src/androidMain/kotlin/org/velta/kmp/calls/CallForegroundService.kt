@@ -24,13 +24,12 @@ class CallForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) ?: false
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    buildNotification(),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-                )
+                var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                if (video) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                startForeground(NOTIFICATION_ID, buildNotification(), types)
             } else {
                 startForeground(NOTIFICATION_ID, buildNotification())
             }
@@ -66,10 +65,13 @@ class CallForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "velta-call"
         private const val NOTIFICATION_ID = 2
+        private const val EXTRA_VIDEO = "video"
 
-        fun start(context: Context) {
+        fun start(context: Context, video: Boolean) {
             try {
-                context.startForegroundService(Intent(context, CallForegroundService::class.java))
+                context.startForegroundService(
+                    Intent(context, CallForegroundService::class.java).putExtra(EXTRA_VIDEO, video),
+                )
             } catch (t: RuntimeException) {
                 println("velta-kmp: call service start refused: $t")
             }

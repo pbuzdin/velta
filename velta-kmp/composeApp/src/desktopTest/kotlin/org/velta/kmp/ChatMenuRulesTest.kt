@@ -81,8 +81,8 @@ class ChatMenuRulesTest {
 
     @Test
     fun headMenuSingleChat() {
-        assertEquals(listOf("Chat info", "Voice call", "Mute", "Pin", "-", "Clear history"), labels(chatHeadMenu(chat())))
-        assertEquals(listOf("Chat info", "Voice call", "Unmute", "Unpin", "-", "Clear history"), labels(chatHeadMenu(chat(muted = true, pinned = true))))
+        assertEquals(listOf("Chat info", "Voice call", "Video call", "Mute", "Pin", "-", "Clear history"), labels(chatHeadMenu(chat())))
+        assertEquals(listOf("Chat info", "Voice call", "Video call", "Unmute", "Unpin", "-", "Clear history"), labels(chatHeadMenu(chat(muted = true, pinned = true))))
         assertTrue(chatHeadMenu(chat()).all { it.icon == null })
         assertTrue(chatHeadMenu(chat()).last().danger)
     }

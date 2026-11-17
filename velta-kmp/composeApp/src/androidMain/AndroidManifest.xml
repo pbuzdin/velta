@@ -25,6 +25,8 @@
     <!-- Calls (P1b): the microphone FGS keeps the mic alive when the screen
          locks mid-call (Android 14 requires the typed permission). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Video calls (P2): camera FGS type next to the mic type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
 
     <!-- Custom Tabs (InAppBrowser): without these, package visibility hides
          every provider on API 30+ and a link opens as a full browser task. -->

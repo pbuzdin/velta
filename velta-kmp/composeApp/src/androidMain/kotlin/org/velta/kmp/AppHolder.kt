@@ -36,10 +36,11 @@ object AppHolder {
                 created.callSpeakerToggle = { org.velta.kmp.calls.CallAudioManager.toggleSpeaker(appContext) }
                 created.callAudioStart = { org.velta.kmp.calls.CallAudioManager.start(appContext) }
                 created.callAudioStop = { org.velta.kmp.calls.CallAudioManager.stop(appContext) }
-                created.callForeground = { on ->
-                    if (on) org.velta.kmp.calls.CallForegroundService.start(appContext)
+                created.callForeground = { on, video ->
+                    if (on) org.velta.kmp.calls.CallForegroundService.start(appContext, video)
                     else org.velta.kmp.calls.CallForegroundService.stop(appContext)
                 }
+                created.callCameraPermission = { created.cameraPermissionHook?.invoke() ?: true }
                 model = created
             }
         }

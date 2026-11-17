@@ -2586,8 +2586,14 @@ class AppModel(
     var callSpeakerToggle: (() -> Unit)? = null
     var callAudioStart: (() -> Unit)? = null
     var callAudioStop: (() -> Unit)? = null
-    var callForeground: ((Boolean) -> Unit)? = null
+    var callForeground: ((on: Boolean, video: Boolean) -> Unit)? = null
     var callMicPermission: (suspend () -> Boolean)? = null
+    var callCameraPermission: (suspend () -> Boolean)? = null
+    /** Platform hook that ASKS for CAMERA (androidMain launcher); null = assumed granted. */
+    var cameraPermissionHook: (suspend () -> Boolean)? = null
+
+    /** Video call state (P2): camera on for the active/placed call. */
+    var callVideoActive by mutableStateOf(false)
 
     /** webxdc realtime (P3b): the open app's data sink (msgId, bytes). */
     var webxdcRealtimeSink: ((Long, List<Int>) -> Unit)? = null
@@ -2602,19 +2608,49 @@ class AppModel(
     init {
         // Audio focus + mic FGS follow the call state (survives screens).
         scope.launch {
-            androidx.compose.runtime.snapshotFlow { calls.state }.collect { st ->
-                val active = st is CallState.Active
+            androidx.compose.runtime.snapshotFlow { calls.state is CallState.Active }.collect { active ->
                 if (active != lastCallAudio) {
                     lastCallAudio = active
                     if (active) {
                         callAudioStart?.invoke()
-                        callForeground?.invoke(true)
+                        callForeground?.invoke(true, callVideoActive)
                     } else {
+                        callVideoActive = false // ends the call's video too (collector below stops the camera)
                         callAudioStop?.invoke()
-                        callForeground?.invoke(false)
+                        callForeground?.invoke(false, false)
                     }
                 }
             }
+        }
+        // Camera start/stop follows the video flag, independent of call state:
+        // the caller previews while ringing.
+        scope.launch {
+            androidx.compose.runtime.snapshotFlow { callVideoActive }.collect { on ->
+                val media = callMedia ?: return@collect
+                if (on) {
+                    val ok = callCameraPermission?.invoke() ?: true
+                    if (ok && media.startVideo()) return@collect
+                    callVideoActive = false
+                    if (!ok) showToast(L.t("Camera unavailable"), 4000)
+                } else {
+                    media.stopVideo()
+                }
+            }
+        }
+    }
+
+    /** Camera toggle for a live call (permission asked before the flag flips;
+     *  the init collector then drives the adapter). */
+    fun toggleCallVideo() {
+        if (callVideoActive) {
+            callVideoActive = false
+            return
+        }
+        if (calls.state !is CallState.Active) return
+        scope.launch {
+            val ok = callCameraPermission?.invoke() ?: true
+            if (ok) callVideoActive = true
+            else showToast(L.t("Camera unavailable"), 4000)
         }
     }
 
@@ -2632,9 +2668,15 @@ class AppModel(
     }
 
     fun startCall(chatId: Long, hasVideo: Boolean = false) = scope.launch {
+        if (hasVideo) {
+            val cam = callCameraPermission?.invoke() ?: true
+            if (!cam) { showToast(L.t("Camera unavailable"), 4000); return@launch }
+            callVideoActive = true
+        }
         try {
             calls.startOutgoing(chatId, hasVideo)
         } catch (t: Throwable) {
+            callVideoActive = false
             showToast(L.t("Couldn't start the call: ") + (t.message ?: t.toString()), 4000)
         }
     }
@@ -3480,6 +3522,7 @@ class AppModel(
             ChatAction.DeleteChat -> chatConfirm = PendingConfirm(deleteChatConfirm(chat)) { deleteChatNow(chat) }
             ChatAction.ChatInfo -> openProfile(chat.id, chat.name)
             ChatAction.StartCall -> startCall(chat.id)
+            ChatAction.StartVideoCall -> startCall(chat.id, hasVideo = true)
             ChatAction.GroupInviteQr -> showGroupInvite(chat)
             ChatAction.LeaveGroup -> chatConfirm = PendingConfirm(leaveConfirm(chat)) { leaveGroupNow(chat) }
             ChatAction.ClearHistory -> chatConfirm = PendingConfirm(CLEAR_HISTORY_CONFIRM) { clearHistoryNow(chat) }
