@@ -51,9 +51,9 @@ val AppIconChoice.notificationIconName: String
  *  carries an explicit bitmap of this tile instead (androidMain helper). */
 val AppIconChoice.launcherMipmapName: String
     get() = when (this) {
-        Default -> "ic_launcher"
-        Badge -> "ic_launcher_badge"
-        Classic -> "ic_launcher_classic"
+        AppIconChoice.Default -> "ic_launcher"
+        AppIconChoice.Badge -> "ic_launcher_badge"
+        AppIconChoice.Classic -> "ic_launcher_classic"
     }
 
 /** The alias that must be enabled, and the ones that must be disabled. */

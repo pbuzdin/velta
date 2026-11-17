@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import org.velta.kmp.ui.AppIconChoice
 import org.velta.kmp.ui.APP_ICON_PREF
 import org.velta.kmp.ui.launcherAliasState
+import org.velta.kmp.ui.launcherMipmapName
 import org.velta.kmp.ui.notificationIconName
 import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.JniRpcTransport
