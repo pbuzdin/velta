@@ -854,4 +854,45 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         )
         return result as? JsonObject
     }
+    // ---- Webxdc (P3a runtime: WebxdcScreen + the injected window.webxdc) ----
+
+    /** get_webxdc_info -> {name, document, summary, sourceCodeUrl, selfAddr,
+     *  selfName, sendUpdateInterval, sendUpdateMaxSize}. */
+    suspend fun getWebxdcInfo(accountId: Long, msgId: Long): JsonObject? {
+        val result = client.call(
+            "get_webxdc_info",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId)),
+        )
+        return result as? JsonObject
+    }
+
+    /** get_webxdc_status_updates -> {updates: [...], serial}. */
+    suspend fun getWebxdcStatusUpdates(accountId: Long, msgId: Long, serial: Long): JsonObject? {
+        val result = client.call(
+            "get_webxdc_status_updates",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId), RpcClient.param(serial)),
+        )
+        return result as? JsonObject
+    }
+
+    suspend fun sendWebxdcStatusUpdate(accountId: Long, msgId: Long, updateJson: String, description: String) {
+        client.call(
+            "send_webxdc_status_update",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                RpcClient.param(msgId),
+                RpcClient.param(updateJson),
+                RpcClient.param(description),
+            ),
+        )
+    }
+
+    /** get_webxdc_blob -> base64 (STANDARD_NO_PAD) of one archive file. */
+    suspend fun getWebxdcBlob(accountId: Long, msgId: Long, path: String): String? {
+        val result = client.call(
+            "get_webxdc_blob",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId), RpcClient.param(path)),
+        )
+        return (result as? JsonPrimitive)?.content
+    }
 }
