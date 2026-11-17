@@ -2589,6 +2589,11 @@ class AppModel(
     var callForeground: ((Boolean) -> Unit)? = null
     var callMicPermission: (suspend () -> Boolean)? = null
 
+    /** webxdc realtime (P3b): the open app's data sink (msgId, bytes). */
+    var webxdcRealtimeSink: ((Long, List<Int>) -> Unit)? = null
+    /** Whether the open app joined its realtime channel (bridge tracks). */
+    var webxdcJoined: Boolean = false
+
     /** Platform speakers toggle for the in-call bar (null = hidden). */
     val callSpeakerAvailable: Boolean get() = callSpeakerToggle != null
 
@@ -4374,6 +4379,14 @@ class AppModel(
             "ConnectivityChanged" -> if (forCurrent) refreshRelayLine()
             "IncomingCall", "OutgoingCallAccepted", "IncomingCallAccepted", "CallEnded" ->
                 if (forCurrent) dispatchCallEvent(event)
+            "WebxdcRealtimeData" -> if (forCurrent && webxdcRealtimeSink != null) {
+                val o = event.event ?: return
+                val msgId = (o["msg_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+                val data = (o["data"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+                    ?: return
+                webxdcRealtimeSink?.invoke(msgId, data)
+            }
             "ConfigureProgress" -> {
                 val comment = event.event?.get("comment")?.toString()?.trim('"')
                 if (!comment.isNullOrBlank() && comment != "null") loginProgress = comment

@@ -854,6 +854,30 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         )
         return result as? JsonObject
     }
+    // ---- Webxdc realtime channels (P3b: the Circle mesh rides these) ----
+
+    /** Advertise on the instance's iroh-gossip topic (core sends the hidden
+     *  advertisement mail; peers arrive via WebxdcRealtimeData events). */
+    suspend fun sendWebxdcRealtimeAdvertisement(accountId: Long, msgId: Long) {
+        client.call(
+            "send_webxdc_realtime_advertisement",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId)),
+        )
+    }
+
+    suspend fun sendWebxdcRealtimeData(accountId: Long, msgId: Long, data: List<Int>) {
+        client.call(
+            "send_webxdc_realtime_data",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId), JsonArray(data.map { JsonPrimitive(it) })),
+        )
+    }
+
+    suspend fun leaveWebxdcRealtime(accountId: Long, msgId: Long) {
+        client.call(
+            "leave_webxdc_realtime",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId)),
+        )
+    }
     // ---- Webxdc (P3a runtime: WebxdcScreen + the injected window.webxdc) ----
 
     /** get_webxdc_info -> {name, document, summary, sourceCodeUrl, selfAddr,
