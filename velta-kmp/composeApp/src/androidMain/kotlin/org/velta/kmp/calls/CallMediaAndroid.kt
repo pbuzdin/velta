@@ -3,6 +3,8 @@ package org.velta.kmp.calls
 import org.velta.kmp.ui.CallMedia
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import kotlinx.serialization.json.JsonObject
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
