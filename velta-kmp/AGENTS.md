@@ -19,6 +19,12 @@ image viewer and opening files, in-app video and voice, group
 rename/add/remove, second-device QR plus export backup, SOCKS5 via
 `velta://proxy`, and Android message links in a Custom Tab. Webxdc
 needs the Tauri sandbox server and is not faked here.
+The 0.9.0 / #358 wave is in (pin tray, read position, disappearing
+timer, own-profile editor, auto-download / text-only, background
+catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
+editor, floating reply card, swipe-back blink fix); #357 JNI, the
+#378 rotation FGS fix, and the #382 launcher icon are in too.
+`versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout
 
@@ -99,6 +105,9 @@ don't — run `assembleRelease` locally before shipping build-file changes.
 - `.so` files are NEVER committed (`jniLibs/**` gitignored; same rule as the
   Tauri `binaries/`). Build per machine/CI.
 - Repo-wide: no private relay hostnames/IPs in tracked files or issues.
+- GPLv3 reuse: code from deltachat-android or ArcaneChat Android (both
+  GPLv3) may be reused. Keep their copyright headers, add an upstream
+  path and a commit comment, and list each source in THIRD_PARTY.md.
 - Parallel sessions work in this repo: `git status` first, commit named paths
   only, never stash. Pushes go through a temp worktree cherry-pick onto
   `origin/master` (local master runs behind with duplicate commits).
@@ -116,7 +125,10 @@ cd ~/velta-kmp-build/velta-kmp
 ```
 
 Full local gate = desktopTest + assembleDebug + desktop package, then CI green
-(`gh run list --workflow build-kmp.yml`). The real-binary IT needs
+(`gh run list --workflow build-kmp.yml`). The `shim` job in `build-kmp.yml`
+reuses the #369 native-lib cache for the LTO `.so` when inputs are
+unchanged; cache keys are recorded BEFORE rust-cache restores
+`core/target/` (details: `docs/agents/release-ci.md`). The real-binary IT needs
 `VELTA_KMP_RPC_SERVER=~/velta-core-build/core/target/release/deltachat-rpc-server`
 (linux build lives in `~/velta-core-build/core/`).
 
@@ -159,7 +171,7 @@ adb -s emulator-5554 logcat -d | grep velta-kmp     # println only; shim stderr 
 Debugging on-device: shim stderr never reaches logcat — rely on the shim's
 distinct return codes (-1 generic, -3 accounts), the Kotlin
 `velta-kmp:` println lines, and the connect-ok line
-(`velta-kmp: connect ok — core v2.66.0, ...`) that lands on every successful
+(`velta-kmp: connect ok — core v2.69.0, ...`) that lands on every successful
 handshake.
 
 Android lifecycle (P4): `AppHolder` holds ONE process-wide `AppModel`
@@ -181,6 +193,13 @@ NOT only on app exit — never tear the core down there (a shutdown there
 killed the RPC client mid-check_qr: Join screen showed "rpc client
 closed"). The shim dies with the process; `AppModel.shutdownCore` is for
 explicit teardown only.
+⚠️ `MainActivity.onStop` must not start the FGS when
+`isChangingConfigurations` is true (rotation / config change, #378).
+Starting it there races the new activity's `onStart` stop and crashes
+with `ForegroundServiceDidNotStartInTimeException`. "Use background
+connection" defaults ON (`backgroundConnectionOn(raw) = raw != "0"`),
+so this hit every rotation until the early return. A real backgrounding
+still starts the service.
 Gotchas: a fresh install shows the POST_NOTIFICATIONS dialog which BLOCKS
 everything (`GrantPermissionsActivity` on top) —
 `adb shell pm grant org.velta.kmp android.permission.POST_NOTIFICATIONS` +
@@ -246,9 +265,11 @@ never run Gradle on the Windows side.
   `/host/#`). **Every tab draws `BrandedQrSquare`** — the web's
   brandedQrSvg: LOCALLY built white 512² square, 48px quiet zone, matrix
   scaled 416/size, the VELTA_QR_LOGO badge dead-center (white ring r56,
-  #1c1c1c disc r48, V mark 84×84). The web still mounts the core's
-  515×630 card on the i.delta.chat tab; KMP uses the square there too
-  so the tabs match. Link chip +
+  #1c1c1c disc r48, V mark 84×84). Every tab draws the square, including
+  i.delta.chat — the shipping web app does the same since #379. The
+  copied/shared link on that tab stays the canonical
+  `https://i.delta.chat/#…` URL. Backup-transfer QR keeps its own core
+  card. Link chip +
   Copy/Share ride the SELECTED domain's link (injected `shareText` seam,
   ACTION_SEND on Android); Scan tab reuses ScanActivity, desktop hides
   it), Search (live name filter, min 2 chars, first 30 + the Archived tab
@@ -306,7 +327,13 @@ never run Gradle on the Windows side.
   48dp-min 16dp-radius input wrap on bgSidebar + 1dp border, naked
   BasicTextField 15.5sp/1.3, armed-send tint). Attach menu (web
   chat-view.js): Photo / Video / Camera (FileProvider capture) / File
-  (SAF mime pre-filter) / Stickers. Bubbles = .bubble CSS (radius 14,
+  (SAF mime pre-filter) / Stickers. Staged attachments show a 96×64
+  letterboxed thumbnail (EXIF-aware; video first frame + play/duration);
+  Edit on a still opens the pre-send crop/draw editor
+  (`ui/ImageEditRules.kt`: aspect presets, 90° rotate, brush, undo/redo;
+  #372). Reply, edit and attachment share one floating elevated card
+  above the composer (`ui/ComposerCardRules.kt`, variant A, #373);
+  reduced motion shows it at once. Bubbles = .bubble CSS (radius 14,
   6dp sender-side tail, 7/10/6 padding, bgBubbleIn/Out, width
   min(480dp, 90%), 2dp shadow, 4dp list gap): group incoming (`fromId != 1`)
   = 42dp `MessageAvatar` (`AvatarTile` kind `"single"`: contact color,
@@ -335,18 +362,23 @@ never run Gradle on the Windows side.
   is `bgSidebar`, and a light incoming bubble is that same `#f4f4f4`.
 - **Chat screen gestures** (`touchGesturesEnabled` expect/actual in
   ui/PlatformBack.kt — Android on, desktop off, the web _mobileGestures
-  coarse-pointer gate): ① category swipe (above); ② bubble reply swipe —
-  drag a bubble right, engages 12dp, live-follows to 64dp via
-  graphicsLayer, haptic tick at the 48dp commit line (re-armed below),
-  release commits `startReply`; consumes changes once engaged (locks the
-  list scroll = web preventDefault); ③ history back swipe — drag the
-  list left, the whole LazyColumn live-follows, commit at
-  −min(72dp, 28% width) → backToChatList. List-level detectors run on
-  PointerEventPass.Initial with `positionChangeIgnoreConsumed()` (the
-  list's scroll/overscroll consumes deltas; measure pre-consumption);
-  the bubble detector runs Main pass and gates reply-vs-back by
-  DIRECTION. The web's .16s/.18s slide animations are skipped (commit
-  switches screens, cancel snaps).
+  coarse-pointer gate; rules in `ui/SwipeRules.kt`, #371): ① category
+  swipe (above); ② bubble reply swipe — drag a bubble right, engages at
+  12dp, commits at 48dp, rubber-bands past that, axis-locked so a scroll
+  does not start a reply; a reply arrow fades/grows and pops at the
+  line; haptic tick at the commit line (re-armed below); release commits
+  `startReply`. ③ history back swipe — drag the history left, commit at
+  −min(72dp, 28% width) → backToChatList; the chat list peeks underneath
+  with parallax; spring snap-back; Android 14+ predictive back. System
+  gesture-nav edge zones are left to the system; a system cancel must
+  not commit; reply and back must not both engage on one touch. Read
+  positions OUTSIDE the translated layer (reading inside it halved the
+  follow speed). Reduced motion (animator scale 0) skips the spring.
+  **Swipe-back blink (#374):** ChatList and Chat share one `ChatStack`
+  branch — the peeking list IS the list that remains after commit, so
+  the last swipe frame and the first list frame match. `slideOut` lands
+  on the target and navigates in the same frame; the reduced-motion path
+  must not reset the pane offset before navigating.
 - **Chat header** = web velta-chat-head: 42dp AvatarTile (identity
   matrix / photo / Prism tile by chat kind), 16px/600 name, status line
   (`chatHeadStatus`: "your personal space" / "local device messages" /
@@ -482,7 +514,15 @@ never run Gradle on the Windows side.
   IME padding, and do not switch to `adjustResize` without a phone check:
   this edge-to-edge window does not shrink when the keyboard opens.
 
-## Protocol facts (verified against vendored core 2.66)
+- **Launcher icon** (#382): official Velta V on `#0A1A2E` with a corner
+  K badge (`#7EC8EE`→`#5AA2E6`, Golos Text ExtraBold path).
+  `art/velta-kmp-icon.svg` is the 1024 tile; `art/make_android_icon.py`
+  maps it into the inner 72/108 of the adaptive canvas so the badge
+  stays inside the 66/108 safe circle. `ic_launcher` uses the designed
+  V placement; `ic_launcher_round` shifts the V down 24 px. Credit:
+  THIRD_PARTY.md.
+
+## Protocol facts (verified against vendored core 2.69.0)
 
 - Chat-list wire extras decoded since #329: `ChatListItem.chat_type`
   (PascalCase "Single"/"Group"/"Mailinglist"/"OutBroadcast"/"InBroadcast"),

@@ -18,18 +18,20 @@ The latest numbered app release is `v1.5.5` at `5faad769` (2026-11-10). The
 following work is merged on `master` but is not in that release; do not
 describe it as shipped in a numbered version or move the tag to include it.
 The rows for content that shipped in v1.5.5 (PWA onboarding, Text-only Auto,
-channel invitations, core 2.69.0, glass composer, group member removal, …)
+channel invitations, core 2.69.0, glass composer, …)
 left this table with the release — see the release notes and
 `docs/agents/release-ci.md` (Incidents 1–4) for that history.
 
 | Area | Issue / change | Landed solution and regression constraint |
 |---|---|---|
-| KMP 0.9.0 wave | `066517b8`, PRs #362–#374, #358 | Background sync slices: Application-class boot restart, 15-minute catch-up job, "Use background connection" toggle + tap-to-open sync notification, UnifiedPush distributor picker, auto-download limits + text-only settings, maybe_network handling, MessagingStyle notifications. UI: spring/arrow/parallax swipe gestures (swipe-to-reply and swipe-back), attachment thumbnail preview + crop/draw editor, floating composer card for reply/edit/attachment, no end-of-swipe-back blink. Slice list and per-slice regression constraints: `velta-kmp/docs/PHASES.md`. |
+| KMP 0.9.0 wave | `066517b8`, PRs #357, #359–#374, #358 | In-process JNI RPC (#357, no loopback port). Pin tray, read position + Unread line + go-down, disappearing-messages timer, own-profile editor, auto-download / text-only settings. Background: Application-class boot restart, 15-minute catch-up job, "Use background connection" toggle + tap-to-open sync notification, UnifiedPush distributor picker, maybe_network, MessagingStyle notifications. UI: spring/arrow/parallax swipe gestures (`SwipeRules`), attachment thumbnail preview + crop/draw editor, floating composer card for reply/edit/attachment, no end-of-swipe-back blink. `versionName` is 0.9.0. Slice list and per-slice regression constraints: `velta-kmp/docs/PHASES.md`. |
 | CI native-lib cache | `984415e4`, #369 | KMP shim LTO, desktop sidecars, the Windows GNU sidecar and the wasm-pack core skip their build on a content-addressed hit. Sidecar keys are computed BEFORE rust-cache restores `core/target/` — a restored tree changes `hashFiles('core/**')` and would make the key unstable. Release reuses an unsigned sidecar on a hit; signed installers and APKs are never cached. |
 | CI bundle cache | `5b9aeed1`, #377 | Unsigned bundles (Android APK dir, Windows NSIS/MSI, Linux deb/AppImage) are content-cached with exact keys recorded in an EARLY step: the warm-run dispatch proved an inline `hashFiles('src-tauri/**', 'core/**')` inside the cache step unhittable, because rust-cache-restored build outputs change the hash every run. A hit skips cargo AND bundling; signing always reruns (signed artifacts are never cached). Identity checks run on every hit and fail the job: aapt2 `versionName`/`applicationId` vs `tauri.conf.json` + the patched `build.gradle.kts` (aapt2 writes `package: name=` with a space), installer/deb/AppImage filename version vs conf, updater `.sig` presence; the Linux file-list and GLIBC gates re-verify cached contents either way. Release runs always miss (a version bump changes the key); caches evict after ~7 idle days, so the first build after a quiet week is cold. Measured warm hits: Android 107s, Windows 116s, Linux 122s (baselines 19m12s / 10m40s / ~11m). |
 | Expanding composer | `ed435580`, #376; tray `be18a7f3` | Typing (or focus on touch pointers) expands the field to a full-width column capped at THREE text lines (was `max-height: 40dvh`; `sizeComposer` mirrors the cap for non-`field-sizing` engines). Attach/send drop to their own row with a 180ms fade (`prefers-reduced-motion` honored); the sticker trigger hides while there is text — a sticker send is a message of its own and never rides alongside drafted text. Plain and glass skins share one code path; rest-row gutters are 8px and the text inset 12px so text lines up with the 48px icon glyphs. The sticker tray spans full width at ≤600px windows with `minmax(0, 1fr)` tracks — big sticker images must not blow the grid past the card (the horizontal-scrollbar bug). |
 | KMP rotation FGS fix | `1e0b5f00`, #378 | Rotation recreated the activity: the dying `onStop` started `VeltaForegroundService` (`startForegroundService`) and the new activity's `onStart` stopped it milliseconds later — before it reached `startForeground()`, which `ForegroundServiceDidNotStartInTimeException` punishes with a crash. "Use background connection" defaults ON (`backgroundConnectionOn(raw) = raw != "0"`), so every user crashed on every rotation. Fix: `onStop` returns early on `isChangingConfigurations`; real backgroundings still start the service. |
 | QR unify | `2ff3328e`, #379 | The invite QR draws the branded 512 square on EVERY domain tab; the i.delta.chat tab no longer mounts the core's styled card, and the `qr-self` logo overlay (a workaround for that card's clear circle) is retired — the branded square embeds the logo. The copied/shared link on the i.delta.chat tab stays the canonical `https://i.delta.chat/#…` URL with a byte-identical payload. The backup-transfer QR keeps its own core card and overlay. |
+| Group member removal | `7f59d8ea` | A member is removed from the profile sheet (opened from the Members list) or the desktop row context menu, always behind a confirmation. Not an inline list-row button. Regular groups: any member may remove another, never self, never the admin, never local P2P groups. Admin groups stay admin-only. This landed after v1.5.5; it did not ship in that release. |
+| KMP launcher icon | `5e3c0d5a`, #382 | Official Velta V on `#0A1A2E` with a corner K badge (`#7EC8EE`→`#5AA2E6`, Golos Text ExtraBold path). `art/velta-kmp-icon.svg` is the 1024 tile; `make_android_icon.py` maps it into the inner 72/108 so the badge stays inside the 66/108 safe circle. `ic_launcher` uses the designed placement; `ic_launcher_round` shifts the V down 24 px. Credit in `velta-kmp/THIRD_PARTY.md`. |
 
 ---
 
@@ -52,13 +54,21 @@ left this table with the release — see the release notes and
   webxdc: search in chat, image/file open, in-app video and voice,
   group rename/add/remove, second-device QR and export backup, SOCKS5
   via `velta://proxy`, and Android message links in a Custom Tab
-  (in-app page when the device has no provider). Next is N4 (release
-  signing; KMP builds as `org.velta.kmp`, `org.velta` is the shipping
-  Tauri app); still open: #323–#328 fidelity follow-ups, webxdc,
-  relay-side UnifiedPush delivery, ktlint/detekt.
+  (in-app page when the device has no provider). The 0.9.0 / #358 wave
+  is in (pin tray, read position, profile editor, disappearing timer,
+  media-gate settings, background catch-up/boot/toggle/UnifiedPush
+  settings, swipe motion, attach editor, floating reply card); #357 JNI,
+  the #378 rotation FGS fix, and the #382 launcher icon are in too.
+  `versionName` is 0.9.0. Ledger: `velta-kmp/docs/PHASES.md`. GPLv3 code
+  from deltachat-android or ArcaneChat Android may be reused: keep
+  copyright headers, add an upstream path and a commit comment, and list
+  each source in `velta-kmp/THIRD_PARTY.md`. Next is N4 (release signing;
+  KMP builds as `org.velta.kmp`, `org.velta` is the shipping Tauri app);
+  still open: #323–#328 fidelity follow-ups, webxdc, relay-side
+  UnifiedPush delivery, ktlint/detekt.
   `build-kmp.yml` builds and tests on every master push touching
   `velta-kmp/**` or `core/**`: the `shim` job builds the core `.so` for
-  arm64-v8a + x86_64, the `build` job bundles it into jniLibs, fails if
+  arm64-v8a + x86_64 unless the #369 native-lib cache hits, the `build` job bundles it into jniLibs, fails if
   any split APK lacks it, and uploads the phone APK as `velta-kmp-arm64-apk` and the emulator one as
   `velta-kmp-x86_64-apk` (no universal APK)
   (#334). Three
