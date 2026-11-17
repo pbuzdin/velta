@@ -38,6 +38,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:maxLines="2"
-            style="@android:style/TextAppearance.Material.Notification.Content" />
+            style="@android:style/TextAppearance.Material.Notification.Line2" />
     </LinearLayout>
 </LinearLayout>
