@@ -4,31 +4,9 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe)** (~15 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg)** (~41 MB) — always the latest release; sizes approximate
+**[Android](https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe)** (~15 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg)** (~41 MB) · **[Linux](https://github.com/pbuzdin/velta/releases/latest)** (Debian, AppImage, Arch) — always the latest release; sizes approximate
 
-Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
-
-## Unreleased on master
-
-These changes are merged after [v1.5.4](https://github.com/pbuzdin/velta/releases/tag/v1.5.4) and ship in v1.5.5:
-
-- **Liquid glass composer** — off until you turn it on under Chat appearance. On Windows and Android the message field can bend the chat behind it like a frosted glass plate. macOS and the browser PWA keep the solid field. This is separate from the WebGL experiment in [#304](https://github.com/pbuzdin/velta/issues/304) ([`f99624e`](https://github.com/pbuzdin/velta/commit/f99624ea1e6a63cbd92a6ba1dc4d3432293b917e)).
-- **Sending in the background** (Android): while a message is still uploading and the app is backgrounded, a silent "Sending…" notification appears until the queue drains — the send continues, and the card tells you it is happening. It shows when the background-connection service already keeps the process alive (the default) ([`17511f1`](https://github.com/pbuzdin/velta/commit/17511f16)).
-- **Playback speed** — a 1×/1.5×/2× button on voice and audio players, remembered across messages and devices (settings transfer) ([`4dac459`](https://github.com/pbuzdin/velta/commit/4dac459c)).
-- **Category chips in the forward and share pickers** — All / People / Groups / Channels / Bots / Saved filter the target lists, same buckets as the main chat list's bar (#294, [`83897c2`](https://github.com/pbuzdin/velta/commit/83897c28)).
-- **Haptic ticks on swipes** (Android): a short vibration marks crossing the reply and back thresholds ([`5eb54c8`](https://github.com/pbuzdin/velta/commit/5eb54c85)).
-- **Message info: last app update** — for webxdc apps, the info dialog shows when the app last received a status update ([`31ede5f`](https://github.com/pbuzdin/velta/commit/31ede5f1)).
-- **Translations completed** — the remaining confirm dialogs and toast notifications are translated (French, Russian); both packs now cover the whole UI ([`135e190`](https://github.com/pbuzdin/velta/commit/135e1908)).
-- **Pinned tray refresh** — the tray updates instantly when a pinned message is unpinned or deleted, not only on the next chat event ([`8de74d2`](https://github.com/pbuzdin/velta/commit/8de74d2e)).
-- **PWA onboarding** — signed, self-contained onboarding invites carry the setup information needed by a static web install ([`4ee6611`](https://github.com/pbuzdin/velta/commit/4ee66114345a3058b6b0356a1d900ea0bd219523)). Web publication now stops when the public onboarding verification keys are missing instead of publishing invites that cannot be verified ([#308](https://github.com/pbuzdin/velta/pull/308)).
-- **PWA connection setup** — a page host is used as a WebSocket proxy only when the build explicitly opts in; static installs no longer assume that their own host relays mail. Stale assumed entries are removed unless an invite explicitly supplied them, and adding the first relay reloads into the working configuration ([#307](https://github.com/pbuzdin/velta/pull/307)).
-- **Chat-list startup** — collapse state is initialized before boot awaits and badge rendering is deferred until module evaluation finishes, preventing a startup crash caused by reading state in its temporal dead zone ([#282](https://github.com/pbuzdin/velta/issues/282), [#306](https://github.com/pbuzdin/velta/pull/306)).
-- **Text-only Auto** — it now covers only unaccepted 1:1 contact requests, never group senders. Plain text without real attachment metadata stays a normal text bubble, pending real attachments keep their reveal/download flow, and only text containing a link gets a preview slot ([#310](https://github.com/pbuzdin/velta/issues/310), [#311](https://github.com/pbuzdin/velta/pull/311)).
-- **Channel invitations** — **Invite via link/QR** is offered only for owned outgoing channels (`OutBroadcast`). Incoming subscriptions (`InBroadcast`) and mailing lists (`Mailinglist`) no longer offer an action that the core cannot fulfill; contact and group invitations are unchanged ([#312](https://github.com/pbuzdin/velta/issues/312), [#313](https://github.com/pbuzdin/velta/pull/313)).
-- **Relay invites** — an invite with no expiry date lasts 48 hours. The claim holds its use before the mailbox is created and gives that use back if creation fails ([`f74d5c0`](https://github.com/pbuzdin/velta/commit/f74d5c0b2764eb1feeeb79ed49d9a328db11d9bf), [`4dc9d82`](https://github.com/pbuzdin/velta/commit/4dc9d8281c8eb26b6f091c82197c9f87f1cbee23)).
-- **Messaging core** — the vendored Delta Chat core is **2.69.0** (v1.5.4 shipped 2.66.0; [`4902dc4`](https://github.com/pbuzdin/velta/commit/4902dc4d21efb5bb065cc36e7c75ea81d3c62e92) 2.68.0, then the 2.69.0 re-vendor [`f46f021`](https://github.com/pbuzdin/velta/commit/f46f0215)). No database migration. The pick-up fixes webxdc apps sometimes being received as plain files, prefers the `vc-` Secure-Join prefix where accepted, and truncates long messages at load time instead of save time. The browser build's patch series is re-ported onto the same core ([`a0ac244`](https://github.com/pbuzdin/velta/commit/a0ac244d301db24c1c3a24f9593001a1aa507ac4)).
-- **Linux packages on the release** — the release job attaches the Debian package, the AppImage, and the Arch package (glibc 2.36 or newer: Debian 12, Ubuntu 23.04, Arch) ([`178d745`](https://github.com/pbuzdin/velta/commit/178d745b5b6f10bf92d2c9158d9931fa822b8b33)). v1.5.4 did not publish those files from the release job; v1.5.5 is the first release that attaches them. Linux does not self-update yet.
-- **Archived DNS tunnel removed from the tree** — the SOCKS5 proxy replaced it in v1.5.0; the leftover Go library and its deploy docs are gone ([`6674c51`](https://github.com/pbuzdin/velta/commit/6674c515)). Saved proxies and settings transfer are unaffected.
+Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Linux is x86_64 and needs glibc 2.36 or newer (Debian 12, Ubuntu 23.04, Arch); it does not self-update yet — see [Install](#install). Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
 ## What it is
 
@@ -36,6 +14,7 @@ Velta shares one web frontend (`app/`) between:
 
 - **Windows desktop** — a Tauri 2 app that bundles `deltachat-rpc-server.exe` as a sidecar.
 - **macOS desktop** (test build) — the same Tauri 2 app with `deltachat-rpc-server` bundled as an `externalBin` sidecar; universal (Apple Silicon + Intel), ad-hoc signed, not notarized yet — see [Install on macOS](#install).
+- **Linux desktop** — the same Tauri 2 app with `deltachat-rpc-server` bundled as a sidecar; x86_64 packages (Debian, AppImage, Arch) need glibc 2.36 or newer and do not self-update yet — see [Install](#install).
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
 - **Browser/PWA** — the same frontend as a static site with a WebAssembly build of the Delta Chat core in the tab (forward-ported by Velta's wasm patch series). Mail goes out through a WebSocket proxy on a chatmail relay (the PWA origin and the proxy host can be different domains). A refresh keeps the signed-in account, database included: the browser copy is written when login or an identity restore finishes, when the page goes to the background, and every few seconds, and a copy cut off by a reload is ignored in favour of the previous one. A crash can drop the last few seconds until the next sync. A new deploy reaches an open PWA on its next load; a page that was already open shows an update notice. A public build is published at [velta.cc/web](https://velta.cc/web) by CI (it mints new chatmail accounts through the configured relay even from another origin). Serving `app/` without the wasm dist still falls back to a mock core (UI smoke test). How to host your own copy: [docs/pwa-self-host.md](docs/pwa-self-host.md); standalone WebSocket proxy in one command: [docs/deploy-pwa-websocket-proxy.md](docs/deploy-pwa-websocket-proxy.md).
 
@@ -88,6 +67,21 @@ Data lives in `~/Library/Application Support/org.velta/` (accounts) and logs
 in `~/Library/Logs/org.velta/`. Self-update works like on Windows (signed
 updater archive, see "One-click updates"); updates downloaded by the app are
 not quarantined.
+
+</details>
+
+<details>
+<summary>Linux (x86_64, glibc 2.36+)</summary>
+
+Download the Debian package, the AppImage, or the Arch package from the
+[latest release](https://github.com/pbuzdin/velta/releases/latest). Every
+binary needs glibc 2.36 or newer, so the packages run on Debian 12, Ubuntu
+23.04, Arch, and any newer distro. Linux does not self-update yet — install
+once, then update by downloading the new release.
+
+- **Debian 12+ / Ubuntu 23.04+**: `sudo apt install ./Velta_<version>_amd64.deb`
+- **Arch**: `sudo pacman -U velta-bin-<version>-1-x86_64.pkg.tar.zst` (repackaged from the same .deb; not published to the AUR)
+- **Anything else (glibc 2.36+)**: `Velta_<version>_amd64.AppImage` — `chmod +x` and run. Needs webkit2gtk-4.1 from the host (`libwebkit2gtk-4.1-0` on Debian/Ubuntu, `webkit2gtk-4.1` on Arch).
 
 </details>
 
@@ -534,8 +528,6 @@ attachment size, counted when you open the sheet) and an **Old messages**
 cleanup with the same age picker as the chat-list menu. Links on registered
 invite domains render as invite cards and never trigger web previews (no
 duplicate card, no fingerprint leak).
-render as invite cards and never trigger web previews (no duplicate card, no
-fingerprint leak).
 
 What you can edit right in the sheet, in one editor (name, picture and
 description together):
@@ -1020,11 +1012,13 @@ flight. P2P local chats retry through their own engine instead.
 
 Stickers (Delta Chat's <code>Sticker</code> view type) render the way the
 official clients show them: floating on the chat background without a bubble
-around them, at a compact size. The composer's input field has a sticker
-button on the right edge that opens a picker fed by the account's sticker
+around them, at a compact size. An empty composer shows a sticker button
+on the right edge that opens a picker fed by the account's sticker
 folder (the same mechanism as Delta Chat desktop — collections are folders
 under the account's <code>stickers/</code> directory, shared with a desktop
-install of the same account). Tap a sticker you received and Velta offers
+install of the same account). The button hides once you type, because a
+sticker is sent as its own message and is not attached to a draft. Tap a
+sticker you received and Velta offers
 to add it to your collection — like the official mobile clients; the
 context menu's **Save sticker** adds it directly. In demo mode the picker
 ships a few emoji placeholders.
@@ -1676,8 +1670,8 @@ by value with their integration notes — lives in
 ```
 .
 ├── app/                        # Velta web frontend (vanilla JS, no build)
-├── velta-kmp/                  # Compose Android + desktop client (#192)
-├── velta-app/              # Tauri 2 wrapper for Windows + Android
+├── velta-kmp/                  # work-in-progress Compose client (#192); Tauri remains the shipping Android app
+├── velta-app/                  # Tauri 2 wrapper for Windows, macOS, Linux, and Android
 │   └── src-tauri/
 │       ├── Cargo.toml          # Rust crate + deltachat-jsonrpc dependency
 │       ├── tauri.conf.json     # shared Tauri config
@@ -1822,7 +1816,7 @@ it, pass `--config '{"bundle":{"createUpdaterArtifacts":false}}'`.
 
 ### Releases via GitHub Actions
 
-The `Release` workflow (`.github/workflows/release.yml`) builds both artifacts
+The `Release` workflow (`.github/workflows/release.yml`) builds the platform artifacts
 and publishes them as a GitHub release. It runs on every `v*` tag push and can
 also be triggered manually from the Actions tab (it then creates the matching
 tag itself). The release assets are named after the version in
@@ -1835,6 +1829,12 @@ as versionCode 1 / versionName "1.0", the v1.4.58 regression):
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
 - `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`),
   plus its `Velta_<version>_x64-setup.exe.sig` updater signature
+- `Velta_<version>_universal.dmg` — macOS universal app (`build-macos.yml`), plus
+  the updater tarball and signature
+- `Velta_<version>_amd64.deb`, `Velta_<version>_amd64.AppImage`, and
+  `velta-bin-<version>-1-x86_64.pkg.tar.zst` — Linux x86_64 packages
+  (`build-linux.yml`); glibc 2.36+. No stable `latest/download` aliases; Linux
+  does not self-update.
 - `latest.json` — Windows self-update manifest (installer URL + signature, fed
   to `tauri-plugin-updater`). Must stay the **last** asset uploaded: it lives
   at `releases/latest/download/latest.json` and points at the installer in the
@@ -1851,10 +1851,10 @@ as versionCode 1 / versionName "1.0", the v1.4.58 regression):
 "What's changed in Velta <tag>" heading, the user-facing conventional
 commits since the previous tag (feat/fix/perf/refactor/revert only;
 chore/docs/ci/test/style/build are skipped), plus a compare link — macOS
-install notes are appended.
+and Linux install notes are appended.
 
-**Changelog feed**: after a tag release publishes successfully (both builds
-+ the GitHub release), the `Release` workflow posts a notification to
+**Changelog feed**: after a tag release publishes successfully (the platform
+builds + the GitHub release), the `Release` workflow posts a notification to
 `ntfy.gluek.info/velta_changelog` — title `What's changed in Velta
 <version>`, body = the same filtered changelog minus the compare link plus
 a "Download" link to the tag (passed to the notify job as a
@@ -1922,6 +1922,7 @@ Pre-configured workflows live in `.github/workflows/`:
 | `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest`. Manual runs default to `org.velta.test` / Velta Test so the APK installs beside the main app; release tags keep `org.velta`. Input `side_by_side=false` builds the normal id. |
 | `build-windows.yml` | Windows installer on `windows-latest`, compiling the sidecar natively (needs Perl + NASM) |
 | `build-macos.yml` | Universal macOS `.app` + DMG + updater tarball on `macos-14`, sidecars for both architectures merged with `lipo`; ad-hoc signed (Developer ID signing/notarization switch on via the `APPLE_*` secrets) |
+| `build-linux.yml` | x86_64 Linux `.deb`, AppImage, and Arch package on a Debian 12 base (glibc 2.36+) |
 | `wasm-core-opt-in.yml` | WebAssembly core for the PWA (`packages/velta-wasm`): artifacts `wasm-dist-no-opt` and `dist-pwa` |
 | `build-windows-cross.yml` | Windows installer where the sidecar is cross-compiled on Ubuntu to avoid installing Perl/NASM on Windows |
 
