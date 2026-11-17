@@ -60,6 +60,8 @@ class OnboardingTest {
             before(model)
             model.connect()
             withTimeout(10_000) { while (!model.connected || model.status != "connected") yield() }
+            // #387: the screen holds Booting until resumeSession resolves.
+            withTimeout(10_000) { while (model.screen == AppModel.Screen.Booting) yield() }
             assertEquals(AppModel.Screen.Login, model.screen)
             Fx(t, model, scope).block()
         } finally {
