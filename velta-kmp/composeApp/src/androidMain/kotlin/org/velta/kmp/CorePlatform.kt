@@ -95,13 +95,15 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
     /** Enable exactly one launcher alias; MainActivity itself stays enabled
      *  so notifications and shortcuts that target it keep working. */
     override fun applyAppIcon(choice: String) {
-        val (enable, disable) = launcherAliasState(AppIconChoice.fromPref(choice))
+        val state = launcherAliasState(AppIconChoice.fromPref(choice))
         val pm = context.packageManager
         val flags = PackageManager.DONT_KILL_APP
-        fun set(name: String, state: Int) {
-            pm.setComponentEnabledSetting(ComponentName(context, name), state, flags)
+        fun set(name: String, enabled: Int) {
+            pm.setComponentEnabledSetting(ComponentName(context, name), enabled, flags)
         }
-        set(enable, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
-        set(disable, PackageManager.COMPONENT_ENABLED_STATE_DISABLED)
+        set(state.enabled, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
+        for (name in state.disabled) {
+            set(name, PackageManager.COMPONENT_ENABLED_STATE_DISABLED)
+        }
     }
 }

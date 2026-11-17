@@ -13,5 +13,5 @@ upstream path next to the entry.
 - Upstream: https://github.com/google/fonts/tree/main/ofl/golostext
 
 Only the capital “K” glyph, instanced at ExtraBold (wght 800), is used. It
-was converted to a path in `art/velta-kmp-icon.svg` (the KMP launcher-icon
-badge). The font file itself is not shipped.
+was converted to a path in `art/velta-kmp-icon-badge.svg` (the optional
+KMP “K badge” launcher icon). The font file itself is not shipped.

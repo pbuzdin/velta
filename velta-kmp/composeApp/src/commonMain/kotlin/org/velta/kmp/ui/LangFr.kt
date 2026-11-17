@@ -225,6 +225,7 @@ internal object LangFr {
         "Join chat via invite link" to "Rejoindre via un lien d'invitation",
         "Join group" to "Rejoindre le groupe",
         "Join {name} on Velta" to "Rejoins {name} sur Velta",
+        "K badge" to "Badge K",
         "Keep messages arriving" to "Recevoir les messages en continu",
         "Keeping your messages up to date" to "Vos messages restent à jour",
         "Language" to "Langue",

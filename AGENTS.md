@@ -31,7 +31,7 @@ left this table with the release — see the release notes and
 | KMP rotation FGS fix | `1e0b5f00`, #378 | Rotation recreated the activity: the dying `onStop` started `VeltaForegroundService` (`startForegroundService`) and the new activity's `onStart` stopped it milliseconds later — before it reached `startForeground()`, which `ForegroundServiceDidNotStartInTimeException` punishes with a crash. "Use background connection" defaults ON (`backgroundConnectionOn(raw) = raw != "0"`), so every user crashed on every rotation. Fix: `onStop` returns early on `isChangingConfigurations`; real backgroundings still start the service. |
 | QR unify | `2ff3328e`, #379 | The invite QR draws the branded 512 square on EVERY domain tab; the i.delta.chat tab no longer mounts the core's styled card, and the `qr-self` logo overlay (a workaround for that card's clear circle) is retired — the branded square embeds the logo. The copied/shared link on the i.delta.chat tab stays the canonical `https://i.delta.chat/#…` URL with a byte-identical payload. The backup-transfer QR keeps its own core card and overlay. |
 | Group member removal | `7f59d8ea` | A member is removed from the profile sheet (opened from the Members list) or the desktop row context menu, always behind a confirmation. Not an inline list-row button. Regular groups: any member may remove another, never self, never the admin, never local P2P groups. Admin groups stay admin-only. This landed after v1.5.5; it did not ship in that release. |
-| KMP launcher icon | `5e3c0d5a`, #382 | Official Velta V on `#0A1A2E` with a corner K badge (`#7EC8EE`→`#5AA2E6`, Golos Text ExtraBold path). `art/velta-kmp-icon.svg` is the 1024 tile; `make_android_icon.py` maps it into the inner 72/108 so the badge stays inside the 66/108 safe circle. `ic_launcher` uses the designed placement; `ic_launcher_round` shifts the V down 24 px. Credit in `velta-kmp/THIRD_PARTY.md`. |
+| KMP launcher icon | `5e3c0d5a`, #382; picker #383; ice default follows | Default is the official Velta V on `#0A1A2E` with a near-white ice short stroke (`#F2F8FC`→`#DCEBF6`). Settings also offer the #382 K-badge icon (`art/velta-kmp-icon-badge.svg`, Golos Text ExtraBold path; credit in `velta-kmp/THIRD_PARTY.md`) and Classic KMP (Kotlin-coloured). `art/velta-kmp-icon.svg` is the default 1024 tile; `make_android_icon.py` maps it into the inner 72/108. `ic_launcher` uses the designed placement; `ic_launcher_round` shifts the V down 24 px. |
 
 ---
 
@@ -58,7 +58,7 @@ left this table with the release — see the release notes and
   is in (pin tray, read position, profile editor, disappearing timer,
   media-gate settings, background catch-up/boot/toggle/UnifiedPush
   settings, swipe motion, attach editor, floating reply card); #357 JNI,
-  the #378 rotation FGS fix, and the #382 launcher icon are in too.
+  the #378 rotation FGS fix, and the launcher icon (#382 badge, later the ice default plus an App icon picker) are in too.
   `versionName` is 0.9.0. Ledger: `velta-kmp/docs/PHASES.md`. GPLv3 code
   from deltachat-android or ArcaneChat Android may be reused: keep
   copyright headers, add an upstream path and a commit comment, and list

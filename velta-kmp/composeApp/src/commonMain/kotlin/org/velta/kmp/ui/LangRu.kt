@@ -225,6 +225,7 @@ internal object LangRu {
         "Join chat via invite link" to "Войти по ссылке-приглашению",
         "Join group" to "Вступить в группу",
         "Join {name} on Velta" to "Присоединяйся к «{name}» в Velta",
+        "K badge" to "Значок K",
         "Keep messages arriving" to "Получать сообщения в фоне",
         "Keeping your messages up to date" to "Сообщения обновляются",
         "Language" to "Язык",

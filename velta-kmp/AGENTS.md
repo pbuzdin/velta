@@ -23,7 +23,7 @@ The 0.9.0 / #358 wave is in (pin tray, read position, disappearing
 timer, own-profile editor, auto-download / text-only, background
 catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
 editor, floating reply card, swipe-back blink fix); #357 JNI, the
-#378 rotation FGS fix, and the #382 launcher icon are in too.
+#378 rotation FGS fix, and the launcher icon (#382 badge, later the ice default plus an App icon picker) are in too.
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout
@@ -514,13 +514,18 @@ never run Gradle on the Windows side.
   IME padding, and do not switch to `adjustResize` without a phone check:
   this edge-to-edge window does not shrink when the keyboard opens.
 
-- **Launcher icon** (#382): official Velta V on `#0A1A2E` with a corner
-  K badge (`#7EC8EE`→`#5AA2E6`, Golos Text ExtraBold path).
-  `art/velta-kmp-icon.svg` is the 1024 tile; `art/make_android_icon.py`
-  maps it into the inner 72/108 of the adaptive canvas so the badge
-  stays inside the 66/108 safe circle. `ic_launcher` uses the designed
-  V placement; `ic_launcher_round` shifts the V down 24 px. Credit:
-  THIRD_PARTY.md.
+- **Launcher icon**: default is the official Velta V on `#0A1A2E` with a
+  near-white ice short stroke (`#F2F8FC`→`#DCEBF6`, faceted). Settings →
+  Appearance → App icon also offers the #382 K-badge icon (`#7EC8EE`→
+  `#5AA2E6`, Golos Text ExtraBold path; credit in THIRD_PARTY.md) and
+  Classic KMP (the earlier Kotlin-coloured icon). `art/velta-kmp-icon.svg`
+  is the default 1024 tile; `art/velta-kmp-icon-badge.svg` is the badge
+  variant. `art/make_android_icon.py` maps a tile into the inner 72/108
+  of the adaptive canvas (a badge stays inside the 66/108 safe circle).
+  `ic_launcher` uses the designed V placement; `ic_launcher_round` shifts
+  the V down 24 px. Android switches icons with activity-aliases
+  (exactly one enabled, `DONT_KILL_APP`); notifications still target
+  `MainActivity`.
 
 ## Protocol facts (verified against vendored core 2.69.0)
 

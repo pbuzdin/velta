@@ -1,16 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Velta KMP launcher icon.
+  Velta KMP launcher icon (default).
 
-  Official Velta V (app/icons/v-logo.svg geometry and blues) on #0A1A2E,
-  with a 196 px corner K badge. Plate is #7EC8EE → #5AA2E6 (A's short-stroke
-  blues); K ink is #0A1A2E. The K glyph is Golos Text ExtraBold (wght 800),
-  SIL OFL 1.1, converted to a path — see velta-kmp/THIRD_PARTY.md.
+  Official Velta V (app/icons/v-logo.svg geometry and left-stroke blues)
+  on #0A1A2E, with the short stroke in a near-white ice gradient
+  (#F2F8FC → #DCEBF6, faceted). No K badge.
 
   This 1024 canvas is the visible launcher tile. art/make_android_icon.py
   maps it into the inner 72/108 of the adaptive canvas (background bleeds
-  to the edges) so the badge stays inside the 66/108 safe circle, and
-  shifts the V down 24 px for ic_launcher_round (optical nudge).
+  to the edges). ic_launcher_round shifts the V down 24 px (optical nudge).
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>Velta KMP</title>
@@ -28,36 +26,27 @@
       <stop offset="0" stop-color="#58B4EC"/><stop offset="1" stop-color="#4A90C4"/>
     </linearGradient>
     <linearGradient id="capR" gradientUnits="userSpaceOnUse" x1="727" y1="240" x2="727" y2="331">
-      <stop offset="0" stop-color="#C3EAFE"/><stop offset="1" stop-color="#92DBFB"/>
+      <stop offset="0" stop-color="#F8FBFE"/><stop offset="1" stop-color="#F2F8FC"/>
     </linearGradient>
     <linearGradient id="rightInner" gradientUnits="userSpaceOnUse" x1="660" y1="290" x2="580" y2="490">
-      <stop offset="0" stop-color="#57BAEE"/><stop offset="1" stop-color="#3F8FCC"/>
+      <stop offset="0" stop-color="#F2F8FC"/><stop offset="1" stop-color="#E6F1F8"/>
     </linearGradient>
     <linearGradient id="rightOuter" gradientUnits="userSpaceOnUse" x1="740" y1="280" x2="640" y2="610">
-      <stop offset="0" stop-color="#4E9AD2"/><stop offset="1" stop-color="#2F6DAD"/>
+      <stop offset="0" stop-color="#E8F2F9"/><stop offset="1" stop-color="#DCEBF6"/>
     </linearGradient>
     <linearGradient id="rightFoot" gradientUnits="userSpaceOnUse" x1="575" y1="480" x2="612" y2="620">
-      <stop offset="0" stop-color="#2E6FAE"/><stop offset="1" stop-color="#19447D"/>
-    </linearGradient>
-    <linearGradient id="badgeGrad" gradientUnits="userSpaceOnUse"
-      x1="712.83" y1="572.89" x2="908.83" y2="768.89">
-      <stop offset="0" stop-color="#7EC8EE"/><stop offset="1" stop-color="#5AA2E6"/>
+      <stop offset="0" stop-color="#DCEBF6"/><stop offset="1" stop-color="#D2E5F2"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="#0A1A2E"/>
-  <!-- left stroke -->
+  <!-- left stroke (official blues) -->
   <polygon points="198,240 389,240 350,338" fill="url(#capL)"/>
   <polygon points="198,240 350,338 512,664 512,830" fill="url(#leftOuter)"/>
   <polygon points="350,338 389,240 600,660 512,664" fill="url(#leftInner)"/>
   <polygon points="512,664 600,660 512,830" fill="url(#leftFoot)"/>
-  <!-- right stroke -->
+  <!-- short stroke (near-white ice, faceted) -->
   <polygon points="632,240 822,240 681,331" fill="url(#capR)"/>
   <polygon points="632,240 681,331 605,498 539,465" fill="url(#rightInner)"/>
   <polygon points="681,331 822,240 618,625 605,498" fill="url(#rightOuter)"/>
   <polygon points="539,465 605,498 618,625" fill="url(#rightFoot)"/>
-  <!-- K badge: plate + Golos Text ExtraBold K (path) -->
-  <rect x="712.83" y="572.89" width="196.00" height="196.00"
-        rx="43.12" fill="url(#badgeGrad)" stroke="#A8DFF6" stroke-width="5.88"/>
-  <path d="M0 700V0H222V245.75L419.25 0H660L417.33 292.5L675 700H422.17L267.42 441.75L222 494V700Z"
-        fill="#0A1A2E" transform="translate(743.25,598.37) scale(0.2072)"/>
 </svg>

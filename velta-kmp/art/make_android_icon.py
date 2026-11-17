@@ -7,15 +7,18 @@ Needs cairosvg, numpy, Pillow. Source: art/velta-kmp-icon.svg (1024 visible tile
 The SVG is the visible launcher tile. This script:
 
 - Fills the 108-unit adaptive canvas with the SVG background colour (#0A1A2E).
-- Maps the 1024 tile into the inner 72/108 (so launchers show it full-bleed,
-  and the 196 px K badge stays inside the 66/108 safe circle).
-- ic_launcher: designed v-logo placement (square / adaptive).
-- ic_launcher_round: the V is shifted down 24 px on the 1024 tile (optical
-  nudge for the wide top / pointed bottom); the badge stays put.
+- Maps the 1024 tile into the inner 72/108 (so launchers show it full-bleed;
+  a K badge, if present, stays inside the 66/108 safe circle).
+- {prefix}: designed v-logo placement (square / adaptive).
+- {prefix}_round: the V is shifted down 24 px on the 1024 tile (optical
+  nudge for the wide top / pointed bottom); a badge, if present, stays put.
 
 Both variants share the background; each has its own foreground + monochrome.
-The monochrome layer is a white silhouette of the V plus the badge plate with
-the K cut out (even-odd).
+The monochrome layer is a white V silhouette; if the source has a K badge,
+the plate is included with the K cut out (even-odd).
+
+Default source is art/velta-kmp-icon.svg (no badge). The #382 K-badge
+icon is art/velta-kmp-icon-badge.svg, emitted with --prefix ic_launcher_badge.
 """
 from __future__ import annotations
 
@@ -30,9 +33,7 @@ import cairosvg
 import numpy as np
 from PIL import Image, ImageDraw
 
-SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "velta-kmp-icon.svg")
-RES = sys.argv[1]
-PREVIEW = sys.argv[2] if len(sys.argv) > 2 else None
+DEFAULT_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "velta-kmp-icon.svg")
 
 CANVAS = 1024
 # Adaptive: 1024 viewport == 108 dp. Visible tile occupies the inner 72 dp.
@@ -106,8 +107,12 @@ def parse_svg(path: str):
                 "ty": float(tm.group(2)),
                 "s": float(sm.group(1)),
             }
-    assert grads and polys and badge and k, "unexpected velta-kmp-icon.svg structure"
-    badge["gid"] = badge["fill"][5:-1] if badge["fill"].startswith("url(#") else None
+    if not (grads and polys):
+        raise SystemExit("unexpected icon SVG structure: need gradients and V polygons")
+    if badge is not None:
+        if k is None:
+            raise SystemExit("badge plate present but K path missing")
+        badge["gid"] = badge["fill"][5:-1] if badge["fill"].startswith("url(#") else None
     return {"bg": bg, "grads": grads, "polys": polys, "badge": badge, "k": k}
 
 
@@ -237,18 +242,19 @@ def foreground_groups(icon, typ, mono=False):
             parts.append(
                 f'    <path android:fillColor="#FFFFFFFF" android:pathData="{poly_path(pts, typ)}"/>\n'
             )
-        # Badge plate with the K cut out.
-        plate = rounded_rect_path(
-            icon["badge"]["x"], icon["badge"]["y"], icon["badge"]["w"],
-            icon["badge"]["h"], icon["badge"]["rx"], typ=0.0,
-        )
-        kpath = transform_svg_path(
-            icon["k"]["d"], icon["k"]["tx"], icon["k"]["ty"], icon["k"]["s"], typ=0.0,
-        )
-        parts.append(
-            f'    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"\n'
-            f'        android:pathData="{plate} {kpath}"/>\n'
-        )
+        # Badge plate with the K cut out (only when the source has a badge).
+        if icon["badge"] is not None:
+            plate = rounded_rect_path(
+                icon["badge"]["x"], icon["badge"]["y"], icon["badge"]["w"],
+                icon["badge"]["h"], icon["badge"]["rx"], typ=0.0,
+            )
+            kpath = transform_svg_path(
+                icon["k"]["d"], icon["k"]["tx"], icon["k"]["ty"], icon["k"]["s"], typ=0.0,
+            )
+            parts.append(
+                f'    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"\n'
+                f'        android:pathData="{plate} {kpath}"/>\n'
+            )
         return "".join(parts)
 
     for pts, gid in icon["polys"]:
@@ -257,18 +263,19 @@ def foreground_groups(icon, typ, mono=False):
             f'{gradient_xml(icon["grads"][gid], typ)}'
             "    </path>\n"
         )
-    b, gid = icon["badge"], icon["badge"]["gid"]
-    sw = xf_len(b["sw"])
-    parts.append(
-        f'    <path android:pathData="{rounded_rect_path(b["x"], b["y"], b["w"], b["h"], b["rx"])}"\n'
-        f'        android:strokeColor="{argb(b["stroke"])}" android:strokeWidth="{sw:.3f}">\n'
-        f'{gradient_xml(icon["grads"][gid], typ=0.0)}'
-        "    </path>\n"
-    )
-    kpath = transform_svg_path(icon["k"]["d"], icon["k"]["tx"], icon["k"]["ty"], icon["k"]["s"])
-    parts.append(
-        f'    <path android:fillColor="{argb(icon["k"]["fill"])}" android:pathData="{kpath}"/>\n'
-    )
+    if icon["badge"] is not None:
+        b, gid = icon["badge"], icon["badge"]["gid"]
+        sw = xf_len(b["sw"])
+        parts.append(
+            f'    <path android:pathData="{rounded_rect_path(b["x"], b["y"], b["w"], b["h"], b["rx"])}"\n'
+            f'        android:strokeColor="{argb(b["stroke"])}" android:strokeWidth="{sw:.3f}">\n'
+            f'{gradient_xml(icon["grads"][gid], typ=0.0)}'
+            "    </path>\n"
+        )
+        kpath = transform_svg_path(icon["k"]["d"], icon["k"]["tx"], icon["k"]["ty"], icon["k"]["s"])
+        parts.append(
+            f'    <path android:fillColor="{argb(icon["k"]["fill"])}" android:pathData="{kpath}"/>\n'
+        )
     return "".join(parts)
 
 
@@ -290,15 +297,16 @@ def tile_svg(icon, typ):
         ps = " ".join(f"{x},{y}" for x, y in pts)
         body.append(f'<polygon points="{ps}" fill="url(#{gid})"/>')
     body.append("</g>")
-    b = icon["badge"]
-    body.append(
-        f'<rect x="{b["x"]}" y="{b["y"]}" width="{b["w"]}" height="{b["h"]}" '
-        f'rx="{b["rx"]}" fill="url(#{b["gid"]})" stroke="{b["stroke"]}" stroke-width="{b["sw"]}"/>'
-    )
-    k = icon["k"]
-    body.append(
-        f'<path d="{k["d"]}" fill="{k["fill"]}" transform="translate({k["tx"]},{k["ty"]}) scale({k["s"]})"/>'
-    )
+    if icon["badge"] is not None:
+        b = icon["badge"]
+        body.append(
+            f'<rect x="{b["x"]}" y="{b["y"]}" width="{b["w"]}" height="{b["h"]}" '
+            f'rx="{b["rx"]}" fill="url(#{b["gid"]})" stroke="{b["stroke"]}" stroke-width="{b["sw"]}"/>'
+        )
+        k = icon["k"]
+        body.append(
+            f'<path d="{k["d"]}" fill="{k["fill"]}" transform="translate({k["tx"]},{k["ty"]}) scale({k["s"]})"/>'
+        )
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" '
         f'viewBox="0 0 1024 1024">{"".join(body)}</svg>'
@@ -357,11 +365,23 @@ def fg_alpha(icon, typ, size=1080):
     return dist > 18
 
 
+def parse_args():
+    import argparse
+    ap = argparse.ArgumentParser(description="Generate Android launcher icons from a 1024 SVG tile.")
+    ap.add_argument("res", help="composeApp/src/androidMain/res")
+    ap.add_argument("preview", nargs="?", help="optional preview PNG path")
+    ap.add_argument("--src", default=DEFAULT_SRC, help="source SVG (default: art/velta-kmp-icon.svg)")
+    ap.add_argument("--prefix", default="ic_launcher", help="resource name prefix (default: ic_launcher)")
+    return ap.parse_args()
+
+
 def main():
-    icon = parse_svg(SRC)
+    args = parse_args()
+    res, preview, src, prefix = args.res, args.preview, args.src, args.prefix
+    icon = parse_svg(src)
     variants = {
-        "ic_launcher": (0.0, "rounded"),
-        "ic_launcher_round": (ROUND_NUDGE, "circle"),
+        prefix: (0.0, "rounded"),
+        f"{prefix}_round": (ROUND_NUDGE, "circle"),
     }
 
     for name, (typ, _) in variants.items():
@@ -372,24 +392,24 @@ def main():
         if rmax >= 33:
             raise SystemExit(f"{name} exceeds the 66/108 safe circle ({rmax:.2f} dp)")
 
-    os.makedirs(f"{RES}/drawable", exist_ok=True)
-    os.makedirs(f"{RES}/mipmap-anydpi-v26", exist_ok=True)
-    open(f"{RES}/drawable/ic_launcher_background.xml", "w").write(
+    os.makedirs(f"{res}/drawable", exist_ok=True)
+    os.makedirs(f"{res}/mipmap-anydpi-v26", exist_ok=True)
+    open(f"{res}/drawable/{prefix}_background.xml", "w").write(
         vd(
             f'    <path android:pathData="M0,0h1024v1024h-1024z" android:fillColor="{argb(icon["bg"])}"/>\n'
         )
     )
     for name, (typ, _) in variants.items():
-        open(f"{RES}/drawable/{name}_foreground.xml", "w").write(
+        open(f"{res}/drawable/{name}_foreground.xml", "w").write(
             vd(foreground_groups(icon, typ, mono=False), extra_ns='\n    xmlns:aapt="http://schemas.android.com/aapt"')
         )
-        open(f"{RES}/drawable/{name}_monochrome.xml", "w").write(
+        open(f"{res}/drawable/{name}_monochrome.xml", "w").write(
             vd(foreground_groups(icon, typ, mono=True))
         )
-        open(f"{RES}/mipmap-anydpi-v26/{name}.xml", "w").write(
+        open(f"{res}/mipmap-anydpi-v26/{name}.xml", "w").write(
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
             '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
-            '    <background android:drawable="@drawable/ic_launcher_background"/>\n'
+            f'    <background android:drawable="@drawable/{prefix}_background"/>\n'
             f'    <foreground android:drawable="@drawable/{name}_foreground"/>\n'
             f'    <monochrome android:drawable="@drawable/{name}_monochrome"/>\n'
             "</adaptive-icon>\n"
@@ -397,13 +417,13 @@ def main():
 
     views = {name: visible(render(adapt_svg(icon, typ), 1080)) for name, (typ, _) in variants.items()}
     for dens, px in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):
-        os.makedirs(f"{RES}/mipmap-{dens}", exist_ok=True)
+        os.makedirs(f"{res}/mipmap-{dens}", exist_ok=True)
         for name, (_, kind) in variants.items():
             out = Image.new("RGBA", (px, px), (0, 0, 0, 0))
             out.paste(views[name].resize((px, px), Image.Resampling.LANCZOS), (0, 0), mask(kind, px))
-            out.save(f"{RES}/mipmap-{dens}/{name}.png", optimize=True)
+            out.save(f"{res}/mipmap-{dens}/{name}.png", optimize=True)
 
-    if PREVIEW:
+    if preview:
         P, G = 300, 24
 
         def tile(img, kind):
@@ -434,8 +454,8 @@ def main():
             return tile(views[name], "circle")
 
         rows = [
-            ("ic_launcher", [tile(views["ic_launcher"], k) for k in ("squircle", "rounded", "circle")]),
-            ("ic_launcher_round", [tile(views["ic_launcher_round"], "circle")]),
+            (prefix, [tile(views[prefix], k) for k in ("squircle", "rounded", "circle")]),
+            (f"{prefix}_round", [tile(views[f"{prefix}_round"], "circle")]),
         ]
         sheet = Image.new("RGBA", (240 + 3 * (P + G), 2 * (P + G) + G), (236, 236, 240, 255))
         d = ImageDraw.Draw(sheet)
@@ -449,8 +469,8 @@ def main():
             d.text((12, y + P // 2 - 8), label, fill=(20, 20, 20), font=F)
             for i, t in enumerate(tiles):
                 sheet.alpha_composite(t, (240 + i * (P + G), y))
-        sheet.convert("RGB").save(PREVIEW)
-        print("wrote", PREVIEW)
+        sheet.convert("RGB").save(preview)
+        print("wrote", preview)
 
 
 if __name__ == "__main__":
