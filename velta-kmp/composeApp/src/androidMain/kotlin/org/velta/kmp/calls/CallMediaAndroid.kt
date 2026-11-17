@@ -297,7 +297,7 @@ class CallMediaAndroid(
             source.adaptOutputFormat(1280, 720, 30)
             val track = factory.createVideoTrack("velta_video_track", source)
             videoTrack = track
-            videoTx?.sender?.setTrack(track)
+            videoTx?.sender?.setTrack(track, false)
             localVideoTrack = track
             capturing = true
             return true
@@ -313,7 +313,7 @@ class CallMediaAndroid(
         try { videoCapturer?.stopCapture() } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
         } catch (_: Throwable) {}
-        videoTx?.sender?.setTrack(null)
+        videoTx?.sender?.setTrack(null, false)
         try { videoCapturer?.dispose() } catch (_: Throwable) {}
         try { surfaceHelper?.dispose() } catch (_: Throwable) {}
         try { videoSource?.dispose() } catch (_: Throwable) {}
