@@ -3,7 +3,6 @@ package org.velta.kmp.ui
 import android.annotation.SuppressLint
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import androidx.annotation.JavascriptInterface
 import android.webkit.WebView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -60,7 +59,7 @@ private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
             if (segments.isEmpty() || segments.first() != msgId.toString()) return null
             val path = segments.drop(1).joinToString("/").ifEmpty { "index.html" }
             val b64 = runBlocking {
-                runCatching { model.callsWebxdcBlob(msgId, path) }.getOrNull()
+                runCatching { model.callWebxdcBlob(msgId, path) }.getOrNull()
             } ?: return notFound()
             val bytes = try {
                 android.util.Base64.decode(b64, android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
@@ -123,7 +122,6 @@ private fun mimeFor(path: String): String {
  *  pattern — the methods answer from the core in microseconds). */
 private class WebxdcBridge(private val model: AppModel, private val msgId: Long) {
 
-    @JavascriptInterface
     fun request(json: String): String {
         val response = runBlocking {
             runCatching { handle(json) }.getOrElse {

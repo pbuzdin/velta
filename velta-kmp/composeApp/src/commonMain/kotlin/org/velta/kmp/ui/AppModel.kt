@@ -2620,7 +2620,7 @@ class AppModel(
     /** Webxdc runtime bridge (androidMain) — internal accessors. */
     fun callCore(): VeltaCore? = core
     fun callAccountId(): Long? = accountId
-    fun callWebxdcBlob(msgId: Long, path: String): String? {
+    suspend fun callWebxdcBlob(msgId: Long, path: String): String? {
         val c = core ?: return null
         val id = accountId ?: return null
         return runCatching { c.getWebxdcBlob(id, msgId, path) }.getOrNull()
