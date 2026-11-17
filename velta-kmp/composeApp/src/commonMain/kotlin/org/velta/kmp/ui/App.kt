@@ -3262,6 +3262,7 @@ private fun CallOverlay(model: AppModel) {
 /** mm:ss since the call went active (resets when a new call enters Active). */
 @Composable
 private fun CallDuration() {
+    val tokens = Velta.tokens
     var seconds by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
