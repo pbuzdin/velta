@@ -3952,6 +3952,8 @@ class AppModel(
         private set
     var lang by mutableStateOf(platform.pref("velta-lang")?.takeIf { it in L.LANGS.map { it.first } } ?: "en")
         private set
+    var appIconChoice by mutableStateOf(AppIconChoice.fromPref(platform.pref("velta-app-icon")))
+        private set
 
     /** mentions.js notify gate. Absent key = on; "0" = off. */
     var mentionInMuted by mutableStateOf(platform.pref("velta-notify-muted-mentions") != "0")
@@ -3967,6 +3969,7 @@ class AppModel(
         // the model construction is the KMP equivalent hook.
         L.lang = lang
         recognizedExtraHosts = extraInviteHosts.toSet()
+        platform.applyAppIcon(appIconChoice.prefValue)
     }
 
     fun onSetTheme(c: VeltaThemeChoice) {
@@ -3991,6 +3994,14 @@ class AppModel(
         lang = l
         L.lang = l
         platform.setPref("velta-lang", if (l == "en") null else l)
+    }
+
+    /** Default icon removes the pref key (same convention as English / stock accent). */
+    fun onSetAppIcon(c: AppIconChoice) {
+        if (c == appIconChoice) return
+        appIconChoice = c
+        platform.setPref("velta-app-icon", if (c == AppIconChoice.Default) null else c.prefValue)
+        platform.applyAppIcon(c.prefValue)
     }
 
     fun openSettings() {

@@ -28,5 +28,9 @@
   "current": "actuel",
   "exempt — background sync survives battery savers": "sans restriction — la synchronisation en arrière-plan résiste aux économiseurs de batterie",
   "not set up — sign in to configure": "non configuré — connectez-vous pour le configurer",
-  "restricted — tap to allow background sync": "restreinte — touchez pour autoriser la synchronisation en arrière-plan"
+  "restricted — tap to allow background sync": "restreinte — touchez pour autoriser la synchronisation en arrière-plan",
+  "App icon": "Icône de l'application",
+  "Default": "Par défaut",
+  "Classic KMP": "KMP classique",
+  "Some launchers take a moment to update the icon, or may close the app.": "Certains lanceurs mettent un moment à mettre à jour l'icône, ou peuvent fermer l'application."
 }

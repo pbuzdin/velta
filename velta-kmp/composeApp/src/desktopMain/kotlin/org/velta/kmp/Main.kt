@@ -9,7 +9,12 @@ import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import org.jetbrains.compose.resources.painterResource
+import org.velta.kmp.generated.resources.Res
+import org.velta.kmp.generated.resources.icon_preview_classic
+import org.velta.kmp.generated.resources.icon_preview_default
 import org.velta.kmp.ui.App
+import org.velta.kmp.ui.AppIconChoice
 import org.velta.kmp.ui.AppModel
 import java.awt.FileDialog
 import java.io.File
@@ -24,6 +29,10 @@ fun main() = application {
         onCloseRequest = ::exitApplication,
         title = "Velta",
         state = rememberWindowState(width = 900.dp, height = 680.dp),
+        icon = painterResource(
+            if (model.appIconChoice == AppIconChoice.Classic) Res.drawable.icon_preview_classic
+            else Res.drawable.icon_preview_default,
+        ),
     ) {
         // FileDialog blocks, so it runs on its own thread; the model hops the
         // result into its own scope. The scope's `window` is the ComposeWindow
