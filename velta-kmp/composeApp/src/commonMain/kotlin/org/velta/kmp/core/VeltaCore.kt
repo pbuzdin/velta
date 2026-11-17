@@ -20,7 +20,7 @@ import kotlinx.serialization.json.put
  * Method names and positional argument order mirror
  * `core/deltachat-jsonrpc/src/api.rs` (`#[rpc(all_positional)]`).
  */
-class VeltaCore(private val client: RpcClient) : AutoCloseable {
+class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
 
     val raw: RpcClient get() = client
 
@@ -807,4 +807,51 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         }
 
     override fun close() = client.close()
+
+    // ---- Calls (deltachat calls.rs via jsonrpc; CallManager drives these) ----
+
+    override suspend fun placeOutgoingCall(accountId: Long, chatId: Long, offerSdp: String, hasVideo: Boolean): Long {
+        val result = client.call(
+            "place_outgoing_call",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                RpcClient.param(chatId),
+                RpcClient.param(offerSdp),
+                RpcClient.param(hasVideo),
+            ),
+        )
+        return (result as? JsonObject)?.get("id")?.let { it as? JsonPrimitive }?.content?.toLongOrNull()
+            ?: (result as? JsonPrimitive)?.content?.toLongOrNull()
+            ?: 0L
+    }
+
+    override suspend fun acceptIncomingCall(accountId: Long, msgId: Long, answerSdp: String) {
+        client.call(
+            "accept_incoming_call",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId), RpcClient.param(answerSdp)),
+        )
+    }
+
+    override suspend fun endCall(accountId: Long, msgId: Long) {
+        client.call(
+            "end_call",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId)),
+        )
+    }
+
+    override suspend fun callInfo(accountId: Long, msgId: Long): JsonObject? {
+        val result = client.call(
+            "call_info",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId)),
+        )
+        return result as? JsonObject
+    }
+
+    override suspend fun iceServers(accountId: Long): JsonObject? {
+        val result = client.call(
+            "ice_servers",
+            RpcClient.params(RpcClient.param(accountId)),
+        )
+        return result as? JsonObject
+    }
 }
