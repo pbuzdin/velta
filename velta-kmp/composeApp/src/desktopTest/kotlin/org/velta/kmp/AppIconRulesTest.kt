@@ -6,6 +6,7 @@ import org.velta.kmp.ui.LAUNCHER_ALIAS_BADGE
 import org.velta.kmp.ui.LAUNCHER_ALIAS_CLASSIC
 import org.velta.kmp.ui.LAUNCHER_ALIAS_DEFAULT
 import org.velta.kmp.ui.launcherAliasState
+import org.velta.kmp.ui.notificationIconName
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -52,5 +53,12 @@ class AppIconRulesTest {
             assertEquals(aliases, setOf(state.enabled) + state.disabled, "choice $choice")
             assertEquals(aliases.size - 1, state.disabled.distinct().size, "choice $choice")
         }
+    }
+
+    @Test
+    fun notificationGlyphNameFollowsTheChoice() {
+        assertEquals("ic_notify_default", AppIconChoice.Default.notificationIconName)
+        assertEquals("ic_notify_badge", AppIconChoice.Badge.notificationIconName)
+        assertEquals("ic_notify_classic", AppIconChoice.Classic.notificationIconName)
     }
 }

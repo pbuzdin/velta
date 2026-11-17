@@ -39,6 +39,13 @@ val LAUNCHER_ALIASES = listOf(
     LAUNCHER_ALIAS_CLASSIC,
 )
 
+/** The pref key behind the choice (AppModel + the android notification glyph). */
+const val APP_ICON_PREF = "velta-app-icon"
+
+/** Status-bar glyph per choice — generated white vectors (ic_notify_*.xml). */
+val AppIconChoice.notificationIconName: String
+    get() = "ic_notify_${prefValue}"
+
 /** The alias that must be enabled, and the ones that must be disabled. */
 data class LauncherAliasState(val enabled: String, val disabled: List<String>)
 

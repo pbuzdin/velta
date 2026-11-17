@@ -12,6 +12,8 @@ import androidx.core.graphics.drawable.IconCompat
 import org.velta.kmp.ui.IncomingNotice
 import java.util.concurrent.ConcurrentHashMap
 import org.velta.kmp.MainActivity
+import org.velta.kmp.appIconSmallIconRes
+import org.velta.kmp.currentAppIcon
 import org.velta.kmp.ui.AppModel
 import org.velta.kmp.ui.L
 
@@ -64,7 +66,7 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(context.appIconSmallIconRes(context.currentAppIcon()))
             .setContentTitle(chatName)
             .setContentText(text)
             .setContentIntent(pending)
@@ -102,7 +104,7 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
         // Keep the conversation bounded (the system shows the last few).
         while (style.messages.size > MAX_MESSAGES) style.messages.removeAt(0)
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(context.appIconSmallIconRes(context.currentAppIcon()))
             .setStyle(style)
             .setContentIntent(openChat(notice.accountId, notice.chatId, key))
             .setAutoCancel(true)

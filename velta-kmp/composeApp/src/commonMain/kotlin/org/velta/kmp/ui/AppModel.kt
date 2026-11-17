@@ -3993,7 +3993,7 @@ class AppModel(
         private set
     var lang by mutableStateOf(platform.pref("velta-lang")?.takeIf { it in L.LANGS.map { it.first } } ?: "en")
         private set
-    var appIconChoice by mutableStateOf(AppIconChoice.fromPref(platform.pref("velta-app-icon")))
+    var appIconChoice by mutableStateOf(AppIconChoice.fromPref(platform.pref(APP_ICON_PREF)))
         private set
 
     /** mentions.js notify gate. Absent key = on; "0" = off. */
@@ -4041,7 +4041,7 @@ class AppModel(
     fun onSetAppIcon(c: AppIconChoice) {
         if (c == appIconChoice) return
         appIconChoice = c
-        platform.setPref("velta-app-icon", if (c == AppIconChoice.Default) null else c.prefValue)
+        platform.setPref(APP_ICON_PREF, if (c == AppIconChoice.Default) null else c.prefValue)
         platform.applyAppIcon(c.prefValue)
     }
 

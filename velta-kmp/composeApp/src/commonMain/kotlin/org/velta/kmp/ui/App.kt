@@ -677,11 +677,9 @@ private fun ChatListScreen(model: AppModel, peek: Boolean = false) {
             Column(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
                 Box(Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
-                    Image(
-                        painterResource(Res.drawable.v_logo),
-                        contentDescription = null,
+                    VeltaLogomark(
+                        model.appIconChoice,
                         modifier = Modifier.height(38.dp),
-                        contentScale = ContentScale.Fit,
                     )
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 4.dp),

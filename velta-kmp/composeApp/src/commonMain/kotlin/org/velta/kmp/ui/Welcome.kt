@@ -52,9 +52,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.jetbrains.compose.resources.painterResource
-import org.velta.kmp.generated.resources.Res
-import org.velta.kmp.generated.resources.v_logo
 
 private val FAILED = Color(0xFFE0685D)
 
@@ -85,10 +82,10 @@ internal fun WelcomeScreen(model: AppModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Image(
-                    painterResource(Res.drawable.v_logo),
-                    contentDescription = L.t("Velta logo"),
+                VeltaLogomark(
+                    model.appIconChoice,
                     modifier = Modifier.size(132.dp),
+                    contentDescription = L.t("Velta logo"),
                 )
                 Spacer(Modifier.size(18.dp))
                 Text(

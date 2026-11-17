@@ -4,7 +4,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import org.velta.kmp.ui.AppIconChoice
+import org.velta.kmp.ui.APP_ICON_PREF
 import org.velta.kmp.ui.launcherAliasState
+import org.velta.kmp.ui.notificationIconName
 import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.JniRpcTransport
 import org.velta.kmp.core.RpcShim
@@ -107,3 +109,13 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
         }
     }
 }
+
+/** The picked app icon as stored in prefs (default when absent). */
+fun Context.currentAppIcon(): AppIconChoice =
+    AppIconChoice.fromPref(
+        getSharedPreferences("velta_prefs", Context.MODE_PRIVATE).getString(APP_ICON_PREF, null),
+    )
+
+/** The chosen logo's status-bar glyph (ic_notify_default/badge/classic). */
+fun Context.appIconSmallIconRes(choice: AppIconChoice): Int =
+    resources.getIdentifier(choice.notificationIconName, "drawable", packageName)
