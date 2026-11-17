@@ -145,7 +145,7 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
                 .setContentIntent(openChat(accountId, chatId, key))
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setWhen(style.messages.lastOrNull()?.timestampMs ?: 0L)
+                .setWhen(style.messages.lastOrNull()?.timestamp ?: 0L)
                 .setShowWhen(true)
                 // Same messages re-posted: never re-alert on an icon refresh.
                 .setOnlyAlertOnce(true)
