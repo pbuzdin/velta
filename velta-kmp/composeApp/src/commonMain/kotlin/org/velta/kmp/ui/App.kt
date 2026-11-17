@@ -1,6 +1,7 @@
 package org.velta.kmp.ui
 
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.disabled
@@ -20,6 +21,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -194,6 +196,8 @@ fun App(model: AppModel) {
                 }
             }
             CreatedNotice(model)
+            // Calls (P1b): ring / in-call overlay above every screen.
+            if (!model.locked) CallOverlay(model)
             // #334 step 5: chat-list / ⋮ menus, their confirmations, group invite.
             if (!model.locked) ChatMenuHost(model)
             if (!model.locked && model.renameDraft != null) RenameChatDialog(model)
@@ -3194,6 +3198,96 @@ private fun ChatScreen(
     MessageInfoDialog(model) { id -> model.senderNames[id]?.name }
     SelectTextDialog(model)
     DeleteMessagesDialog(model)
+}
+
+/** Calls (P1b): ringing + in-call overlay above every screen. Audio-only
+ *  in P1 (video surfaces in P2 ride the already-negotiated transceivers). */
+@Composable
+private fun CallOverlay(model: AppModel) {
+    val state = model.calls.state
+    if (state is CallState.Idle) return
+    val tokens = Velta.tokens
+    val name = model.calls.chatName ?: L.t("Call")
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(tokens.bgSidebar)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Box(
+                Modifier
+                    .size(96.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(tokens.bgHover),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(VeltaIcons.profile, contentDescription = null, modifier = Modifier.size(52.dp), tint = tokens.textDim)
+            }
+            Spacer(Modifier.size(16.dp))
+            Text(name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = tokens.text)
+            Spacer(Modifier.size(8.dp))
+            when (state) {
+                is CallState.Incoming -> Text(L.t("Incoming voice call"), fontSize = 14.sp, color = tokens.textDim)
+                is CallState.Connecting, is CallState.Outgoing -> Text(L.t("Calling…"), fontSize = 14.sp, color = tokens.textDim)
+                is CallState.Active -> CallDuration()
+                else -> Text(L.t("Call ended"), fontSize = 14.sp, color = tokens.textDim)
+            }
+            Spacer(Modifier.size(36.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
+                when (state) {
+                    is CallState.Incoming -> {
+                        CallButton(VeltaIcons.close, L.t("Decline"), tokens.danger) { model.declineCall() }
+                        CallButton(VeltaIcons.send, L.t("Accept"), tokens.accent) { model.acceptCall() }
+                    }
+                    else -> {
+                        val muted = !model.calls.micEnabled
+                        CallButton(
+                            VeltaIcons.mute,
+                            if (muted) L.t("Unmute") else L.t("Mute"),
+                            if (muted) tokens.accent else tokens.textDim,
+                        ) { model.calls.toggleMute() }
+                        if (model.callSpeakerAvailable) {
+                            CallButton(VeltaIcons.notifications, L.t("Speaker"), tokens.textDim) { model.callSpeakerToggle?.invoke() }
+                        }
+                        CallButton(VeltaIcons.close, L.t("End call"), tokens.danger) { model.hangupCall() }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** mm:ss since the call went active (resets when a new call enters Active). */
+@Composable
+private fun CallDuration() {
+    var seconds by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            seconds++
+        }
+    }
+    Text("%d:%02d".format(seconds / 60, seconds % 60), fontSize = 14.sp, color = tokens.textDim)
+}
+
+@Composable
+private fun CallButton(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(if (tint == Velta.tokens.danger) tint.copy(alpha = 0.18f) else Velta.tokens.bgHover)
+                .clickable { onClick() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp), tint = tint)
+        }
+        Spacer(Modifier.size(6.dp))
+        Text(label, fontSize = 11.5.sp, color = Velta.tokens.textDim)
+    }
 }
 
 /** Read-only channel bar (ChannelBarRules): search in chat, contact the

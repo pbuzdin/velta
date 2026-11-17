@@ -26,6 +26,20 @@ object AppHolder {
                 CoroutineScope(SupervisorJob() + Dispatchers.Default),
             ).also { created ->
                 created.notifier = AndroidIncomingNotifier(context.applicationContext)
+                val appContext = context.applicationContext
+                // Calls (P1b): WebRTC media + audio routing + mic FGS.
+                created.callMedia = org.velta.kmp.calls.CallMediaAndroid(
+                    appContext,
+                    iceServers = { created.callIceServers() },
+                    micPermission = { created.callMicPermission?.invoke() ?: true },
+                )
+                created.callSpeakerToggle = { org.velta.kmp.calls.CallAudioManager.toggleSpeaker(appContext) }
+                created.callAudioStart = { org.velta.kmp.calls.CallAudioManager.start(appContext) }
+                created.callAudioStop = { org.velta.kmp.calls.CallAudioManager.stop(appContext) }
+                created.callForeground = { on ->
+                    if (on) org.velta.kmp.calls.CallForegroundService.start(appContext)
+                    else org.velta.kmp.calls.CallForegroundService.stop(appContext)
+                }
                 model = created
             }
         }

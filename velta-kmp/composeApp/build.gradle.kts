@@ -57,6 +57,9 @@ kotlin {
             implementation(libs.androidx.fragment.ktx)
             implementation(libs.zxing.core)
             implementation(libs.camera.camera2)
+            // WebRTC for 1:1 calls (same prebuilt deltachat-android ships;
+            // Apache-2.0, maintained by the Conversations project).
+            implementation("im.conversations.webrtc:webrtc-android:129.0.0")
             implementation(libs.camera.lifecycle)
             implementation(libs.camera.view)
         }
