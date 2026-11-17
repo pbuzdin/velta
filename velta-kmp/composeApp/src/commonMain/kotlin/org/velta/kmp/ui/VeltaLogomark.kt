@@ -153,9 +153,9 @@ private fun buildBadgeLogomark(): ImageVector =
     ImageVector.Builder(
         name = "VeltaLogomarkBadge",
         defaultWidth = 48.dp, defaultHeight = 48.dp,
-        viewportWidth = 819.615f, viewportHeight = 819.615f,
+        viewportWidth = 504.841f, viewportHeight = 504.841f,
     ).apply {
-        group(translationX = 21.531f, translationY = 47.808f) {
+        group(translationX = -287.189f, translationY = -274.913f) {
             addPath(
                 pathData = PathData {
                     moveTo(302.667f, 330.667f)
@@ -259,13 +259,13 @@ private fun buildBadgeLogomark(): ImageVector =
             addPath(
                 pathData = PathData {
                     moveTo(674.633f, 552.593f)
-                    horizontalTo(747.807f)
+                    lineTo(747.807f, 552.593f)
                     arcTo(28.747f, 28.747f, 0.0f, false, true, 776.553f, 581.34f)
-                    verticalTo(654.513f)
+                    lineTo(776.553f, 654.513f)
                     arcTo(28.747f, 28.747f, 0.0f, false, true, 747.807f, 683.26f)
-                    horizontalTo(674.633f)
+                    lineTo(674.633f, 683.26f)
                     arcTo(28.747f, 28.747f, 0.0f, false, true, 645.887f, 654.513f)
-                    verticalTo(581.34f)
+                    lineTo(645.887f, 581.34f)
                     arcTo(28.747f, 28.747f, 0.0f, false, true, 674.633f, 552.593f)
                     close()
                 },

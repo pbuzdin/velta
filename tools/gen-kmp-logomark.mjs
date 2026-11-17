@@ -54,6 +54,23 @@ function* commands(d) {
   }
 }
 
+// Walks a path's commands, tracking the current point, and calls eat(x, y)
+// for every on-path point (moveTo/lineTo endpoints, curve anchors + controls,
+// arc endpoints). Z closes without adding a point.
+function walkPoints(d, eat) {
+  let cx = 0, cy = 0;
+  for (const [cmd, n] of commands(d)) {
+    switch (cmd) {
+      case "M": case "L": cx = n[0]; cy = n[1]; eat(cx, cy); break;
+      case "H": cx = n[0]; eat(cx, cy); break;
+      case "V": cy = n[0]; eat(cx, cy); break;
+      case "C": eat(n[0], n[1]); eat(n[2], n[3]); cx = n[4]; cy = n[5]; eat(cx, cy); break;
+      case "A": cx = n[5]; cy = n[6]; eat(cx, cy); break;
+      case "Z": cx = 0; cy = 0; break; // closed; reopen would start at a fresh M
+    }
+  }
+}
+
 // Sequential tag scan carrying a group-transform stack (translate + scale,
 // the only group attrs the committed vectors use — asserted below).
 function parseVector(xml) {
@@ -113,29 +130,17 @@ function parseVector(xml) {
 // overshoot = padding, never clipping).
 function bounds(paths) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  const eat = (p) => {
-    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-    maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
-  };
   for (const path of paths) {
     const local = path.groups;
-    for (const [cmd, n] of commands(path.d)) {
-      const pts = [];
-      if (cmd === "M" || cmd === "L") pts.push({ x: n[0], y: n[1] });
-      else if (cmd === "H") pts.push({ x: n[0], y: 0 });
-      else if (cmd === "V") pts.push({ x: 0, y: n[0] });
-      else if (cmd === "C") for (let i = 0; i < 6; i += 2) pts.push({ x: n[i], y: n[i + 1] });
-      else if (cmd === "A") pts.push({ x: n[5], y: n[6] });
-      for (const p of pts) {
-        let { x, y } = p;
-        for (let i = local.length - 1; i >= 0; i--) {
-          const g = local[i];
-          x = g.sx * x + g.tx;
-          y = g.sy * y + g.ty;
-        }
-        eat({ x, y });
+    walkPoints(path.d, (x, y) => {
+      for (let i = local.length - 1; i >= 0; i--) {
+        const g = local[i];
+        x = g.sx * x + g.tx;
+        y = g.sy * y + g.ty;
       }
-    }
+      minX = Math.min(minX, x); minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+    });
   }
   return { minX, minY, maxX, maxY };
 }
@@ -152,26 +157,27 @@ function squareView(b) {
 const KOTLIN_NAME = { default: "Default", badge: "Badge", classic: "Classic" };
 
 // SVG absolute command → PathData DSL call (the VeltaIcons.kt house style,
-// compiled in this toolchain; addPathNodes(string) is not).
+// compiled in this toolchain). H/V become lineTo with the tracked current
+// point — the DSL has no horizontalTo/verticalTo.
 function kotlinNodes(d) {
   const calls = [];
-  let firstM = true;
+  let cx = 0, cy = 0, firstM = true;
+  const emit = (fn, x, y) => { cx = x; cy = y; calls.push(`${fn}(${f(x)}, ${f(y)})`); };
   for (const [cmd, n] of commands(d)) {
     switch (cmd) {
-      case "M": {
-        const fn = firstM ? "moveTo" : "lineTo";
-        firstM = false;
-        calls.push(`${fn}(${f(n[0])}, ${f(n[1])})`);
+      case "M": case "L":
+        if (cmd === "M" && firstM) { firstM = false; calls.push(`moveTo(${f(n[0])}, ${f(n[1])})`); cx = n[0]; cy = n[1]; }
+        else emit("lineTo", n[0], n[1]);
         break;
-      }
-      case "L": calls.push(`lineTo(${f(n[0])}, ${f(n[1])})`); break;
-      case "H": calls.push(`horizontalTo(${f(n[0])})`); break;
-      case "V": calls.push(`verticalTo(${f(n[0])})`); break;
+      case "H": emit("lineTo", n[0], cy); break;
+      case "V": emit("lineTo", cx, n[0]); break;
       case "C":
         calls.push(`curveTo(${f(n[0])}, ${f(n[1])}, ${f(n[2])}, ${f(n[3])}, ${f(n[4])}, ${f(n[5])})`);
+        cx = n[4]; cy = n[5];
         break;
       case "A":
         calls.push(`arcTo(${f(n[0])}, ${f(n[1])}, ${f(n[2])}, ${n[3] !== 0}, ${n[4] !== 0}, ${f(n[5])}, ${f(n[6])})`);
+        cx = n[5]; cy = n[6];
         break;
       case "Z": calls.push("close()"); break;
     }
