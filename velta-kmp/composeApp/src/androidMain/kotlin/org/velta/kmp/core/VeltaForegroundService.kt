@@ -11,6 +11,8 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import org.velta.kmp.AppHolder
 import org.velta.kmp.MainActivity
+import org.velta.kmp.appIconSmallIconRes
+import org.velta.kmp.currentAppIcon
 import org.velta.kmp.ui.L
 import org.velta.kmp.ui.syncServiceRuns
 
@@ -88,7 +90,7 @@ class VeltaForegroundService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Velta")
             .setContentText(L.t("Keeping your messages up to date"))
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
             .setContentIntent(openAppIntent())
             .setOngoing(true)
             .build()
