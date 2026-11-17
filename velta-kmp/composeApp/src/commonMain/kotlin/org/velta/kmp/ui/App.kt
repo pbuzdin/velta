@@ -3144,22 +3144,28 @@ private fun ChatScreen(
                 .fillMaxWidth()
                 .onSizeChanged { footPx = it.height },
         ) {
-            // Variant A floating card (#334): reply / edit / attachment above the plate.
-            ComposerCard(model, Modifier.padding(horizontal = 10.dp))
-            GlassPlate(
-                backdrop,
-                host,
-                Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        if (lens) PaddingValues(start = 10.dp, end = 10.dp, bottom = 8.dp)
-                        else PaddingValues(0.dp),
-                    ),
-                radius = if (lens) 22.dp else 0.dp,
-                lens = lens,
-            ) {
-                Column {
-                    Composer(model)
+            if (model.channelBar != null) {
+                // Read-only channel (ChannelBarRules): no composer — search,
+                // contact the author, mute/unmute instead.
+                ChannelBottomBar(model)
+            } else {
+                // Variant A floating card (#334): reply / edit / attachment above the plate.
+                ComposerCard(model, Modifier.padding(horizontal = 10.dp))
+                GlassPlate(
+                    backdrop,
+                    host,
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            if (lens) PaddingValues(start = 10.dp, end = 10.dp, bottom = 8.dp)
+                            else PaddingValues(0.dp),
+                        ),
+                    radius = if (lens) 22.dp else 0.dp,
+                    lens = lens,
+                ) {
+                    Column {
+                        Composer(model)
+                    }
                 }
             }
         }
@@ -3191,6 +3197,53 @@ private fun ChatScreen(
     MessageInfoDialog(model) { id -> model.senderNames[id]?.name }
     SelectTextDialog(model)
     DeleteMessagesDialog(model)
+}
+
+/** Read-only channel bar (ChannelBarRules): search in chat, contact the
+ *  channel's author (only when one resolved), mute/unmute — the composer's
+ *  replacement for a channel the user cannot post in. */
+@Composable
+private fun ChannelBottomBar(model: AppModel) {
+    val bar = model.channelBar ?: return
+    val tokens = Velta.tokens
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(tokens.bgSidebar)
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .drawBehind {
+                drawRect(
+                    tokens.border,
+                    topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
+                    size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()),
+                )
+            },
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            BarAction(VeltaIcons.search, L.t("Search in chat"), Modifier.weight(1f)) { model.openChatSearch() }
+            if (bar.author != null) {
+                BarAction(VeltaIcons.contacts, L.t("Contact the channel author"), Modifier.weight(1f)) { model.openChannelAuthorChat() }
+            }
+            BarAction(
+                if (bar.muted) VeltaIcons.bell else VeltaIcons.mute,
+                if (bar.muted) L.t("Unmute channel") else L.t("Mute channel"),
+                Modifier.weight(1f),
+            ) { model.toggleChannelMute() }
+        }
+    }
+}
+
+@Composable
+private fun BarAction(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(percent = 30))
+            .clickable(onClickLabel = label) { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp), tint = Velta.tokens.textDim)
+    }
 }
 
 /** Stable chat-view.js `_refreshPinnedBar` + main.css `.pin-tray`: the

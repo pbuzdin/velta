@@ -1879,6 +1879,22 @@ class AppModel(
                     isSaved = jstr(chat, "isSelfTalk") == "true",
                     isEncrypted = jstr(chat, "isEncrypted") != "false",
                 )
+                // Rights check confirms or clears the optimistic channel bar
+                // (openChat set it from the list item's chat type).
+                val canSend = jstr(chat, "canSend") != "false"
+                val barVisible = ChannelBarRules.showBar(jstr(chat, "chatType"), canSend)
+                channelBar = if (barVisible) {
+                    ChannelBarState(muted = channelBar?.muted ?: jbool(chat, "isMuted"))
+                } else null
+                if (barVisible && ChannelBarRules.showAuthorButton(ids?.size ?: 0)) {
+                    val cid = ids?.firstOrNull()
+                    if (cid != null) scope.launch {
+                        val author = runCatching { veltaCore.contact(id, cid) }.getOrNull()
+                        // Still on the same channel? A fast chat switch must
+                        // not hand the old author to the new chat's bar.
+                        if (author != null && channelBar != null) channelBar = channelBar?.copy(author = author)
+                    }
+                }
                 if (jstr(chat, "chatType") == "Single") {
                     val cid = ids?.firstOrNull() ?: return@launch
                     val contact = veltaCore.contact(id, cid)
@@ -1910,6 +1926,9 @@ class AppModel(
         pendingAttachment = null
         resetChatActions()
         sheetChat = SheetChat(isGroup = item.chatType == "Group" || item.isGroup, isSaved = item.isSelfTalk, isEncrypted = item.isEncrypted)
+        // Channels open optimistic-read-only (the web's start-read-only-then-
+        // flip); loadChatHead's canSend check confirms or clears the bar.
+        channelBar = if (ChannelBarRules.isChannel(item.chatType)) ChannelBarState(muted = item.isMuted) else null
         loadChatHead(item)
         scope.launch {
             val veltaCore = core
@@ -2536,6 +2555,13 @@ class AppModel(
 
     /** Chat-level sheet inputs (canSend / admin / encryption), from fullChat. */
     var sheetChat by mutableStateOf(SheetChat())
+        private set
+
+    /** Read-only channel bar (ChannelBarRules): non-null replaces the
+     *  composer with search / author / mute. Set optimistically at open from
+     *  the list item's chat type, confirmed by the fullChat rights check in
+     *  loadChatHead (the web's start-read-only-then-flip). */
+    var channelBar by mutableStateOf<ChannelBarState?>(null)
         private set
 
     /** Selection mode (stable this.selection): message ids, in tap order. */
@@ -3411,6 +3437,21 @@ class AppModel(
     /** rpc-core setChatFlags mute (Forever / NotMuted). */
     fun chatMute(chatId: Long, muted: Boolean) =
         chatJob(null) { c, id -> c.setChatMute(id, chatId, muteKind(muted)) }
+
+    /** Read-only channel bar: quick mute toggle (bar state flips at once;
+     *  the core call is fire-and-forget like the sheet's mute row). */
+    fun toggleChannelMute() {
+        val bar = channelBar ?: return
+        val chatId = (screen as? Screen.Chat)?.chatId ?: return
+        channelBar = bar.copy(muted = !bar.muted)
+        chatMute(chatId, !bar.muted)
+    }
+
+    /** Read-only channel bar: open a 1:1 with the channel's author (resolved
+     *  on open; the button is hidden when the channel has no single contact). */
+    fun openChannelAuthorChat() {
+        channelBar?.author?.let { openContactChat(it) }
+    }
 
     fun markChatRead(chatId: Long) =
         chatJob(null) { c, id -> c.marknoticedChat(id, chatId) }
