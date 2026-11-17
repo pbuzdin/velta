@@ -9,7 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.velta.kmp.core.CallCore
 import org.velta.kmp.ui.CallEvent
 import org.velta.kmp.ui.CallManager
@@ -76,7 +76,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `outgoing call - offer placed through the core, answer connects, end hangs up`() = runTest {
+    fun `outgoing call - offer placed through the core, answer connects, end hangs up`() = runBlocking {
         val h = Harness()
         val started = h.mgr.startOutgoing(7L)
         assertTrue(started)
@@ -95,7 +95,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `incoming call - accept fetches the fresh offer, sends the sdp answer`() = runTest {
+    fun `incoming call - accept fetches the fresh offer, sends the sdp answer`() = runBlocking {
         val h = Harness()
         h.onEvent(3L, 55L, CallEvent.IncomingCall(3L, 55L, "remote-offer-sdp", hasVideo = false))
         assertIs<CallState.Incoming>(h.mgr.state)
@@ -113,7 +113,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `decline ends the call through the core without an answer`() = runTest {
+    fun `decline ends the call through the core without an answer`() = runBlocking {
         val h = Harness()
         h.onEvent(3L, 56L, CallEvent.IncomingCall(3L, 56L, "x", hasVideo = false))
         h.mgr.declineIncoming()
@@ -123,7 +123,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `acceptance on another device stands an incoming ring down`() = runTest {
+    fun `acceptance on another device stands an incoming ring down`() = runBlocking {
         val h = Harness()
         h.onEvent(3L, 57L, CallEvent.IncomingCall(3L, 57L, "x", hasVideo = false))
         h.onEvent(3L, 57L, CallEvent.IncomingCallAccepted(3L, 57L))
@@ -133,7 +133,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `mute toggles the local track`() = runTest {
+    fun `mute toggles the local track`() = runBlocking {
         val h = Harness()
         h.mgr.startOutgoing(7L)
         assertEquals(true, h.mgr.toggleMute())
@@ -144,7 +144,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `a call-ended for another msgId does not touch the active call`() = runTest {
+    fun `a call-ended for another msgId does not touch the active call`() = runBlocking {
         val h = Harness()
         h.mgr.startOutgoing(7L)
         h.onEvent(7L, 4321L, CallEvent.OutgoingCallAccepted(7L, 4321L, "answer-sdp"))
@@ -154,7 +154,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `no media adapter - outgoing placement refused, incoming still tracked`() = runTest {
+    fun `no media adapter - outgoing placement refused, incoming still tracked`() = runBlocking {
         val h = Harness()
         val plain = CallManager({ h.core }, { 1L }, { null }, h.scope, { "Alice" })
         assertEquals(false, plain.startOutgoing(7L), "P1a has no WebRTC adapter yet — never send a fake offer")
@@ -167,7 +167,7 @@ class CallManagerTest {
     }
 
     @Test
-    fun `hangup ends a live call through the core`() = runTest {
+    fun `hangup ends a live call through the core`() = runBlocking {
         val h = Harness()
         h.mgr.startOutgoing(7L)
         h.mgr.hangup()
