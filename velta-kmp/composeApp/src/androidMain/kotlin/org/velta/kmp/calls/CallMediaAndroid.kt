@@ -1,5 +1,7 @@
 package org.velta.kmp.calls
 
+import org.velta.kmp.ui.CallMedia
+
 import android.content.Context
 import kotlinx.serialization.json.JsonObject
 import org.webrtc.AudioSource
@@ -109,7 +111,7 @@ class CallMediaAndroid(
         return servers.ifEmpty { FALLBACK }
     }
 
-    private fun newPeer(caller: Boolean): PeerConnection {
+    private suspend fun newPeer(caller: Boolean): PeerConnection {
         val rtcConfig = PeerConnection.RTCConfiguration(iceServersFromCore()).apply {
             // Unified plan is the only semantics in libwebrtc 129.
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
@@ -167,7 +169,7 @@ class CallMediaAndroid(
         val dc = dcMuted ?: return
         if (dc.state() != DataChannel.State.OPEN) return
         val json = """{"audioEnabled":$audioEnabled,"videoEnabled":false}"""
-        dc.send(DataChannel.Buffer(java.nio.ByteBuffer.wrap(json.toByteArray()), binary = false))
+        dc.send(DataChannel.Buffer(java.nio.ByteBuffer.wrap(json.toByteArray()), false))
     }
 
     override suspend fun prepare(hasVideo: Boolean, remoteSdp: String?): String {
@@ -194,7 +196,7 @@ class CallMediaAndroid(
             waitGathered(pc)
             return pc.localDescription?.description ?: offer.description
         } else {
-            val remoteDesc = SessionDescription(SessionDescription.OfferType.OFFER, requireNotNull(remoteSdp))
+            val remoteDesc = SessionDescription(SessionDescription.Type.OFFER, requireNotNull(remoteSdp))
             awaitSet { pc.setRemoteDescription(it, remoteDesc) }
             pc.addTrack(mic, listOf(STREAM_ID))
             for (tx in pc.transceivers) {
@@ -211,7 +213,7 @@ class CallMediaAndroid(
 
     override suspend fun applyRemote(sdp: String) {
         val pc = pc ?: return
-        val desc = SessionDescription(SessionDescription.AnswerType.ANSWER, sdp)
+        val desc = SessionDescription(SessionDescription.Type.ANSWER, sdp)
         awaitSet { pc.setRemoteDescription(it, desc) }
     }
 
