@@ -1884,7 +1884,7 @@ class AppModel(
                 val canSend = jstr(chat, "canSend") != "false"
                 val barVisible = ChannelBarRules.showBar(jstr(chat, "chatType"), canSend)
                 channelBar = if (barVisible) {
-                    ChannelBarState(muted = channelBar?.muted ?: jbool(chat, "isMuted"))
+                    ChannelBarState(muted = channelBar?.muted ?: (jstr(chat, "isMuted") == "true"))
                 } else null
                 if (barVisible && ChannelBarRules.showAuthorButton(ids?.size ?: 0)) {
                     val cid = ids?.firstOrNull()
