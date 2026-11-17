@@ -1932,7 +1932,10 @@ internal fun BrandedQrSquare(link: String, choice: AppIconChoice) {
         }
         VeltaLogomark(
             choice,
-            modifier = Modifier.size(logoDp),
+            // The web v-logo.svg carries ~44% internal margins; our logomark
+            // viewport is crop-tight — 0.63 restores the web glyph-to-badge
+            // proportion (glyph ≈ 56% of the 84-unit badge, disc r48).
+            modifier = Modifier.size(logoDp * 0.63f),
         )
     }
 }
