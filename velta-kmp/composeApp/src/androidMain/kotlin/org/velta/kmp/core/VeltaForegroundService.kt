@@ -12,6 +12,7 @@ import android.os.IBinder
 import org.velta.kmp.AppHolder
 import org.velta.kmp.MainActivity
 import org.velta.kmp.appIconSmallIconRes
+import org.velta.kmp.appLauncherTileBitmap
 import org.velta.kmp.currentAppIcon
 import org.velta.kmp.ui.L
 import org.velta.kmp.ui.syncServiceRuns
@@ -91,6 +92,9 @@ class VeltaForegroundService : Service() {
             .setContentTitle("Velta")
             .setContentText(L.t("Keeping your messages up to date"))
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
+            // vivo-class skins render the (cached) app icon on this banner —
+            // an explicit tile of the chosen logo overrides it.
+            .setLargeIcon(applicationContext.appLauncherTileBitmap(applicationContext.currentAppIcon()))
             .setContentIntent(openAppIntent())
             .setOngoing(true)
             .build()

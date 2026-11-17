@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import org.velta.kmp.ui.AppIconChoice
 import org.velta.kmp.ui.APP_ICON_PREF
 import org.velta.kmp.ui.launcherAliasState
+import org.velta.kmp.ui.launcherMipmapName
 import org.velta.kmp.ui.notificationIconName
 import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.JniRpcTransport
@@ -119,3 +120,20 @@ fun Context.currentAppIcon(): AppIconChoice =
 /** The chosen logo's status-bar glyph (ic_notify_default/badge/classic). */
 fun Context.appIconSmallIconRes(choice: AppIconChoice): Int =
     resources.getIdentifier(choice.notificationIconName, "drawable", packageName)
+
+/** The chosen logo's launcher tile as a bitmap for notification banners.
+ *  Skins (vivo) draw the app icon on banners and cache it across icon
+ *  switches — an explicit largeIcon of the chosen tile bypasses that. */
+fun Context.appLauncherTileBitmap(choice: AppIconChoice): android.graphics.Bitmap {
+    val size = 192
+    val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val drawable = try {
+        val resId = resources.getIdentifier(choice.launcherMipmapName, "mipmap", packageName)
+        if (resId != 0) resources.getDrawable(resId, theme) else null
+    } catch (_: RuntimeException) {
+        null
+    } ?: applicationInfo.loadIcon(packageManager) // fall back to whatever the system thinks we are
+    drawable.setBounds(0, 0, size, size)
+    drawable.draw(android.graphics.Canvas(bitmap))
+    return bitmap
+}

@@ -46,6 +46,16 @@ const val APP_ICON_PREF = "velta-app-icon"
 val AppIconChoice.notificationIconName: String
     get() = "ic_notify_${prefValue}"
 
+/** Launcher tile per choice (the manifest alias icons) — skins like vivo
+ *  render the app icon on notification banners and cache it, so the banner
+ *  carries an explicit bitmap of this tile instead (androidMain helper). */
+val AppIconChoice.launcherMipmapName: String
+    get() = when (this) {
+        AppIconChoice.Default -> "ic_launcher"
+        AppIconChoice.Badge -> "ic_launcher_badge"
+        AppIconChoice.Classic -> "ic_launcher_classic"
+    }
+
 /** The alias that must be enabled, and the ones that must be disabled. */
 data class LauncherAliasState(val enabled: String, val disabled: List<String>)
 
