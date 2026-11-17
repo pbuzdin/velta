@@ -47,14 +47,14 @@ class CallManagerTest {
     private class FakeMedia : CallMedia {
         var prepared: String? = null
         var applied: String? = null
-        var mic = true
+        var micOn = true
         var closed = false
         override suspend fun prepare(hasVideo: Boolean, remoteSdp: String?): String {
             prepared = remoteSdp
             return if (remoteSdp == null) "offer-sdp" else "answer-sdp"
         }
         override suspend fun applyRemote(sdp: String) { applied = sdp }
-        override fun setMic(enabled: Boolean) { mic = enabled }
+        override fun setMic(enabled: Boolean) { micOn = enabled }
         override fun close() { closed = true }
     }
 
@@ -137,9 +137,9 @@ class CallManagerTest {
         val h = Harness()
         h.mgr.startOutgoing(7L)
         assertEquals(true, h.mgr.toggleMute())
-        assertEquals(false, h.media.mic)
+        assertEquals(false, h.media.micOn)
         assertEquals(false, h.mgr.toggleMute())
-        assertEquals(true, h.media.mic)
+        assertEquals(true, h.media.micOn)
         h.close()
     }
 
