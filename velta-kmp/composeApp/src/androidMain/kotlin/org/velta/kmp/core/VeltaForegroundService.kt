@@ -13,6 +13,7 @@ import org.velta.kmp.AppHolder
 import org.velta.kmp.MainActivity
 import org.velta.kmp.appIconSmallIconRes
 import org.velta.kmp.appLauncherTileBitmap
+import org.velta.kmp.R
 import org.velta.kmp.currentAppIcon
 import org.velta.kmp.ui.L
 import org.velta.kmp.ui.syncServiceRuns
@@ -88,13 +89,21 @@ class VeltaForegroundService : Service() {
                 ),
             )
         }
+        // Custom content: vivo's default template paints the app icon it
+        // CACHED at install — alias switches never reach it (proven on
+        // device, #403's largeIcon just added a second icon). Our own view
+        // carries exactly one icon: the chosen logo's tile, re-read from
+        // prefs on every service start.
+        val tile = applicationContext.appLauncherTileBitmap(applicationContext.currentAppIcon())
+        val views = android.widget.RemoteViews(packageName, R.layout.notification_banner).apply {
+            setImageViewBitmap(R.id.banner_icon, tile)
+            setTextViewText(R.id.banner_title, "Velta")
+            setTextViewText(R.id.banner_text, L.t("Keeping your messages up to date"))
+        }
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Velta")
-            .setContentText(L.t("Keeping your messages up to date"))
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
-            // vivo-class skins render the (cached) app icon on this banner —
-            // an explicit tile of the chosen logo overrides it.
-            .setLargeIcon(applicationContext.appLauncherTileBitmap(applicationContext.currentAppIcon()))
+            .setCustomContentView(views)
+            .setCustomBigContentView(views)
             .setContentIntent(openAppIntent())
             .setOngoing(true)
             .build()
