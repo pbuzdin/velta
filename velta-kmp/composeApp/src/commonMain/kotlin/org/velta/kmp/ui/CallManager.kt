@@ -33,7 +33,7 @@ class CallManager(
     private val accountId: () -> Long?,
     private val mediaProvider: () -> CallMedia?,
     private val scope: CoroutineScope,
-    private val getChatName: suspend (Long) -> String,
+    private val getChatName: suspend (Long) -> String?,
 ) {
     var state by mutableStateOf<CallState>(CallRules.idle())
         private set
@@ -146,7 +146,7 @@ class CallManager(
         val core = coreProvider() ?: return
         val acc = accountId() ?: return
         core.endCall(acc, msgId)
-        onCoreEvent(chatId, msgId, CallEvent.CallEnded)
+        onCoreEvent(chatId, msgId, CallEvent.CallEnded(chatId, msgId))
     }
 
     /** Mute flips the local track only — never replaceTrack(null) (calls.js
