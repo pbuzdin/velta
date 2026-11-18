@@ -194,6 +194,14 @@ export class JsonRpcCore extends EventTarget {
     this._sendingBackstopTimer?.unref?.();
   }
 
+  // The Android background poller consumes core events while the page is
+  // hidden (AGENTS §9.2), and those events carry the per-chat id-list
+  // invalidations — resume refetches must not trust the cache (#411).
+  invalidateAllChats() {
+    this._msgIdGen++; // in-flight id fetches must not cache a pre-clear list
+    this.msgIdCache.clear();
+  }
+
   async reconcileSending() {
     if (!this._sendingIds.size || this._accountTransitionBusy) return;
     const accountId = this.accountId;

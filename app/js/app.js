@@ -1691,6 +1691,10 @@ function scheduleDiagnosticsRowUpdate() {
 // it consumed never reached the frontend, so becoming visible refetches.
 function refreshAfterBackground() {
   if (!core) return;
+  // Events the Android background poller consumed while hidden never
+  // invalidated the per-chat id lists — drop them so the refetches below
+  // (and every chat opened next) see what arrived (#411).
+  core.invalidateAllChats?.();
   scheduleChatListRefresh();
   // Delivery events the background poller consumed while hidden never
   // reached the JS side — reconcile the sending-dash bookkeeping too.
