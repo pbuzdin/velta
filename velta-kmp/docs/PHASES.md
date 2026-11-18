@@ -49,7 +49,7 @@ fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
 (`velta://ws` stays text), sticker sends keep a reply quote
 (`send_msg` viewtype `Sticker`), chat appearance prefs, and an Android
 app-lock PIN beside the biometric lock. Desktop hides the PIN. No
-Windows Hello. The stickers-in-attach switch is not in this client.
+Windows Hello. Stickers default to the composer button. `velta-stickers-in-attach` `"1"` moves them into Attach. The button hides while the field has text.
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate (picker +
@@ -59,12 +59,12 @@ Windows Hello. The stickers-in-attach switch is not in this client.
   are in. `velta://ws` stays plain text. QR relay chips are still out.
 - #325 markdown: `> ` quote blocks, hashtag rules, trimLinkEnd, nested
   emphasis, `+` bullets, list grouping.
-- #326 sticker save and a quote on the sticker send are in
-  (`send_msg` viewtype `Sticker`). The visibility switch is not.
+- #326 sticker save, a quote on the sticker send (`send_msg` viewtype
+  `Sticker`), and the visibility switch are in. Default is the composer
+  button. `"1"` on `velta-stickers-in-attach` moves it into Attach.
 - #327 quote-tap fetch-then-jump beyond the loaded window.
-- #328 chat appearance: text size, bubble corners, hyphenation, and the
-  liquid-glass composer switch are in. The stickers-in-attach switch
-  is not (stickers already live only in the attach menu).
+- #328 chat appearance: text size, bubble corners, hyphenation, the
+  liquid-glass composer switch, and the stickers-in-attach switch are in.
 - #329 CLOSED 2026-11-14 — the full bar + Contacts / Calls / QR /
   New-chat side views shipped (see the 2026-11-14 ledger entry).
 

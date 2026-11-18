@@ -2630,6 +2630,17 @@ private fun SettingsScreen(model: AppModel) {
                 Checkbox(checked = model.hyphensOn, onCheckedChange = { model.onSetHyphens(it) })
                 Text(L.t("Hyphenate long words (English, Russian)"))
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { model.onSetStickersInAttach(!model.stickersInAttach) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = model.stickersInAttach, onCheckedChange = { model.onSetStickersInAttach(it) })
+                Text(L.t("Stickers in attachments menu"))
+            }
             if (glassComposerAvailable()) {
                 Row(
                     modifier = Modifier
@@ -4194,6 +4205,14 @@ private fun Composer(model: AppModel) {
         // Velta stable composer (app/index.html footer.composer): 48dp icon
         // buttons, a 48dp-min 16dp-radius input wrap on bgSidebar, no Material
         // chrome. Icons ride --ico-5 (26px); send is accentText when armed.
+        // ponytail: no P2P groups in this client, so that hide stays false until Loop.
+        val p2pGroup = false
+        val stickerInMenu = showStickersInMenu(model.stickersInAttach, p2pGroup)
+        val stickerButton = showStickerButton(
+            model.stickersInAttach,
+            model.composerText.trim().isNotEmpty(),
+            p2pGroup,
+        )
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Bottom,
@@ -4209,7 +4228,7 @@ private fun Composer(model: AppModel) {
                 }
                 AttachMenu(
                     expanded = showAttachMenu,
-                    stickersReady = true,
+                    stickersInMenu = stickerInMenu,
                     cameraAvailable = model.cameraCapture != null,
                     voiceAvailable = model.voiceRecorder != null,
                     onDismiss = { showAttachMenu = false },
@@ -4269,6 +4288,22 @@ private fun Composer(model: AppModel) {
                         }
                     },
                 )
+                if (stickerButton) {
+                    IconButton(
+                        onClick = {
+                            model.loadStickers()
+                            showStickers = !showStickers
+                        },
+                        modifier = Modifier.padding(end = 8.dp).size(34.dp),
+                    ) {
+                        Icon(
+                            VeltaIcons.sticker,
+                            contentDescription = L.t("Stickers"),
+                            modifier = Modifier.size(22.dp),
+                            tint = Velta.tokens.textDim,
+                        )
+                    }
+                }
             }
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                 // Stable: while recording, Send stops and sends the voice message.
@@ -4296,13 +4331,13 @@ private fun Composer(model: AppModel) {
 }
 
 /**
- * Web attach menu (chat-view.js): Photo / Video / Camera / File / Stickers,
- * anchored to the attach button, growing upward.
+ * Web attach menu (chat-view.js): Photo / Video / Camera / File, plus Stickers
+ * only when the appearance switch is on. Anchored to the attach button.
  */
 @Composable
 private fun AttachMenu(
     expanded: Boolean,
-    stickersReady: Boolean,
+    stickersInMenu: Boolean,
     cameraAvailable: Boolean,
     voiceAvailable: Boolean,
     onDismiss: () -> Unit,
@@ -4329,7 +4364,7 @@ private fun AttachMenu(
                 if (voiceAvailable) {
                     AttachMenuItem(VeltaIcons.mic, L.t("Voice message")) { onDismiss(); onVoice() }
                 }
-                if (stickersReady) {
+                if (stickersInMenu) {
                     AttachMenuItem(VeltaIcons.sticker, L.t("Stickers")) { onDismiss(); onStickers() }
                 }
             }

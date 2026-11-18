@@ -14,12 +14,17 @@ import org.velta.kmp.ui.detectTextLang
 import org.velta.kmp.ui.fontPrefValue
 import org.velta.kmp.ui.hyphenFallback
 import org.velta.kmp.ui.pxLabel
+import org.velta.kmp.ui.showStickerButton
+import org.velta.kmp.ui.showStickersInMenu
+import org.velta.kmp.ui.stickersInAttachPref
 import org.velta.kmp.ui.storedBubbleRadius
 import org.velta.kmp.ui.withBubbleRadius
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /** Web chat-appearance.js write() + text-lang.js detectTextLang. */
 class ChatAppearanceTest {
@@ -78,6 +83,17 @@ class ChatAppearanceTest {
         assertEquals("ru", detectTextLang("Привет https://example.com/latin/path", "en"))
         assertEquals("en", hyphenFallback("fr"))
         assertEquals("ru", hyphenFallback("ru"))
+
+        assertFalse(stickersInAttachPref(null))
+        assertFalse(stickersInAttachPref("0"))
+        assertTrue(stickersInAttachPref("1"))
+        assertTrue(showStickerButton(inAttach = false, hasText = false, p2pGroup = false))
+        assertFalse(showStickerButton(inAttach = false, hasText = true, p2pGroup = false))
+        assertFalse(showStickerButton(inAttach = true, hasText = false, p2pGroup = false))
+        assertFalse(showStickerButton(inAttach = false, hasText = false, p2pGroup = true))
+        assertFalse(showStickersInMenu(inAttach = false, p2pGroup = false))
+        assertTrue(showStickersInMenu(inAttach = true, p2pGroup = false))
+        assertFalse(showStickersInMenu(inAttach = true, p2pGroup = true))
 
         val platform = MemPrefs()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

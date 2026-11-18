@@ -463,6 +463,7 @@ internal object LangFr {
         "Sticker" to "Autocollant",
         "Sticker saved" to "Autocollant enregistré",
         "Stickers" to "Autocollants",
+        "Stickers in attachments menu" to "Autocollants dans le menu des pièces jointes",
         "Still downloading…" to "Téléchargement en cours…",
         "Stop video" to "Couper la vidéo",
         "Stretch" to "Remplir",

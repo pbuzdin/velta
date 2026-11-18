@@ -29,9 +29,11 @@ Later #358 slices in this tree: strict relay and `velta://proxy` message
 cards (`ui/InviteCards.kt`; `velta://ws` stays plain text), sticker sends
 via `send_msg` viewtype `Sticker` so a reply quote survives, chat
 appearance (text size, corners, hyphenation, liquid-glass composer
-switch), and an Android app-lock PIN beside the biometric lock. Desktop
-has no PIN control and does not encrypt a keyless accounts dir. No
-Windows Hello. The stickers-in-attach switch is not built.
+switch, stickers-in-attach), and an Android app-lock PIN beside the
+biometric lock. Desktop has no PIN control and does not encrypt a
+keyless accounts dir. No Windows Hello. Stickers default to the
+composer button and move into Attach when `velta-stickers-in-attach`
+is `"1"`. The button hides while the composer has text.
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout
@@ -83,8 +85,8 @@ composeApp/src/
                  labels, deltachat.id short links. Relay chips stay out.
   ui/InviteCards.kt  strict message cards: `https://host/i/<token>` and
                  `velta://proxy` only. `velta://ws` stays plain text.
-  ui/ChatAppearance.kt  text size, bubble corners, hyphenation
-                 (`chat-appearance.js` / `text-lang.js`).
+  ui/ChatAppearance.kt  text size, bubble corners, hyphenation,
+                 stickers-in-attach (`chat-appearance.js` / `text-lang.js`).
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
@@ -341,7 +343,9 @@ never run Gradle on the Windows side.
   48dp-min 16dp-radius input wrap on bgSidebar + 1dp border, naked
   BasicTextField 15.5sp/1.3, armed-send tint). Attach menu (web
   chat-view.js): Photo / Video / Camera (FileProvider capture) / File
-  (SAF mime pre-filter) / Stickers. Staged attachments show a 96×64
+  (SAF mime pre-filter). Stickers is that menu only when
+  `velta-stickers-in-attach` is `"1"`; otherwise the button sits in the
+  empty composer and hides while there is text. Staged attachments show a 96×64
   letterboxed thumbnail (EXIF-aware; video first frame + play/duration);
   Edit on a still opens the pre-send crop/draw editor
   (`ui/ImageEditRules.kt`: aspect presets, 90° rotate, brush, undo/redo;
@@ -531,13 +535,18 @@ never run Gradle on the Windows side.
   absent is off) and `glassComposerAvailable()` (Android API 31+,
   desktop false — the switch is hidden there). It is off while a reply,
   edit, attachment, or message-action bar is showing.
-- **Chat appearance** (#328, except the stickers-in-attach switch):
+- **Chat appearance** (#328):
   Settings → Chat appearance. `velta-msg-font-size` is 10–22 px, step
   0.5, absent = 15.5 (storing the default removes the key).
   `velta-bubble-radius` is 0–14; null when it matches the theme radius
   (brutal 6, otherwise 14). With an override, tail and quote are
   min(6, r) and media is max(0, r−4); with none, brutal media stays 10.
-  `velta-hyphens` is off only when `"0"`. Per-message language is
+  `velta-hyphens` is off only when `"0"`.
+  `velta-stickers-in-attach` is on only when `"1"` (off stores `"0"`).
+  Off: sticker button inside the empty composer. On: Stickers is an
+  Attach row and the button is gone. Either way the button is gone
+  while the field has text. P2P groups offer neither; this client has
+  no P2P groups yet. Per-message language is
   Cyrillic vs Latin (`detectTextLang`); a tie or no letters follows the
   UI language, and French hyphenates as English. Font size and hyphens
   apply to the bubble body only. Rules: `ui/ChatAppearance.kt`.

@@ -463,6 +463,7 @@ internal object LangRu {
         "Sticker" to "Стикер",
         "Sticker saved" to "Стикер сохранён",
         "Stickers" to "Стикеры",
+        "Stickers in attachments menu" to "Стикеры в меню вложений",
         "Still downloading…" to "Ещё скачивается…",
         "Stop video" to "Выключить видео",
         "Stretch" to "Растянуть",

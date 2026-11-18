@@ -74,3 +74,14 @@ internal fun detectTextLang(text: String?, fallback: String): String {
 }
 
 internal fun hyphenFallback(uiLang: String): String = if (uiLang.startsWith("ru")) "ru" else "en"
+
+/** Web `velta-stickers-in-attach`. Absent is off. Only `"1"` turns it on. */
+internal fun stickersInAttachPref(raw: String?): Boolean = raw == "1"
+
+/** Empty composer, and the attach-menu switch is off. P2P groups offer no stickers. */
+internal fun showStickerButton(inAttach: Boolean, hasText: Boolean, p2pGroup: Boolean): Boolean =
+    !p2pGroup && !inAttach && !hasText
+
+/** Attach-menu row. Same P2P refusal as the button. */
+internal fun showStickersInMenu(inAttach: Boolean, p2pGroup: Boolean): Boolean =
+    inAttach && !p2pGroup

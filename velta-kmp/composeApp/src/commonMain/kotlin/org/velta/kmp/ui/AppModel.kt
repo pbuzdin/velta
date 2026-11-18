@@ -4289,6 +4289,9 @@ class AppModel(
     /** Web stores "1" or "0" (absent is off). Unlike hyphens, off is not key removal. */
     var glassComposer by mutableStateOf(platform.pref("velta-glass-composer") == "1")
         private set
+    /** Web `velta-stickers-in-attach`. Absent is the composer button. `"1"` moves it into Attach. */
+    var stickersInAttach by mutableStateOf(stickersInAttachPref(platform.pref("velta-stickers-in-attach")))
+        private set
     var lang by mutableStateOf(platform.pref("velta-lang")?.takeIf { it in L.LANGS.map { it.first } } ?: "en")
         private set
     var appIconChoice by mutableStateOf(AppIconChoice.fromPref(platform.pref(APP_ICON_PREF)))
@@ -4345,6 +4348,11 @@ class AppModel(
     fun onSetGlassComposer(on: Boolean) {
         glassComposer = on
         platform.setPref("velta-glass-composer", if (on) "1" else "0")
+    }
+
+    fun onSetStickersInAttach(on: Boolean) {
+        stickersInAttach = on
+        platform.setPref("velta-stickers-in-attach", if (on) "1" else "0")
     }
 
     /** Web setLang: "en" is stored by REMOVING the key (i18n.js:30). */
