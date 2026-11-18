@@ -13,7 +13,9 @@ import org.velta.kmp.AppHolder
 import org.velta.kmp.MainActivity
 import org.velta.kmp.appIconSmallIconRes
 import org.velta.kmp.appLauncherTileBitmap
-import org.velta.kmp.R
+import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 import org.velta.kmp.currentAppIcon
 import org.velta.kmp.ui.L
 import org.velta.kmp.ui.syncServiceRuns
@@ -89,23 +91,31 @@ class VeltaForegroundService : Service() {
                 ),
             )
         }
-        // Custom content: vivo's default template paints the app icon it
-        // CACHED at install — alias switches never reach it (proven on
-        // device, #403's largeIcon just added a second icon). Our own view
-        // carries exactly one icon: the chosen logo's tile, re-read from
-        // prefs on every service start.
+        // vivo's shell ALWAYS paints the cached app icon beside standard
+        // and custom-content cards (two icons; the shell one stale after
+        // alias switches). Conversation-style cards get exactly ONE icon —
+        // the Person avatar — so the banner poses as one: avatar = the
+        // chosen logo's tile, re-read from prefs on every service start.
         val tile = applicationContext.appLauncherTileBitmap(applicationContext.currentAppIcon())
-        val views = android.widget.RemoteViews(packageName, R.layout.notification_banner).apply {
-            setImageViewBitmap(R.id.banner_icon, tile)
-            setTextViewText(R.id.banner_title, "Velta")
-            setTextViewText(R.id.banner_text, L.t("Keeping your messages up to date"))
-        }
-        return Notification.Builder(this, CHANNEL_ID)
+        val velta = Person.Builder()
+            .setName("Velta")
+            .setIcon(IconCompat.createWithBitmap(tile))
+            .build()
+        val style = NotificationCompat.MessagingStyle(velta)
+            .addMessage(
+                NotificationCompat.MessagingStyle.Message(
+                    L.t("Keeping your messages up to date"),
+                    System.currentTimeMillis(),
+                    velta,
+                ),
+            )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
-            .setCustomContentView(views)
-            .setCustomBigContentView(views)
+            .setStyle(style)
             .setContentIntent(openAppIntent())
             .setOngoing(true)
+            .setShowWhen(false)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
