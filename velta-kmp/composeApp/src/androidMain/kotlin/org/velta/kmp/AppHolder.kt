@@ -40,6 +40,13 @@ object AppHolder {
                     if (on) org.velta.kmp.calls.CallForegroundService.start(appContext, video)
                     else org.velta.kmp.calls.CallForegroundService.stop(appContext)
                 }
+                org.velta.kmp.calls.CallNotifications.register(appContext)
+                created.callNotifyIncoming = { name ->
+                    org.velta.kmp.calls.CallNotifications.showIncoming(appContext, name)
+                }
+                created.callNotifyIncomingCancel = {
+                    org.velta.kmp.calls.CallNotifications.cancel(appContext)
+                }
                 created.callCameraPermission = { created.cameraPermissionHook?.invoke() ?: true }
                 model = created
             }

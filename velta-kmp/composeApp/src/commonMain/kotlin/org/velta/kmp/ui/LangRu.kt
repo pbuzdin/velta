@@ -167,6 +167,7 @@ internal object LangRu {
         "Delete all messages in this chat?" to "Удалить все сообщения в этом чате?",
         "Delete chat" to "Удалить чат",
         "Decline" to "Отклонить",
+        "Switch camera" to "Переключить камеру",
         "End call" to "Завершить звонок",
         "Delete every message in \"{name}\" older than {label}? Pinned messages are kept. This cannot be undone." to "Удалить все сообщения в «{name}» старше {label}? Закреплённые сохранятся. Это нельзя отменить.",
         "Delete for everyone" to "Удалить у всех",
