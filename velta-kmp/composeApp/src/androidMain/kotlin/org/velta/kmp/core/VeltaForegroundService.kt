@@ -101,16 +101,14 @@ class VeltaForegroundService : Service() {
             .setName("Velta")
             .setIcon(IconCompat.createWithBitmap(tile))
             .build()
+        // NO messages in the style: vivo counts re-posted messages as an
+        // unread-chat badge and ranks conversations first — the status goes
+        // through the plain title/text fields instead, keeping the avatar.
         val style = NotificationCompat.MessagingStyle(velta)
-            .addMessage(
-                NotificationCompat.MessagingStyle.Message(
-                    L.t("Keeping your messages up to date"),
-                    System.currentTimeMillis(),
-                    velta,
-                ),
-            )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
+            .setContentTitle("Velta")
+            .setContentText(L.t("Keeping your messages up to date"))
             .setStyle(style)
             .setContentIntent(openAppIntent())
             .setOngoing(true)
