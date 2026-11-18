@@ -38,6 +38,8 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
         /** All message notifications share this id; the TAG makes them unique
          * (the sync service's ongoing notification uses id 1, no tag). */
         private const val NOTIFICATION_ID = 1000
+        private const val SENDING_CHANNEL = "velta-sending"
+        private const val SENDING_ID = 4
 
         /** Messages kept per conversation notification. */
         private const val MAX_MESSAGES = 7
@@ -122,6 +124,38 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
             largeIcons[key] = it
         }
         manager.notify(key, NOTIFICATION_ID, builder.build())
+    }
+
+    override fun sending(on: Boolean) {
+        if (!on) {
+            manager.cancel(SENDING_ID)
+            return
+        }
+        val manager = manager
+        if (manager.getNotificationChannel(SENDING_CHANNEL) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(SENDING_CHANNEL, L.t("Sending…"), NotificationManager.IMPORTANCE_LOW),
+            )
+        }
+        val launch = Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
+            .setClass(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        val pending = PendingIntent.getActivity(
+            context, 3, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val note = NotificationCompat.Builder(context, SENDING_CHANNEL)
+            .setSmallIcon(context.appIconSmallIconRes(context.currentAppIcon()))
+            .setContentTitle(L.t("Sending…"))
+            .setContentIntent(pending)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .build()
+        try {
+            manager.notify(SENDING_ID, note)
+        } catch (_: SecurityException) {
+        }
     }
 
     override fun cancel(accountId: Long, chatId: Long) {

@@ -436,6 +436,7 @@ internal object LangRu {
         "Send failed" to "Отправка не удалась",
         "Send message" to "Написать",
         "Sending profile" to "Отправка профиля",
+        "Sending…" to "Отправка…",
         "Sent" to "Отправлено",
         "Sent to {name}" to "Отправлено: {name}",
         "Server URL" to "URL сервера",

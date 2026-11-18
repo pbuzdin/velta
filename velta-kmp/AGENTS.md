@@ -40,7 +40,9 @@ open a 70% sheet (history dimmed, go-down hidden) that keeps the next send quoti
 (`ui/ThreadRules.kt`). Forward and share pickers filter with the same chips
 (All / People / Groups / Channels / Bots / Saved). The forward picker
 also has the known-contacts toggle. An owned outgoing channel offers
-Invite via link/QR.
+Invite via link/QR. Backgrounding with the connection on waits 5 s, then
+posts a silent "Sending…" card while `is_sending_finished` is false and
+drops it on resume.
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout

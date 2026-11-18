@@ -436,6 +436,7 @@ internal object LangFr {
         "Send failed" to "Échec de l'envoi",
         "Send message" to "Envoyer un message",
         "Sending profile" to "Envoi du profil",
+        "Sending…" to "Envoi…",
         "Sent" to "Envoyé",
         "Sent to {name}" to "Envoyé à {name}",
         "Server URL" to "URL du serveur",

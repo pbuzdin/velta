@@ -52,6 +52,7 @@ app-lock PIN beside the biometric lock. Desktop hides the PIN. No
 Windows Hello. Stickers default to the composer button. `velta-stickers-in-attach` `"1"` moves them into Attach. The button hides while the field has text.
 Reply threads: count, side button, and a panel that keeps sends quoting the parent (`ui/ThreadRules.kt`).
 Forward and share pickers use the same category chips (All / People / Groups / Channels / Bots / Saved). The forward picker also has the known-contacts toggle. An owned outgoing channel offers Invite via link/QR (`offersChannelInvite`).
+Backgrounding with the connection on waits 5 s, then a silent "Sending…" card stays until `is_sending_finished`.
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate (picker +

@@ -19,7 +19,10 @@ import org.velta.kmp.ui.noticeText
 import org.velta.kmp.ui.shouldAskBattery
 import org.velta.kmp.ui.shouldAskNotificationPermission
 import org.velta.kmp.ui.bootStartsSync
+import org.velta.kmp.ui.SENDING_QUEUE_EVENTS
+import org.velta.kmp.ui.sendingCard
 import org.velta.kmp.ui.syncServiceRuns
+import kotlin.test.assertNull
 import org.velta.kmp.ui.catchUpDecision
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -28,6 +31,16 @@ import kotlin.test.assertTrue
 
 /** #358 Background delivery: periodic catch-up (stable BackgroundFetchJob). */
 class BackgroundRulesTest {
+
+    @Test
+    fun sendingCardFollowsTheQueue() {
+        assertEquals(true, sendingCard(finished = false, postWhenBusy = true, alreadyUp = false))
+        assertNull(sendingCard(finished = false, postWhenBusy = true, alreadyUp = true))
+        assertEquals(false, sendingCard(finished = true, postWhenBusy = false, alreadyUp = true))
+        assertNull(sendingCard(finished = true, postWhenBusy = true, alreadyUp = false))
+        assertTrue("MsgsChanged" in SENDING_QUEUE_EVENTS)
+        assertFalse("IncomingMsg" in SENDING_QUEUE_EVENTS)
+    }
 
     @Test
     fun policyMatchesStable() {

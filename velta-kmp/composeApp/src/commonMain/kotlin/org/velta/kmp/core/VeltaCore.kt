@@ -376,6 +376,10 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         client.call("maybe_network")
     }
 
+    /** True when no account has mail left in the SMTP queue. */
+    suspend fun isSendingFinished(): Boolean =
+        client.call("is_sending_finished").toString() == "true"
+
     /** Pre-claims a device-message label so the core never posts it (stable
      * SUPPRESSED_DEVICE_LABELS: the core welcome image). */
     suspend fun suppressDeviceMessage(accountId: Long, label: String) {

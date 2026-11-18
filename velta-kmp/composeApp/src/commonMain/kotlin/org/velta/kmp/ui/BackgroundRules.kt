@@ -24,6 +24,20 @@ object BackgroundPolicy {
     const val JOB_MAX_MS = 55_000L
 }
 
+/** Events that can change the outgoing queue (lib.rs sending_queue_check). */
+val SENDING_QUEUE_EVENTS = setOf("MsgsChanged", "MsgDelivered", "MsgFailed")
+
+/**
+ * Whether the silent "Sending…" card should change.
+ * [postWhenBusy] posts while the queue is non-empty; otherwise the card
+ * comes down only once sending has finished. Null leaves it as it is.
+ */
+fun sendingCard(finished: Boolean, postWhenBusy: Boolean, alreadyUp: Boolean): Boolean? = when {
+    postWhenBusy && !finished && !alreadyUp -> true
+    !postWhenBusy && finished && alreadyUp -> false
+    else -> null
+}
+
 enum class CatchUp {
     /** Run start_io + one bounded background_fetch. */
     Fetch,

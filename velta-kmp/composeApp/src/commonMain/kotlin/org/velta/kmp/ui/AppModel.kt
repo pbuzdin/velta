@@ -1773,6 +1773,10 @@ class AppModel(
             notifyIncoming(notice.accountId, notice.chatId, notice.chatName, notice.text)
         fun cancel(accountId: Long, chatId: Long)
 
+        /** Silent ongoing "Sending…" while the outgoing queue drains
+         *  in the background. Default no-op (desktop). */
+        fun sending(on: Boolean) {}
+
         /** Posted notifications keep the icon they were posted with — the
          *  app-icon switch in settings re-posts the live ones (Android). */
         fun refreshIcons() {}
@@ -2476,7 +2480,11 @@ class AppModel(
         backgroundConnection = on
         platform.setPref(BACKGROUND_CONNECTION_KEY, if (on) null else "0")
         onBackgroundConnectionChanged?.invoke(on)
-        if (!on) showToast(L.t("Background connection off — messages arrive when you open Velta"))
+        if (!on) {
+            sendingCheck?.cancel()
+            clearSendingCard()
+            showToast(L.t("Background connection off — messages arrive when you open Velta"))
+        }
     }
 
     private var lastMaybeNetworkMs = 0L
@@ -4782,6 +4790,49 @@ class AppModel(
             }
             "CallEnded" -> if (forCurrent) chatId?.let { recordCallEnded(it) }
         }
+        if (!uiVisible && backgroundConnection && event.kind in SENDING_QUEUE_EVENTS) {
+            refreshSendingCard(postWhenBusy = !sendingCardUp)
+        }
+    }
+
+    /** lib.rs: 5 s after backgrounding, then on queue events, post a silent
+     *  "Sending…" card while is_sending_finished is false. Resume clears it
+     *  at once. Off when background connection is off. */
+    private var sendingCardUp = false
+    private var sendingCheck: Job? = null
+
+    private fun scheduleSendingCheck() {
+        sendingCheck?.cancel()
+        if (!backgroundConnection) return
+        sendingCheck = scope.launch {
+            delay(5_000)
+            if (uiVisible || !backgroundConnection) return@launch
+            refreshSendingCard(postWhenBusy = true)
+        }
+    }
+
+    private fun clearSendingCard() {
+        if (!sendingCardUp) return
+        sendingCardUp = false
+        notifier?.sending(false)
+    }
+
+    private fun refreshSendingCard(postWhenBusy: Boolean) {
+        if (uiVisible || !backgroundConnection) return
+        val veltaCore = core ?: return
+        scope.launch {
+            val finished = try {
+                veltaCore.isSendingFinished()
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (_: Throwable) {
+                return@launch
+            }
+            if (uiVisible) return@launch
+            val next = sendingCard(finished, postWhenBusy, sendingCardUp) ?: return@launch
+            sendingCardUp = next
+            notifier?.sending(next)
+        }
     }
 
     /** Conversation notification for an incoming message — skipped only for
@@ -4888,8 +4939,11 @@ class AppModel(
         uiVisible = visible
         if (!visible) {
             hiddenAtMillis = if (!locked && autoLockMins > 0 && lockRootOn()) clockMillis() else null
+            scheduleSendingCheck()
             return
         }
+        sendingCheck?.cancel()
+        clearSendingCard()
         val hiddenAt = hiddenAtMillis
         hiddenAtMillis = null
         if (LockPolicy.shouldAutoLock(hiddenAt, clockMillis(), autoLockMins)) {

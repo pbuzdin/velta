@@ -43,6 +43,8 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
             // Every chat load asks. Empty = no replies, and the call returns.
             "get_reply_counts" to "{}",
             "get_reply_ids" to "[]",
+            // A backgrounded model asks once the 5 s linger ends.
+            "is_sending_finished" to "true",
         )
     }
 
