@@ -96,20 +96,20 @@ class VeltaForegroundService : Service() {
         // alias switches). Conversation-style cards get exactly ONE icon —
         // the Person avatar — so the banner poses as one: avatar = the
         // chosen logo's tile, re-read from prefs on every service start.
+        // Standard template (native placement, no fake chat): the only hook
+        // that can put OUR tile on it is a Person — skins that render Person
+        // icons on plain notifications show the chosen logo; skins that
+        // ignore it fall back to their cached app icon.
         val tile = applicationContext.appLauncherTileBitmap(applicationContext.currentAppIcon())
         val velta = Person.Builder()
             .setName("Velta")
             .setIcon(IconCompat.createWithBitmap(tile))
             .build()
-        // NO messages in the style: vivo counts re-posted messages as an
-        // unread-chat badge and ranks conversations first — the status goes
-        // through the plain title/text fields instead, keeping the avatar.
-        val style = NotificationCompat.MessagingStyle(velta)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
+            .setPerson(velta)
             .setContentTitle("Velta")
             .setContentText(L.t("Keeping your messages up to date"))
-            .setStyle(style)
             .setContentIntent(openAppIntent())
             .setOngoing(true)
             .setShowWhen(false)
