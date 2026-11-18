@@ -188,7 +188,7 @@ internal fun MessageSheetHost(model: AppModel) {
             SheetAction.ShareLink -> model.shareText?.invoke(href)
             SheetAction.OpenLink -> openLink(href)
             SheetAction.Reply -> model.startReply(m)
-            SheetAction.ShowReplies -> {}
+            SheetAction.ShowReplies -> model.openThread(m)
             SheetAction.Edit -> model.startEdit(m)
             SheetAction.SaveSticker -> model.saveSticker(m)
             SheetAction.Download -> model.downloadAttachment(m)

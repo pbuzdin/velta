@@ -34,6 +34,10 @@ biometric lock. Desktop has no PIN control and does not encrypt a
 keyless accounts dir. No Windows Hello. Stickers default to the
 composer button and move into Attach when `velta-stickers-in-attach`
 is `"1"`. The button hides while the composer has text.
+Reply threads count quotes (`get_reply_counts`; the loaded window counts
+only when history is complete), show "N replies" and a side button, and
+open a 70% sheet (history dimmed, go-down hidden) that keeps the next send quoting the parent
+(`ui/ThreadRules.kt`).
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout
@@ -87,6 +91,7 @@ composeApp/src/
                  `velta://proxy` only. `velta://ws` stays plain text.
   ui/ChatAppearance.kt  text size, bubble corners, hyphenation,
                  stickers-in-attach (`chat-appearance.js` / `text-lang.js`).
+  ui/ThreadRules.kt reply counts, thread rows, send re-lock.
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
@@ -729,7 +734,9 @@ grey, failing-while-green = unreachable amber. `ScriptedRpcTransport` answers
 `get_connectivity_html` with "" by default so scripted tests never hang the
 strip (an unscripted call would leave refreshRelayLine suspended forever).
 `get_config` defaults to JSON `null`: Accounts calls it for `proxy_url`,
-and an unscripted call hangs the same way. `getConfig` returns null for
+and an unscripted call hangs the same way. `get_reply_counts` defaults to
+`{}` and `get_reply_ids` to `[]`: every chat load asks, and a missing
+entry would sit until the 30 s timeout. `getConfig` returns null for
 JSON null — do not read `.content` first (`JsonNull.content` throws).
 - Invite-domain keys ride the web's localStorage names via CorePlatform.pref:
 `velta-invite-domain` (selected QR domain; "velta.cc" stores by REMOVING the

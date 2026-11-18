@@ -710,6 +710,117 @@ class AppModel(
     // ---- Composer (P3) ----
     var composerText by mutableStateOf("")
     var replyTo by mutableStateOf<MessageObject?>(null)
+
+    /** Open thread panel: the parent message. Null = chat history. */
+    var threadParentId by mutableStateOf<Long?>(null)
+        private set
+
+    /** Replies `get_reply_ids` found outside the loaded window. */
+    var threadExtras by mutableStateOf<List<MessageObject>>(emptyList())
+        private set
+
+    /** #14 counts for the open chat. Null until the core answers; then exact. */
+    var coreReplyCounts by mutableStateOf<Map<Long, Int>?>(null)
+        private set
+
+    // ponytail: one flag for the process, same as the web client's
+    // _replyRpcUnavailable. A core without #14 never grows the method.
+    private val replyLock = Any()
+    private var replyBusy = false
+    private var replyAgain = false
+    private var replyRpcOff = false
+    private var windowKey: List<MessageObject>? = null
+    private var windowMap: Map<Long, Int> = emptyMap()
+
+    /** Stable `_replyCountFor` for the open chat. */
+    fun replyCount(id: Long): Int {
+        val msgs = chatMessages
+        if (windowKey !== msgs) {
+            windowMap = windowReplyCounts(msgs)
+            windowKey = msgs
+        }
+        return replyCountFor(id, windowMap, coreReplyCounts, hasMoreMessages)
+    }
+
+    /** "Show replies": panel over the history, composer locked to the parent. */
+    fun openThread(message: MessageObject) {
+        val chat = screen as? Screen.Chat ?: return
+        threadParentId = message.id
+        threadExtras = emptyList()
+        messageSheet = null
+        if (!sheetChat.readOnly) {
+            editingMsg = null
+            replyTo = message
+        }
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        if (synchronized(replyLock) { replyRpcOff }) return
+        scope.launch {
+            val ids = try {
+                veltaCore.replyIds(id, chat.chatId, message.id)
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                if (replyRpcMissing(t)) synchronized(replyLock) { replyRpcOff = true }
+                return@launch
+            }
+            if (threadParentId != message.id || (screen as? Screen.Chat)?.chatId != chat.chatId) return@launch
+            val have = chatMessages.map { it.id }.toSet()
+            val missing = ids.filter { it !in have }
+            if (missing.isEmpty()) return@launch
+            val fetched = runCatching { veltaCore.messages(id, missing) }.getOrDefault(emptyList())
+            if (threadParentId != message.id) return@launch
+            threadExtras = fetched
+        }
+    }
+
+    fun closeThread() {
+        if (threadParentId == null) return
+        threadParentId = null
+        threadExtras = emptyList()
+        replyTo = null
+    }
+
+    /** Quote for this send, then put the bar back on the thread parent. */
+    private fun quoteAndRelock(): Long? {
+        val (quoted, bar) = sendQuotePlan(threadParentId, replyTo?.id)
+        replyTo = if (bar == null) null else chatMessages.firstOrNull { it.id == bar } ?: replyTo
+        return quoted
+    }
+
+    private fun relockThreadBar() {
+        val bar = threadParentId ?: return
+        replyTo = chatMessages.firstOrNull { it.id == bar } ?: replyTo
+    }
+
+    private fun refreshReplyCounts(chatId: Long) {
+        val start = synchronized(replyLock) {
+            if (replyRpcOff) false
+            else if (replyBusy) { replyAgain = true; false }
+            else { replyBusy = true; true }
+        }
+        if (!start) return
+        val veltaCore = core ?: run { synchronized(replyLock) { replyBusy = false }; return }
+        val id = accountId ?: run { synchronized(replyLock) { replyBusy = false }; return }
+        scope.launch {
+            try {
+                do {
+                    synchronized(replyLock) { replyAgain = false }
+                    val counts = try {
+                        veltaCore.replyCounts(id, chatId)
+                    } catch (t: kotlinx.coroutines.CancellationException) {
+                        throw t
+                    } catch (t: Throwable) {
+                        if (replyRpcMissing(t)) synchronized(replyLock) { replyRpcOff = true }
+                        return@launch
+                    }
+                    if ((screen as? Screen.Chat)?.chatId == chatId) coreReplyCounts = counts
+                } while (synchronized(replyLock) { replyAgain && !replyRpcOff })
+            } finally {
+                synchronized(replyLock) { replyBusy = false }
+            }
+        }
+    }
     var sending by mutableStateOf(false)
         private set
     var sendError by mutableStateOf<String?>(null)
@@ -1930,6 +2041,8 @@ class AppModel(
         stopAudio()
         stopVoice(send = false)
         closeChatSearch()
+        closeThread()
+        coreReplyCounts = null
         screen = Screen.Chat(item.id, item.name, item.isGroup)
         accountId?.let { notifier?.cancel(it, item.id) }
         composerText = ""
@@ -2000,6 +2113,7 @@ class AppModel(
         closeChatSearch()
         stopAudio()
         stopVoice(send = false)
+        closeThread()
         saveOpenDraft()
         composerText = ""
         replyTo = null
@@ -2219,6 +2333,8 @@ class AppModel(
     }
 
     private suspend fun switchAccountNow(veltaCore: VeltaCore, id: Long) {
+        closeThread()
+        coreReplyCounts = null
         saveOpenDraft() // stable keeps the open chat's draft per account
         // Message ids are per-account databases: forget what was marked.
         synchronized(seenSent) { seenSent.clear() }
@@ -2607,9 +2723,8 @@ class AppModel(
             if (text.isNotEmpty()) sendEdit(editing, text)
             return
         }
-        val quote = replyTo?.id
+        val quote = quoteAndRelock()
         composerText = ""
-        replyTo = null
         sendError = null
         sending = true
         scope.launch {
@@ -3059,8 +3174,7 @@ class AppModel(
             showToast(L.t("Couldn't send voice message: recording was empty"), 4000)
             return
         }
-        val quote = replyTo?.id
-        replyTo = null
+        val quote = quoteAndRelock()
         scope.launch {
             try {
                 veltaCore.sendMessage(id, rec.chatId, "", "Voice", path, path.substringAfterLast('/'), quotedMessageId = quote)
@@ -3179,6 +3293,7 @@ class AppModel(
                     chat = sheetChat,
                     linkHref = target.linkHref,
                     canShareLink = shareText != null,
+                    replyCount = replyCount(m.id),
                     covered = attachmentCovered(target.message),
                 ),
             ),
@@ -3227,6 +3342,7 @@ class AppModel(
     fun cancelEdit() {
         if (editingMsg != null) composerText = ""
         editingMsg = null
+        relockThreadBar()
     }
 
     private fun sendEdit(editing: MessageObject, text: String) {
@@ -3234,6 +3350,7 @@ class AppModel(
         val id = accountId ?: return
         editingMsg = null
         composerText = ""
+        relockThreadBar()
         scope.launch {
             try {
                 veltaCore.sendEditRequest(id, editing.id, text)
@@ -4425,8 +4542,7 @@ class AppModel(
         val id = accountId
         val chat = screen as? Screen.Chat ?: return
         if (veltaCore == null || id == null) return
-        val quote = replyTo?.id
-        replyTo = null
+        val quote = quoteAndRelock()
         scope.launch {
             try {
                 veltaCore.sendMessage(id, chat.chatId, "", "Sticker", path, quotedMessageId = quote)
@@ -4483,6 +4599,9 @@ class AppModel(
                 }
                 chatMessages = sorted
                 hasMoreMessages = from > 0
+                val parent = threadParentId
+                if (parent != null && sorted.none { it.id == parent }) closeThread()
+                refreshReplyCounts(chatId)
                 if (isGroup) loadSenderNames(veltaCore, id, messages)
             } catch (t: Throwable) {
                 println("velta-kmp: loadMessages failed: $t")

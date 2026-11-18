@@ -50,6 +50,7 @@ fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
 (`send_msg` viewtype `Sticker`), chat appearance prefs, and an Android
 app-lock PIN beside the biometric lock. Desktop hides the PIN. No
 Windows Hello. Stickers default to the composer button. `velta-stickers-in-attach` `"1"` moves them into Attach. The button hides while the field has text.
+Reply threads: count, side button, and a panel that keeps sends quoting the parent (`ui/ThreadRules.kt`).
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate (picker +

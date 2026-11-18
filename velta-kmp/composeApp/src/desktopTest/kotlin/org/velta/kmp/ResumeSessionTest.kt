@@ -40,6 +40,9 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
             "set_config" to "null",
             // An unread chat asks for its "Unread messages" line on open.
             "get_first_unread_message_of_chat" to "null",
+            // Every chat load asks. Empty = no replies, and the call returns.
+            "get_reply_counts" to "{}",
+            "get_reply_ids" to "[]",
         )
     }
 

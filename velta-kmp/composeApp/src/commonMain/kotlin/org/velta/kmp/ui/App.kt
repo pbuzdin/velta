@@ -9,6 +9,10 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -81,8 +85,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -133,6 +143,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
@@ -142,14 +153,19 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -3106,6 +3122,8 @@ private fun ChatScreen(
         }
     }
     val goDownScope = rememberCoroutineScope()
+    // Android BACK closes the thread before it leaves the chat (web history entry).
+    PlatformBackHandler(enabled = model.threadParentId != null) { model.closeThread() }
 
     var headPx by remember { mutableIntStateOf(0) }
     var footPx by remember { mutableIntStateOf(0) }
@@ -3125,7 +3143,12 @@ private fun ChatScreen(
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(
             WindowInsets.ime.union(WindowInsets.navigationBars),
-        ),
+        ).onPreviewKeyEvent { e ->
+            if (e.key == Key.Escape && e.type == KeyEventType.KeyDown && model.threadParentId != null) {
+                model.closeThread()
+                true
+            } else false
+        },
         content = {
         val rows = chatRows(model.chatMessages, model.unreadLineId)
         val historyTokens = withBubbleRadius(Velta.tokens, model.bubbleRadius)
@@ -3241,6 +3264,11 @@ private fun ChatScreen(
         }
         },
         overlay = { backdrop, host ->
+        if (model.threadParentId != null) {
+            // Web history scrim. Light is lighter; the header plate paints over this.
+            val scrim = if (LocalVeltaThemeMode.current == VeltaThemeMode.Light) 0.12f else 0.22f
+            Box(Modifier.fillMaxSize().background(Color(0xFF101010).copy(alpha = scrim)))
+        }
         GlassPlate(
             backdrop,
             host,
@@ -3342,6 +3370,17 @@ private fun ChatScreen(
                 // contact the author, mute/unmute instead.
                 ChannelBottomBar(model)
             } else {
+                val threadOpen = model.threadParentId != null
+                val threadFancy = threadOpen && !rememberReducedMotion()
+                val slidePx = with(LocalDensity.current) { 28.dp.roundToPx() }
+                AnimatedVisibility(
+                    visible = threadOpen,
+                    enter = if (threadFancy) {
+                        slideInVertically(tween(160)) { slidePx } + fadeIn(tween(160))
+                    } else EnterTransition.None,
+                ) {
+                    ThreadPanel(model, model.chatMembers[chat.chatId].orEmpty(), chat)
+                }
                 // Variant A floating card (#334): reply / edit / attachment above the plate.
                 ComposerCard(model, Modifier.padding(horizontal = 10.dp))
                 GlassPlate(
@@ -3364,7 +3403,7 @@ private fun ChatScreen(
         }
         // Stable #btn-go-down: away from the newest message, the way back
         // (with the unread count); a tap catches up and jumps to the newest.
-        if (!atBottom && model.openScroll == null) {
+        if (!atBottom && model.openScroll == null && model.threadParentId == null) {
             GoDownButton(
                 count = model.goDownCount,
                 modifier = Modifier
@@ -4563,8 +4602,10 @@ private fun MessageBubble(
     sender: SenderFace?,
     members: List<MentionMember>,
     model: AppModel,
+    inThread: Boolean = false,
 ) {
     val outgoing = message.fromId == 1L // ContactId.SELF
+    val replyN = if (inThread) 0 else model.replyCount(message.id)
     val clipboard = LocalClipboardManager.current
     val uriHandler = LocalUriHandler.current
     val tokens = Velta.tokens
@@ -4753,16 +4794,19 @@ private fun MessageBubble(
     BoxWithConstraints(Modifier.weight(1f)) {
     // Stable .msg-row is full width (.out: flex-end), the BUBBLE caps at
     // min(480px, 90%) (- 50px with the avatar) — #334 bug 13.
-    val bubbleMax = bubbleMaxWidth(maxWidth.value, withAvatar = sender != null).dp
+    val bubbleMax = (bubbleMaxWidth(maxWidth.value, withAvatar = sender != null) - if (replyN > 0) 48f else 0f)
+        .coerceAtLeast(0f).dp
+    val showLabel = if (replyN == 1) L.t("Show 1 reply") else L.t("Show {n} replies").replace("{n}", replyN.toString())
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
-        verticalAlignment = if (sender != null) Alignment.Bottom else Alignment.Top,
+        verticalAlignment = if (sender != null || replyN > 0) Alignment.Bottom else Alignment.Top,
     ) {
         if (sender != null) {
             MessageAvatar(sender)
             Spacer(Modifier.size(8.dp))
         }
+        if (outgoing && replyN > 0) ThreadSideButton(outgoing = true, label = showLabel) { model.openThread(message) }
         Column(Modifier.widthIn(max = bubbleMax), horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start) {
             if (held || tomb) {
                 Box(gestures) {
@@ -5047,6 +5091,13 @@ private fun MessageBubble(
                                 )
                             }
                         }
+                        if (replyN > 0) {
+                            Text(
+                                " · " + if (replyN == 1) L.t("1 reply") else L.t("{n} replies").replace("{n}", replyN.toString()),
+                                fontSize = VeltaType.msgMetaSize,
+                                color = metaColor,
+                            )
+                        }
                     }
                     // Web .msg-reactions: inside the bubble, bgReply chips,
                     // the own reaction gets the accent border.
@@ -5080,10 +5131,177 @@ private fun MessageBubble(
                 }
             }
         }
+        if (!outgoing && replyN > 0) {
+            ThreadSideButton(outgoing = false, label = showLabel) { model.openThread(message) }
+        }
     }
     }
     }
 }
+
+/** Web `.msg-thread-btn`: 32dp disc at the bottom of a 44dp hit, square corner against the bubble. */
+@Composable
+private fun ThreadSideButton(outgoing: Boolean, label: String, onClick: () -> Unit) {
+    val tokens = Velta.tokens
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(
+        topStart = 16.dp,
+        topEnd = 16.dp,
+        bottomStart = if (outgoing) 16.dp else 0.dp,
+        bottomEnd = if (outgoing) 0.dp else 16.dp,
+    )
+    // color-mix(in srgb, var(--text) 8%, var(--bg-bubble-in)) on fine-pointer hover.
+    val disc = if (hovered) lerp(tokens.bgBubbleIn, tokens.text, 0.08f) else tokens.bgBubbleIn
+    Box(
+        Modifier
+            .size(44.dp)
+            .semantics { contentDescription = label }
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Box(
+            Modifier
+                .size(32.dp)
+                .shadow(8.dp, shape, clip = false)
+                .background(disc, shape)
+                .border(1.dp, tokens.border, shape)
+                .drawBehind {
+                    if (!focused) return@drawBehind
+                    val outline = shape.createOutline(size, layoutDirection, this)
+                    val path = when (outline) {
+                        is Outline.Generic -> outline.path
+                        is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+                        is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+                    }
+                    // 2dp outside the disc, same as outline + outline-offset.
+                    val grow = 2.dp.toPx()
+                    scale(
+                        scaleX = (size.width + grow * 2f) / size.width,
+                        scaleY = (size.height + grow * 2f) / size.height,
+                        pivot = center,
+                    ) {
+                        drawPath(path, tokens.focusRing, style = Stroke(width = 2.dp.toPx()))
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(VeltaIcons.thread, contentDescription = null, modifier = Modifier.size(16.dp), tint = tokens.text)
+        }
+    }
+}
+
+/** Web `#thread-panel`: a fixed 70% sheet between the history and the composer. */
+@Composable
+private fun ThreadPanel(model: AppModel, members: List<MentionMember>, chat: AppModel.Screen.Chat) {
+    val parentId = model.threadParentId ?: return
+    val rows = threadRows(model.chatMessages, model.threadExtras, parentId)
+    val parent = rows.firstOrNull { it.id == parentId }
+    val replies = if (parent != null) rows.drop(1) else rows
+    val n = replies.size
+    val tokens = Velta.tokens
+    val scroll = rememberScrollState()
+    // Open, a late reply id, and a reply that just landed all end at the newest row.
+    LaunchedEffect(parentId, replies.size) {
+        snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
+    }
+    val count = if (n == 1) L.t("1 reply") else L.t("{n} replies").replace("{n}", n.toString())
+    val shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.7f)
+            .sheetOverlap()
+            .shadow(14.dp, shape, clip = false)
+            .clip(shape)
+            .background(tokens.bgChat)
+            .border(1.dp, tokens.border, shape)
+            .semantics { contentDescription = L.t("Thread") },
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(tokens.bgSidebar)
+                .drawBehind {
+                    drawLine(tokens.border, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                }
+                .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(L.t("Thread"), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = tokens.text)
+                    Text(
+                        " · $count",
+                        fontWeight = FontWeight.Normal,
+                        fontSize = 16.sp,
+                        color = tokens.textDim,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                val line = threadOrigLine(
+                    if (parent != null) pinSenderName(parent, L.t("You")) else "",
+                    parent?.text.orEmpty(),
+                    parent?.fileName,
+                )
+                if (line.isNotEmpty()) {
+                    Text(line, color = tokens.textDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            IconButton(onClick = { model.closeThread() }) {
+                Icon(
+                    VeltaIcons.chevronLeft,
+                    contentDescription = L.t("Back to chat"),
+                    modifier = Modifier.size(22.dp),
+                    tint = tokens.textDim,
+                )
+            }
+        }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(scroll)
+                .padding(vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (parent != null) {
+                MessageBubble(parent, threadSender(model, chat, parent, members), members, model, inThread = true)
+            }
+            HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = tokens.border)
+            replies.forEach { message ->
+                MessageBubble(message, threadSender(model, chat, message, members), members, model, inThread = true)
+            }
+        }
+    }
+}
+
+/** Web `margin-top: -18px`: the radius overlaps the history and the composer stays flush. */
+private fun Modifier.sheetOverlap(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    val up = 18.dp.roundToPx()
+    layout(placeable.width, (placeable.height - up).coerceAtLeast(0)) {
+        placeable.place(0, -up)
+    }
+}
+
+private fun threadSender(
+    model: AppModel,
+    chat: AppModel.Screen.Chat,
+    message: MessageObject,
+    members: List<MentionMember>,
+): SenderFace? = if (chat.isGroup && message.fromId != 1L) {
+    senderFace(
+        message.sender,
+        members.find { it.id == message.fromId },
+        null,
+        L.t("Unknown"),
+        model.senderNames[message.fromId],
+    )
+} else null
 
 /** Web <velta-avatar size="42" kind="single"> for an incoming group sender. */
 @Composable

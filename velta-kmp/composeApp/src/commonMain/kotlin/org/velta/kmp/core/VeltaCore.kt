@@ -750,6 +750,38 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         }
     }
 
+    /** Velta #14. Map of parent message id → reply count for the whole chat.
+     *  Throws when the core has no such method (old sidecar). */
+    suspend fun replyCounts(accountId: Long, chatId: Long): Map<Long, Int> {
+        val result = client.call(
+            "get_reply_counts",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+        val obj = result as? JsonObject ?: return emptyMap()
+        val out = HashMap<Long, Int>()
+        for ((k, v) in obj) {
+            val id = k.toLongOrNull() ?: continue
+            val n = (v as? JsonPrimitive)?.content?.toIntOrNull() ?: continue
+            if (n > 0) out[id] = n
+        }
+        return out
+    }
+
+    /** Velta #14. Reply ids for one parent, oldest first. */
+    suspend fun replyIds(accountId: Long, chatId: Long, messageId: Long): List<Long> {
+        val result = client.call(
+            "get_reply_ids",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                RpcClient.param(chatId),
+                RpcClient.param(messageId),
+            ),
+        )
+        return (result as? JsonArray)?.mapNotNull {
+            (it as? JsonPrimitive)?.content?.toLongOrNull()
+        } ?: emptyList()
+    }
+
     /**
      * One parked `get_next_event_batch` (#357). The core returns every event
      * already queued, oldest first. Empty is not an error: a closed channel

@@ -166,8 +166,11 @@ private fun ReplyRow(model: AppModel, m: MessageObject) {
                 color = tokens.textDim, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = { model.replyTo = null }) {
-            Icon(VeltaIcons.close, contentDescription = L.t("Cancel reply"), tint = tokens.textDim, modifier = Modifier.size(20.dp))
+        // Thread lock: the bar stays on the parent until the panel closes.
+        if (model.threadParentId == null) {
+            IconButton(onClick = { model.replyTo = null }) {
+                Icon(VeltaIcons.close, contentDescription = L.t("Cancel reply"), tint = tokens.textDim, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

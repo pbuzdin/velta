@@ -108,8 +108,7 @@ data class SheetContext(
     val linkHref: String = "",
     /** Platform can hand a link to the share sheet (stable canShareLink). */
     val canShareLink: Boolean = true,
-    /** Replies counted for this message (stable _replyCountFor). KMP has no
-     *  thread panel yet, so the caller passes 0 and Show replies stays hidden. */
+    /** Replies counted for this message (stable _replyCountFor). */
     val replyCount: Int = 0,
     /** Touch UI (stable _offerSelectText): KMP is phone-first, always true. */
     val touch: Boolean = true,

@@ -10,7 +10,7 @@ own-profile editor, auto-download / text-only settings, background
 catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
 preview and crop/draw editor, floating reply card, chat appearance
 (text size, corners, hyphenation, liquid-glass composer), relay and
-SOCKS5 message cards, and an Android app-lock PIN beside the biometric
+SOCKS5 message cards, reply threads, and an Android app-lock PIN beside the biometric
 lock. Android runs webxdc in a WebView; desktop tells you to use the
 web app. N4 release signing is
 still open. The client onboards from invites or QR scans, manages relays,
