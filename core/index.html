@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="What Velta changes in the vendored chatmail core, why, and the work still planned. The detailed lists live on GitHub.">
+  <title>Velta Core — Velta</title>
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+<header>
+  <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+  <nav aria-label="Sections">
+    <a href="/#product">Product</a>
+    <a href="/#features">Features</a>
+    <a href="/#privacy">Privacy</a>
+    <a href="/#platforms">Platforms</a>
+    <a href="/#help">Help</a>
+    <a href="/#support">Support</a>
+    <a href="/news" data-nav="news">News</a>
+    <a href="/web/">Web app</a>
+  </nav>
+  <a href="/#download"><span>Get</span><span>Download</span></a>
+  <details>
+    <summary>Menu</summary>
+    <nav aria-label="Mobile">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" data-nav="news">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+  </details>
+</header>
+  <main id="content" class="page">
+<!-- CMS:START -->
+<p class="kicker">Project</p>
+<h1>Velta Core</h1>
+<p>The messaging engine inside every Velta app is the <a href="https://github.com/chatmail/core">chatmail core</a> — the same open-source library that powers Delta Chat — vendored in our tree as <code>core/</code>. The copy we ship today is <strong>2.69.0</strong> (upstream license MPL-2.0). On top of that tag we keep a numbered patch series, re-applied every time we take a new upstream release.</p>
+<p>This page is a stable map of what those patches do and why they exist. The living source of truth is on GitHub: <a href="https://github.com/pbuzdin/velta/blob/master/VENDORISSUES.MD">VENDORISSUES.MD</a> documents each patch, and <a href="https://github.com/pbuzdin/velta/blob/master/tools/apply-core-patches.py"><code>tools/apply-core-patches.py</code></a> is the quilt that applies them. <a href="https://github.com/pbuzdin/velta/blob/master/COREUPDATE.md">COREUPDATE.md</a> is the upgrade checklist. We do not edit <code>core/</code> by hand — a re-vendor would silently drop a fix that is not in the quilt.</p>
+<p>The current series is 200 operations. When upstream ships the same behavior, we drop the patch. That already happened once: an animated-WebP fix (#7) came out of our quilt when chatmail core 2.63.0 included it. For the relay software, see <a href="/relay/">Velta Relay</a>.</p>
+
+<h2>Relays you choose</h2>
+<p>Velta lets you keep more than one relay, pick which one sends, pause one without deleting it, and see what each relay can do. These patches make that product work.</p>
+<dl>
+  <dt>#10 — Name the sending relay <a href="https://github.com/pbuzdin/velta/issues/163">#163</a></dt>
+  <dd><strong>What.</strong> The connectivity report names the relay the SMTP loop is actually using.</dd>
+  <dd><strong>Why.</strong> After a failover the app can show the real sending relay, instead of the one that was last configured.</dd>
+  <dt>#11 — Pin a relay for sending <a href="https://github.com/pbuzdin/velta/issues/164">#164</a></dt>
+  <dd><strong>What.</strong> “Use for sending” puts your chosen relay first (<code>ui.velta.send_transport</code>).</dd>
+  <dd><strong>Why.</strong> You pick the sending relay; the core should not silently prefer whichever one succeeded last. A pin that just failed is tried later for five minutes, so one timeout does not block every reconnect.</dd>
+  <dt>#15 — Relay capabilities <a href="https://github.com/pbuzdin/velta/issues/168">#168</a></dt>
+  <dd><strong>What.</strong> The app can read each relay’s advertised features — calls, push, iroh, and the rest.</dd>
+  <dd><strong>Why.</strong> The Relays screen can show what each of your relays actually supports, without placing a test call or guessing.</dd>
+  <dt>#16 — IDLE, compression, and the recipient limit <a href="https://github.com/pbuzdin/velta/issues/170">#170</a></dt>
+  <dd><strong>What.</strong> The same per-relay metadata also carries IMAP IDLE, compression, and the SMTP recipient limit.</dd>
+  <dd><strong>Why.</strong> The Relays screen can show instant delivery and the send limit from a real session, not a probe.</dd>
+  <dt>#23 — Extra relays are opt-in <a href="https://github.com/pbuzdin/velta/issues/284">#284</a></dt>
+  <dd><strong>What.</strong> The core no longer quietly adds extra relays after setup. “Add relays automatically” is a switch, off by default.</dd>
+  <dd><strong>Why.</strong> Velta’s rule is relays you pick. A profile stays on the ones you chose unless you turn automatic adding on.</dd>
+  <dt>#24 — Pause a relay <a href="https://github.com/pbuzdin/velta/issues/189">#189</a></dt>
+  <dd><strong>What.</strong> You can disable a relay without deleting it. Sending and the inbox skip it; a live sending connection on that relay is closed.</dd>
+  <dd><strong>Why.</strong> A misbehaving relay can be stopped now, without losing its address.</dd>
+  <dt>#30 — Strict pin <a href="https://github.com/pbuzdin/velta/issues/288">#288</a></dt>
+  <dd><strong>What.</strong> “Only send via the pinned relay” turns failover off for sending. Receiving stays multi-relay. The option does nothing unless a pin is set.</dd>
+  <dd><strong>Why.</strong> When you need a specific sending address, the core must not silently switch to another one.</dd>
+</dl>
+
+<h2>Staying responsive</h2>
+<p>Several patches stop a long IO restart or a slow database write from freezing the rest of the app.</p>
+<dl>
+  <dt>#12 — A bounded push wake-up <a href="https://github.com/pbuzdin/velta/issues/165">#165</a></dt>
+  <dd><strong>What.</strong> A push fetch gives a dead socket ten seconds, then restarts IO and tries again.</dd>
+  <dd><strong>Why.</strong> A half-open IDLE connection could otherwise block a wake-up for a minute, and the chat list looked frozen.</dd>
+  <dt>#13 — Push-token events <a href="https://github.com/pbuzdin/velta/issues/166">#166</a></dt>
+  <dd><strong>What.</strong> The core tells the app when a relay accepts or rejects a push token, including the relay address.</dd>
+  <dd><strong>Why.</strong> The Relays screen and diagnostics can show whether push actually registered, instead of only writing it to a log.</dd>
+  <dt>#17 and #21 — Don’t hold the accounts lock across IO <a href="https://github.com/pbuzdin/velta/issues/175">#175</a>, <a href="https://github.com/pbuzdin/velta/issues/181">#181</a></dt>
+  <dd><strong>What.</strong> Network checks and start/stop-for-all-accounts release the accounts lock before waiting on an IO restart.</dd>
+  <dd><strong>Why.</strong> Opening a chat or listing messages was waiting behind a shutdown that can take tens of seconds.</dd>
+  <dt>#18 and #27 — Interrupts that don’t queue <a href="https://github.com/pbuzdin/velta/issues/176">#176</a>, <a href="https://github.com/pbuzdin/velta/issues/244">#244</a></dt>
+  <dd><strong>What.</strong> Scheduler interrupts skip a lock held by an IO restart, and a skipped wake is delivered when the scheduler starts again.</dd>
+  <dd><strong>Why.</strong> Sending a message or marking one seen was timing out while IMAP and SMTP tasks wound down.</dd>
+  <dt>#22B — The config cache no longer blocks every RPC <a href="https://github.com/pbuzdin/velta/issues/229">#229</a></dt>
+  <dd><strong>What.</strong> Config reads no longer wait on a lock held across a SQL write.</dd>
+  <dd><strong>Why.</strong> Almost every request reads config, so a slow write was freezing the whole app.</dd>
+  <dt>#25, #26 and #28 — Stall follow-ups <a href="https://github.com/pbuzdin/velta/issues/241">#241</a></dt>
+  <dd><strong>What.</strong> Relay metadata is stored without holding the cache across the network; config cache fills can’t resurrect a stale value; the connectivity report says “Connecting…” during an IO restart instead of waiting.</dd>
+  <dd><strong>Why.</strong> These were the remaining ways a restart or a heavy database write could blank the Relays screen or hang a chat.</dd>
+</dl>
+
+<h2>Features and encryption</h2>
+<dl>
+  <dt>#14 and #29 — Reply-thread queries <a href="https://github.com/pbuzdin/velta/issues/167">#167</a>, <a href="https://github.com/pbuzdin/velta/issues/250">#250</a></dt>
+  <dd><strong>What.</strong> The core can return reply counts and reply ids for a chat, looking the quoted message up by its Message-ID.</dd>
+  <dd><strong>Why.</strong> The “N replies” chip and the thread overlay need exact counts, including messages that are not on screen, without a slow rescan on every restart.</dd>
+  <dt>#19 — Admin groups <a href="https://github.com/pbuzdin/velta/issues/177">#177</a></dt>
+  <dd><strong>What.</strong> A group can have one admin who alone changes members, settings, pins, and other people’s messages. The wire format is the one used by ArcaneChat.</dd>
+  <dd><strong>Why.</strong> So Velta and ArcaneChat can interoperate on admin groups. A short plan, including how stock Delta Chat clients see these invites, lives in <a href="https://github.com/pbuzdin/velta/blob/master/docs/core-patches/admin-groups-plan.md">docs/core-patches/admin-groups-plan.md</a>.</dd>
+  <dt>#20 — Database encryption at rest <a href="https://github.com/pbuzdin/velta/issues/178">#178</a></dt>
+  <dd><strong>What.</strong> The account database can open with a key from the OS keystore, instead of always using an empty passphrase.</dd>
+  <dd><strong>Why.</strong> The core still has a SQLCipher path, but the account manager was not passing a key, so an encrypted database never unlocked.</dd>
+  <dt>#22A — Attachment encryption at rest <a href="https://github.com/pbuzdin/velta/issues/178">#178</a></dt>
+  <dd><strong>What.</strong> File attachments are encrypted on disk in seekable chunks, under a key derived from the same profile key. Ordinary plaintext files still open and are migrated in place.</dd>
+  <dd><strong>Why.</strong> Encrypting the database is not enough if media sit as plaintext files next to it.</dd>
+</dl>
+
+<h2>Planned work</h2>
+<p>Open issues labelled <a href="https://github.com/pbuzdin/velta/issues?q=is%3Aissue+label%3A%22core+patch%22">core patch</a> are the queue. The detailed write-ups stay on GitHub; this is the short list.</p>
+<ul>
+  <li><a href="https://github.com/pbuzdin/velta/issues/391">#391 — Send failover and retry</a>. Try the next relay in the same burst for connect problems and relay-class errors, instead of waiting or failing that message at once. Remember a dead pin across a restart, keep the last SMTP response on the bubble, and stamp which relay actually sent (or last failed).</li>
+  <li><a href="https://github.com/pbuzdin/velta/issues/392">#392 — A per-message relay picker</a>. A tray above the composer chooses the relay for this message only. The usual pin remains the default. Needs a per-message transport binding in the core.</li>
+  <li><a href="https://github.com/pbuzdin/velta/issues/393">#393 — Relay reputation</a>. Score each relay over a ten-hour window, per network, and use that score to order relays (still behind your pin, unless the pin is backing off).</li>
+  <li><a href="https://github.com/pbuzdin/velta/issues/394">#394 — Retry with another relay</a>. On a failed bubble, retry the same message on a different relay — automatically the next-best one, or one you pick in the tray.</li>
+  <li><a href="https://github.com/pbuzdin/velta/issues/352">#352 — Core size</a> is research: what the vendored core actually weighs on Android, and which options would shrink it.</li>
+</ul>
+<p>Related relay-side work, including a shorter retry queue so the app can offer #394 in minutes rather than days, is tracked as <a href="https://github.com/pbuzdin/velta/issues/395">#395</a> and described on the <a href="/relay/">Relay</a> page.</p>
+
+<h2>The browser copy</h2>
+<p>The PWA needs the same core compiled to WebAssembly. That is a separate, opt-in series in <a href="https://github.com/pbuzdin/velta/tree/master/docs/research/wasm-patches">docs/research/wasm-patches</a>, applied on a copy of <code>core/</code> rather than onto the production tree. Native Android and desktop builds stay on the quilt above.</p>
+<!-- CMS:END -->
+  </main>
+<footer>
+  <div>
+    <div>
+      <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+      <p class="motto">V for Velta</p>
+      <p>Encrypted chat through relays you choose, or straight across, device to device, when it should not sit on a server.</p>
+    </div>
+    <div>
+      <h2>On this site</h2>
+      <ul>
+        <li><a href="/#download">Download</a></li>
+        <li><a href="/#privacy">Privacy</a></li>
+        <li><a href="/#support">Support</a></li>
+        <li><a href="/#help">Help</a></li>
+        <li><a href="/news">News</a></li>
+        <li><a href="/about.html">About</a></li>
+        <li><a href="/developing.html">Developing</a></li>
+        <li><a href="/comparison.html">Compare</a></li>
+        <li><a href="/core/">Core</a></li>
+        <li><a href="/relay/">Relay</a></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Project</h2>
+      <ul>
+        <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+        <li><a href="/admin/">Edit site</a></li>
+      </ul>
+    </div>
+  </div>
+  <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
+</footer>
+  <script defer src="/js/site.js?v=9"></script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Why Velta changes the chatmail core and relay — Velta</title>
+  <meta name="description" content="We vendor the chatmail core and keep a public fork of the relay, with a short, documented set of changes on top of both. Here is why. The living lists stay on GitHub.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Engineering</p>
+    <h1>Why Velta changes the chatmail core and relay</h1>
+    <p><time>18 November 2026</time> · 3 min read</p>
+    <p>We vendor the chatmail core and keep a public fork of the relay, with a short, documented set of changes on top of both. Here is why. The living lists stay on GitHub; <a href="/core/">velta.cc/core</a> and <a href="/relay/">velta.cc/relay</a> are the public maps.</p>
+    <div class="body">
+<p>Velta is a client for the chatmail stack. The messaging engine is <a href="https://github.com/chatmail/core">chatmail/core</a>, the same library that powers Delta Chat. Mailboxes are <a href="https://github.com/chatmail/relay">chatmail relays</a>. We are glad that work exists, we stay current with it, and we remain an independent client — not affiliated with the Delta Chat project.</p>
+<p>The engine we ship is a vendored copy of that core, today version 2.69.0, sitting in <code>core/</code>. Every time we take a new upstream tag we re-apply a numbered patch series, currently 200 operations, with one script. The relay software we document is a public fork, <a href="https://github.com/pbuzdin/relay">pbuzdin/relay</a>, and we merge upstream into it regularly — most recently on 17 November 2026.</p>
+<p>We change things for two product reasons.</p>
+<h2>Relays you choose</h2>
+<p>Velta lets you keep more than one relay, pin one for sending, pause one without deleting it, and see what each relay can do. Soon it should also let you pick a relay for a single message, and retry a failed send on another one. That is a different product from a core that quietly replaces failing relays for you. Both are reasonable. Ours needs a small quilt: a sending pin, a strict-pin option, a pause switch, per-relay capabilities, and a few hooks so the app can show which relay actually sent.</p>
+<p>The relay fork follows the same idea on the server. Signup is invite-only. Browser clients reach the mailbox through a WebSocket tunnel, because a browser cannot open raw IMAP or SMTP. After a message is accepted, though, onward delivery can still sit in a queue for up to two days. That is a sensible default for email, and a poor fit for chat. The next step, tracked as <a href="https://github.com/pbuzdin/velta/issues/395">#395</a>, is a queue of about an hour and a delay warning after five to ten minutes, so the app can mark the send failed in time and offer another relay.</p>
+<h2>Fixes we needed, and patches we drop</h2>
+<p>The rest of the quilt is more ordinary. Some patches stop a long IO restart or a slow database write from freezing the app. Some add a feature we needed — reply-thread queries, admin groups (a port of ArcaneChat’s format so the two clients interoperate), encryption of the database and of attachments at rest. None of this is a secret fork of the protocol. When upstream ships the same behavior, we take it out of the quilt. That already happened with animated WebP, once chatmail core 2.63.0 included the fix.</p>
+<p>We do not edit the vendored tree by hand. A re-vendor would silently lose a fix that is not in the script. The script, the intent of each patch, and the upgrade checklist live in the Velta repository, and we update them when the patches move.</p>
+<h2>A short page, and a list that can change</h2>
+<p>A news post is a poor place to keep a list of twenty patches. It would be stale the next time we add one. So the detailed lists stay on GitHub, and two short pages on this site point at them:</p>
+<ul>
+<li><a href="/core/">velta.cc/core</a> — what the current core patches do, why they exist, and the open issues for failover, a per-message picker, relay reputation, and retrying on another relay.</li>
+<li><a href="/relay/">velta.cc/relay</a> — what the relay fork adds on top of upstream, why, and the sending-reliability work in #395. Issues are disabled on the fork, so that work is tracked in the Velta repo.</li>
+</ul>
+<p>If you want the living source of truth, start with <a href="https://github.com/pbuzdin/velta/blob/master/VENDORISSUES.MD">VENDORISSUES.MD</a>, <a href="https://github.com/pbuzdin/velta/blob/master/tools/apply-core-patches.py"><code>tools/apply-core-patches.py</code></a>, and the fork’s <a href="https://github.com/pbuzdin/relay/blob/main/docs/compare.md">docs/compare.md</a>.</p>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+  <div>
+    <div>
+      <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+      <p class="motto">V for Velta</p>
+      <p>Encrypted chat through relays you choose, or straight across, device to device, when it should not sit on a server.</p>
+    </div>
+    <div>
+      <h2>On this site</h2>
+      <ul>
+        <li><a href="/#download">Download</a></li>
+        <li><a href="/#privacy">Privacy</a></li>
+        <li><a href="/#support">Support</a></li>
+        <li><a href="/#help">Help</a></li>
+        <li><a href="/news">News</a></li>
+        <li><a href="/about.html">About</a></li>
+        <li><a href="/developing.html">Developing</a></li>
+        <li><a href="/comparison.html">Compare</a></li>
+        <li><a href="/core/">Core</a></li>
+        <li><a href="/relay/">Relay</a></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Project</h2>
+      <ul>
+        <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+        <li><a href="/admin/">Edit site</a></li>
+      </ul>
+    </div>
+  </div>
+  <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
+</footer>
+  <script defer src="/js/site.js?v=9"></script>
+</body>
+</html>

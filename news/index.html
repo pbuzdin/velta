@@ -60,6 +60,7 @@
 <h1>News</h1>
 <p>Release notes, guides, and engineering notes. No mailing list.</p>
 <ul class="news-list">
+  <li><a href="/news/core-and-relay.html"><span><h2>Why Velta changes the chatmail core and relay<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-11-18">18 November 2026</time> · <span class="news-tag">Engineering</span></p><p>We vendor the chatmail core and keep a public fork of the relay, with a short, documented set of changes on top of both. Here is why. The living lists stay on GitHub.</p></span></a></li>
   <li><a href="/news/rust-ui-take.html"><span><h2>Our Rust UI take: what two days of native Velta taught us<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-11-12">12 November 2026</time> · <span class="news-tag">Engineering</span></p><p>We built a working Velta client for Android in Rust — no WebView, no browser engine — and ran it on a mid-range phone next to the web app. What the experiment proved, where the costs came due, and why our Android effort went back into the Kotlin client, with the same core in-process.</p></span></a></li>
   <li><a href="/news/v1-5-5.html"><span><h2>Velta 1.5.5: a glass composer, background sends, and Linux packages that are really there<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-11-10">10 November 2026</time> · <span class="news-tag">Release</span></p><p>The message field can turn to glass on Windows and Android, a backgrounded send shows a silent notification until it lands, and the Linux packages are finally on the release page. Plus voice playback speed, category chips in the pickers, and messaging core 2.69.0.</p></span></a></li>
   <li><a href="/news/v1-5-4.html"><span><h2>Velta 1.5.4: Windows Hello that works, Text-only mode, and Linux packages<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-11-07">7 November 2026</time> · <span class="news-tag">Release</span></p><p>Windows Hello works end to end and its prompt comes to the front on its own. Text-only mode covers unknown senders by default, relay failover is visible, and attachment encryption is out of preview.</p></span></a></li>
@@ -69,12 +70,11 @@
   <li><a href="/news/v1-5.html"><span><h2>Velta 1.5 encrypts attachments and replaces the DNS tunnel<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-11-02">2 November 2026</time> · <span class="news-tag">Release</span></p><p>Attachments are encrypted on disk, mail can ride a SOCKS5 proxy instead of the old DNS tunnel, you can pause a relay without deleting it, and the app-lock PIN also unlocks the auto-lock screen.</p></span></a></li>
   <li><a href="/news/v1-4-89.html"><span><h2>Velta 1.4.89 encrypts profile data on Android<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-10-31">31 October 2026</time> · <span class="news-tag">Release</span></p><p>Profile data is now encrypted at rest on Android (preview on desktop and in the browser), a new Privacy &amp; security screen holds the app lock, and Android gets a biometric lock with a PIN fallback.</p></span></a></li>
   <li><a href="/news/v1-4-88.html"><span><h2>Velta 1.4.88 adds admin groups<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-10-29">29 October 2026</time> · <span class="news-tag">Release</span></p><p>Groups can have one admin who controls members, settings and pins, profile keys show up correctly again, and threaded bubbles no longer shrink to one letter wide.</p></span></a></li>
-  <li><a href="/news/v1-4-87.html"><span><h2>Velta 1.4.87: invites on velta.cc, steadier Android, a new message menu<span class="news-arrow" aria-hidden="true"> →</span></h2><p class="news-meta"><time datetime="2026-10-29">29 October 2026</time> · <span class="news-tag">Release</span></p><p>Four releases in one: invite links that live on velta.cc, an end to the minutes-long chat stalls on Android, images that always appear, Cryptex as a second large-file provider, Chatmail core 2.66.0, and a reworked message menu.</p></span></a></li>
 </ul>
-<nav class="news-pager" aria-label="Older news" data-pages="2">
+<nav class="news-pager" aria-label="Older news" data-pages="3">
   <h2>Older news</h2>
   <p>Archive pages, numbered from the first post.</p>
-  <ol class="news-pages"><li><a href="/news/page-2/" aria-label="Page 2">2</a></li><li><a href="/news/page-1/" aria-label="Page 1">1</a></li></ol>
+  <ol class="news-pages"><li><a href="/news/page-3/" aria-label="Page 3">3</a></li><li><a href="/news/page-2/" aria-label="Page 2">2</a></li><li><a href="/news/page-1/" aria-label="Page 1">1</a></li></ol>
 </nav>
 <!-- CMS:END -->
   </main>
@@ -96,6 +96,8 @@
         <li><a href="/about.html">About</a></li>
         <li><a href="/developing.html">Developing</a></li>
         <li><a href="/comparison.html">Compare</a></li>
+        <li><a href="/core/">Core</a></li>
+        <li><a href="/relay/">Relay</a></li>
       </ul>
     </div>
     <div>

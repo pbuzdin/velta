@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="What the pbuzdin/relay fork adds on top of chatmail/relay, why, and the work still planned. Issues are tracked in the Velta repo.">
+  <title>Velta Relay — Velta</title>
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+<header>
+  <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+  <nav aria-label="Sections">
+    <a href="/#product">Product</a>
+    <a href="/#features">Features</a>
+    <a href="/#privacy">Privacy</a>
+    <a href="/#platforms">Platforms</a>
+    <a href="/#help">Help</a>
+    <a href="/#support">Support</a>
+    <a href="/news" data-nav="news">News</a>
+    <a href="/web/">Web app</a>
+  </nav>
+  <a href="/#download"><span>Get</span><span>Download</span></a>
+  <details>
+    <summary>Menu</summary>
+    <nav aria-label="Mobile">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" data-nav="news">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+  </details>
+</header>
+  <main id="content" class="page">
+<!-- CMS:START -->
+<p class="kicker">Project</p>
+<h1>Velta Relay</h1>
+<p><a href="https://github.com/pbuzdin/relay">pbuzdin/relay</a> is our public fork of <a href="https://github.com/chatmail/relay">chatmail/relay</a>, the software that runs a chatmail mailbox. We track upstream and merge it regularly. The latest merge, <a href="https://github.com/pbuzdin/relay/pull/3">pbuzdin/relay#3</a> on 17 November 2026, brought in twelve upstream commits, including filtermail v0.7.8 and a bounce-queue lifetime of two days, matching the ordinary queue lifetime.</p>
+<p>Issues are disabled on the fork, so planned relay work is tracked in the Velta repo — today that is <a href="https://github.com/pbuzdin/velta/issues/395">velta#395</a>. The living capability table is <a href="https://github.com/pbuzdin/relay/blob/main/docs/compare.md">docs/compare.md</a> in the fork; <a href="https://github.com/pbuzdin/relay/blob/main/VELTA-DEPLOY.md">VELTA-DEPLOY.md</a> is the overlay index. This page is the public map. The messaging engine on the client is covered on <a href="/core/">Velta Core</a>.</p>
+<p>Upstream’s own documentation for a stock relay is at <a href="https://chatmail.at/doc/relay">chatmail.at/doc/relay</a>.</p>
+
+<h2>What the fork adds</h2>
+<p>A stock <code>cmdeploy run</code> gives you a chatmail relay: encrypted mail only, automatic deletion, IMAP and SMTP, optional iroh and TURN. The Velta overlay on top of that is a small set of product choices. They are documented in the fork and, today, still applied as a documented overlay on a deployed box; moving every piece into the <code>cmdeploy</code> templates is tracked work in that same repository.</p>
+<dl>
+  <dt>Invite-only signup</dt>
+  <dd><strong>What.</strong> Open <code>/new</code> signup is closed. Accounts are minted only with a signed invite — a <code>velta.cc/web</code> link with a use count and an expiry (48 hours if you omit one; never, if you set it to zero). Unsigned links are refused.</dd>
+  <dd><strong>Why.</strong> A chatmail relay that anyone can join is a different service from one you invite people to. Details: <a href="https://github.com/pbuzdin/relay/blob/main/docs/invites.md">docs/invites.md</a>.</dd>
+  <dt>A WebSocket mail tunnel</dt>
+  <dd><strong>What.</strong> Browser clients tunnel IMAP and SMTP over WebSockets, with an origin allowlist, instead of opening raw TCP — something a browser cannot do.</dd>
+  <dd><strong>Why.</strong> The Velta PWA has to speak to a relay from the browser. Details: <a href="https://github.com/pbuzdin/relay/blob/main/docs/ws-proxy.md">docs/ws-proxy.md</a>.</dd>
+  <dt>PWA hosting</dt>
+  <dd><strong>What.</strong> The relay can serve the Velta web app as static files under its own origin, so the app and the WebSocket endpoints share that origin.</dd>
+  <dd><strong>Why.</strong> A self-hosted browser client should not have to talk across origins to reach its mailbox.</dd>
+  <dt>Incoming and transport filtermail, and HTTPS federation</dt>
+  <dd><strong>What.</strong> filtermail runs as three services — outgoing, incoming, and transport — and the overlay can accept relay-to-relay mail over HTTPS (<code>/mxdeliv</code>), still requiring DKIM alignment and encryption.</dd>
+  <dd><strong>Why.</strong> Incoming and onward delivery have different jobs from the outgoing submission filter, and some peers can federate without classic SMTP on port 25.</dd>
+  <dt>A dual-line iroh relay</dt>
+  <dd><strong>What.</strong> The overlay can advertise both the current iroh 0.35 line (what today’s cores, including Delta Chat, use) and an iroh 1.x line, as two metadata values.</dd>
+  <dd><strong>Why.</strong> Clients on either generation can reach the same operator while the ecosystem moves.</dd>
+  <dt>Veltar, the admin bot</dt>
+  <dd><strong>What.</strong> A chat-driven bot on the relay’s own account can mint invites, report status, and handle other admin tasks. Its source lives in the fork.</dd>
+  <dd><strong>Why.</strong> Running a relay should not mean SSH for every invitation. Details: <a href="https://github.com/pbuzdin/relay/blob/main/docs/admin-bot.md">docs/admin-bot.md</a>.</dd>
+</dl>
+
+<h2>Planned work</h2>
+<p><a href="https://github.com/pbuzdin/velta/issues/395">#395 — Sending reliability</a> is the main tracker. After a message is accepted (SMTP 250), onward delivery still happens later. If that delivery is deferred, the message can sit in the Postfix queue for up to two days, or bounce as a delivery-status notice that Velta usually never surfaces. Two days of silent retry is a poor fit for chat.</p>
+<p>The proposal on the fork, and a discussion starter for upstream, is:</p>
+<ul>
+  <li>Shorten <code>maximal_queue_lifetime</code> and <code>bounce_queue_lifetime</code> from two days to about <strong>one hour</strong>.</li>
+  <li>Set <code>delay_warning_time</code> to about <strong>five to ten minutes</strong>, so a delay notice can reach the mailbox while the message is still worth retrying somewhere else.</li>
+</ul>
+<p>The trade-off is honest: a short remote maintenance window can fail a message that would have gone through later. For chat that is acceptable — the user can retry, including on another relay, once the app shows the delay or bounce and offers <a href="https://github.com/pbuzdin/velta/issues/394">#394</a>.</p>
+<p>The rest of #395, some of it belonging in upstream <a href="https://github.com/chatmail/filtermail">chatmail/filtermail</a> or <a href="https://github.com/chatmail/relay">chatmail/relay</a> first:</p>
+<ul>
+  <li>Fix transport stalls and duplicate retries when one slow destination holds a whole delivery transaction (<a href="https://github.com/chatmail/filtermail/issues/252">filtermail#252</a>).</li>
+  <li>Reject obviously undeliverable recipients before the relay returns 250, so Velta can try another relay at submit time.</li>
+  <li>Use clearer enhanced status codes (too large, encryption required, unknown domain, retry-after on a rate limit) so the client can tell “this relay will not help” from “try another one.”</li>
+  <li>Report post-accept delays and bounces back to the client, including a stable delivery-status signal the bubble can show.</li>
+  <li>Publish coarse health (size limit, send rate, a public status that does not leak per-destination data) so client-side reputation in <a href="https://github.com/pbuzdin/velta/issues/393">#393</a> has something to read.</li>
+  <li>Don’t spend a rate-limit token on a message that later fails a policy check.</li>
+</ul>
+<p>In the fork itself, the documented backlog is to fold the overlay into the <code>cmdeploy</code> templates — including the iroh dual line — so a fresh box does not need hand-applied steps after an upstream merge.</p>
+<p>Related client work: <a href="https://github.com/pbuzdin/velta/issues/391">#391</a> (failover and retry in the core), <a href="https://github.com/pbuzdin/velta/issues/392">#392</a> (the per-message picker), <a href="https://github.com/pbuzdin/velta/issues/393">#393</a> (reputation), <a href="https://github.com/pbuzdin/velta/issues/394">#394</a> (retry with another relay).</p>
+<!-- CMS:END -->
+  </main>
+<footer>
+  <div>
+    <div>
+      <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+      <p class="motto">V for Velta</p>
+      <p>Encrypted chat through relays you choose, or straight across, device to device, when it should not sit on a server.</p>
+    </div>
+    <div>
+      <h2>On this site</h2>
+      <ul>
+        <li><a href="/#download">Download</a></li>
+        <li><a href="/#privacy">Privacy</a></li>
+        <li><a href="/#support">Support</a></li>
+        <li><a href="/#help">Help</a></li>
+        <li><a href="/news">News</a></li>
+        <li><a href="/about.html">About</a></li>
+        <li><a href="/developing.html">Developing</a></li>
+        <li><a href="/comparison.html">Compare</a></li>
+        <li><a href="/core/">Core</a></li>
+        <li><a href="/relay/">Relay</a></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Project</h2>
+      <ul>
+        <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+        <li><a href="/admin/">Edit site</a></li>
+      </ul>
+    </div>
+  </div>
+  <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
+</footer>
+  <script defer src="/js/site.js?v=9"></script>
+</body>
+</html>

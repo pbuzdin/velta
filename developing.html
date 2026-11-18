@@ -97,7 +97,7 @@ node scripts/verify-pwa-dist.mjs    # 10 in-browser checks</code></pre>
 <pre><code>cd core
 cargo test
 python3 ../tools/apply-core-patches.py verify   # quilt patches intact</code></pre>
-<p>Changes inside <code>core/</code> must go through the quilt tool (<code>tools/apply-core-patches.py</code>) so re-vendoring stays reproducible.</p>
+<p>Changes inside <code>core/</code> must go through the quilt tool (<code>tools/apply-core-patches.py</code>) so re-vendoring stays reproducible. A public map of the current patches is at <a href="/core/">velta.cc/core</a>; the relay fork is at <a href="/relay/">velta.cc/relay</a>.</p>
 <h2>Contributing</h2>
 <p>Issues and pull requests are welcome on <a href="https://github.com/pbuzdin/velta">GitHub</a>. For deeper architecture notes, start with <a href="https://github.com/pbuzdin/velta/blob/master/AGENTS.md">AGENTS.md</a> and <a href="https://github.com/pbuzdin/velta/blob/master/docs/as-built-architecture.md">docs/as-built-architecture.md</a>.</p>
 <!-- CMS:END -->
@@ -120,6 +120,8 @@ python3 ../tools/apply-core-patches.py verify   # quilt patches intact</code></p
         <li><a href="/about.html">About</a></li>
         <li><a href="/developing.html">Developing</a></li>
         <li><a href="/comparison.html">Compare</a></li>
+        <li><a href="/core/">Core</a></li>
+        <li><a href="/relay/">Relay</a></li>
       </ul>
     </div>
     <div>
