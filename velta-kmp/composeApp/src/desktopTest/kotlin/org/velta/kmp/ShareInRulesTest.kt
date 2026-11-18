@@ -91,6 +91,12 @@ class ShareInRulesTest {
         assertEquals(listOf(10L, 11L, 14L), forwardPickerTargets(withSpecial).map { it.id })
         assertEquals(listOf(11L), forwardPickerTargets(withSpecial, cat = "groups").map { it.id })
         assertEquals(listOf(10L), forwardPickerTargets(withSpecial, knownOnly = true).map { it.id })
+        val withChannels = withSpecial + listOf(
+            ChatListItem(id = 15, name = "News", chatType = "InBroadcast"),
+            ChatListItem(id = 16, name = "Mine", chatType = "OutBroadcast"),
+            ChatListItem(id = 17, name = "List", chatType = "Mailinglist"),
+        )
+        assertEquals(listOf(10L, 11L, 14L, 16L, 17L), forwardPickerTargets(withChannels).map { it.id })
     }
 
     // ---- model wiring ----

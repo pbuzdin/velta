@@ -51,7 +51,7 @@ fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
 app-lock PIN beside the biometric lock. Desktop hides the PIN. No
 Windows Hello. Stickers default to the composer button. `velta-stickers-in-attach` `"1"` moves them into Attach. The button hides while the field has text.
 Reply threads: count, side button, and a panel that keeps sends quoting the parent (`ui/ThreadRules.kt`).
-Forward and share pickers use the same category chips (All / People / Groups / Channels / Bots / Saved). The forward picker also has the known-contacts toggle. An owned outgoing channel offers Invite via link/QR (`offersChannelInvite`).
+Forward and share pickers use the same category chips (All / People / Groups / Channels / Bots / Saved). The forward picker also has the known-contacts toggle. Subscribed channels (InBroadcast) are not forward targets. An owned outgoing channel offers Invite via link/QR (`offersChannelInvite`).
 Backgrounding with the connection on waits 5 s, then a silent "Sending…" card stays until `is_sending_finished`.
 Groups and channels share that editor for the name, picture, and description (`showsChatEditor`). A 1:1 contact offers Edit name only (`showsLocalName`).
 

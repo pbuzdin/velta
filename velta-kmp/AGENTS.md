@@ -39,7 +39,7 @@ only when history is complete), show "N replies" and a side button, and
 open a 70% sheet (history dimmed, go-down hidden) that keeps the next send quoting the parent
 (`ui/ThreadRules.kt`). Forward and share pickers filter with the same chips
 (All / People / Groups / Channels / Bots / Saved). The forward picker
-also has the known-contacts toggle. An owned outgoing channel offers
+also has the known-contacts toggle. Subscribed channels (InBroadcast) are not forward targets. An owned outgoing channel offers
 Invite via link/QR. Backgrounding with the connection on waits 5 s, then
 posts a silent "Sending…" card while `is_sending_finished` is false and
 drops it on resume. Groups and channels use the same editor for the

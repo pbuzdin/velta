@@ -73,6 +73,8 @@ fun shareTargets(chats: List<ChatListItem>, query: String = "", cat: String = "a
 }
 
 /** app.js forwardFlow uses the same chips. Special chats (id ≤ 9) stay out.
+ *  A subscribed channel (InBroadcast) stays out too: core's forwarding list
+ *  drops it, and forward_msgs rejects the send. An owned channel stays.
  *  [knownOnly] is the shared "Show only known contacts" switch: 1:1 chats only. */
 fun forwardPickerTargets(
     chats: List<ChatListItem>,
@@ -81,7 +83,9 @@ fun forwardPickerTargets(
     isBot: (Long) -> Boolean = { false },
     knownOnly: Boolean = false,
 ): List<ChatListItem> =
-    shareTargets(chats, query, cat, isBot).filter { it.id > 9 && (!knownOnly || chatKindOf(it) == "single") }
+    shareTargets(chats, query, cat, isBot).filter {
+        it.id > 9 && it.chatType != "InBroadcast" && (!knownOnly || chatKindOf(it) == "single")
+    }
 
 /** One burst → the caption text and the distinct files, in order. */
 data class SharePlan(val text: String, val files: List<ShareItem>)
