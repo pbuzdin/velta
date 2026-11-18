@@ -16,7 +16,11 @@ import org.velta.kmp.ui.clampProfileName
 import org.velta.kmp.ui.previewAvatar
 import org.velta.kmp.ui.profileConfigWrites
 import org.velta.kmp.ui.profileEditOf
+import org.velta.kmp.ui.chatProfileEdits
+import org.velta.kmp.ui.localContactName
+import org.velta.kmp.ui.showsChatEditor
 import org.velta.kmp.ui.showsEditProfile
+import org.velta.kmp.ui.showsLocalName
 import org.velta.kmp.ui.showsRemovePhoto
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -64,7 +68,65 @@ class ProfileEditRulesTest {
         assertFalse(showsEditProfile(null))
     }
 
-    private fun transport(set: String = "null") = ScriptedRpcTransport(
+    @Test
+    fun chatEditorAndLocalName() {
+        assertTrue(showsChatEditor("group", canSend = false, groupAdminId = null))
+        assertFalse(showsChatEditor("group", canSend = true, groupAdminId = 7))
+        assertTrue(showsChatEditor("group", canSend = true, groupAdminId = 1))
+        assertTrue(showsChatEditor("channel", canSend = true, groupAdminId = null))
+        assertFalse(showsChatEditor("channel", canSend = false, groupAdminId = null))
+        assertFalse(showsChatEditor("single", canSend = true, groupAdminId = null))
+        assertTrue(showsLocalName("single", 7, isSelfTalk = false))
+        assertFalse(showsLocalName("single", 1, isSelfTalk = false))
+        assertFalse(showsLocalName("group", 7, isSelfTalk = false))
+        assertEquals("Ada", localContactName("  Ada  "))
+        assertNull(localContactName("   "))
+        val kept = chatProfileEdits(ProfileEdit("Crew", "hi", AvatarChange.Picked("/a.jpg")), "Crew", "")
+        assertNull(kept.name)
+        assertEquals("hi", kept.description)
+        assertEquals(AvatarChange.Picked("/a.jpg"), kept.image)
+        val clear = chatProfileEdits(ProfileEdit("", "", AvatarChange.Remove), "Crew", "old")
+        assertNull(clear.name)
+        assertEquals("", clear.description)
+        assertEquals(AvatarChange.Remove, clear.image)
+    }
+
+    @Test
+    fun groupSaveWritesNameDescriptionAndImage() {
+        val t = transport(
+            extra = mapOf(
+                "get_chatlist_items_by_entries" to
+                    """{"5":{"kind":"ChatListItem","id":5,"name":"Crew","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0,"chatType":"Group"}}""",
+                "get_full_chat_by_id" to """{"id":5,"name":"Crew","chatType":"Group","canSend":true,"profileImage":"/old.jpg"}""",
+                "get_chat_media" to "[]",
+                "get_chat_contacts" to "[]",
+                "get_chat_description" to "\"about\"",
+                "set_chat_name" to "null",
+                "set_chat_description" to "null",
+                "set_chat_profile_image" to "null",
+            ),
+        )
+        run(t) { m ->
+            m.attachmentPicker = { }
+            m.openProfile(5, "Crew")
+            until { m.profile?.description == "about" }
+            m.openChatProfileEditor()
+            until { m.profileEditor != null }
+            assertEquals("Edit group", m.profileEditor!!.title)
+            m.editProfileName("Crew 2")
+            m.editProfileDescription("new about")
+            m.pickProfilePhoto()
+            m.onAttachmentPicked("/tmp/pick.jpg", "pick.jpg")
+            m.saveProfileEditor()
+            until { m.profileEditor == null }
+            val sent = t.requests
+            assertTrue(sent.any { "\"set_chat_name\"" in it && "[1,5,\"Crew 2\"]" in it }, sent.toString())
+            assertTrue(sent.any { "\"set_chat_description\"" in it && "[1,5,\"new about\"]" in it }, sent.toString())
+            assertTrue(sent.any { "\"set_chat_profile_image\"" in it && "[1,5,\"/tmp/pick.jpg\"]" in it }, sent.toString())
+        }
+    }
+
+    private fun transport(set: String = "null", extra: Map<String, String> = emptyMap()) = ScriptedRpcTransport(
         mapOf(
             "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
             "get_all_account_ids" to "[1]",
@@ -80,7 +142,7 @@ class ProfileEditRulesTest {
             "set_config" to set,
             "list_transports" to """[{"addr":"a@relay.example.dev"}]""",
             "get_server_metadata" to "{}",
-        ),
+        ) + extra,
     )
 
     private suspend fun until(cond: () -> Boolean) = withTimeout(10_000) { while (!cond()) delay(10) }

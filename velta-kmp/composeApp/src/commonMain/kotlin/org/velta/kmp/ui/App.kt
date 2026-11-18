@@ -222,7 +222,7 @@ fun App(model: AppModel) {
             if (!model.locked) CallOverlay(model)
             // #334 step 5: chat-list / ⋮ menus, their confirmations, group invite.
             if (!model.locked) ChatMenuHost(model)
-            if (!model.locked && model.renameDraft != null) RenameChatDialog(model)
+            if (!model.locked && model.localNameDraft != null) LocalNameDialog(model)
             if (!model.locked && model.ephemeralDraft != null) EphemeralDialog(model)
             if (!model.locked && model.batteryPromptOpen) BatteryPromptDialog(model)
             if (!model.locked && model.profileEditor != null) ProfileEditorDialog(model)
@@ -474,21 +474,21 @@ private fun SecondDeviceSheet(model: AppModel) {
 }
 
 @Composable
-private fun RenameChatDialog(model: AppModel) {
-    val initial = model.renameDraft ?: return
+private fun LocalNameDialog(model: AppModel) {
+    val initial = model.localNameDraft ?: return
     var name by remember(initial) { mutableStateOf(initial) }
     VeltaDialog(
-        title = L.t("Rename"),
+        title = L.t("Edit name"),
         confirmLabel = L.t("Save"),
-        confirmEnabled = groupName(name) != null,
-        onConfirm = { model.commitRename(name) },
-        onDismiss = { model.renameDraft = null },
+        confirmEnabled = localContactName(name) != null,
+        onConfirm = { model.saveLocalName(name) },
+        onDismiss = { model.closeLocalName() },
     ) {
         OutlinedTextField(
             value = name,
-            onValueChange = { name = it },
+            onValueChange = { name = it.take(PROFILE_NAME_MAX) },
             singleLine = true,
-            placeholder = { Text(L.t("Group name")) },
+            placeholder = { Text(L.t("Name")) },
         )
     }
 }
@@ -3910,6 +3910,16 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.size(12.dp))
+            val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+            if (kind == "group" || kind == "channel") {
+                AvatarTile(
+                    name = p.chatName,
+                    colorHex = p.color,
+                    kind = kind,
+                    size = 120.dp,
+                    avatarPath = p.avatarPath,
+                )
+            } else {
             // Avatar: identity matrix with its rounded corners; Prism tile
             // for key-less chats.
             val cells = p.fingerprint?.let { identityCells(it) }
@@ -3951,12 +3961,21 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
                     )
                 }
             }
+            }
             Spacer(Modifier.size(10.dp))
             Text(
                 p.contactName.ifEmpty { p.chatName },
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
             )
+            if (p.description.isNotBlank()) {
+                Text(
+                    p.description,
+                    fontSize = 14.sp,
+                    color = Velta.tokens.textDim,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             if (p.addr.isNotEmpty()) {
                 Text(
                     p.addr,
@@ -3967,6 +3986,9 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
             Spacer(Modifier.size(8.dp))
             if (showsEditProfile(p.contactId)) {
                 TextButton(onClick = { model.openProfileEditor() }) { Text(L.t("Edit profile")) }
+            }
+            if (showsLocalName(kind, p.contactId, p.isSelfTalk)) {
+                TextButton(onClick = { model.beginLocalName() }) { Text(L.t("Edit name")) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { model.backFromProfile() }) { Text(L.t("Send message")) }
@@ -3995,9 +4017,9 @@ private fun GroupManageBlock(model: AppModel, p: AppModel.ProfileData) {
     if (!canRename(kind) && kind != "group") return
     val menu = MenuChat(p.chatId, p.chatName, kind, p.chatType, groupAdminId = p.groupAdminId)
     Column(Modifier.fillMaxWidth()) {
-        if (canRename(kind)) {
-            TextButton(onClick = { model.beginRename() }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                Text(L.t("Rename"))
+        if (showsChatEditor(kind, p.canSend, p.groupAdminId)) {
+            TextButton(onClick = { model.openChatProfileEditor() }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(if (kind == "channel") L.t("Edit channel") else L.t("Edit group"))
             }
         }
         if (offersChannelInvite(p.chatType)) {
@@ -4048,7 +4070,7 @@ private fun GroupManageBlock(model: AppModel, p: AppModel.ProfileData) {
 private fun ProfileEditorDialog(model: AppModel) {
     val ed = model.profileEditor ?: return
     VeltaDialog(
-        title = L.t("Edit profile"),
+        title = L.t(ed.title),
         confirmLabel = L.t("Save"),
         onConfirm = { model.saveProfileEditor() },
         onDismiss = { model.closeProfileEditor() },
@@ -4059,7 +4081,7 @@ private fun ProfileEditorDialog(model: AppModel) {
                 AvatarTile(
                     name = ed.name.ifBlank { "?" },
                     colorHex = ed.color,
-                    kind = "single",
+                    kind = if (ed.target == ProfileEditTarget.Chat) "group" else "single",
                     size = 84.dp,
                     avatarPath = previewAvatar(ed.currentAvatar, ed.picked, ed.removed),
                 )

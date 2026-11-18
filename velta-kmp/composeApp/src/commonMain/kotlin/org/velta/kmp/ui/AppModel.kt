@@ -634,6 +634,10 @@ class AppModel(
         val apps: Int,
         val chatType: String = "",
         val groupAdminId: Long? = null,
+        val description: String = "",
+        val avatarPath: String? = null,
+        val color: String? = null,
+        val canSend: Boolean = true,
     )
 
     var profile by mutableStateOf<ProfileData?>(null)
@@ -1073,6 +1077,10 @@ class AppModel(
         val removed: Boolean = false,
         val busy: Boolean = false,
         val error: String? = null,
+        val target: ProfileEditTarget = ProfileEditTarget.Self,
+        val chatId: Long? = null,
+        val title: String = "Edit profile",
+        val oldName: String = "",
     )
 
     var profileEditor by mutableStateOf<ProfileEditor?>(null)
@@ -1116,7 +1124,74 @@ class AppModel(
         avatarPickArmed = false
     }
 
-    /** Save: editProfileFlow's set_config writes, then "Profile updated". */
+    /** Groups and channels: the same editor, written with the chat RPCs. */
+    fun openChatProfileEditor() {
+        val p = profile ?: return
+        val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+        if (!showsChatEditor(kind, p.canSend, p.groupAdminId)) return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val chatId = p.chatId
+        scope.launch {
+            val desc = try {
+                veltaCore.chatDescription(id, chatId)
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (_: Throwable) {
+                p.description
+            }
+            if (accountId != id || profile?.chatId != chatId) return@launch
+            profileEditor = ProfileEditor(
+                name = clampProfileName(p.chatName),
+                description = desc,
+                oldStatus = desc,
+                oldName = p.chatName,
+                currentAvatar = p.avatarPath,
+                color = p.color,
+                target = ProfileEditTarget.Chat,
+                chatId = chatId,
+                title = if (kind == "channel") "Edit channel" else "Edit group",
+            )
+        }
+    }
+
+    /** 1:1 local name. Null while closed. */
+    var localNameDraft by mutableStateOf<String?>(null)
+        private set
+
+    fun beginLocalName() {
+        val p = profile ?: return
+        val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+        if (!showsLocalName(kind, p.contactId, p.isSelfTalk)) return
+        localNameDraft = p.contactName.ifBlank { p.chatName }
+    }
+
+    fun closeLocalName() { localNameDraft = null }
+
+    fun saveLocalName(raw: String) {
+        val name = localContactName(raw) ?: return
+        val p = profile ?: return
+        val cid = p.contactId ?: return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.changeContactName(id, cid, name)
+                if (accountId != id) return@launch
+                localNameDraft = null
+                showToast(L.t("Name updated"))
+                loadProfile(p.chatId)
+                refreshChats()
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                if (accountId == id) showToast(L.t("Couldn't update profile: ") + (t.message ?: t.toString()))
+            }
+        }
+    }
+
+    /** Save: editProfileFlow's set_config writes, then "Profile updated".
+     *  A group or channel uses set_chat_name / set_chat_description / set_chat_profile_image. */
     fun saveProfileEditor() {
         val ed = profileEditor ?: return
         if (ed.busy) return
@@ -1126,15 +1201,40 @@ class AppModel(
         profileEditor = ed.copy(busy = true, error = null)
         scope.launch {
             try {
-                for ((key, value) in profileConfigWrites(edit, ed.oldStatus)) {
-                    veltaCore.setConfig(id, key, value)
+                if (ed.target == ProfileEditTarget.Chat) {
+                    val chatId = ed.chatId ?: return@launch
+                    val edits = chatProfileEdits(edit, ed.oldName, ed.oldStatus)
+                    if (edits.name != null) veltaCore.setChatName(id, chatId, edits.name)
                     if (accountId != id) return@launch
+                    if (edits.description != null) veltaCore.setChatDescription(id, chatId, edits.description)
+                    if (accountId != id) return@launch
+                    when (val image = edits.image) {
+                        AvatarChange.Remove -> veltaCore.setChatProfileImage(id, chatId, null)
+                        is AvatarChange.Picked -> veltaCore.setChatProfileImage(id, chatId, image.path)
+                        AvatarChange.Keep -> {}
+                    }
+                    if (accountId != id) return@launch
+                    closeProfileEditor()
+                    loadProfile(chatId)
+                    refreshChats()
+                } else {
+                    for ((key, value) in profileConfigWrites(edit, ed.oldStatus)) {
+                        veltaCore.setConfig(id, key, value)
+                        if (accountId != id) return@launch
+                    }
+                    closeProfileEditor()
+                    showToast(L.t("Profile updated"))
+                    (screen as? Screen.Profile)?.let { loadProfile(it.chatId) }
                 }
-                closeProfileEditor()
-                showToast(L.t("Profile updated"))
-                (screen as? Screen.Profile)?.let { loadProfile(it.chatId) }
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
             } catch (t: Throwable) {
-                profileEditor = profileEditor?.copy(busy = false, error = L.t("Couldn't update profile: ") + (t.message ?: t.toString()))
+                val prefix = if (ed.target == ProfileEditTarget.Chat) {
+                    L.t("Couldn't update the chat: ")
+                } else {
+                    L.t("Couldn't update profile: ")
+                }
+                profileEditor = profileEditor?.copy(busy = false, error = prefix + (t.message ?: t.toString()))
             }
         }
     }
@@ -1393,8 +1493,6 @@ class AppModel(
     var proxyLabel by mutableStateOf("")
         private set
 
-    /** Rename dialog draft; null = closed. */
-    var renameDraft by mutableStateOf<String?>(null)
     private var afterNickname: (suspend (VeltaCore, Long) -> Unit)? = null
 
     /** Claimed invite credentials, parked so a configure failure retries
@@ -1926,6 +2024,7 @@ class AppModel(
             var lastSeen = 0L
             var blocked = false
             var fingerprint: String? = null
+            var description = ""
             if (isSingle) {
                 val cid = (chat["contactIds"] as? kotlinx.serialization.json.JsonArray)
                     ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
@@ -1938,6 +2037,7 @@ class AppModel(
                         contactName = c.displayName
                         lastSeen = c.lastSeen
                         blocked = c.isBlocked
+                        description = c.status
                     }
                     fingerprint = identityFingerprintFromEncrInfo(
                         veltaCore.contactEncryptionInfo(id, cid) ?: "",
@@ -1967,7 +2067,19 @@ class AppModel(
                 apps = veltaCore.chatMediaIds(id, chatId, "Webxdc", null, null).size,
                 chatType = jstr(chat, "chatType") ?: "",
                 groupAdminId = jstr(chat, "groupAdminId")?.toLongOrNull(),
+                description = if (isSingle) description else try {
+                    veltaCore.chatDescription(id, chatId)
+                } catch (t: kotlinx.coroutines.CancellationException) {
+                    throw t
+                } catch (_: Throwable) {
+                    ""
+                },
+                avatarPath = jstr(chat, "profileImage")?.takeIf { it.isNotBlank() },
+                color = jstr(chat, "color"),
+                canSend = jstr(chat, "canSend") != "false",
             )
+        } catch (t: kotlinx.coroutines.CancellationException) {
+            throw t
         } catch (t: Throwable) {
             println("velta-kmp: profile $chatId failed: $t")
         } finally {
@@ -3836,26 +3948,6 @@ class AppModel(
         chatType = p.chatType,
         groupAdminId = p.groupAdminId,
     )
-
-    fun beginRename() {
-        val p = profile ?: return
-        if (!canRename(profileMenu(p).kind)) return
-        renameDraft = p.chatName
-    }
-
-    fun commitRename(raw: String) {
-        val name = groupName(raw) ?: return
-        val chatId = profile?.chatId ?: return
-        renameDraft = null
-        chatJob("") { c, id ->
-            c.setChatName(id, chatId, name)
-            if (accountId != id) return@chatJob
-            profile = profile?.copy(chatName = name)
-            val s = screen
-            if (s is Screen.Profile && s.chatId == chatId) screen = s.copy(title = name)
-            loadProfile(chatId)
-        }
-    }
 
     fun startAddMembers() {
         val p = profile ?: return

@@ -53,6 +53,7 @@ Windows Hello. Stickers default to the composer button. `velta-stickers-in-attac
 Reply threads: count, side button, and a panel that keeps sends quoting the parent (`ui/ThreadRules.kt`).
 Forward and share pickers use the same category chips (All / People / Groups / Channels / Bots / Saved). The forward picker also has the known-contacts toggle. An owned outgoing channel offers Invite via link/QR (`offersChannelInvite`).
 Backgrounding with the connection on waits 5 s, then a silent "Sending…" card stays until `is_sending_finished`.
+Groups and channels share that editor for the name, picture, and description (`showsChatEditor`). A 1:1 contact offers Edit name only (`showsLocalName`).
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate (picker +

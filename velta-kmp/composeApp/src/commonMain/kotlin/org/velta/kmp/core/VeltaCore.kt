@@ -546,6 +546,44 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         )
     }
 
+    /** rpc-core getChatDescription. Empty when the chat has none. */
+    suspend fun chatDescription(accountId: Long, chatId: Long): String {
+        val el = client.call(
+            "get_chat_description",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+        val p = el as? JsonPrimitive ?: return ""
+        return if (p.isString) p.content else ""
+    }
+
+    /** rpc-core setChatDescription. Empty string clears it. */
+    suspend fun setChatDescription(accountId: Long, chatId: Long, description: String) {
+        client.call(
+            "set_chat_description",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(description)),
+        )
+    }
+
+    /** rpc-core setChatImage. Null removes the picture. */
+    suspend fun setChatProfileImage(accountId: Long, chatId: Long, path: String?) {
+        client.call(
+            "set_chat_profile_image",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                RpcClient.param(chatId),
+                if (path == null) RpcClient.nullParam() else RpcClient.param(path),
+            ),
+        )
+    }
+
+    /** rpc-core renameContact: a name only this account sees. */
+    suspend fun changeContactName(accountId: Long, contactId: Long, name: String) {
+        client.call(
+            "change_contact_name",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(contactId), RpcClient.param(name)),
+        )
+    }
+
     /** rpc-core deleteChat. */
     suspend fun deleteChat(accountId: Long, chatId: Long) {
         client.call("delete_chat", RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)))

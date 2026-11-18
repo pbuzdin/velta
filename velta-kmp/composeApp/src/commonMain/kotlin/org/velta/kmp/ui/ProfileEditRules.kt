@@ -59,3 +59,34 @@ fun profileConfigWrites(edit: ProfileEdit, oldStatus: String): List<Pair<String,
 
 /** Stable showChatInfo: "Edit profile" sits on the self contact's sheet. */
 fun showsEditProfile(contactId: Long?): Boolean = contactId == 1L
+
+/** Who the shared editor writes to. */
+enum class ProfileEditTarget { Self, Chat }
+
+/**
+ * Groups: every member, except a non-admin in an admin group.
+ * Channels: only when the core says this account can send.
+ */
+fun showsChatEditor(kind: String, canSend: Boolean, groupAdminId: Long?): Boolean = when (kind) {
+    "group" -> (groupAdminId ?: 0L) <= 0L || groupAdminId == 1L
+    "channel" -> canSend
+    else -> false
+}
+
+/** 1:1 only. The bio stays read-only; this is the local name. */
+fun showsLocalName(kind: String, contactId: Long?, isSelfTalk: Boolean): Boolean =
+    kind == "single" && !isSelfTalk && contactId != null && contactId != 1L
+
+/** Web trims and requires a name. Max 64, same as the profile field. */
+fun localContactName(raw: String): String? = raw.take(PROFILE_NAME_MAX).trim().ifEmpty { null }
+
+/** Group/channel save. Empty or unchanged name is skipped (core rejects empty).
+ *  Description is written only when it changed; blank clears it. */
+data class ChatProfileEdits(val name: String?, val description: String?, val image: AvatarChange)
+
+fun chatProfileEdits(edit: ProfileEdit, oldName: String, oldDescription: String): ChatProfileEdits =
+    ChatProfileEdits(
+        name = edit.name.takeIf { it.isNotEmpty() && it != oldName },
+        description = edit.description.takeIf { it != oldDescription },
+        image = edit.avatar,
+    )

@@ -42,7 +42,9 @@ open a 70% sheet (history dimmed, go-down hidden) that keeps the next send quoti
 also has the known-contacts toggle. An owned outgoing channel offers
 Invite via link/QR. Backgrounding with the connection on waits 5 s, then
 posts a silent "Sending…" card while `is_sending_finished` is false and
-drops it on resume.
+drops it on resume. Groups and channels use the same editor for the
+name, picture, and description. A 1:1 contact offers Edit name, local
+only; the bio stays read-only.
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout

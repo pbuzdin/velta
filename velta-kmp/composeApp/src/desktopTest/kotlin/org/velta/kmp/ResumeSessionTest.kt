@@ -45,6 +45,8 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
             "get_reply_ids" to "[]",
             // A backgrounded model asks once the 5 s linger ends.
             "is_sending_finished" to "true",
+            // Group and channel profiles read this on open.
+            "get_chat_description" to "\"\"",
         )
     }
 
