@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import org.velta.kmp.ui.markdownAnnotated
+import org.velta.kmp.ui.messageInvites
 import org.velta.kmp.ui.parseInviteLink
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -157,6 +158,33 @@ class MarkdownTest {
         assertTrue(s.getStringAnnotations("MENTION", 0, s.length).any { it.item == "7" })
         assertTrue(s.getStringAnnotations("CODE", 0, s.length).any { it.item == "code" })
         assertTrue(s.spanStyles.any { it.item.fontWeight == FontWeight.Bold && s.text.substring(it.start, it.end).contains("@Pavel") })
+    }
+
+    @Test
+    fun relayAndProxyLinksBecomeChips() {
+        val s = markdownAnnotated(
+            "join https://relay.example/i/Tok_en-1234. and velta://proxy?h=proxy.example.org&p=1080",
+            accent, bg, ink,
+        )
+        assertTrue(s.text.contains("Relay invite: relay.example"), s.text)
+        assertTrue(s.text.contains("SOCKS5 proxy: proxy.example.org:1080"), s.text)
+        assertTrue("Tok_en" !in s.text, s.text)
+        assertEquals(0, s.getStringAnnotations("URL", 0, s.length).size)
+        val http = markdownAnnotated("http://relay.example/i/Tok_en-1234 https://relay.example/i/short", accent, bg, ink)
+        assertTrue("Relay invite:" !in http.text)
+        assertTrue(http.getStringAnnotations("URL", 0, http.length).isNotEmpty())
+        val labeled = markdownAnnotated("[label](https://relay.example/i/Tok_en-1234)", accent, bg, ink)
+        assertEquals("Relay invite: relay.example", labeled.text)
+        assertEquals(0, labeled.getStringAnnotations("URL", 0, labeled.length).size)
+        val ws = markdownAnnotated("see velta://ws?u=wss://x.example/cm", accent, bg, ink)
+        assertTrue("velta://ws" in ws.text)
+        val cards = messageInvites(
+            "https://relay.example/i/short https://relay.example/i/Tok_en-1234 " +
+                "velta://proxy velta://proxy?h=a.example&p=1 velta://proxy?h=b.example&p=2",
+        )
+        assertEquals("relay.example", cards.relay?.host)
+        assertEquals("a.example", cards.socks?.host)
+        assertNull(messageInvites("velta://ws?u=wss://x.example/y").socks)
     }
 
     @Test

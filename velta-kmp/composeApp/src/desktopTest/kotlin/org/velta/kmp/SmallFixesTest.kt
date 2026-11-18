@@ -155,6 +155,54 @@ class SmallFixesTest {
     }
 
     @Test
+    fun stickerSendKeepsTheReplyQuote() {
+        val t = transport(mapOf("send_msg" to "77"))
+        run(t) { model ->
+            model.openChat(model.chats.first())
+            until { model.screen is AppModel.Screen.Chat }
+            model.replyTo = MessageObject(id = 3, text = "q")
+            model.sendSticker("/tmp/s1.webp")
+            until { t.requests.any { "\"send_msg\"" in it } }
+            val line = t.requests.first { "\"send_msg\"" in it }
+            assertTrue(line.contains("\"viewtype\":\"Sticker\""), line)
+            assertTrue(line.contains("\"file\":\"/tmp/s1.webp\""), line)
+            assertTrue(line.contains("\"quotedMessageId\":3"), line)
+            assertTrue(t.requests.none { "\"send_sticker\"" in it })
+            assertNull(model.replyTo)
+        }
+    }
+
+    @Test
+    fun stickerPickerRefetchesPacksEachOpen() {
+        val t = transport()
+        run(t) { model ->
+            model.loadStickers()
+            until { model.stickerPacks.isNotEmpty() }
+            val n = t.requests.count { "\"misc_get_stickers\"" in it }
+            model.loadStickers()
+            until { t.requests.count { "\"misc_get_stickers\"" in it } > n }
+        }
+    }
+
+    @Test
+    fun socksCardConfirmStoresTheProxy() {
+        val t = transport(mapOf("set_config" to "null", "maybe_network" to "null"))
+        run(t) { model ->
+            val raw = "velta://proxy?h=proxy.example.org&p=1080"
+            model.askSocksProxy(raw)
+            assertEquals("Add SOCKS5 proxy?", model.chatConfirm?.spec?.title)
+            assertEquals("Add and use", model.chatConfirm?.spec?.ok)
+            model.answerChatConfirm(false)
+            delay(200)
+            assertTrue(t.requests.none { "proxy_url" in it }, "cancel stores nothing")
+            model.askSocksProxy(raw)
+            model.answerChatConfirm(true)
+            until { model.proxyUrl == "socks5://proxy.example.org:1080" }
+            assertTrue(t.requests.any { "\"proxy_enabled\"" in it && "\"1\"" in it })
+        }
+    }
+
+    @Test
     fun switchingAccountsDropsTheOldProfilesCaches() {
         val t = transport()
         run(t) { model ->

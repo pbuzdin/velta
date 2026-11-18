@@ -38,7 +38,21 @@ object VeltaKeystore {
     private const val WRAP_FILE = "dbkey.wrap"
     private const val BIO_KEK_ALIAS = "velta_kek_bio"
     private const val BIO_FILE = "dbkey.bio"
+    private const val PIN_FILE = "dbkey.pin.wrap"
     private const val GCM_TAG_BITS = 128
+
+    fun pinFile(context: Context): File = File(context.noBackupFilesDir, PIN_FILE)
+
+    fun deletePlainWrap(context: Context) {
+        File(context.noBackupFilesDir, WRAP_FILE).delete()
+    }
+
+    /** PIN removal: the DEK hex back into the plain wrap. */
+    fun storePlainWrapHex(context: Context, dekHex: String): Boolean {
+        val dek = decodeHex(dekHex)
+        if (dek == null || dek.size != 32) return false
+        return storePlainWrap(context, dek)
+    }
 
     @JvmStatic
     fun getOrCreateDek(context: Context): String? {
@@ -49,6 +63,11 @@ object VeltaKeystore {
             // over locked databases.
             if (VeltaLock.on(context)) {
                 Log.i(TAG, "app lock is on; the DEK needs the unlock flow")
+                return null
+            }
+            // The PIN wrap replaced the plain wrap. Never mint a fresh key over it.
+            if (pinFile(context).exists()) {
+                Log.i(TAG, "app-lock PIN is on; the DEK needs the unlock flow")
                 return null
             }
             val wrapFile = File(context.noBackupFilesDir, WRAP_FILE)

@@ -9,6 +9,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.unit.Dp
 
+/** Desktop plate is a flat tint, so the composer switch stays hidden. */
+internal actual fun glassComposerAvailable(): Boolean = false
+
 @Composable
 @Suppress("UNUSED_PARAMETER")
 internal actual fun GlassPlate(

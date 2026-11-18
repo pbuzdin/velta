@@ -188,6 +188,25 @@ class OnboardingTest {
     }
 
     @Test
+    fun relayCardConfirmCreatesANewAccount() = run(extra = mapOf("select_account" to "null")) {
+        val urls = mutableListOf<String>()
+        model.httpGet = { url -> urls += url; 200 to """{"email":"x@relay.example","password":"pw"}""" }
+        model.askRelayAccount("relay.example", "Tok_en-1234")
+        assertEquals("Create an account on {host}?", model.chatConfirm?.spec?.title)
+        model.answerChatConfirm(false)
+        assertTrue(t.calls("add_account").isEmpty(), "cancel creates nothing")
+        assertTrue(urls.isEmpty())
+        model.askRelayAccount("relay.example", "Tok_en-1234")
+        model.answerChatConfirm(true)
+        withTimeout(10_000) { while (model.toast != "Account created on relay.example") yield() }
+        assertEquals(AppModel.Screen.ChatList, model.screen)
+        assertEquals(1L, model.accountId)
+        assertEquals(listOf("https://relay.example/i/claim?t=Tok_en-1234"), urls)
+        assertEquals(listOf("[1,{\"addr\":\"x@relay.example\",\"password\":\"pw\"}]"), t.calls("add_transport"))
+        assertEquals(listOf("[1]"), t.calls("select_account"))
+    }
+
+    @Test
     fun configureProgressAddsPhaseLinesInOrder() = run(without = setOf("init_transports")) {
         // init_transports never answers here → the create stays in flight.
         model.welcomeAutopick()

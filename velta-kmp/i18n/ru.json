@@ -33,5 +33,15 @@
   "Default": "По умолчанию",
   "Classic KMP": "Классическая KMP",
   "Some launchers take a moment to update the icon, or may close the app.": "Некоторые оболочки обновляют иконку не сразу или могут закрыть приложение.",
-  "K badge": "Значок K"
+  "K badge": "Значок K",
+  "Camera unavailable": "Камера недоступна",
+  "Contact the channel author": "Написать автору канала",
+  "Couldn't accept the call: ": "Не удалось принять звонок: ",
+  "Couldn't start the call: ": "Не удалось начать звонок: ",
+  "Incoming video call": "Входящий видеозвонок",
+  "Incoming voice call": "Входящий голосовой звонок",
+  "Mute channel": "Отключить уведомления канала",
+  "Stop video": "Выключить видео",
+  "Unmute channel": "Включить уведомления канала",
+  "Voice call": "Голосовой звонок"
 }

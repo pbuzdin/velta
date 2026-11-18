@@ -602,15 +602,6 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         return mid to urls
     }
 
-    /** Core send_sticker — deprecated upstream but present and functional. */
-    suspend fun sendSticker(accountId: Long, chatId: Long, stickerPath: String) {
-        client.call(
-            "send_sticker",
-            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId), RpcClient.param(stickerPath)),
-            timeoutMs = null,
-        )
-    }
-
     suspend fun chatlistEntries(accountId: Long, listFlags: Int? = null): List<Long> {
         val result = client.call(
             "get_chatlist_entries",

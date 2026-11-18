@@ -51,6 +51,30 @@ interface CorePlatform {
     /** Disable: DEK back into the plain wrap, bio wrap dropped. */
     fun disableAppLock(): Boolean = false
 
+    /** Android can wrap the database key under a PIN. Desktop has no key to wrap. */
+    fun appPinSupported(): Boolean = false
+
+    /** A `dbkey.pin.wrap` is the key root right now. */
+    fun pinLockOn(): Boolean = false
+
+    /**
+     * Verify [pin] and return the DEK. Argon2id is slow; call off the main thread.
+     */
+    fun unlockWithPin(pin: String): PinUnlock = PinUnlock.Unsupported
+
+    /**
+     * Wrap the running DEK under [newPin]. [oldPin] is required when a PIN
+     * wrap already exists. "ok", or pin too short / retry:N / corrupt /
+     * no-key / current-pin-required / wrap verify failed / unsupported.
+     */
+    fun setAppPin(oldPin: String?, newPin: String): String = "unsupported"
+
+    /** "ok", or retry:N / corrupt / keychain-unavailable / unsupported. */
+    fun clearAppPin(pin: String): String = "unsupported"
+
+    /** Forget the in-memory DEK. Lock paths call this so a locked process holds no key. */
+    fun dropDek() {}
+
     /**
      * App-level settings storage (#321 step 5). The web keeps these in
      * localStorage (dw-theme, velta-amoled, velta-accent, velta-lang); KMP

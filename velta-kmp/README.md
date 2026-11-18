@@ -3,17 +3,22 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-17):** work in progress (#192); the Tauri app remains
-Velta's shipping Android app. Version is **0.9.0**. #334 step 11 is in
-except webxdc. N1–N3 and the **#321 visual shell** are complete, and the
+**Status (2026-11-18):** work in progress (#192); the Tauri app remains
+Velta's shipping Android app. Version is **0.9.0**. N1–N3 and the **#321 visual shell** are complete, and the
 0.9.0 / #358 wave is in: pin tray, read position, disappearing timer,
 own-profile editor, auto-download / text-only settings, background
 catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
-preview and crop/draw editor, floating reply card. N4 release signing is
+preview and crop/draw editor, floating reply card, chat appearance
+(text size, corners, hyphenation, liquid-glass composer), relay and
+SOCKS5 message cards, and an Android app-lock PIN beside the biometric
+lock. Android runs webxdc in a WebView; desktop tells you to use the
+web app. N4 release signing is
 still open. The client onboards from invites or QR scans, manages relays,
-switches accounts, sends with attachments/quotes/reactions, renders
-images, encrypts its database at rest, locks behind a biometric or
-device credential, and keeps syncing in the background. The default launcher is the official
+switches accounts, sends with attachments/quotes/reactions (a sticker
+keeps its reply quote), renders
+images, encrypts its database at rest on Android, locks behind a biometric,
+device credential, or PIN, and keeps syncing in the background. Desktop
+does not add a PIN and does not encrypt its accounts directory. The default launcher is the official
 Velta V on `#0A1A2E` with a near-white ice short stroke; Settings can switch
 to the #382 K-badge icon or the earlier Classic KMP (Kotlin-coloured) icon.
 Desktop tests
@@ -23,8 +28,9 @@ and take epoch minutes at build time as versionCode — one clock for CI
 and local builds, so the newest build installs over any older one; ABI
 splits keep the phone APK ~28 MB, and every CI APK carries the core shim
 (#334). See [docs/PHASES.md](docs/PHASES.md) for the per-phase ledger
-and what's left. Webxdc apps are the open part of #334 step 11: they
-need the shipping app's sandbox server.
+and what's left. Android webxdc runs from the core's blobs in a
+WebView. Desktop does not run those apps. The Tauri sandbox server is
+not part of this client.
 
 | Surface | Codebase | Status |
 |---|---|---|
@@ -98,7 +104,10 @@ need the shipping app's sandbox server.
   as plain text). **Links** on Android open in a Custom Tab inside
   Velta (an in-app page when the phone has no Custom Tab provider);
   desktop opens the system browser. Invites still join instead of
-  browsing. **Touch
+  browsing. A strict `https://<host>/i/<token>` relay invite and a
+  `velta://proxy` link render as a chip and a card; confirm before a
+  new account is created or the proxy is stored. `velta://ws` stays
+  ordinary text. **Touch
   gestures**: swipe the chat list left/right to step through the category
   chips, swipe a bubble right to reply (arrow + haptic at the commit
   line, spring snap-back), swipe the history left to go back (the list
@@ -109,15 +118,22 @@ need the shipping app's sandbox server.
   "Pure black (AMOLED)" flag, custom accent color (WCAG-checked
   derivation, 8 presets + custom hex), language (English /
   Français / Русский, applied live), and Invite link domains (extra
-  hosts under `velta-invite-hosts`; the four builtins stay). Auto-download
+  hosts under `velta-invite-hosts`; the four builtins stay).
+  **Chat appearance** uses the web keys: message text size
+  (`velta-msg-font-size`, 10–22), bubble corners
+  (`velta-bubble-radius`, 0–14), hyphenation (`velta-hyphens`), and
+  on Android 12+ a liquid-glass composer switch
+  (`velta-glass-composer`, off by default). The header glass plate
+  stays on. The composer switch is hidden on desktop. Auto-download
   limit and text-only mode use the same keys as the shipping app.
   Settings persist per platform under the same keys the web app uses.
-- **Security** — database encryption at rest (Keystore-wrapped DEK →
-  `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext);
-  optional app lock (Settings → App lock: strong biometric/device-credential — locked = the
-  core never starts, nothing decrypts; auto-lock after 1/5/15 min hidden,
-  like stable's "Lock when hidden"). Port of #178, with two Tauri-side
-  keystore bugs (undersized wrap blob, StrongBox fallback) fixed here.
+- **Security** — on Android, database encryption at rest (Keystore-wrapped DEK →
+  `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext).
+  Accounts → App lock is the strong biometric or device credential.
+  Beside it, an app-lock PIN of 6 or more characters wraps the same key
+  (`dbkey.pin.wrap`). Locked means the core never starts. Auto-lock after
+  1/5/15 min hidden follows stable's "Lock when hidden" and applies when
+  either lock is on. Desktop has no keystore and no PIN. No Windows Hello.
 - **Persistence** — resume straight into the chat list on every start;
   the core's accounts dir holds the data, app-level settings ride the
   platform prefs (SharedPreferences / java.util.prefs).

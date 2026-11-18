@@ -101,6 +101,9 @@ half4 main(float2 coord) {
 }
 """
 
+// ponytail: no prefers-reduced-transparency; Android has no matching switch. Blur starts at API 31.
+internal actual fun glassComposerAvailable(): Boolean = Build.VERSION.SDK_INT >= 31
+
 @Composable
 internal actual fun GlassPlate(
     backdrop: GraphicsLayer,

@@ -15,3 +15,11 @@ upstream path next to the entry.
 Only the capital “K” glyph, instanced at ExtraBold (wght 800), is used. It
 was converted to a path in `art/velta-kmp-icon-badge.svg` (the optional
 KMP “K badge” launcher icon). The font file itself is not shipped.
+
+## Bouncy Castle
+
+- Copyright The Legion of the Bouncy Castle
+- Licence: MIT (https://www.bouncycastle.org/licence.html)
+- Artifact: `org.bouncycastle:bcprov-jdk18on` on `jvmCommon`
+- Used only for Argon2id in the Android app-lock PIN wrap (`PinWrap`).
+  AES-GCM stays on `javax.crypto`. Not registered as a JCA provider.

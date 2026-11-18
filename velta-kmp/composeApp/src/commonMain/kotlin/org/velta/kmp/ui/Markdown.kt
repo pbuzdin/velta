@@ -28,6 +28,7 @@ private val QUOTE_LINE = Regex("^>{1,3} ?(.*)$")
 private val NUMBERED_LINE = Regex("^\\d{1,9}[.)] ")
 private val MD_LINK = Regex("\\[([^\\]\\n]+)]\\((https?://[^)\\s]*)\\)", RegexOption.IGNORE_CASE)
 private val SCHEME_URL = Regex("https?://[^\\s<]+", RegexOption.IGNORE_CASE)
+private val VELTA_PROXY = Regex("\\bvelta://proxy\\b[^\\s<]*", RegexOption.IGNORE_CASE)
 private val BOLD = Regex("\\*\\*([^*\\n]+)\\*\\*")
 private val UNDER = Regex("(?<![\\w_])__([^_\\n]+)__(?![\\w_])")
 private val IT_STAR = Regex("(?<![\\w*])\\*([^*\\n]+)\\*(?![\\w*])")
@@ -198,30 +199,56 @@ private fun linkHits(content: String, gap: IntRange, linkStyle: SpanStyle): List
         val rest = seg.substring(at)
         val md = MD_LINK.find(rest)
         val url = SCHEME_URL.find(rest)
-        val mdAt = md?.range?.first
-        val urlAt = url?.range?.first
-        if (mdAt == null && urlAt == null) break
-        if (md != null && (urlAt == null || mdAt!! <= urlAt)) {
-            val (label, extra) = emphasisLabel(md.groupValues[1])
-            val href = md.groupValues[2]
-            val abs = gap.first + at + md.range.first
-            out += Piece(abs, gap.first + at + md.range.last + 1, Hold(label, ANN_URL, href, linkStyle, extra))
-            at += md.range.last + 1
-        } else {
-            val m = url!!
-            val trimmed = trimLinkEnd(m.value)
-            if (!trimmed.startsWith("http://", true) && !trimmed.startsWith("https://", true)) {
-                at += m.range.first + 1
-                continue
+        val velta = VELTA_PROXY.find(rest)
+        val pick = listOfNotNull(md?.range?.first?.let { it to 0 }, url?.range?.first?.let { it to 1 }, velta?.range?.first?.let { it to 2 })
+            .minWithOrNull(compareBy({ it.first }, { it.second }))
+        if (pick == null) break
+        when (pick.second) {
+            0 -> {
+                val href = md!!.groupValues[2]
+                val abs = gap.first + at + md.range.first
+                val chip = inviteChipLabel(href)
+                if (chip != null) {
+                    out += Piece(abs, gap.first + at + md.range.last + 1, Hold(chip, null, null, SpanStyle()))
+                } else {
+                    val (label, extra) = emphasisLabel(md.groupValues[1])
+                    out += Piece(abs, gap.first + at + md.range.last + 1, Hold(label, ANN_URL, href, linkStyle, extra))
+                }
+                at += md.range.last + 1
             }
-            val abs = gap.first + at + m.range.first
-            val canonical = parseInviteLink(trimmed)
-            out += Piece(
-                abs,
-                abs + trimmed.length,
-                Hold(trimmed, if (canonical != null) ANN_INVITE else ANN_URL, canonical ?: trimmed, linkStyle),
-            )
-            at += m.range.first + trimmed.length
+            2 -> {
+                val m = velta!!
+                val trimmed = trimLinkEnd(m.value)
+                val chip = inviteChipLabel(trimmed)
+                if (chip == null) {
+                    at += m.range.first + 1
+                    continue
+                }
+                val abs = gap.first + at + m.range.first
+                out += Piece(abs, abs + trimmed.length, Hold(chip, null, null, SpanStyle()))
+                at += m.range.first + trimmed.length
+            }
+            else -> {
+                val m = url!!
+                val trimmed = trimLinkEnd(m.value)
+                if (!trimmed.startsWith("http://", true) && !trimmed.startsWith("https://", true)) {
+                    at += m.range.first + 1
+                    continue
+                }
+                val abs = gap.first + at + m.range.first
+                val chip = inviteChipLabel(trimmed)
+                if (chip != null) {
+                    out += Piece(abs, abs + trimmed.length, Hold(chip, null, null, SpanStyle()))
+                } else {
+                    val canonical = parseInviteLink(trimmed)
+                    out += Piece(
+                        abs,
+                        abs + trimmed.length,
+                        Hold(trimmed, if (canonical != null) ANN_INVITE else ANN_URL, canonical ?: trimmed, linkStyle),
+                    )
+                }
+                at += m.range.first + trimmed.length
+            }
         }
     }
     return out

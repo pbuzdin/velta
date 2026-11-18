@@ -33,5 +33,15 @@
   "Default": "Par défaut",
   "Classic KMP": "KMP classique",
   "Some launchers take a moment to update the icon, or may close the app.": "Certains lanceurs mettent un moment à mettre à jour l'icône, ou peuvent fermer l'application.",
-  "K badge": "Badge K"
+  "K badge": "Badge K",
+  "Camera unavailable": "Caméra indisponible",
+  "Contact the channel author": "Contacter l'auteur du canal",
+  "Couldn't accept the call: ": "Impossible d'accepter l'appel : ",
+  "Couldn't start the call: ": "Impossible de démarrer l'appel : ",
+  "Incoming video call": "Appel vidéo entrant",
+  "Incoming voice call": "Appel vocal entrant",
+  "Mute channel": "Couper les notifications du canal",
+  "Stop video": "Couper la vidéo",
+  "Unmute channel": "Réactiver les notifications du canal",
+  "Voice call": "Appel vocal"
 }

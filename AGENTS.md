@@ -32,6 +32,7 @@ left this table with the release — see the release notes and
 | QR unify | `2ff3328e`, #379 | The invite QR draws the branded 512 square on EVERY domain tab; the i.delta.chat tab no longer mounts the core's styled card, and the `qr-self` logo overlay (a workaround for that card's clear circle) is retired — the branded square embeds the logo. The copied/shared link on the i.delta.chat tab stays the canonical `https://i.delta.chat/#…` URL with a byte-identical payload. The backup-transfer QR keeps its own core card and overlay. |
 | Group member removal | `7f59d8ea` | A member is removed from the profile sheet (opened from the Members list) or the desktop row context menu, always behind a confirmation. Not an inline list-row button. Regular groups: any member may remove another, never self, never the admin, never local P2P groups. Admin groups stay admin-only. This landed after v1.5.5; it did not ship in that release. |
 | KMP launcher icon | `5e3c0d5a`, #382; picker #383; ice default follows | Default is the official Velta V on `#0A1A2E` with a near-white ice short stroke (`#F2F8FC`→`#DCEBF6`). Settings also offer the #382 K-badge icon (`art/velta-kmp-icon-badge.svg`, Golos Text ExtraBold path; credit in `velta-kmp/THIRD_PARTY.md`) and Classic KMP (Kotlin-coloured). `art/velta-kmp-icon.svg` is the default 1024 tile; `make_android_icon.py` maps it into the inner 72/108. `ic_launcher` uses the designed placement; `ic_launcher_round` shifts the V down 24 px. |
+| KMP #358 follow-ups | invite cards, chat appearance, sticker quote, Android PIN | Strict `https://host/i/<token>` and `velta://proxy` message cards (`ui/InviteCards.kt`). `velta://ws` stays plain text. Sticker sends use `send_msg` viewtype `Sticker` so a reply quote survives. Chat appearance: `velta-msg-font-size`, `velta-bubble-radius`, `velta-hyphens`, and `velta-glass-composer` (composer only, Android 12+, hidden on desktop). Android app-lock PIN is `dbkey.pin.wrap` (Argon2id, 6+ characters) beside the biometric lock. Desktop does not encrypt its accounts dir. No Windows Hello. The stickers-in-attach switch is not in KMP. Details: `velta-kmp/AGENTS.md`, `velta-kmp/docs/PHASES.md`. |
 
 ---
 
@@ -50,21 +51,25 @@ left this table with the release — see the release notes and
   on the composer and header, theme tokens + 96 web-parity icons +
   stable composer/header + bubbles/quote/markdown/list rows + appearance
   settings (themes, custom accent, en/ru/fr) + attach menu + the
-  chat-list bottom bar. #329 is closed. #334 step 11 is in except
-  webxdc: search in chat, image/file open, in-app video and voice,
-  group rename/add/remove, second-device QR and export backup, SOCKS5
-  via `velta://proxy`, and Android message links in a Custom Tab
-  (in-app page when the device has no provider). The 0.9.0 / #358 wave
+  chat-list bottom bar. #329 is closed. #334 step 11 is in: search in
+  chat, image/file open, in-app video and voice, group rename/add/remove,
+  second-device QR and export backup, SOCKS5 via `velta://proxy`,
+  Android message links in a Custom Tab (in-app page when the device
+  has no provider), and Android webxdc in a WebView. Desktop does not
+  run webxdc apps. The 0.9.0 / #358 wave
   is in (pin tray, read position, profile editor, disappearing timer,
   media-gate settings, background catch-up/boot/toggle/UnifiedPush
   settings, swipe motion, attach editor, floating reply card); #357 JNI,
   the #378 rotation FGS fix, and the launcher icon (#382 badge, later the ice default plus an App icon picker) are in too.
+  Later #358 slices: relay and SOCKS5 message cards, chat appearance,
+  sticker sends that keep a reply quote, and an Android app-lock PIN.
+  Desktop has no PIN.
   `versionName` is 0.9.0. Ledger: `velta-kmp/docs/PHASES.md`. GPLv3 code
   from deltachat-android or ArcaneChat Android may be reused: keep
   copyright headers, add an upstream path and a commit comment, and list
   each source in `velta-kmp/THIRD_PARTY.md`. Next is N4 (release signing;
   KMP builds as `org.velta.kmp`, `org.velta` is the shipping Tauri app);
-  still open: #323–#328 fidelity follow-ups, webxdc, relay-side
+  still open: #323–#328 fidelity follow-ups, desktop webxdc, relay-side
   UnifiedPush delivery, ktlint/detekt.
   `build-kmp.yml` builds and tests on every master push touching
   `velta-kmp/**` or `core/**`: the `shim` job builds the core `.so` for

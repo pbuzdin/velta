@@ -91,6 +91,10 @@ internal fun chatMenuLabel(label: String): String = when (label) {
     "The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed." ->
         L.t("The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed.")
     "Remove" -> L.t("Remove")
+    "Create an account on {host}?" -> L.t("Create an account on {host}?")
+    "A new profile is created on {host} with this invite. The invite works once. Only continue if you trust the sender." ->
+        L.t("A new profile is created on {host} with this invite. The invite works once. Only continue if you trust the sender.")
+    "Add SOCKS5 proxy?" -> L.t("Add SOCKS5 proxy?")
     // OLD_MESSAGE_SPANS: stable t()s them too; the packs lack some (English shows).
     "1 day" -> L.t("1 day")
     "1 year" -> L.t("1 year")

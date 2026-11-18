@@ -758,8 +758,10 @@ class AppModel(
      * the databases close and the DEK leaves memory with it — and show the
      * lock screen. Unlock runs the normal keyed connect.
      */
+    private fun lockRootOn() = platform.isAppLockOn() || platform.pinLockOn()
+
     fun lockNow() {
-        if (locked || !platform.isAppLockOn()) return
+        if (locked || !lockRootOn()) return
         locked = true
         status = "locked"
         val chat = screen as? Screen.Chat
@@ -1145,6 +1147,7 @@ class AppModel(
         connected = false
         status = "core stopped"
         platform.stopRpcServer()
+        platform.dropDek()
         println("velta-kmp: core stopped (shutdownCore)")
     }
 
@@ -2480,6 +2483,83 @@ class AppModel(
         connect(dekHex)
     }
 
+    val pinSupported: Boolean = platform.appPinSupported()
+    var pinLockOn by mutableStateOf(platform.pinLockOn())
+        private set
+    var pinBusy by mutableStateOf(false)
+        private set
+
+    fun submitPin(pin: String) {
+        if (pinBusy) return
+        pinBusy = true
+        lockError = null
+        scope.launch {
+            try {
+                when (val opened = platform.unlockWithPin(pin)) {
+                    is org.velta.kmp.core.PinUnlock.Dek -> onAppUnlocked(opened.hex)
+                    is org.velta.kmp.core.PinUnlock.Wrong -> {
+                        lockError = L.t("Too many attempts — wait {n} s.").replace("{n}", opened.delaySecs.toString())
+                    }
+                    org.velta.kmp.core.PinUnlock.Corrupt -> lockError = L.t("Couldn't unlock. Try again.")
+                    org.velta.kmp.core.PinUnlock.Unsupported -> lockError = L.t("Couldn't unlock. Try again.")
+                }
+            } finally {
+                pinBusy = false
+            }
+        }
+    }
+
+    fun saveAppPin(oldPin: String?, newPin: String, repeat: String) {
+        if (newPin != repeat) {
+            lockError = L.t("The PINs don't match.")
+            return
+        }
+        if (pinBusy) return
+        pinBusy = true
+        lockError = null
+        scope.launch {
+            try {
+                val result = platform.setAppPin(oldPin, newPin)
+                pinLockOn = platform.pinLockOn()
+                lockError = when (result) {
+                    "ok" -> null
+                    "no-key" -> L.t("This profile has no database key yet — nothing for a PIN to protect.")
+                    else -> if (result.startsWith("retry:")) {
+                        L.t("Too many attempts — wait {n} s.").replace("{n}", result.substringAfter("retry:"))
+                    } else {
+                        L.t("Couldn't save the PIN: ").trimEnd()
+                    }
+                }
+                if (result == "ok") {
+                    showToast(L.t("App-lock PIN saved — it is required at every start. Keep it safe: without it, restore from a backup."), 6000)
+                }
+            } finally {
+                pinBusy = false
+            }
+        }
+    }
+
+    fun removeAppPin(pin: String) {
+        if (pinBusy) return
+        pinBusy = true
+        lockError = null
+        scope.launch {
+            try {
+                val result = platform.clearAppPin(pin)
+                pinLockOn = platform.pinLockOn()
+                lockError = when {
+                    result == "ok" -> null
+                    result.startsWith("retry:") ->
+                        L.t("Too many attempts — wait {n} s.").replace("{n}", result.substringAfter("retry:"))
+                    else -> L.t("Couldn't remove the PIN: ").trimEnd()
+                }
+                if (result == "ok") showToast(L.t("PIN removed."))
+            } finally {
+                pinBusy = false
+            }
+        }
+    }
+
     /** The user opted in on the Accounts screen (prompt already succeeded). */
     fun onAppLockEnabled() {
         appLockOn = platform.enableAppLock()
@@ -2494,7 +2574,9 @@ class AppModel(
 
     fun refreshAppLockState() {
         appLockOn = platform.isAppLockOn()
-        if (!appLockOn) locked = false
+        pinLockOn = platform.pinLockOn()
+        // A PIN file is a lock root even when the biometric flag is off.
+        if (!lockRootOn()) locked = false
     }
 
     /** connect() + wait for the handshake; for non-UI entry points. */
@@ -3768,6 +3850,60 @@ class AppModel(
         }
     }
 
+    /** Relay card: confirm, then a new profile. Does not reuse the open account. */
+    fun askRelayAccount(host: String, token: String) {
+        if (obBusy) return
+        chatConfirm = PendingConfirm(relayAccountConfirm(host)) {
+            startRelayAccount(Onboarding.RelayInvite(host, token))
+        }
+    }
+
+    private fun startRelayAccount(invite: Onboarding.RelayInvite) {
+        val veltaCore = core ?: return
+        val previous = accountId
+        if (obBusy) return
+        obBusy = true
+        scope.launch {
+            var created: Long? = null
+            try {
+                val creds = claimInvite(invite)
+                val id = veltaCore.addAccount()
+                created = id
+                prepareFirstConfigure(veltaCore, id)
+                veltaCore.addTransport(id, creds.email, creds.password)
+                parkedClaim = null
+                runCatching { veltaCore.startIoForAllAccounts() }
+                switchAccountNow(veltaCore, id)
+                showToast(L.t("Account created on {host}").replace("{host}", invite.host))
+            } catch (t: Throwable) {
+                // ponytail: no previous account leaves the empty profile. Delete-profile is a later box.
+                if (created != null && previous != null) runCatching { switchAccountNow(veltaCore, previous) }
+                showToast(t.message ?: t.toString(), 6000)
+            } finally {
+                obBusy = false
+            }
+        }
+    }
+
+    /** SOCKS5 card: one confirm, then the existing apply-to-every-account path. */
+    fun askSocksProxy(raw: String) {
+        val link = try {
+            parseProxyLink(raw)
+        } catch (e: ProxyLinkError) {
+            showToast(proxyErrorLine(L.t(e.key), e), 4000)
+            return
+        }
+        val current = proxyLabel.takeIf { !proxyUrl.isNullOrBlank() }
+        chatConfirm = PendingConfirm(
+            ConfirmSpec(
+                title = "Add SOCKS5 proxy?",
+                text = socksConfirmBody(link, current),
+                ok = "Add and use",
+                danger = false,
+            ),
+        ) { applyProxyLink(raw) }
+    }
+
     fun applyProxyLink(raw: String) {
         val link = try {
             parseProxyLink(raw)
@@ -4144,6 +4280,15 @@ class AppModel(
         private set
     var accentHex by mutableStateOf(Accent.normHex(platform.pref("velta-accent")))
         private set
+    var msgFont by mutableStateOf(clampMsgFont(platform.pref("velta-msg-font-size")))
+        private set
+    var bubbleRadius by mutableStateOf(storedBubbleRadius(platform.pref("velta-bubble-radius")))
+        private set
+    var hyphensOn by mutableStateOf(platform.pref("velta-hyphens") != "0")
+        private set
+    /** Web stores "1" or "0" (absent is off). Unlike hyphens, off is not key removal. */
+    var glassComposer by mutableStateOf(platform.pref("velta-glass-composer") == "1")
+        private set
     var lang by mutableStateOf(platform.pref("velta-lang")?.takeIf { it in L.LANGS.map { it.first } } ?: "en")
         private set
     var appIconChoice by mutableStateOf(AppIconChoice.fromPref(platform.pref(APP_ICON_PREF)))
@@ -4180,6 +4325,26 @@ class AppModel(
     fun onSetAccent(hex: String?) {
         accentHex = Accent.normHex(hex)
         platform.setPref("velta-accent", accentHex)
+    }
+
+    fun onSetMsgFont(px: Float) {
+        msgFont = clampMsgFont(px)
+        platform.setPref("velta-msg-font-size", fontPrefValue(px))
+    }
+
+    fun onSetBubbleRadius(px: Int, themeRadiusPx: Int) {
+        bubbleRadius = bubbleRadiusPref(px, themeRadiusPx)
+        platform.setPref("velta-bubble-radius", bubbleRadius?.toString())
+    }
+
+    fun onSetHyphens(on: Boolean) {
+        hyphensOn = on
+        platform.setPref("velta-hyphens", if (on) null else "0")
+    }
+
+    fun onSetGlassComposer(on: Boolean) {
+        glassComposer = on
+        platform.setPref("velta-glass-composer", if (on) "1" else "0")
     }
 
     /** Web setLang: "en" is stored by REMOVING the key (i18n.js:30). */
@@ -4231,8 +4396,8 @@ class AppModel(
     }
 
     /** Sticker packs, fetched once per profile on first composer open. */
+    /** Every picker open. A session cache hid stickers saved on another device. */
     fun loadStickers() {
-        if (stickerPacks.isNotEmpty()) return
         val veltaCore = core
         val id = accountId
         if (veltaCore == null || id == null) return
@@ -4246,14 +4411,17 @@ class AppModel(
         }
     }
 
+    /** send_msg viewtype Sticker, same as stable. send_sticker cannot carry a quote. */
     fun sendSticker(path: String) {
         val veltaCore = core
         val id = accountId
         val chat = screen as? Screen.Chat ?: return
         if (veltaCore == null || id == null) return
+        val quote = replyTo?.id
+        replyTo = null
         scope.launch {
             try {
-                veltaCore.sendSticker(id, chat.chatId, path)
+                veltaCore.sendMessage(id, chat.chatId, "", "Sticker", path, quotedMessageId = quote)
                 loadMessages(chat.chatId, chat.isGroup)
                 unarchiveAfterSend(veltaCore, id, chat.chatId)
             } catch (t: Throwable) {
@@ -4591,7 +4759,7 @@ class AppModel(
         appInForeground = visible
         uiVisible = visible
         if (!visible) {
-            hiddenAtMillis = if (!locked && autoLockMins > 0 && platform.isAppLockOn()) clockMillis() else null
+            hiddenAtMillis = if (!locked && autoLockMins > 0 && lockRootOn()) clockMillis() else null
             return
         }
         val hiddenAt = hiddenAtMillis

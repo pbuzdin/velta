@@ -8,8 +8,8 @@ import java.io.File
  * when it is on, the DEK is only available inside the bio wrap
  * (`dbkey.bio`), `VeltaKeystore.getOrCreateDek` returns null (the core is
  * never started keyless over locked databases), and the UI runs the
- * unlock flow. A PIN fallback (Argon2id wrap, the Tauri phase-4 shape) is
- * a later slice — this one is biometric / device-credential only.
+ * unlock flow. An app-lock PIN (`dbkey.pin.wrap`, Argon2id) can sit
+ * beside this biometric / device-credential lock. See `PinWrap`.
  */
 object VeltaLock {
     private const val PREFS = "velta_lock"

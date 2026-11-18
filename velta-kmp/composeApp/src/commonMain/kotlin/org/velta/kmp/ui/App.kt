@@ -115,6 +115,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -123,6 +124,7 @@ import androidx.compose.material3.darkColorScheme
 import org.velta.kmp.core.ChatListItem
 import org.velta.kmp.core.MessageObject
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
@@ -156,6 +158,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.intl.Locale
+import androidx.compose.ui.text.intl.LocaleList
+import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -231,7 +236,34 @@ private fun LockScreen(model: AppModel) {
             Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
         }
         Spacer(Modifier.size(24.dp))
-        Button(onClick = { model.requestUnlock?.invoke() }) { Text(L.t("Unlock")) }
+        if (model.pinLockOn) {
+            var pin by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = pin,
+                onValueChange = { pin = it },
+                singleLine = true,
+                enabled = !model.pinBusy,
+                visualTransformation = PasswordVisualTransformation(),
+                placeholder = { Text(L.t("App-lock PIN (6+ characters)")) },
+                modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
+            )
+            Spacer(Modifier.size(12.dp))
+            Button(
+                onClick = { model.submitPin(pin) },
+                enabled = !model.pinBusy && pin.length >= 6,
+            ) {
+                if (model.pinBusy) CircularProgressIndicator(Modifier.size(18.dp))
+                else Text(L.t("Unlock with PIN"))
+            }
+        }
+        // Biometric unlock stays beside the PIN. A PIN-only lock has no prompt to run.
+        if (model.appLockOn || !model.pinLockOn) {
+            if (model.pinLockOn) Spacer(Modifier.size(8.dp))
+            Button(
+                onClick = { model.requestUnlock?.invoke() },
+                enabled = !model.pinBusy,
+            ) { Text(L.t("Unlock")) }
+        }
     }
 }
 
@@ -474,7 +506,28 @@ private fun AppLockRow(model: AppModel) {
                 modifier = Modifier.size(18.dp),
             )
         }
-        if (model.appLockOn) {
+        if (model.pinSupported) {
+            var ask by remember { mutableStateOf<PinAsk?>(null) }
+            Text(
+                L.t("App-lock PIN (6+ characters)"),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+            Row(
+                Modifier.padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (model.pinBusy) {
+                    CircularProgressIndicator(Modifier.padding(start = 8.dp).size(18.dp))
+                } else if (model.pinLockOn) {
+                    TextButton(onClick = { ask = PinAsk.Change }) { Text(L.t("Change PIN")) }
+                    TextButton(onClick = { ask = PinAsk.Remove }) { Text(L.t("Remove PIN")) }
+                } else {
+                    TextButton(onClick = { ask = PinAsk.Set }) { Text(L.t("Save PIN")) }
+                }
+            }
+            ask?.let { which -> PinDialog(model, which) { ask = null } }
+        }
+        if (model.appLockOn || model.pinLockOn) {
             var open by remember { mutableStateOf(false) }
             val label = { mins: Int ->
                 when (mins) {
@@ -515,6 +568,76 @@ private fun AppLockRow(model: AppModel) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
             )
+        }
+    }
+}
+
+private enum class PinAsk { Set, Change, Remove }
+
+@Composable
+private fun PinDialog(model: AppModel, ask: PinAsk, onDismiss: () -> Unit) {
+    var current by remember { mutableStateOf("") }
+    var pin by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    var mismatch by remember { mutableStateOf(false) }
+    val removing = ask == PinAsk.Remove
+    val needsCurrent = ask != PinAsk.Set
+    val ready = (!needsCurrent || current.length >= 6) &&
+        (removing || (pin.length >= 6 && again.length >= 6))
+    VeltaDialog(
+        title = when (ask) {
+            PinAsk.Set -> L.t("App-lock PIN (6+ characters)")
+            PinAsk.Change -> L.t("Change PIN")
+            PinAsk.Remove -> L.t("Remove PIN")
+        },
+        confirmLabel = if (removing) L.t("Remove PIN") else L.t("Save PIN"),
+        confirmEnabled = ready && !model.pinBusy,
+        onConfirm = {
+            if (!removing && pin != again) {
+                mismatch = true
+            } else if (removing) {
+                model.removeAppPin(current)
+                onDismiss()
+            } else {
+                model.saveAppPin(if (needsCurrent) current else null, pin, again)
+                onDismiss()
+            }
+        },
+        onDismiss = onDismiss,
+    ) {
+        if (needsCurrent) {
+            OutlinedTextField(
+                value = current,
+                onValueChange = { current = it },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                placeholder = { Text(L.t("Current PIN")) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.size(8.dp))
+        }
+        if (!removing) {
+            OutlinedTextField(
+                value = pin,
+                onValueChange = { pin = it; mismatch = false },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                placeholder = { Text(L.t("App-lock PIN (6+ characters)")) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.size(8.dp))
+            OutlinedTextField(
+                value = again,
+                onValueChange = { again = it; mismatch = false },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                placeholder = { Text(L.t("Repeat PIN")) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (mismatch) {
+            Spacer(Modifier.size(8.dp))
+            Text(L.t("The PINs don't match."), color = MaterialTheme.colorScheme.error)
         }
     }
 }
@@ -2470,6 +2593,56 @@ private fun SettingsScreen(model: AppModel) {
                 isError = custom.isNotBlank() && Accent.normHex(custom) == null,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
+            SettingsSection(L.t("Chat appearance"))
+            val fontPx = model.msgFont
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(L.t("Message text size"))
+                Text(pxLabel(fontPx), color = Velta.tokens.textDim)
+            }
+            Slider(
+                value = fontPx,
+                onValueChange = { model.onSetMsgFont(it) },
+                valueRange = 10f..22f,
+                steps = 23,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Message text size") },
+            )
+            val themeRadiusPx = Velta.tokens.radiusBubble.value.roundToInt()
+            val shownRadius = model.bubbleRadius ?: themeRadiusPx
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(L.t("Message corners"))
+                Text("$shownRadius px", color = Velta.tokens.textDim)
+            }
+            Slider(
+                value = shownRadius.toFloat(),
+                onValueChange = { model.onSetBubbleRadius(it.roundToInt(), themeRadiusPx) },
+                valueRange = 0f..14f,
+                steps = 13,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Message corners") },
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { model.onSetHyphens(!model.hyphensOn) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = model.hyphensOn, onCheckedChange = { model.onSetHyphens(it) })
+                Text(L.t("Hyphenate long words (English, Russian)"))
+            }
+            if (glassComposerAvailable()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { model.onSetGlassComposer(!model.glassComposer) }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = model.glassComposer, onCheckedChange = { model.onSetGlassComposer(it) })
+                    Text(L.t("Liquid glass composer"))
+                }
+            }
             SettingsSection(L.t("Notifications"))
             Row(
                 modifier = Modifier
@@ -2936,13 +3109,16 @@ private fun ChatScreen(
     val gestureInsets = WindowInsets.systemGestures
     val layoutDir = LocalLayoutDirection.current
     var listLeftPx by remember { mutableStateOf(0f) }
-    val lens = model.replyTo == null && model.editingMsg == null && model.pendingAttachment == null
+    val lens = model.glassComposer && glassComposerAvailable() &&
+        model.replyTo == null && model.editingMsg == null && model.pendingAttachment == null
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(
             WindowInsets.ime.union(WindowInsets.navigationBars),
         ),
         content = {
         val rows = chatRows(model.chatMessages, model.unreadLineId)
+        val historyTokens = withBubbleRadius(Velta.tokens, model.bubbleRadius)
+        CompositionLocalProvider(LocalVeltaTokens provides historyTokens) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -3050,6 +3226,7 @@ private fun ChatScreen(
                     }
                 }
             }
+        }
         }
         },
         overlay = { backdrop, host ->
@@ -4709,10 +4886,17 @@ private fun MessageBubble(
                             members = members,
                         )
                         var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+                        val fontPx = model.msgFont
                         Text(
                             annotated,
-                            fontSize = 15.5.sp,
-                            lineHeight = (15.5f * VeltaType.msgLineHeight).sp,
+                            fontSize = fontPx.sp,
+                            lineHeight = (fontPx * VeltaType.msgLineHeight).sp,
+                            style = TextStyle(
+                                hyphens = if (model.hyphensOn) Hyphens.Auto else Hyphens.None,
+                                localeList = LocaleList(
+                                    Locale(detectTextLang(message.text, hyphenFallback(model.lang))),
+                                ),
+                            ),
                             onTextLayout = { textLayout = it },
                             modifier = Modifier.pointerInput(annotated) {
                                 // #161: the link under the finger at touch-down
@@ -4785,6 +4969,23 @@ private fun MessageBubble(
                                     InviteCard(label.title, label.sub, link, model) { model.openInviteLink(link) }
                                 }
                             }
+                        }
+                        val cards = messageInvites(message.text)
+                        cards.relay?.let { r ->
+                            InviteCard(
+                                L.t("Account invite: {host}").replace("{host}", r.host),
+                                L.t("Single use; expiry is checked when you join"),
+                                r.link,
+                                model,
+                            ) { model.askRelayAccount(r.host, r.token) }
+                        }
+                        cards.socks?.let { s ->
+                            InviteCard(
+                                L.t("SOCKS5 proxy: {name}").replace("{name}", s.name),
+                                L.t("Proxy server: {server}").replace("{server}", "${s.host}:${s.port}"),
+                                s.link,
+                                model,
+                            ) { model.askSocksProxy(s.link) }
                         }
                     }
                     Row(

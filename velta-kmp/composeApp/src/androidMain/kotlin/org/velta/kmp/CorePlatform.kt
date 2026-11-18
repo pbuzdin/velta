@@ -11,6 +11,8 @@ import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.JniRpcTransport
 import org.velta.kmp.core.RpcShim
 import org.velta.kmp.core.RpcTransport
+import org.velta.kmp.core.PinUnlock
+import org.velta.kmp.core.PinWrap
 import org.velta.kmp.core.VeltaKeystore
 import org.velta.kmp.core.VeltaLock
 import java.io.File
@@ -21,6 +23,9 @@ import java.io.File
  * JNI (#357). No exec'd sidecar (issue #192 P1b).
  */
 class AndroidCorePlatform(private val context: Context) : CorePlatform {
+
+    /** DEK the running core was started with. Cleared when the core stops. */
+    private var liveDek: String? = null
 
     override fun appVersion(): String =
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
@@ -54,10 +59,64 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
         if (RpcShim.available) RpcShim.stopCoreOnce()
     }
 
-    override fun isAppLocked(): Boolean =
-        VeltaLock.on(context) && VeltaLock.bioFile(context).exists()
+    override fun isAppLocked(): Boolean {
+        val bio = VeltaLock.on(context) && VeltaLock.bioFile(context).exists()
+        return bio || VeltaKeystore.pinFile(context).exists()
+    }
 
     override fun isAppLockOn(): Boolean = VeltaLock.on(context)
+
+    override fun appPinSupported(): Boolean = true
+
+    override fun pinLockOn(): Boolean = VeltaKeystore.pinFile(context).exists()
+
+    override fun unlockWithPin(pin: String): PinUnlock =
+        PinWrap.open(VeltaKeystore.pinFile(context), pin)
+
+    override fun setAppPin(oldPin: String?, newPin: String): String {
+        val path = VeltaKeystore.pinFile(context)
+        val dek = if (path.exists()) {
+            if (oldPin == null) return "current-pin-required"
+            when (val open = PinWrap.open(path, oldPin)) {
+                is PinUnlock.Dek -> open.hex
+                is PinUnlock.Wrong -> return "retry:${open.delaySecs}"
+                PinUnlock.Corrupt -> return "corrupt"
+                PinUnlock.Unsupported -> return "unsupported"
+            }
+        } else {
+            // The running core's key only. getOrCreateDek would mint one over a keyless database.
+            liveDek ?: return "no-key"
+        }
+        PinWrap.write(path, newPin, dek)?.let { return it }
+        if (PinWrap.open(path, newPin) !is PinUnlock.Dek) {
+            path.delete()
+            return "wrap verify failed"
+        }
+        VeltaKeystore.deletePlainWrap(context)
+        liveDek = dek
+        return "ok"
+    }
+
+    override fun clearAppPin(pin: String): String {
+        val path = VeltaKeystore.pinFile(context)
+        val dek = when (val open = PinWrap.open(path, pin)) {
+            is PinUnlock.Dek -> open.hex
+            is PinUnlock.Wrong -> return "retry:${open.delaySecs}"
+            PinUnlock.Corrupt -> return "corrupt"
+            PinUnlock.Unsupported -> return "unsupported"
+        }
+        // Biometric stays the root. Otherwise the DEK goes back into the
+        // plain wrap before the PIN file is removed.
+        if (!VeltaLock.on(context)) {
+            if (!VeltaKeystore.storePlainWrapHex(context, dek)) return "keychain-unavailable"
+        }
+        path.delete()
+        return "ok"
+    }
+
+    override fun dropDek() {
+        liveDek = null
+    }
 
     /** Unlock path: the DEK comes from the auth-window unwrap, not the store. */
     override fun spawnRpcServerWithKey(accountsDir: String, dbKey: String): RpcTransport? =
@@ -68,6 +127,7 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
             println("velta-kmp: rpc shim not packaged — build native/rpc-shim for this ABI (see README)")
             return null
         }
+        if (dbKey.length == 64) liveDek = dbKey.lowercase()
         return try {
             val code = RpcShim.startCoreOnce(accountsDir, dbKey)
             if (code <= 0) {
@@ -84,13 +144,19 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
 
     /** MUST be called inside the auth window a successful prompt just opened. */
     override fun enableAppLock(): Boolean {
-        val dek = VeltaKeystore.getOrCreateDek(context) ?: return false
+        // A PIN root has no plain wrap. The running core's DEK is the one to seal.
+        val dek = liveDek ?: VeltaKeystore.getOrCreateDek(context) ?: return false
         return VeltaKeystore.enableAppLock(context, dek)
     }
 
     /** The DEK for the plain wrap comes from the bio wrap's auth window. */
     override fun disableAppLock(): Boolean {
         val dek = VeltaKeystore.unlockDek(context) ?: return false
+        if (VeltaKeystore.pinFile(context).exists()) {
+            VeltaLock.bioFile(context).delete()
+            VeltaLock.setOn(context, false)
+            return true
+        }
         return VeltaKeystore.disableAppLock(context, dek)
     }
 

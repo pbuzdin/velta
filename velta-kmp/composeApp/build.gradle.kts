@@ -47,6 +47,10 @@ kotlin {
         // (core bridge in jvmCommon, entry points + platform seam per target).
         val jvmCommon by creating {
             dependsOn(commonMain.get())
+            dependencies {
+                // Argon2id for the app-lock PIN wrap. AES-GCM stays on javax.crypto.
+                implementation("org.bouncycastle:bcprov-jdk18on:1.79")
+            }
         }
         androidMain.get().dependsOn(jvmCommon)
         androidMain.dependencies {

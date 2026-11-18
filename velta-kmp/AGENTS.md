@@ -14,16 +14,24 @@ work-in-progress experiment (#314). Phase plan in #192: N1 design port
 conversation notifications + RPC timeout/respawn (shipped), N3 AGSL glass
 on the composer and header (shipped), N4 release signing still open.
 Fidelity follow-ups live in #323–#328 (#329 closed 2026-11-14).
-#334 steps 1–10 are in. Step 11 is in except webxdc: search in chat,
+#334 steps 1–10 are in. Step 11 is in: search in chat,
 image viewer and opening files, in-app video and voice, group
 rename/add/remove, second-device QR plus export backup, SOCKS5 via
-`velta://proxy`, and Android message links in a Custom Tab. Webxdc
-needs the Tauri sandbox server and is not faked here.
+`velta://proxy`, Android message links in a Custom Tab, and Android
+webxdc in a WebView (`get_webxdc_blob`). Desktop does not run the apps.
+This is not the Tauri sandbox.
 The 0.9.0 / #358 wave is in (pin tray, read position, disappearing
 timer, own-profile editor, auto-download / text-only, background
 catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
 editor, floating reply card, swipe-back blink fix); #357 JNI, the
 #378 rotation FGS fix, and the launcher icon (#382 badge, later the ice default plus an App icon picker) are in too.
+Later #358 slices in this tree: strict relay and `velta://proxy` message
+cards (`ui/InviteCards.kt`; `velta://ws` stays plain text), sticker sends
+via `send_msg` viewtype `Sticker` so a reply quote survives, chat
+appearance (text size, corners, hyphenation, liquid-glass composer
+switch), and an Android app-lock PIN beside the biometric lock. Desktop
+has no PIN control and does not encrypt a keyless accounts dir. No
+Windows Hello. The stickers-in-attach switch is not built.
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout
@@ -31,12 +39,13 @@ editor, floating reply card, swipe-back blink fix); #357 JNI, the
 ```
 composeApp/src/
   commonMain/    Compose UI + AppModel + VeltaCore facade (PURE Kotlin — no java.*: compile fails even for JVM-only targets)
-  jvmCommon/     shared JVM layer: process transport, java.time formatters
+  jvmCommon/     shared JVM layer: process transport, java.time formatters,
+                 PinWrap (Argon2id via Bouncy Castle; AES-GCM stays javax.crypto)
   androidMain/   MainActivity (FragmentActivity: BiometricPrompt; NO registered-launcher
                  startActivityForResult — 16-bit crash, use startActivity + AppHolder),
                  AppHolder (process-wide model), VeltaForegroundService, push/VeltaPushService,
                  scan/ScanActivity (CameraX + ZXing), VeltaKeystore + VeltaLock (app lock,
-                 dbkey.wrap + dbkey.bio), RpcShim (JNI), CorePlatform impl, MediaAndroid,
+                 dbkey.wrap + dbkey.bio + dbkey.pin.wrap), RpcShim (JNI), CorePlatform impl, MediaAndroid,
                  AndroidIncomingNotifier (conversation notifications)
   desktopMain/   DesktopCorePlatform (sidecar spawn), Main (window + FileDialog),
                  MediaDesktop, PlatformBack actual
@@ -53,10 +62,11 @@ composeApp/src/
                  never hand-edit; staleness tests fail CI
                  (tests/kmp-theme-tokens.test.mjs, tests/kmp-icons.test.mjs).
   ui/LangRu.kt + ui/LangFr.kt
-                 GENERATED string packs (tools/gen-kmp-strings.mjs from the
-                 REAL app/locales/{ru,fr}.json), filtered to this client's
-                 L.t("…") call sites; tests/kmp-strings.test.mjs fails CI on
-                 staleness AND on any used key missing from a pack.
+                 GENERATED string packs (tools/gen-kmp-strings.mjs from
+                 app/locales/{ru,fr}.json plus velta-kmp/i18n for KMP-only
+                 keys), filtered to this client's call sites;
+                 tests/kmp-strings.test.mjs fails CI on staleness AND on
+                 any used key missing from both packs.
   ui/L10n.kt     L.t(): the English string IS the key (i18n.js rule) — a
                  missing pack value falls back to English. Only wrap strings
                  that exist as keys in BOTH web packs; everything else stays
@@ -71,6 +81,10 @@ composeApp/src/
                  link; 40-hex on BOTH forms; safe percent-decode).
   ui/InviteSurface.kt extra hosts (`velta-invite-hosts`), invite card
                  labels, deltachat.id short links. Relay chips stay out.
+  ui/InviteCards.kt  strict message cards: `https://host/i/<token>` and
+                 `velta://proxy` only. `velta://ws` stays plain text.
+  ui/ChatAppearance.kt  text size, bubble corners, hyphenation
+                 (`chat-appearance.js` / `text-lang.js`).
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
@@ -390,7 +404,8 @@ never run Gradle on the Windows side.
   contactIds) and lastSeen (contact fetch) land async. The whole info
   zone opens the Profile screen; the right-edge button is the web's
   chat-menu dots (dotsVertical) for ALL chats — groups had no header
-  entry point before. Call buttons stay hidden (no calls in KMP).
+  entry point before. 1:1 voice and video calls are chat-menu actions
+  (`startCall`); the header stays the menu dots.
   Search in chat is the header search button (and a tapped #hashtag):
   core fulltext, newest 30 hits, a hit jumps to the message
   (`ui/SearchRules.kt`, `ui/ChatSearch.kt`).
@@ -498,7 +513,11 @@ never run Gradle on the Windows side.
   provider is invisible and the link leaves the app. No provider, or
   a failed launch, opens a second WebView (JS on, no bridge, no file
   access; mailto/tel/market leave, other schemes drop). Desktop keeps
-  the system browser via `LocalUriHandler`. Webxdc is not implemented.
+  the system browser via `LocalUriHandler`. Android webxdc runs in a
+  WebView: the archive comes from `get_webxdc_blob` on
+  `https://xdc.local/<msgId>/` and `window.webxdc` is injected
+  (`WebxdcScreen.android.kt`). Desktop says apps run in the web app.
+  This is not the Tauri `webxdc_begin` / `webxdc_end` sandbox.
 - One GraphicsLayer records the scrolling content. Header and composer are
   overlay siblings that sample it. `rememberGraphicsLayer` lives in
   `androidx.compose.ui.graphics` (CMP 1.9), not the `layer` package.
@@ -507,8 +526,21 @@ never run Gradle on the Windows side.
 - API 33 shader: rounded-slab Snell bevel, IOR 1.5, bevel 46% of the short
   side, peak shift 18% of the short side, clipped to the plate. The header
   plate includes the status-bar inset, so the lens runs under the status
-  icons. Composer radius is 22dp. The lens is off while a reply, attachment,
-  or message-action bar is showing.
+  icons. Composer radius is 22dp. The header lens stays on. The composer
+  lens also needs `velta-glass-composer` = `"1"` (off stores `"0"`,
+  absent is off) and `glassComposerAvailable()` (Android API 31+,
+  desktop false — the switch is hidden there). It is off while a reply,
+  edit, attachment, or message-action bar is showing.
+- **Chat appearance** (#328, except the stickers-in-attach switch):
+  Settings → Chat appearance. `velta-msg-font-size` is 10–22 px, step
+  0.5, absent = 15.5 (storing the default removes the key).
+  `velta-bubble-radius` is 0–14; null when it matches the theme radius
+  (brutal 6, otherwise 14). With an override, tail and quote are
+  min(6, r) and media is max(0, r−4); with none, brutal media stays 10.
+  `velta-hyphens` is off only when `"0"`. Per-message language is
+  Cyrillic vs Latin (`detectTextLang`); a tie or no letters follows the
+  UI language, and French hyphenates as English. Font size and hyphens
+  apply to the bubble body only. Rules: `ui/ChatAppearance.kt`.
 - `MainActivity` `windowSoftInputMode` is `adjustNothing`. The chat screen
   pads the host once with `ime` union `navigationBars`. Do not add a second
   IME padding, and do not switch to `adjustResize` without a phone check:
@@ -607,9 +639,17 @@ never run Gradle on the Windows side.
   normalized before check/secure-join, and both forms require the final
   40-hex fingerprint. Percent-decoding is percent-ONLY ('+' stays
   literal; java.net.URLDecoder is both crashy on `%zz` and wrong).
-  md-link `[label](invite)` renders a plain anchor (cards are
+  md-link `[label](invite)` renders a plain anchor (secure-join cards are
   bare-URL-only, web markdown.js); the bubble tap handler intercepts
-  invite hrefs (bindInviteInterception parity).
+  invite hrefs (bindInviteInterception parity). A strict relay invite
+  (`https://<host>/i/<token>`, not `claim`) and a `velta://proxy` link
+  become chips with a card under the text (`ui/InviteCards.kt`,
+  `app/js/invite-cards.js`). Nothing is applied until the confirm.
+  A relay confirm creates an account (claim, then configure) and does
+  not skip the failure path back to the previous account. A proxy
+  confirm calls the existing `applyProxyLink` (one URL on every
+  account). `velta://ws` stays plain text — this client has no
+  WebSocket transport. `http://` and a short token stay ordinary links.
 - Relays: `list_transports` → Vec<EnteredLoginParam> (sending transport
   first, quilt #11), `get_server_metadata` → map addr→metadata (quilt #15),
   `delete_transport(addr)`. ⚠️ `set_transport_enabled` does NOT exist yet
@@ -628,7 +668,20 @@ never run Gradle on the Windows side.
   (`getOrCreateDek` returns null); the DEK lives in an auth-window wrap
   (`dbkey.bio`, 30 s Keystore validity after a prompt); unlock = prompt →
   `unlockDek` inside the window → `spawnRpcServerWithKey(dir, dek)`.
-  PIN/Argon2id fallback deferred. #334 step 4: the prompt's authenticators
+  Android also wraps that same running DEK under an app-lock PIN
+  (`dbkey.pin.wrap`, `PinWrap`, the Tauri `db_key.rs` VLTDW file:
+  Argon2id 64 MiB, t=3, p=1, then AES-256-GCM). Six or more characters.
+  A wrong PIN bumps the clear-text counter (not in the AAD) and the
+  backoff is 1s, 2s, 4s, … capped at 30s. Changing the PIN needs the
+  current one. Clearing it writes the plain wrap back only when the
+  biometric lock is off; when that lock is on, the bio wrap stays the
+  other root. `getOrCreateDek` returns null while the PIN file exists
+  and must not mint a key. Set PIN only from the key the running core
+  already uses (`liveDek`); a keyless core returns `no-key`. Desktop
+  `appPinSupported()` is false — do not encrypt `~/.velta-kmp/accounts`.
+  No Windows Hello. Do not "fix" `VeltaKeystore.hex()`: both nibbles
+  use the high nibble, and databases already open with that string.
+  The PIN unwrap must return that same string. #334 step 4: the prompt's authenticators
   come from `LockPolicy.authenticators(sdk)` and never accept less than the
   key (STRONG | DEVICE_CREDENTIAL; API 28-29 STRONG + Cancel button) — the
   old BIOMETRIC_WEAK prompt passed face unlock that the key then refused.
@@ -749,8 +802,9 @@ but are distinct pool entries). Re-derive vectors with node when in doubt.
 - Generated-file tests are the CI gate for four generators
   (`VELTA_GEN_NO_WRITE=1` re-run vs the committed file): theme tokens,
   icons, string packs. The strings generator ALSO asserts every used
-  `L.t` key exists in BOTH web packs — a key missing there is a porting
-  bug (wrong casing), not a test failure to relax. ⚠️ when scanning for
+  `L.t` key exists in the web pack or in `velta-kmp/i18n` — a key in
+  neither is a porting bug (wrong casing), not a test failure to relax.
+  A key the web pack already has stays in `app/locales`, not i18n. ⚠️ when scanning for
   call sites, strip whole-line `//` comments FIRST — the generated
   files' own headers mention `L.t("…")` and would feed themselves back
   in as a "used key".

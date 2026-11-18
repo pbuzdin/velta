@@ -1,6 +1,6 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-17 after the 0.9.0 / #358 wave
+Tracking issue #192. Updated 2026-11-18 after the 0.9.0 / #358 wave
 (#359–#374, #378, #382) and #357 JNI. Every phase lists what SHIPPED,
 how it was VERIFIED, and what is still MISSING — no "done" without the
 gaps next to it.
@@ -27,8 +27,9 @@ the 2026-11-14 entry).** **2026-11-15, #334 step 11:** search in chat,
 image viewer and opening files, in-app video and voice/audio, group
 rename/add/remove, second-device QR plus export backup, and a
 `velta://proxy` paste on Accounts. Message links on Android stay in a
-Custom Tab (in-app page if the device has no provider). **Webxdc is
-still out** — it needs the Tauri sandbox server. **#357 step 2:** the
+Custom Tab (in-app page if the device has no provider). **Android
+webxdc** runs in a WebView from `get_webxdc_blob`; desktop does not
+run the apps. It is not the Tauri sandbox. **#357 step 2:** the
 event loop calls `get_next_event_batch` (one round trip per burst; an
 empty batch waits 250 ms and is not a failure). **#357 step 1:** the
 Android Tauri `rpc` command returns the JSON line the way desktop does.
@@ -42,25 +43,33 @@ connection" toggle, UnifiedPush distributor picker, maybe_network and
 MessagingStyle polish, swipe motion (SwipeRules), attachment preview +
 crop/draw editor, floating reply/edit/attachment card, swipe-back blink
 fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
-`versionName` is 0.9.0. Ledger entry below. Webxdc is still out.
+`versionName` is 0.9.0. Ledger entry below.
+
+**2026-11-18:** strict relay and `velta://proxy` message cards
+(`velta://ws` stays text), sticker sends keep a reply quote
+(`send_msg` viewtype `Sticker`), chat appearance prefs, and an Android
+app-lock PIN beside the biometric lock. Desktop hides the PIN. No
+Windows Hello. The stickers-in-attach switch is not in this client.
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate (picker +
   `mentionsMe` landed in `496e3faf`; the issue is still open).
-- #324 invite surface: short links, relay chips, domain registry, card
-  copy/share.
+- #324 invite surface: domains, short links, card copy/share, and
+  strict `https://host/i/<token>` plus `velta://proxy` message cards
+  are in. `velta://ws` stays plain text. QR relay chips are still out.
 - #325 markdown: `> ` quote blocks, hashtag rules, trimLinkEnd, nested
   emphasis, `+` bullets, list grouping.
-- #326 sticker save flow, quote attachment on sticker sends, visibility
-  rules.
+- #326 sticker save and a quote on the sticker send are in
+  (`send_msg` viewtype `Sticker`). The visibility switch is not.
 - #327 quote-tap fetch-then-jump beyond the loaded window.
-- #328 chat-appearance extras: text size, bubble corners, hyphenation,
-  stickers-in-attach, glass toggle.
+- #328 chat appearance: text size, bubble corners, hyphenation, and the
+  liquid-glass composer switch are in. The stickers-in-attach switch
+  is not (stickers already live only in the attach menu).
 - #329 CLOSED 2026-11-14 — the full bar + Contacts / Calls / QR /
   New-chat side views shipped (see the 2026-11-14 ledger entry).
 
 **P4 leftovers (small):**
-1. Webxdc apps (the Tauri `webxdc_serve` sandbox is not in this client).
+1. Desktop webxdc (Android runs apps in a WebView; the Tauri sandbox is not in this client).
 2. Storage and Chats-in-common profile rows.
 3. In-app brand mark extras, if any — the default launcher is the official
    V on `#0A1A2E` with a near-white ice short stroke; the #382 K-badge icon
@@ -286,10 +295,11 @@ Foreground service while locked holds a process with NO core (nothing
 decrypts without auth — the correct trade-off). MainActivity migrated to
 `FragmentActivity` (BiometricPrompt requirement). Scripted test: locked
 platform blocks every RPC and the plain spawn path; unlock spawns exactly
-once with the DEK. **PIN fallback (Argon2id wrap, the Tauri phase-4 shape)
-is deferred** — biometric/device-credential only for now; the on-device
-enable→restart→prompt→unlock walk joins the gate checklist (needs a
-configured account to reach the Accounts screen).
+once with the DEK. **App-lock PIN (2026-11-18, Android):** 6+ characters,
+`dbkey.pin.wrap`, the Tauri VLTDW Argon2id wrap (64 MiB, t=3, p=1) beside
+the biometric lock. Desktop has no key to wrap, so the control is hidden.
+No Windows Hello. `PinWrapTest` checks the file round-trip and the backoff.
+The on-device enable→restart→prompt→unlock walk is still a phone check.
 
 **Slice 10 — battery allowance (shipped):** a Battery row on the Accounts
 screen — restricted/exempt state from `PowerManager.isIgnoringBatteryOptimizations`,

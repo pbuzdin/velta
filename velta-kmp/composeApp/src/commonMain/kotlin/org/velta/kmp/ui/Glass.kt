@@ -74,6 +74,9 @@ internal fun GlassHost(
     }
 }
 
+/** Web `glassComposerAvailable`: the composer switch exists only where a lens can run. */
+internal expect fun glassComposerAvailable(): Boolean
+
 @Composable
 internal expect fun GlassPlate(
     backdrop: GraphicsLayer,
