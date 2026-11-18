@@ -245,6 +245,7 @@ internal object LangFr {
         "Invite link" to "Lien d'invitation",
         "Invite link copied" to "Lien d'invitation copié",
         "Invite link domains" to "Domaines des liens d'invitation",
+        "Invite via link/QR" to "Inviter par lien/QR",
         "Join" to "Rejoindre",
         "Join chat via invite link" to "Rejoindre via un lien d'invitation",
         "Join group" to "Rejoindre le groupe",

@@ -72,6 +72,17 @@ fun shareTargets(chats: List<ChatListItem>, query: String = "", cat: String = "a
     }
 }
 
+/** app.js forwardFlow uses the same chips. Special chats (id ≤ 9) stay out.
+ *  [knownOnly] is the shared "Show only known contacts" switch: 1:1 chats only. */
+fun forwardPickerTargets(
+    chats: List<ChatListItem>,
+    query: String = "",
+    cat: String = "all",
+    isBot: (Long) -> Boolean = { false },
+    knownOnly: Boolean = false,
+): List<ChatListItem> =
+    shareTargets(chats, query, cat, isBot).filter { it.id > 9 && (!knownOnly || chatKindOf(it) == "single") }
+
 /** One burst → the caption text and the distinct files, in order. */
 data class SharePlan(val text: String, val files: List<ShareItem>)
 

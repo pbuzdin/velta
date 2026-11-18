@@ -17,6 +17,9 @@ fun groupName(raw: String): String? {
 /** Groups and channels can be renamed. 1:1 names come from the contact. */
 fun canRename(kind: String): Boolean = kind == "group" || kind == "channel"
 
+/** #312: only an owned outgoing channel offers Invite via link/QR. */
+fun offersChannelInvite(chatType: String?): Boolean = chatType == "OutBroadcast"
+
 /** admin-group.js: only someone who can add members may remove, and not self. */
 fun canRemoveMember(chat: MenuChat, contactId: Long): Boolean =
     chat.kind == "group" && canAddMembers(chat) && contactId > 1L

@@ -35,6 +35,29 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/** .chat-cats.modal-cats: whole labels, scroll instead of ellipsis. */
+@Composable
+internal fun PickerCategoryChips(cat: String, onSelect: (String) -> Unit) {
+    val tokens = Velta.tokens
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        SHARE_CATEGORIES.forEach { c ->
+            val active = c == cat
+            Text(
+                shareCatLabel(c),
+                fontSize = 11.5.sp,
+                lineHeight = 11.5.sp,
+                color = if (active) tokens.onAccentChip else tokens.textDim,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (active) tokens.accent else tokens.bgHover)
+                    .clickable { onSelect(c) }
+                    .semantics { role = Role.Tab; selected = active }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
+    }
+}
+
 /** Picker chip labels (components.js buildCategoryChips) as L.t literals. */
 private fun shareCatLabel(cat: String): String = when (cat) {
     "all" -> L.t("All")
@@ -102,24 +125,7 @@ internal fun SharePickerHost(model: AppModel) {
                     }
                 }
             }
-            // .chat-cats.modal-cats: whole labels, scroll instead of ellipsis.
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                SHARE_CATEGORIES.forEach { c ->
-                    val active = c == cat
-                    Text(
-                        shareCatLabel(c),
-                        fontSize = 11.5.sp,
-                        lineHeight = 11.5.sp,
-                        color = if (active) tokens.onAccentChip else tokens.textDim,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (active) tokens.accent else tokens.bgHover)
-                            .clickable { cat = c }
-                            .semantics { role = Role.Tab; selected = active }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                    )
-                }
-            }
+            PickerCategoryChips(cat) { cat = it }
             val targets = model.shareTargetsFor(query, cat)
             if (targets.isEmpty()) {
                 Text(

@@ -37,7 +37,10 @@ is `"1"`. The button hides while the composer has text.
 Reply threads count quotes (`get_reply_counts`; the loaded window counts
 only when history is complete), show "N replies" and a side button, and
 open a 70% sheet (history dimmed, go-down hidden) that keeps the next send quoting the parent
-(`ui/ThreadRules.kt`).
+(`ui/ThreadRules.kt`). Forward and share pickers filter with the same chips
+(All / People / Groups / Channels / Bots / Saved). The forward picker
+also has the known-contacts toggle. An owned outgoing channel offers
+Invite via link/QR.
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout

@@ -129,8 +129,8 @@ class AppModel(
     private fun chatIsBot(contactId: Long): Boolean =
         contactBotsAcct == accountId && contactBots?.get(contactId) == true
 
-    fun ensureContactBots() {
-        if ((chatCategory == "people" || chatCategory == "bots") &&
+    fun ensureContactBots(force: Boolean = false) {
+        if ((force || chatCategory == "people" || chatCategory == "bots") &&
             (contactBots == null || contactBotsAcct != accountId)
         ) {
             refreshContacts()
@@ -3524,9 +3524,9 @@ class AppModel(
         }
     }
 
-    /** Forward targets: stable drops the contact-request deaddrop + device chat. */
-    fun forwardTargets(): List<ChatListItem> =
-        chats.filter { it.kind == "ChatListItem" && !it.isDeviceTalk && !it.isContactRequest && it.id > 9 }
+    /** Forward targets: same chips as the share picker; special chats stay out. */
+    fun forwardTargets(query: String = "", cat: String = "all"): List<ChatListItem> =
+        forwardPickerTargets(chats, query, cat, ::chatIsBot, knownContactsOnly)
 
     fun showInfo(message: MessageObject) {
         messageSheet = null
@@ -4150,7 +4150,7 @@ class AppModel(
             heldShares.toList().also { heldShares.clear() }
         }
         sharePick = sharePlan(batch)
-        ensureContactBots()
+        ensureContactBots(force = true)
         loadShareAccounts()
     }
 
@@ -4170,6 +4170,7 @@ class AppModel(
         scope.launch {
             try {
                 switchAccountNow(veltaCore, id)
+                ensureContactBots(force = true)
             } catch (t: Throwable) {
                 showToast(L.t("Switch failed: ") + (t.message ?: t.toString()), 4000)
             }

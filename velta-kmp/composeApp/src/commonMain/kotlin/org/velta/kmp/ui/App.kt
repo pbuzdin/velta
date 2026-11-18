@@ -1109,7 +1109,7 @@ private fun ContactsView(model: AppModel) {
 }
 
 @Composable
-private fun KnownToggleRow(model: AppModel) {
+internal fun KnownToggleRow(model: AppModel) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -3998,6 +3998,11 @@ private fun GroupManageBlock(model: AppModel, p: AppModel.ProfileData) {
         if (canRename(kind)) {
             TextButton(onClick = { model.beginRename() }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text(L.t("Rename"))
+            }
+        }
+        if (offersChannelInvite(p.chatType)) {
+            TextButton(onClick = { model.showGroupInvite(menu) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(L.t("Invite via link/QR"))
             }
         }
         if (kind == "group") {

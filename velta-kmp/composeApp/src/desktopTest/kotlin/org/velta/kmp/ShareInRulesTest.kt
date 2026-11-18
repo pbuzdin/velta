@@ -12,6 +12,7 @@ import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.RpcTransport
 import org.velta.kmp.ui.AppModel
 import org.velta.kmp.ui.SHARE_CATEGORIES
+import org.velta.kmp.ui.forwardPickerTargets
 import org.velta.kmp.ui.ShareItem
 import org.velta.kmp.ui.SharedText
 import org.velta.kmp.ui.classifySharedText
@@ -86,6 +87,10 @@ class ShareInRulesTest {
         assertEquals(listOf(14L), shareTargets(chats, cat = "saved").map { it.id })
         assertEquals(listOf(10L), shareTargets(chats, query = "an").map { it.id })
         assertEquals(listOf("all", "people", "groups", "channels", "bots", "saved"), SHARE_CATEGORIES)
+        val withSpecial = chats + ChatListItem(id = 7, name = "Hint", chatType = "Single")
+        assertEquals(listOf(10L, 11L, 14L), forwardPickerTargets(withSpecial).map { it.id })
+        assertEquals(listOf(11L), forwardPickerTargets(withSpecial, cat = "groups").map { it.id })
+        assertEquals(listOf(10L), forwardPickerTargets(withSpecial, knownOnly = true).map { it.id })
     }
 
     // ---- model wiring ----

@@ -6,6 +6,7 @@ import org.velta.kmp.ui.canRemoveMember
 import org.velta.kmp.ui.canRename
 import org.velta.kmp.ui.contactsToAdd
 import org.velta.kmp.ui.groupName
+import org.velta.kmp.ui.offersChannelInvite
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -28,6 +29,9 @@ class GroupManageRulesTest {
         assertTrue(canRename("group"))
         assertTrue(canRename("channel"))
         assertFalse(canRename("single"))
+        assertTrue(offersChannelInvite("OutBroadcast"))
+        assertFalse(offersChannelInvite("InBroadcast"))
+        assertFalse(offersChannelInvite("Mailinglist"))
     }
 
     @Test

@@ -631,9 +631,12 @@ internal fun ForwardPicker(model: AppModel, row: @Composable (ChatListItem, () -
     if (model.forwardIds == null) return
     val tokens = Velta.tokens
     var query by remember { mutableStateOf("") }
+    var cat by remember { mutableStateOf("all") }
     val close = { model.forwardIds = null }
+    LaunchedEffect(Unit) { model.ensureContactBots(force = true) }
     PlatformBackHandler { close() }
     SheetModal(title = L.t("Forward to…"), onClose = close) {
+        KnownToggleRow(model)
         val searchLabel = L.t("Search chats")
         BasicTextField(
             value = query,
@@ -655,8 +658,8 @@ internal fun ForwardPicker(model: AppModel, row: @Composable (ChatListItem, () -
                 }
             },
         )
-        val q = query.trim().lowercase()
-        val targets = model.forwardTargets().filter { q.isEmpty() || it.name.lowercase().contains(q) }
+        PickerCategoryChips(cat) { cat = it }
+        val targets = model.forwardTargets(query, cat)
         if (targets.isEmpty()) {
             Text(L.t("No chats match."), fontSize = 14.sp, color = tokens.textDim, modifier = Modifier.padding(8.dp))
         } else {

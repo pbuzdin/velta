@@ -245,6 +245,7 @@ internal object LangRu {
         "Invite link" to "Ссылка-приглашение",
         "Invite link copied" to "Ссылка-приглашение скопирована",
         "Invite link domains" to "Домены ссылок-приглашений",
+        "Invite via link/QR" to "Пригласить по ссылке/QR",
         "Join" to "Войти",
         "Join chat via invite link" to "Войти по ссылке-приглашению",
         "Join group" to "Вступить в группу",
