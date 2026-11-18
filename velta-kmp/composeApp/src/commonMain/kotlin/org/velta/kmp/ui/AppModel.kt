@@ -2626,6 +2626,14 @@ class AppModel(
                 }
             }
         }
+        // Incoming ring: full-screen notification while ringing (locked or
+        // backgrounded users see + answer it), cancelled with the ring.
+        scope.launch {
+            androidx.compose.runtime.snapshotFlow { calls.state is CallState.Incoming }.collect { incoming ->
+                if (incoming) callNotifyIncoming?.invoke(calls.chatName ?: L.t("Call"))
+                else callNotifyIncomingCancel?.invoke()
+            }
+        }
         // Camera start/stop follows the video flag, independent of call state:
         // the caller previews while ringing.
         scope.launch {
@@ -2642,6 +2650,15 @@ class AppModel(
             }
         }
     }
+
+    /** Camera front/back switch (adapter no-ops without a capturer). */
+    fun switchCallCamera() = callMedia?.switchCamera()
+
+    /** Platform hook: post the incoming-call notification (full-screen
+     *  intent + decline action) — a locked/backgrounded user must not miss
+     *  the ring. Cancelled when the ring ends (accept/decline/stand-down). */
+    var callNotifyIncoming: ((name: String) -> Unit)? = null
+    var callNotifyIncomingCancel: (() -> Unit)? = null
 
     /** Camera toggle for a live call (permission asked before the flag flips;
      *  the init collector then drives the adapter). */

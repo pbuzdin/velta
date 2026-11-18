@@ -27,6 +27,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Video calls (P2): camera FGS type next to the mic type. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- Incoming calls ring over the lock screen (full-screen intent). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Custom Tabs (InAppBrowser): without these, package visibility hides
          every provider on API 30+ and a link opens as a full browser task. -->

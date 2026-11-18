@@ -3255,6 +3255,9 @@ private fun CallOverlay(model: AppModel) {
                             if (model.callVideoActive) L.t("Stop video") else L.t("Video"),
                             if (model.callVideoActive) tokens.accent else tokens.textDim,
                         ) { model.toggleCallVideo() }
+                        if (model.callVideoActive) {
+                            CallButton(VeltaIcons.photo, L.t("Switch camera"), tokens.textDim) { model.switchCallCamera() }
+                        }
                         if (model.callSpeakerAvailable) {
                             CallButton(VeltaIcons.notifications, L.t("Speaker"), tokens.textDim) { model.callSpeakerToggle?.invoke() }
                         }

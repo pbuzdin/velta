@@ -167,6 +167,7 @@ internal object LangFr {
         "Delete all messages in this chat?" to "Supprimer tous les messages de cette discussion ?",
         "Delete chat" to "Supprimer la discussion",
         "Decline" to "Refuser",
+        "Switch camera" to "Changer de caméra",
         "End call" to "Terminer l'appel",
         "Delete every message in \"{name}\" older than {label}? Pinned messages are kept. This cannot be undone." to "Supprimer tous les messages de « {name} » plus anciens que {label} ? Les messages épinglés sont conservés. C'est irréversible.",
         "Delete for everyone" to "Supprimer pour tout le monde",
