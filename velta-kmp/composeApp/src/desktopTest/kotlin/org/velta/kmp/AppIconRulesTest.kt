@@ -6,7 +6,6 @@ import org.velta.kmp.ui.LAUNCHER_ALIAS_BADGE
 import org.velta.kmp.ui.LAUNCHER_ALIAS_CLASSIC
 import org.velta.kmp.ui.LAUNCHER_ALIAS_DEFAULT
 import org.velta.kmp.ui.launcherAliasState
-import org.velta.kmp.ui.launcherMipmapName
 import org.velta.kmp.ui.notificationIconName
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -63,10 +62,4 @@ class AppIconRulesTest {
         assertEquals("ic_notify_classic", AppIconChoice.Classic.notificationIconName)
     }
 
-    @Test
-    fun launcherTileNameFollowsTheChoice() {
-        assertEquals("ic_launcher", AppIconChoice.Default.launcherMipmapName)
-        assertEquals("ic_launcher_badge", AppIconChoice.Badge.launcherMipmapName)
-        assertEquals("ic_launcher_classic", AppIconChoice.Classic.launcherMipmapName)
-    }
 }

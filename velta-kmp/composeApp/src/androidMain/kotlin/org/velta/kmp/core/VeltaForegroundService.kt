@@ -12,10 +12,7 @@ import android.os.IBinder
 import org.velta.kmp.AppHolder
 import org.velta.kmp.MainActivity
 import org.velta.kmp.appIconSmallIconRes
-import org.velta.kmp.appLauncherTileBitmap
 import androidx.core.app.NotificationCompat
-import androidx.core.app.Person
-import androidx.core.graphics.drawable.IconCompat
 import org.velta.kmp.currentAppIcon
 import org.velta.kmp.ui.L
 import org.velta.kmp.ui.syncServiceRuns
@@ -91,25 +88,16 @@ class VeltaForegroundService : Service() {
                 ),
             )
         }
-        // vivo's shell ALWAYS paints the cached app icon beside standard
-        // and custom-content cards (two icons; the shell one stale after
-        // alias switches). Conversation-style cards get exactly ONE icon —
-        // the Person avatar — so the banner poses as one: avatar = the
-        // chosen logo's tile, re-read from prefs on every service start.
-        val tile = applicationContext.appLauncherTileBitmap(applicationContext.currentAppIcon())
-        val velta = Person.Builder()
-            .setName("Velta")
-            .setIcon(IconCompat.createWithBitmap(tile))
-            .build()
-        // NO messages in the style: vivo counts re-posted messages as an
-        // unread-chat badge and ranks conversations first — the status goes
-        // through the plain title/text fields instead, keeping the avatar.
-        val style = NotificationCompat.MessagingStyle(velta)
+        // Native template, MIN channel: one icon = the app icon the skin
+        // resolves. vivo draws its own cache of it and ignores alias
+        // switches in the shade (measured across four variants — largeIcon,
+        // RemoteViews, MessagingStyle avatar, Person extra — each had worse
+        // side effects). The real hook is the smallIcon glyph: status bar
+        // + corner badge, follows the choice instantly.
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
             .setContentTitle("Velta")
             .setContentText(L.t("Keeping your messages up to date"))
-            .setStyle(style)
             .setContentIntent(openAppIntent())
             .setOngoing(true)
             .setShowWhen(false)
