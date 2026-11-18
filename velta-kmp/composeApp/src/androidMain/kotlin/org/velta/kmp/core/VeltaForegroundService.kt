@@ -107,7 +107,14 @@ class VeltaForegroundService : Service() {
             .build()
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
-            .setPerson(velta)
+            .setExtras(
+                // NotificationCompat.Builder.setPerson needs a newer core;
+                // the framework extra is the same hook (EXTRA_PERSON, API 28+,
+                // harmlessly ignored below).
+                android.os.Bundle().apply {
+                    putParcelable(android.app.Notification.EXTRA_PERSON, velta.toAndroidPerson())
+                },
+            )
             .setContentTitle("Velta")
             .setContentText(L.t("Keeping your messages up to date"))
             .setContentIntent(openAppIntent())
