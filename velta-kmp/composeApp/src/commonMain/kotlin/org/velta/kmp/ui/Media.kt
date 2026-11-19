@@ -31,13 +31,16 @@ import kotlin.math.roundToInt
 expect fun decodeImage(path: String): ImageBitmap?
 
 /**
- * Web .msg-image/.msg-video bleed (main.css: margin 2px -5px 5px): media
- * extends 5dp past the bubble's 10dp horizontal padding on both sides.
- * The child is measured with +10dp of width headroom and centered, which
- * pushes 5dp out of the padded column on each side.
+ * Web .msg-image/.msg-video (main.css margin 2px -5px 5px).
+ * Horizontal: 5dp past the bubble's 10dp padding. The child is measured
+ * with +10dp of width and shifted left.
+ * Vertical: 5dp under the media, so a caption is not flush with the picture.
+ * The 2px top is not added here. A sender name already has 2dp under it,
+ * and a quote already has 5dp (the web zeros this top margin after a quote).
  */
 fun Modifier.mediaBleed(extra: Dp = 5.dp): Modifier = layout { measurable, constraints ->
     val bleed = extra.roundToPx()
+    val under = 5.dp.roundToPx()
     val wideConstraints = constraints.copy(
         minWidth = 0,
         maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth + bleed * 2 else constraints.maxWidth,
@@ -46,7 +49,7 @@ fun Modifier.mediaBleed(extra: Dp = 5.dp): Modifier = layout { measurable, const
     // Report the child's width minus the headroom so the wrap-content bubble
     // grows by the real media size, then shift left to poke into the padding.
     val width = (placeable.width - bleed * 2).coerceAtLeast(0)
-    layout(width, placeable.height) {
+    layout(width, placeable.height + under) {
         placeable.place(-bleed, 0)
     }
 }

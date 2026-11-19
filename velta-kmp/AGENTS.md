@@ -374,8 +374,10 @@ never run Gradle on the Windows side.
   (web .msg-sender is a bubble child, stickers keep it); meta row =
   11.5sp `msgMetaSize` in textMetaIn/Out, tick tints 28→ticksRead /
   24→danger; stickers = transparent bubble, no shadow/padding, 175dp cap;
-  media bleeds 5dp past the padding (`mediaBleed` layout modifier —
-  measure +10dp headroom, report child − 2×bleed, place −bleed), 320/450
+  media bleeds 5dp past the padding and leaves 5dp under the picture
+  (`mediaBleed` — measure +10dp headroom, report child − 2×bleed, place
+  −bleed, height +5dp; web margin-bottom. The 2px top is the sender's
+  own padding, and a quote already separates the picture), 320/450
   caps + radiusMedia clip + dims-reserved placeholder; video/audio/file
   cards carry size + duration chips from the wire (`MessageObject`
   fileBytes/duration/dimensionsWidth/Height); reactions live INSIDE the
