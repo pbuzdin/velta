@@ -1033,10 +1033,13 @@ class AppModel(
                         refreshRelayLine()
                     }
                     qr.isSecureJoin -> {
+                        // The core returns the existing chat when we are already in it.
                         veltaCore.startIoForAllAccounts()
-                        veltaCore.secureJoin(id, raw)
+                        val chatId = veltaCore.secureJoin(id, raw)
                         loadChats()
-                        screen = Screen.ChatList
+                        val item = chats.firstOrNull { it.id == chatId }
+                            ?: archivedChats.firstOrNull { it.id == chatId }
+                        if (item != null) openChat(item) else screen = Screen.ChatList
                         refreshRelayLine()
                     }
                     else -> joinError = L.t("That QR code isn't a Velta or Delta Chat invite")
@@ -2024,7 +2027,9 @@ class AppModel(
             var lastSeen = 0L
             var blocked = false
             var fingerprint: String? = null
+            var contactAvatar: String? = null
             var description = ""
+            val listed = chats.firstOrNull { it.id == chatId } ?: archivedChats.firstOrNull { it.id == chatId }
             if (isSingle) {
                 val cid = (chat["contactIds"] as? kotlinx.serialization.json.JsonArray)
                     ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
@@ -2038,6 +2043,7 @@ class AppModel(
                         lastSeen = c.lastSeen
                         blocked = c.isBlocked
                         description = c.status
+                        contactAvatar = c.profileImage?.takeIf { it.isNotBlank() }
                     }
                     fingerprint = identityFingerprintFromEncrInfo(
                         veltaCore.contactEncryptionInfo(id, cid) ?: "",
@@ -2052,7 +2058,7 @@ class AppModel(
                 chatName = jstr(chat, "name") ?: "",
                 contactName = contactName,
                 addr = addr,
-                fingerprint = fingerprint,
+                fingerprint = fingerprint ?: identities[chatId],
                 lastSeenSeconds = lastSeen,
                 blocked = blocked,
                 muted = jbool(chat, "isMuted"),
@@ -2074,8 +2080,10 @@ class AppModel(
                 } catch (_: Throwable) {
                     ""
                 },
-                avatarPath = jstr(chat, "profileImage")?.takeIf { it.isNotBlank() },
-                color = jstr(chat, "color"),
+                avatarPath = jstr(chat, "profileImage")?.takeIf { it.isNotBlank() }
+                    ?: contactAvatar
+                    ?: listed?.avatarPath,
+                color = jstr(chat, "color")?.takeIf { it.isNotBlank() } ?: listed?.color,
                 canSend = jstr(chat, "canSend") != "false",
             )
         } catch (t: kotlinx.coroutines.CancellationException) {
@@ -2829,7 +2837,7 @@ class AppModel(
      * P3 send: `misc_set_draft` (text + optional quote) then `misc_send_draft`.
      * After the send returns, the message exists in the db with real
      * OutPending state — reload immediately so the bubble shows with ⏳
-     * instead of waiting for the event echo.
+     * instead of waiting for the event echo, then land on that row.
      */
     fun send() {
         val chat = screen as? Screen.Chat ?: return
@@ -2859,7 +2867,7 @@ class AppModel(
                 )
                 veltaCore.sendDraft(id, chat.chatId)
                 pendingAttachment = null
-                loadMessages(chat.chatId, chat.isGroup)
+                loadMessages(chat.chatId, chat.isGroup, followBottom = true)
                 unarchiveAfterSend(veltaCore, id, chat.chatId)
             } catch (t: Throwable) {
                 sendError = t.message ?: t.toString()
@@ -3300,7 +3308,7 @@ class AppModel(
                 veltaCore.sendMessage(id, rec.chatId, "", "Voice", path, path.substringAfterLast('/'), quotedMessageId = quote)
                 if (accountId != id) return@launch
                 val open = screen as? Screen.Chat
-                if (open?.chatId == rec.chatId) loadMessages(rec.chatId, open.isGroup)
+                if (open?.chatId == rec.chatId) loadMessages(rec.chatId, open.isGroup, followBottom = true)
                 unarchiveAfterSend(veltaCore, id, rec.chatId)
             } catch (t: Throwable) {
                 if (accountId == id) showToast(L.t("Couldn't send voice message: ") + (t.message ?: t.toString()), 4000)
@@ -4647,7 +4655,7 @@ class AppModel(
         scope.launch {
             try {
                 veltaCore.sendMessage(id, chat.chatId, "", "Sticker", path, quotedMessageId = quote)
-                loadMessages(chat.chatId, chat.isGroup)
+                loadMessages(chat.chatId, chat.isGroup, followBottom = true)
                 unarchiveAfterSend(veltaCore, id, chat.chatId)
             } catch (t: Throwable) {
                 sendError = t.message ?: t.toString()
@@ -4669,7 +4677,13 @@ class AppModel(
      * keep the viewport anchored; reset by the UI once consumed. */
     var pendingPrependCount by mutableStateOf(0)
 
-    private fun loadMessages(chatId: Long, isGroup: Boolean = false, opening: Boolean = false, anchor: OpenScroll = OpenScroll.Bottom) {
+    private fun loadMessages(
+        chatId: Long,
+        isGroup: Boolean = false,
+        opening: Boolean = false,
+        anchor: OpenScroll = OpenScroll.Bottom,
+        followBottom: Boolean = false,
+    ) {
         val veltaCore = core
         val id = accountId
         if (veltaCore == null || id == null) return
@@ -4700,6 +4714,9 @@ class AppModel(
                 }
                 chatMessages = sorted
                 hasMoreMessages = from > 0
+                if (followBottom && !opening && (screen as? Screen.Chat)?.chatId == chatId) {
+                    openScroll = OpenScroll.Bottom
+                }
                 val parent = threadParentId
                 if (parent != null && sorted.none { it.id == parent }) closeThread()
                 refreshReplyCounts(chatId)

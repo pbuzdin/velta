@@ -11,6 +11,7 @@ import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.MessageObject
 import org.velta.kmp.core.RpcTransport
 import org.velta.kmp.ui.AppModel
+import org.velta.kmp.ui.OpenScroll
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -141,6 +142,7 @@ class SendFlowTest {
         try {
             openTestChat(model)
 
+            model.openScroll = null
             model.composerText = "ping"
             model.send()
             // The message is in the db the moment send_draft returns — the
@@ -157,6 +159,9 @@ class SendFlowTest {
                     }
                     yield()
                 }
+            }
+            withTimeout(10_000) {
+                while (model.openScroll != OpenScroll.Bottom) yield()
             }
         } finally {
             scope.cancel()

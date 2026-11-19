@@ -381,8 +381,7 @@ code?" on the login screen) → paste a QR payload → `check_qr` parses it
 OFFLINE (kind + domain/group name shown in plain language) → routed:
 `account` QRs onboard a relay (`add_transport_from_qr` → configure → io —
 this IS the throwaway-login path, paste instead of typing),
-`askVerifyContact/Group/Broadcast` QRs run `secure_join` (the protocol
-proceeds in the background; the chat appears), anything else says so.
+`askVerifyContact/Group/Broadcast` QRs run `secure_join` and open the returned chat when it is already in the list, anything else says so.
 The live-binary IT pins `check_qr` on garbage (kind "text") and a real
 `DCACCOUNT:` string (kind "account" + domain) — no network needed.
 

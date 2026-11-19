@@ -437,7 +437,7 @@ never run Gradle on the Windows side.
   the "Unread messages" line at the top (window widened back to it plus
   10 rows, capped at JUMP_MAX_MESSAGES); a read chat opens at the
   bottom (`AppModel.openScroll`, consumed by the screen; no seen reports
-  while it is pending). Seen is stable's watermark (`rowCountsAsSeen` +
+  while it is pending). A send sets that same bottom target after its reload. Seen is stable's watermark (`rowCountsAsSeen` +
   `seenThrough`). Go-down shows when >220dp from the newest row; badge =
   unread incoming not yet read here; a tap = `catchUp` (marknoticed_chat,
   no receipts for skipped rows) + jump. The manual read-up-to-here
@@ -563,8 +563,9 @@ never run Gradle on the Windows side.
   UI language, and French hyphenates as English. Font size and hyphens
   apply to the bubble body only. Rules: `ui/ChatAppearance.kt`.
 - `MainActivity` `windowSoftInputMode` is `adjustNothing`. The chat screen
-  pads the host once with `ime` union `navigationBars`. Do not add a second
-  IME padding, and do not switch to `adjustResize` without a phone check:
+  pads the host once with `ime` union `navigationBars`. Dialogs pad
+  themselves so their buttons stay above the keyboard. Do not add a second
+  IME padding on the chat host, and do not switch to `adjustResize` without a phone check:
   this edge-to-edge window does not shrink when the keyboard opens.
 
 - **Launcher icon**: default is the official Velta V on `#0A1A2E` with a

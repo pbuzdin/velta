@@ -61,7 +61,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -84,6 +88,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -1365,7 +1371,7 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
                     } else {
                         LazyColumn(Modifier.weight(1f)) {
                             items(model.archivedChats, key = { it.id }) { item ->
-                                ContactLikeChatRow(item, subSize = 12.sp) { model.openChatById(item.id) }
+                                ContactLikeChatRow(item, subSize = 12.sp, identityFpr = model.identities[item.id]) { model.openChatById(item.id) }
                             }
                         }
                     }
@@ -1389,7 +1395,7 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
                                     items(hits, key = { it.id }) { item ->
                                         // Web search hits are full chat-items
                                         // (.ci-name 15.5 / .ci-last 14).
-                                        ContactLikeChatRow(item, subSize = 14.sp) { model.openChat(item) }
+                                        ContactLikeChatRow(item, subSize = 14.sp, identityFpr = model.identities[item.id]) { model.openChat(item) }
                                     }
                                 }
                             }
@@ -1405,7 +1411,12 @@ private fun SearchView(model: AppModel, tab: String, onTab: (String) -> Unit) {
  *  hits are full chat-items (.ci-last 14px), archived rows use .archived-sub
  *  (12px) — one anatomy, two deliberate sub sizes. */
 @Composable
-internal fun ContactLikeChatRow(item: ChatListItem, subSize: TextUnit, onClick: () -> Unit) {
+internal fun ContactLikeChatRow(
+    item: ChatListItem,
+    subSize: TextUnit,
+    identityFpr: String? = null,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
@@ -1420,7 +1431,7 @@ internal fun ContactLikeChatRow(item: ChatListItem, subSize: TextUnit, onClick: 
             colorHex = item.color,
             kind = chatKindOf(item),
             size = 42.dp,
-            identityFpr = null,
+            identityFpr = identityFpr,
             avatarPath = item.avatarPath,
         )
         Spacer(Modifier.size(10.dp))
@@ -1619,7 +1630,9 @@ private fun VeltaDialog(
                 Modifier
                     .fillMaxSize()
                     .background(Velta.tokens.bg)
-                    .windowInsetsPadding(WindowInsets.statusBars),
+                    .windowInsetsPadding(
+                        WindowInsets.statusBars.union(WindowInsets.ime).union(WindowInsets.navigationBars),
+                    ),
             ) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
@@ -1630,9 +1643,9 @@ private fun VeltaDialog(
                     }
                     Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 }
-                Column(Modifier.weight(1f).padding(16.dp)) { body() }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)) { body() }
                 Row(
-                    Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
+                    Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
                     TextButton(onClick = onDismiss) { Text(dismissLabel ?: L.t("Cancel")) }
@@ -1644,6 +1657,7 @@ private fun VeltaDialog(
                 Modifier
                     .align(Alignment.Center)
                     .widthIn(max = 420.dp)
+                    .windowInsetsPadding(WindowInsets.ime)
                     .background(Velta.tokens.bgSidebar, RoundedCornerShape(16.dp))
                     .border(1.dp, Velta.tokens.border, RoundedCornerShape(16.dp))
                     .padding(16.dp),
@@ -3425,7 +3439,9 @@ private fun ChatScreen(
     )
     // Long-press sheet + the flows its items open (#334 step 5).
     MessageSheetHost(model)
-    ForwardPicker(model) { item, onClick -> ContactLikeChatRow(item, subSize = 14.sp, onClick = onClick) }
+    ForwardPicker(model) { item, onClick ->
+        ContactLikeChatRow(item, subSize = 14.sp, identityFpr = model.identities[item.id], onClick = onClick)
+    }
     MessageInfoDialog(model) { id -> model.senderNames[id]?.name }
     SelectTextDialog(model)
     DeleteMessagesDialog(model)
@@ -3911,57 +3927,14 @@ private fun ProfileScreen(model: AppModel, profile: AppModel.Screen.Profile) {
         ) {
             Spacer(Modifier.size(12.dp))
             val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
-            if (kind == "group" || kind == "channel") {
-                AvatarTile(
-                    name = p.chatName,
-                    colorHex = p.color,
-                    kind = kind,
-                    size = 120.dp,
-                    avatarPath = p.avatarPath,
-                )
-            } else {
-            // Avatar: identity matrix with its rounded corners; Prism tile
-            // for key-less chats.
-            val cells = p.fingerprint?.let { identityCells(it) }
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .clip(RoundedCornerShape(if (cells != null) 26.dp else 60.dp))
-                    .background(
-                        color = if (cells == null) prismTileColor(p.contactName.ifEmpty { p.chatName })
-                        else androidx.compose.ui.graphics.Color.Transparent,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (cells != null) {
-                    Column(Modifier.fillMaxSize()) {
-                        listOf(0..2, 3..4, 5..6, 7..9).forEach { range ->
-                            Row(Modifier.weight(1f)) {
-                                range.forEach { i ->
-                                    val (_, rgb) = cells[i]
-                                    Box(
-                                        Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight()
-                                            .background(
-                                                color = androidx.compose.ui.graphics.Color(
-                                                    rgb[0], rgb[1], rgb[2],
-                                                ),
-                                            ),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Text(
-                        prismInitials(p.contactName.ifEmpty { p.chatName }),
-                        fontSize = 42.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-            }
+            AvatarTile(
+                name = p.contactName.ifEmpty { p.chatName },
+                colorHex = p.color,
+                kind = kind,
+                size = 120.dp,
+                identityFpr = p.fingerprint,
+                avatarPath = p.avatarPath,
+            )
             Spacer(Modifier.size(10.dp))
             Text(
                 p.contactName.ifEmpty { p.chatName },
@@ -4214,6 +4187,8 @@ private fun Composer(model: AppModel) {
     val reply = model.replyTo
     val editing = model.editingMsg
     val attachment = model.pendingAttachment
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     var showStickers by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
     if (showStickers) {
@@ -4375,7 +4350,15 @@ private fun Composer(model: AppModel) {
                 // Stable: while recording, Send stops and sends the voice message.
                 val recording = model.voiceRec != null
                 IconButton(
-                    onClick = { if (recording) model.stopVoice(true) else model.send() },
+                    onClick = {
+                        if (recording) {
+                            model.stopVoice(true)
+                        } else {
+                            focus.clearFocus()
+                            keyboard?.hide()
+                            model.send()
+                        }
+                    },
                     enabled = recording || !model.sending &&
                         (model.composerText.isNotBlank() || model.pendingAttachment != null),
                     modifier = Modifier.size(48.dp),
@@ -4413,7 +4396,8 @@ private fun AttachMenu(
     onVoice: () -> Unit,
 ) {
     if (!expanded) return
-    Popup(alignment = Alignment.BottomStart, offset = IntOffset(0, -240)) {
+    val gap = with(LocalDensity.current) { 4.dp.roundToPx() }
+    Popup(popupPositionProvider = remember(gap) { AboveAnchor(gap) }, onDismissRequest = onDismiss) {
         Surface(
             color = Velta.tokens.bgSidebar,
             shape = RoundedCornerShape(14.dp),
@@ -4435,6 +4419,21 @@ private fun AttachMenu(
                 }
             }
         }
+    }
+}
+
+/** Menu bottom sits [gapPx] above the anchor. */
+private class AboveAnchor(private val gapPx: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val maxX = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+        val x = anchorBounds.left.coerceIn(0, maxX)
+        val y = (anchorBounds.top - popupContentSize.height - gapPx).coerceAtLeast(0)
+        return IntOffset(x, y)
     }
 }
 
@@ -4467,10 +4466,21 @@ private fun StickerPicker(
             border = androidx.compose.foundation.BorderStroke(1.dp, Velta.tokens.border),
             modifier = Modifier.fillMaxWidth().padding(10.dp),
         ) {
+            Column {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        VeltaIcons.close,
+                        contentDescription = L.t("Close"),
+                        modifier = Modifier.size(22.dp),
+                        tint = Velta.tokens.text,
+                    )
+                }
+            }
             if (packs.isEmpty()) {
                 Text(
                     htmlBreaks(L.t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.")),
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     color = Velta.tokens.textDim,
                     fontSize = 14.sp,
                 )
@@ -4517,6 +4527,7 @@ private fun StickerPicker(
                         }
                     }
                 }
+            }
             }
         }
     }

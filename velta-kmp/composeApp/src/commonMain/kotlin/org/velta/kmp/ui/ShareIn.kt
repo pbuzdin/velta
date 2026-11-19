@@ -137,7 +137,7 @@ internal fun SharePickerHost(model: AppModel) {
             } else {
                 LazyColumn(Modifier.fillMaxWidth()) {
                     items(targets, key = { it.id }) { chat ->
-                        ContactLikeChatRow(chat, subSize = 14.sp) { model.pickShareChat(chat) }
+                        ContactLikeChatRow(chat, subSize = 14.sp, identityFpr = model.identities[chat.id]) { model.pickShareChat(chat) }
                     }
                 }
             }

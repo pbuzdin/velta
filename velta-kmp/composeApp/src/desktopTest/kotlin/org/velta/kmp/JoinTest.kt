@@ -241,4 +241,49 @@ class JoinTest {
             scope.cancel()
         }
     }
+
+    /** An already-joined group comes back as the existing chat id. Open it. */
+    @Test
+    fun secureJoinOpensReturnedChat() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
+                "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
+                "get_chatlist_entries" to "[42]",
+                "get_chatlist_items_by_entries" to
+                    """{"42":{"kind":"ChatListItem","id":42,"name":"Test Group","chatType":"Group","isGroup":true,"summaryText2":"x","lastUpdated":1}}""",
+                "check_qr" to """{"kind":"askVerifyGroup","grpname":"Test Group","contactId":7}""",
+                "secure_join" to "42",
+            ),
+        )
+        val platform = object : CorePlatform {
+            override fun accountsDir(): String = "/tmp/velta-kmp-join-open-test"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
+        }
+        val scope = testScope()
+        val model = AppModel(platform, scope)
+        try {
+            model.connect()
+            withTimeout(10_000) {
+                while (model.screen != AppModel.Screen.ChatList) yield()
+            }
+            model.screen = AppModel.Screen.Join
+            model.joinText = "DCJOIN:example/0000aaaa"
+            model.checkJoin()
+            withTimeout(10_000) {
+                while (model.joinChecked == null) yield()
+            }
+            model.join()
+            withTimeout(10_000) {
+                while (model.screen !is AppModel.Screen.Chat) yield()
+            }
+            assertEquals(42L, (model.screen as AppModel.Screen.Chat).chatId)
+        } finally {
+            scope.cancel()
+        }
+    }
 }
