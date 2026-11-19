@@ -45,6 +45,11 @@ posts a silent "Sending…" card while `is_sending_finished` is false and
 drops it on resume. Groups and channels use the same editor for the
 name, picture, and description. A 1:1 contact offers Edit name, local
 only; the bio stays read-only.
+A mail bubble clamps at 12 visual lines (`READ_MORE_LINES` in
+`ui/Markdown.kt`): Read more / Show less. "Show Full Message…" is
+separate and only when `hasHtml`. A picture or video leaves 5dp under
+itself before the caption. Tapping a group or contact invite you already
+joined opens that chat (`secure_join` returns the existing id).
 `versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
 
 ## Layout
@@ -99,6 +104,8 @@ composeApp/src/
   ui/ChatAppearance.kt  text size, bubble corners, hyphenation,
                  stickers-in-attach (`chat-appearance.js` / `text-lang.js`).
   ui/ThreadRules.kt reply counts, thread rows, send re-lock.
+  ui/HtmlScreen.kt  full-HTML viewer. Android actual is a WebView with
+                 JavaScript off. Desktop actual is a notice.
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush

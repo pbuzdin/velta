@@ -3,7 +3,7 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-18):** work in progress (#192); the Tauri app remains
+**Status (2026-11-19):** work in progress (#192); the Tauri app remains
 Velta's shipping Android app. Version is **0.9.0**. N1–N3 and the **#321 visual shell** are complete, and the
 0.9.0 / #358 wave is in: pin tray, read position, disappearing timer,
 own-profile editor, auto-download / text-only settings, background
@@ -11,7 +11,12 @@ catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
 preview and crop/draw editor, floating reply card, chat appearance
 (text size, corners, hyphenation, liquid-glass composer), relay and
 SOCKS5 message cards, reply threads, and an Android app-lock PIN beside the biometric
-lock. Android runs webxdc in a WebView; desktop tells you to use the
+lock. A long message clamps at 12 lines (Read more / Show less). A
+message the core shortened offers Show Full Message… on Android.
+Desktop shows a notice for that page. A picture leaves 5dp above its
+caption. The menu drawer can turn on Velta Loop; desktop leaves the
+engine off. Accounts can delete a profile (not the last one) and sync
+only the active profile. Android runs webxdc in a WebView; desktop tells you to use the
 web app. N4 release signing is
 still open. The client onboards from invites or QR scans, manages relays,
 switches accounts, sends with attachments/quotes/reactions (a sticker
@@ -100,8 +105,9 @@ not part of this client.
   tap plays/pauses); voice and audio play inline on stable's bar (seek,
   1×/1.5×/2×, "00:03 / 00:04"); attach → Voice message records AAC
   (.m4a) with Cancel / Send; tap a file to open it in another app (an original-named copy via
-  FileProvider; "No app can open this file" offers Save as…; HTML opens
-  as plain text). **Links** on Android open in a Custom Tab inside
+  FileProvider; "No app can open this file" offers Save as…; an HTML
+  file opens in the same viewer as Show Full Message…, with JavaScript
+  off). **Links** on Android open in a Custom Tab inside
   Velta (an in-app page when the phone has no Custom Tab provider);
   desktop opens the system browser. Invites still join instead of
   browsing. A strict `https://<host>/i/<token>` relay invite and a
@@ -148,8 +154,10 @@ not part of this client.
 - **Profile** — the contact sheet: fingerprint identity matrix (or Prism
   tile), media counts, profile key, last seen, notifications and
   disappearing-messages state (the timer is settable here on groups and
-  1:1), block/unblock. **Edit profile** (from Settings) changes your
-  name, picture and description. A group profile can rename the group,
+  1:1), block/unblock, storage, and (on a 1:1) chats in common. **Edit profile** (from Settings) changes your
+  name, picture and description. **Delete profile** asks you to type the
+  address and refuses the last profile. **Sync only the active profile**
+  is off unless `velta-sync-only-active` is `"1"`. A group profile can rename the group,
   list members, add members, and remove someone other than yourself
   (in an admin group, only the admin).
 - **Notifications** — MessagingStyle conversation cards (group title,
@@ -172,7 +180,7 @@ not part of this client.
   bottom action bar (Chats / Menu) under the list. Bubbles carry the
   Tauri design: sender-side tail corner, in-bubble timestamps with
   per-side meta colors and read-tick blue, media bleeding through the
-  padding, video/file/audio cards with size + duration chips, in-bubble
+  padding with 5dp under a picture before its caption, video/file/audio cards with size + duration chips, in-bubble
   reaction pills, mono service messages, and the .day-chip separators.
   The chat header is the web's velta-chat-head: 42dp avatar, name, and a
   status line (member count / last seen / bot), with the chat menu dots

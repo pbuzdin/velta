@@ -1670,7 +1670,7 @@ by value with their integration notes — lives in
 ```
 .
 ├── app/                        # Velta web frontend (vanilla JS, no build)
-├── velta-kmp/                  # work-in-progress Compose client (#192); Tauri remains the shipping Android app. Android adds an app-lock PIN, chat appearance, and webxdc; desktop does not encrypt its accounts dir
+├── velta-kmp/                  # work-in-progress Compose client (#192); Tauri remains the shipping Android app. Android adds an app-lock PIN, chat appearance, webxdc, full HTML, and Velta Loop; desktop does not encrypt its accounts dir
 ├── velta-app/                  # Tauri 2 wrapper for Windows, macOS, Linux, and Android
 │   └── src-tauri/
 │       ├── Cargo.toml          # Rust crate + deltachat-jsonrpc dependency

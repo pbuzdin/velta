@@ -1,6 +1,6 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-18 after the 0.9.0 / #358 wave
+Tracking issue #192. Updated 2026-11-19 after the 0.9.0 / #358 wave
 (#359–#374, #378, #382) and #357 JNI. Every phase lists what SHIPPED,
 how it was VERIFIED, and what is still MISSING — no "done" without the
 gaps next to it.
@@ -54,6 +54,8 @@ Reply threads: count, side button, and a panel that keeps sends quoting the pare
 Forward and share pickers use the same category chips (All / People / Groups / Channels / Bots / Saved). The forward picker also has the known-contacts toggle. Subscribed channels (InBroadcast) are not forward targets. An owned outgoing channel offers Invite via link/QR (`offersChannelInvite`).
 Backgrounding with the connection on waits 5 s, then a silent "Sending…" card stays until `is_sending_finished`.
 Groups and channels share that editor for the name, picture, and description (`showsChatEditor`). A 1:1 contact offers Edit name only (`showsLocalName`).
+
+**2026-11-19:** a mail bubble clamps at 12 visual lines (Read more / Show less). Show Full Message… loads `get_message_html` when `hasHtml` (Android WebView, JavaScript off, no bridge; desktop shows a notice). `.html` files use that viewer. Pictures and videos leave 5dp under the media before a caption. Velta Loop is a menu switch (`velta-p2p` `"1"`); desktop does not start it. Delete profile types the address and refuses the last account. Sync only the active profile is `velta-sync-only-active`. A profile shows storage and, on a 1:1, chats in common. A group or contact invite you already accepted opens that chat.
 
 **#321 fidelity follow-ups (filed, open):**
 - #323 mention @-autocomplete picker + mentionsMe notify gate (picker +
