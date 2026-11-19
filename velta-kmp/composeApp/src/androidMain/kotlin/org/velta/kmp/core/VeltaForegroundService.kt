@@ -85,7 +85,11 @@ class VeltaForegroundService : Service() {
                     CHANNEL_ID,
                     L.t("Background sync"),
                     NotificationManager.IMPORTANCE_MIN,
-                ),
+                ).apply {
+                    // Same as Delta Chat KeepAliveService: no launcher badge
+                    // for a permanent "I'm still running" notice.
+                    setShowBadge(false)
+                },
             )
         }
         // Native template, MIN channel: one icon = the app icon the skin
@@ -94,13 +98,21 @@ class VeltaForegroundService : Service() {
         // RemoteViews, MessagingStyle avatar, Person extra — each had worse
         // side effects). The real hook is the smallIcon glyph: status bar
         // + corner badge, follows the choice instantly.
+        //
+        // setShowWhen(false) alone is not enough on some OEM shades (vivo
+        // Origin OS still prints "Now" from the default when=now). Delta
+        // Chat's KeepAliveService hides the stamp with setWhen(0) and
+        // PRIORITY_MIN; we keep setShowWhen(false) as well.
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationContext.appIconSmallIconRes(applicationContext.currentAppIcon()))
             .setContentTitle("Velta")
             .setContentText(L.t("Keeping your messages up to date"))
             .setContentIntent(openAppIntent())
             .setOngoing(true)
+            .setWhen(0)
             .setShowWhen(false)
+            .setUsesChronometer(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOnlyAlertOnce(true)
             .build()
     }
