@@ -12,7 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -239,6 +242,7 @@ fun App(model: AppModel) {
             if (!model.locked && model.loopPasteOpen) LoopPasteDialog(model)
             if (!model.locked && model.loopPair != null) LoopPairDialog(model)
             if (!model.locked && model.loopNewGroup) LoopNewGroupDialog(model)
+            if (!model.locked && model.loopAsk != null) LoopAskDialog(model)
         }
     }
 }
@@ -879,8 +883,11 @@ private fun JoinScreen(model: AppModel) {
 @Composable
 private fun ChatListScreen(model: AppModel, peek: Boolean = false) {
     var searchTab by remember { mutableStateOf("search") }
+    var menuOpen by remember { mutableStateOf(false) }
     var headPx by remember { mutableIntStateOf(0) }
+    var barPx by remember { mutableIntStateOf(0) }
     val headDp = with(LocalDensity.current) { headPx.toDp() }
+    val barDp = with(LocalDensity.current) { barPx.toDp() }
     // Web pull-open (app.js:1446): pulling down at the top of the chats list
     // reveals the relay detail chips; they hide themselves after 4 seconds.
     var relayDetailShown by remember { mutableStateOf(false) }
@@ -890,9 +897,9 @@ private fun ChatListScreen(model: AppModel, peek: Boolean = false) {
             relayDetailShown = false
         }
     }
-    // Android back inside a side view returns to the chats list first.
-    PlatformBackHandler(enabled = !peek && model.listView != "chats") {
-        model.toggleListView("chats")
+    // Android back closes the menu first, then a side view, then leaves the list.
+    PlatformBackHandler(enabled = !peek && (menuOpen || model.listView != "chats")) {
+        if (menuOpen) menuOpen = false else model.toggleListView("chats")
     }
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
@@ -914,7 +921,12 @@ private fun ChatListScreen(model: AppModel, peek: Boolean = false) {
                     })
                 }
             }
-            ListBar(model)
+            ListBar(
+                model,
+                menuOpen = menuOpen && !peek,
+                onMenu = { if (!peek) menuOpen = !menuOpen },
+                modifier = Modifier.onSizeChanged { barPx = it.height },
+            )
         }
         },
         overlay = { backdrop, host ->
@@ -956,6 +968,17 @@ private fun ChatListScreen(model: AppModel, peek: Boolean = false) {
                 }
                 RelayZone(model, detailShown = relayDetailShown)
             }
+            }
+            if (!peek) {
+                val reduce = rememberReducedMotion()
+                AnimatedVisibility(
+                    visible = menuOpen,
+                    modifier = Modifier.fillMaxSize().padding(bottom = barDp),
+                    enter = if (reduce) EnterTransition.None else slideInHorizontally { -it },
+                    exit = if (reduce) ExitTransition.None else slideOutHorizontally { -it },
+                ) {
+                    AppMenu(model) { menuOpen = false }
+                }
             }
         },
     )
@@ -2039,12 +2062,12 @@ internal fun relayBarState(connectivity: Int?): String = when {
  * --ico-4 = 22dp), gap 6, padding 8/10/10. Chats/Contacts/Calls/QR toggle
  * their side views (web setListView: the active button gets accent ink +
  * 2dp inset bottom accent line, top corners squared); "+" is the accent
- * square (.bar-accent, #109: never a tab); Menu rides the DropdownMenu.
+ * square (.bar-accent, #109: never a tab). Menu opens the profile drawer
+ * above this bar; a second tap closes it.
  */
 @Composable
-private fun ListBar(model: AppModel) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().background(Velta.tokens.bgSidebar)) {
+private fun ListBar(model: AppModel, menuOpen: Boolean, onMenu: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().background(Velta.tokens.bgSidebar)) {
         HorizontalDivider(color = Velta.tokens.border)
         Row(
             Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp),
@@ -2065,45 +2088,157 @@ private fun ListBar(model: AppModel) {
             ) {
                 Icon(VeltaIcons.plus, contentDescription = L.t("New chat"), modifier = Modifier.size(22.dp), tint = Velta.tokens.onAccent)
             }
-            Box(Modifier.weight(1f)) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { menuOpen = true },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(VeltaIcons.menu, contentDescription = L.t("Menu"), modifier = Modifier.size(22.dp), tint = Velta.tokens.text)
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text(L.t("Settings")) },
-                        onClick = { menuOpen = false; model.openSettings() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(L.t("Relays")) },
-                        onClick = { menuOpen = false; model.openRelays() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(L.t("Accounts")) },
-                        onClick = { menuOpen = false; model.openAccounts() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(L.t("Invite link")) },
-                        onClick = {
-                            menuOpen = false
-                            model.joinChecked = null
-                            model.joinError = null
-                            model.screen = AppModel.Screen.Join
-                        },
-                    )
-                    // No "Refresh" item: the web menu has none — chat-list
-                    // reloads are event-driven (MsgsChanged → dirty-coalesced
-                    // loadChats), a manual yank is dead weight.
-                }
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onMenu),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    VeltaIcons.menu,
+                    contentDescription = L.t("Menu"),
+                    modifier = Modifier.size(22.dp),
+                    tint = if (menuOpen) Velta.tokens.accent else Velta.tokens.text,
+                )
             }
         }
+    }
+}
+
+/**
+ * Stable drawer head and the rows people open from it. Theme, language,
+ * notifications and the rest stay on the Settings screen.
+ */
+@Composable
+private fun AppMenu(model: AppModel, onClose: () -> Unit) {
+    var accountsOpen by remember { mutableStateOf(false) }
+    val me = model.accounts.firstOrNull { it.id == model.accountId }
+    val name = me?.displayName?.takeIf { it.isNotBlank() }
+        ?: model.accountAddr?.takeIf { it.isNotBlank() }
+        ?: L.t("Your name")
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val panel = if (maxWidth < 600.dp) maxWidth else (maxWidth * 0.33f).coerceIn(300.dp, 420.dp)
+        val showScrim = panel < maxWidth
+        Row(Modifier.fillMaxSize()) {
+            Column(Modifier.width(panel).fillMaxHeight().background(Velta.tokens.bgSidebar)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Brush.linearGradient(listOf(Color(0xFF2B5278), Color(0xFF3D3A6E))))
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AvatarTile(name, null, "single", 56.dp)
+                    Spacer(Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(name, color = Color(0xFFF4F4F4), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        model.accountAddr?.takeIf { it.isNotBlank() }?.let { addr ->
+                            Text(addr, color = Color(0xFFF4F4F4).copy(alpha = 0.8f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(Modifier.size(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DrawerPill(L.t("Edit profile")) {
+                                onClose()
+                                model.openProfileEditor()
+                            }
+                            DrawerPill(L.t("Accounts")) {
+                                accountsOpen = !accountsOpen
+                                if (accountsOpen) model.refreshAccounts()
+                            }
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(8.dp)) {
+                    if (accountsOpen) {
+                        model.accounts.forEach { account ->
+                            val current = account.id == model.accountId
+                            val label = account.displayName?.takeIf { it.isNotBlank() }
+                                ?: account.addr?.takeIf { it.isNotBlank() }
+                                ?: if (account.configured) L.t("Account {id}").replace("{id}", account.id.toString()) else L.t("Not set up")
+                            MenuRow(VeltaIcons.profile, if (current) label + " · " + L.t("current") else label, enabled = account.configured && !current) {
+                                onClose()
+                                model.switchAccount(account.id)
+                            }
+                        }
+                        MenuRow(VeltaIcons.profileAdd, L.t("Profile management…")) {
+                            onClose()
+                            model.openAccounts()
+                        }
+                    }
+                    MenuRow(VeltaIcons.bookmark, L.t("Saved Messages")) {
+                        onClose()
+                        model.chats.firstOrNull { it.isSelfTalk }?.let { model.openChat(it) }
+                    }
+                    MenuRow(VeltaIcons.invite, L.t("Invite friends (QR)")) {
+                        onClose()
+                        if (model.listView != "qr") model.toggleListView("qr")
+                    }
+                    MenuRow(VeltaIcons.link, L.t("Invite link")) {
+                        onClose()
+                        model.joinChecked = null
+                        model.joinError = null
+                        model.screen = AppModel.Screen.Join
+                    }
+                    LoopSettingsRow(model)
+                    MenuRow(VeltaIcons.globe, L.t("Relays")) {
+                        onClose()
+                        model.openRelays()
+                    }
+                    MenuRow(VeltaIcons.palette, L.t("Settings")) {
+                        onClose()
+                        model.openSettings()
+                    }
+                }
+            }
+            if (showScrim) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .background(Color.Black.copy(alpha = 0.28f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onClose,
+                        ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerPill(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        color = Color(0xFFF4F4F4),
+        fontSize = 13.sp,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xFFF4F4F4).copy(alpha = 0.14f))
+            .border(1.dp, Color(0xFFF4F4F4).copy(alpha = 0.28f), RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 5.dp),
+    )
+}
+
+@Composable
+private fun MenuRow(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = Velta.tokens.textDim)
+        Spacer(Modifier.size(12.dp))
+        Text(label, color = if (enabled) Velta.tokens.text else Velta.tokens.textDim, fontSize = 15.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -2631,7 +2766,6 @@ private fun SettingsScreen(model: AppModel) {
         ) {
             // Stable drawer head: "Edit profile" (KMP has no drawer — Settings leads with it).
             TextButton(onClick = { model.openProfileEditor() }) { Text(L.t("Edit profile")) }
-            LoopSettingsRow(model)
             SettingsSection(L.t("Theme"))
             VeltaThemeChoice.entries.forEach { c ->
                 Row(
@@ -5168,18 +5302,26 @@ private fun MessageBubble(
                             members = members,
                         )
                         var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+                        var expanded by remember(message.id, message.text) { mutableStateOf(false) }
+                        // Latch while collapsed: once open, hasVisualOverflow goes false.
+                        var overLines by remember(message.id, message.text) { mutableStateOf(false) }
                         val fontPx = model.msgFont
                         Text(
                             annotated,
                             fontSize = fontPx.sp,
                             lineHeight = (fontPx * VeltaType.msgLineHeight).sp,
+                            maxLines = if (expanded) Int.MAX_VALUE else READ_MORE_LINES,
+                            overflow = TextOverflow.Ellipsis,
                             style = TextStyle(
                                 hyphens = if (model.hyphensOn) Hyphens.Auto else Hyphens.None,
                                 localeList = LocaleList(
                                     Locale(detectTextLang(message.text, hyphenFallback(model.lang))),
                                 ),
                             ),
-                            onTextLayout = { textLayout = it },
+                            onTextLayout = { layout ->
+                                textLayout = layout
+                                if (!expanded && layout.hasVisualOverflow) overLines = true
+                            },
                             modifier = Modifier.pointerInput(annotated) {
                                 // #161: the link under the finger at touch-down
                                 // targets the long-press sheet (web pressHref).
@@ -5229,6 +5371,17 @@ private fun MessageBubble(
                                 }
                             },
                         )
+                        if (overLines) {
+                            Text(
+                                if (expanded) L.t("Show less") else L.t("Read more"),
+                                color = if (outgoing) quoteName else tokens.accent,
+                                fontSize = fontPx.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .padding(top = 2.dp)
+                                    .clickable(enabled = !selectionMode) { expanded = !expanded },
+                            )
+                        }
                         // Invite cards ride under the text like the web's
                         // inviteCardHtml: one card per INVITE annotation.
                         annotated.getStringAnnotations(ANN_INVITE, 0, annotated.length).forEach { a ->

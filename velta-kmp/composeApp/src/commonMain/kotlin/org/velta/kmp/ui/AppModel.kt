@@ -1294,6 +1294,10 @@ class AppModel(
             return
         }
         avatarPickArmed = false
+        if (screen is Screen.LoopChat) {
+            sendLoopFile(path, displayName ?: path.substringAfterLast('/'))
+            return
+        }
         pendingAttachment = path to (displayName ?: path.substringAfterLast('/'))
     }
 
@@ -1554,6 +1558,7 @@ class AppModel(
         loopPasteOpen = false
         loopPair = null
         loopNewGroup = false
+        loopAsk = null
         loopPreviews.clear()
         typingIdle?.cancel()
         typingIdle = null
@@ -1606,6 +1611,12 @@ class AppModel(
         if (open != null && open !in ids) loopMessages = emptyList()
         loopPreviews.keys.retainAll(ids.toSet())
         publishLoopRows()
+        val openChat = screen as? Screen.LoopChat
+        if (openChat != null && openChat.id !in ids) screen = Screen.ChatList
+        else if (openChat != null) {
+            val title = loopRows.firstOrNull { it.id == openChat.id }?.title
+            if (!title.isNullOrBlank() && title != openChat.title) screen = openChat.copy(title = title)
+        }
     }
 
     private fun publishLoopRows() {
@@ -1614,6 +1625,7 @@ class AppModel(
         val typing = HashMap<String, String>()
         val ids = status.groups.map { loopGroupChatId(it.gid) } + status.peers.map { loopPeerChatId(it.id) }
         for (id in ids) {
+            if (!loopTypingOn) break
             val line = loopTypingLine(typingBoard.active(id, now).map { senderName(it) })
             if (line.isNotEmpty()) typing[id] = line
         }
@@ -1632,7 +1644,7 @@ class AppModel(
     }
 
     private fun noteLoopTyping(ev: LoopEvent.Typing) {
-        if (ev.sender.isBlank()) return
+        if (!loopTypingOn || ev.sender.isBlank()) return
         typingBoard.note(ev.chatId, ev.sender, ev.on, loopNow())
         publishLoopRows()
         typingExpire?.cancel()
@@ -1667,6 +1679,7 @@ class AppModel(
 
     fun onLoopDraft(text: String) {
         val chat = screen as? Screen.LoopChat ?: return
+        if (!loopTypingOn) return
         val now = loopNow()
         val (next, send) = typingOnKey(typingSend, text.isNotEmpty(), now)
         typingSend = next
@@ -1836,6 +1849,149 @@ class AppModel(
         }
     }
 
+    fun setLoopTyping(on: Boolean) {
+        val was = loopTypingOn
+        loopTypingOn = on
+        platform.setPref(LOOP_TYPING_PREF, if (on) null else "0")
+        if (was && !on) {
+            val chat = screen as? Screen.LoopChat
+            if (typingSend.active && chat != null) emitLoopTyping(chat, false)
+            typingIdle?.cancel()
+            typingIdle = null
+            typingSend = TypingSendState()
+            publishLoopRows()
+        }
+    }
+
+    fun loopWritable(): Boolean {
+        val group = currentLoopGroup() ?: return screen is Screen.LoopChat
+        return !group.removed && !group.closed
+    }
+
+    fun loopMenu(): List<LoopMenu> {
+        val chat = screen as? Screen.LoopChat ?: return emptyList()
+        val gid = loopGroupOf(chat.id) ?: return loopChatMenu(group = false, canManage = false, removed = false)
+        val group = loopStatus?.groups?.firstOrNull { it.gid == gid } ?: return emptyList()
+        return loopChatMenu(group = true, canManage = group.canManage, removed = group.removed || group.closed)
+    }
+
+    fun sendLoopFile(path: String, name: String) {
+        val chat = screen as? Screen.LoopChat ?: return
+        if (!loopWritable()) return
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                val peer = loopPeerOf(chat.id)
+                val gid = loopGroupOf(chat.id)
+                when {
+                    peer != null -> loop.sendPeerFile(peer, path, name, "")
+                    gid != null -> loop.sendGroupFile(gid, path, name, "")
+                    else -> return@launch
+                }
+                reloadLoop(loop, chat.id)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString())
+            }
+        }
+    }
+
+    fun openLoopFile(path: String, name: String) {
+        if (path.isBlank()) return
+        val open = openFile ?: return
+        scope.launch {
+            when (val err = open(path, name, null)) {
+                null -> {}
+                "no-app" -> showToast(L.t("No app can open this file"))
+                else -> showToast(L.t("Could not open file: ") + err)
+            }
+        }
+    }
+
+    fun askLoopRenameDevice() {
+        loopAsk = LoopAsk.Rename(null, loopStatus?.name.orEmpty())
+    }
+
+    fun askLoop(item: LoopMenu) {
+        val chat = screen as? Screen.LoopChat ?: return
+        when (item) {
+            LoopMenu.Unpair -> {
+                val peer = loopPeerOf(chat.id) ?: return
+                val title = chat.title
+                scope.launch {
+                    val impact = try {
+                        loopClient?.peerImpact(peer)
+                    } catch (c: kotlinx.coroutines.CancellationException) {
+                        throw c
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    val (created, member) = impact ?: (emptyList<String>() to emptyList())
+                    loopAsk = LoopAsk.Unpair(peer, loopUnpairBody(title, created, member))
+                }
+            }
+            LoopMenu.Leave -> {
+                val gid = loopGroupOf(chat.id) ?: return
+                loopAsk = LoopAsk.Leave(gid, false)
+            }
+            LoopMenu.Disband -> {
+                val gid = loopGroupOf(chat.id) ?: return
+                loopAsk = LoopAsk.Leave(gid, true)
+            }
+            LoopMenu.Delete -> {
+                val gid = loopGroupOf(chat.id) ?: return
+                loopAsk = LoopAsk.Delete(gid, chat.title)
+            }
+            LoopMenu.Rename -> {
+                val gid = loopGroupOf(chat.id) ?: return
+                loopAsk = LoopAsk.Rename(gid, chat.title)
+            }
+        }
+    }
+
+    fun dismissLoopAsk() {
+        loopAsk = null
+    }
+
+    fun confirmLoopAsk(typed: String = "") {
+        val ask = loopAsk ?: return
+        if (ask is LoopAsk.Rename && !loopGroupNameOk(typed)) return
+        loopAsk = null
+        val loop = loopClient ?: return
+        val chat = screen as? Screen.LoopChat
+        scope.launch {
+            try {
+                when (ask) {
+                    is LoopAsk.Unpair -> {
+                        loop.removePeer(ask.peerId)
+                        if (chat?.id == loopPeerChatId(ask.peerId)) screen = Screen.ChatList
+                    }
+                    is LoopAsk.Leave -> if (ask.disband) loop.disbandGroup(ask.gid) else loop.leaveGroup(ask.gid)
+                    is LoopAsk.Delete -> {
+                        loop.deleteGroup(ask.gid)
+                        if (chat?.id == loopGroupChatId(ask.gid)) screen = Screen.ChatList
+                    }
+                    is LoopAsk.Rename -> {
+                        val name = typed.trim()
+                        if (ask.gid == null) loop.setName(name) else loop.renameGroup(ask.gid, name)
+                    }
+                }
+                reloadLoop(loop, (screen as? Screen.LoopChat)?.id)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString())
+            }
+        }
+    }
+
+    private fun currentLoopGroup(): LoopGroup? {
+        val id = (screen as? Screen.LoopChat)?.id ?: return null
+        val gid = loopGroupOf(id) ?: return null
+        return loopStatus?.groups?.firstOrNull { it.gid == gid }
+    }
+
     private fun modelAccountsSummary(): String =
         when (val id = accountId) {
             null -> "no account resumed"
@@ -1998,6 +2154,11 @@ class AppModel(
     var loopPair by mutableStateOf<Pair<String, String>?>(null)
         private set
     var loopNewGroup by mutableStateOf(false)
+        private set
+    var loopAsk by mutableStateOf<LoopAsk?>(null)
+        private set
+    /** Absent is on, matching the web key. */
+    var loopTypingOn by mutableStateOf(loopTypingWanted(platform.pref(LOOP_TYPING_PREF)))
         private set
     private var loopClient: VeltaLoop? = null
     private var loopStopping = false

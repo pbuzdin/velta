@@ -38,6 +38,9 @@ private val TAG = Regex("#([\\p{L}\\p{M}\\p{N}_]+)")
 private val HASH_BAD_BEFORE = Regex("[\\p{L}\\p{M}\\p{N}_&#/:.@-]")
 private val HAS_LETTER = Regex("\\p{L}")
 
+/** Visual lines a bubble shows before Read more. Layout overflow decides, not raw newlines. */
+internal const val READ_MORE_LINES = 12
+
 internal fun markdownAnnotated(
     text: String,
     accent: Color,

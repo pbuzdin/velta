@@ -257,9 +257,10 @@ never run Gradle on the Windows side.
   views via `AppModel.toggleListView` (web setListView: tapping the
   active view returns to chats; active = accent ink + 2dp inset bottom
   accent line, top corners squared); "+" = the .bar-accent square (accent
-  bg, radius 8 — #109: never a tab) opening the New-chat view; Menu rides
-  the DropdownMenu (Settings, Relays, Accounts, Invite — NO Refresh item:
-  the web menu has none and list reloads are event-driven). Android
+  bg, radius 8 — #109: never a tab) opening the New-chat view; Menu opens
+  a drawer over the list (profile, Saved Messages, your QR, join, Velta
+  Loop, Relays, Settings). It stops above the bar so Menu toggles it.
+  No Refresh item. Android
   back inside a side view returns to chats (`PlatformBackHandler(enabled)`)
   — the expect/actual grew an `enabled` parameter for this.
 - Category chips (#57, web .chat-cats, `CategoryChips`): All / Unread /
@@ -451,7 +452,7 @@ never run Gradle on the Windows side.
   OK = `set_chat_ephemeral_timer` (the core posts the notice); errors stay
   in the dialog. Rules: `ui/EphemeralRules.kt`.
 - **Own-profile editor** (#358 C, stable showEditProfile +
-  editProfileFlow): "Edit profile" leads Settings (KMP has no drawer) and
+  editProfileFlow): "Edit profile" is on the menu drawer and on Settings, and
   sits on the self contact's Profile. 84dp preview, Change picture (the
   shared `attachmentPicker(PHOTO)`; `avatarPickArmed` routes the next
   `onAttachmentPicked` into the editor, not the composer) / Remove photo,
@@ -563,7 +564,10 @@ never run Gradle on the Windows side.
   Off: sticker button inside the empty composer. On: Stickers is an
   Attach row and the button is gone. Either way the button is gone
   while the field has text. Mail chats still pass `p2pGroup = false`.
-  The Loop composer is text only (no stickers, no voice). Per-message language is
+  The Loop composer sends text and a file (no stickers, no voice). Typing
+  hints follow `velta-p2p-typing` (absent is on). A 1:1 chat can remove
+  the device; a group can be renamed by its creator, left, disbanded, or
+  deleted once it is over. Per-message language is
   Cyrillic vs Latin (`detectTextLang`); a tie or no letters follows the
   UI language, and French hyphenates as English. Font size and hyphens
   apply to the bubble body only. Rules: `ui/ChatAppearance.kt`.

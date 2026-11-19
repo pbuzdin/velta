@@ -13,22 +13,29 @@ import org.velta.kmp.core.RpcTransport
 import org.velta.kmp.ui.AppModel
 import org.velta.kmp.ui.LOOP_GROUP_MAX_OTHERS
 import org.velta.kmp.ui.LOOP_PREF
+import org.velta.kmp.ui.LOOP_TYPING_PREF
+import org.velta.kmp.ui.LoopAsk
 import org.velta.kmp.ui.LoopEvent
 import org.velta.kmp.ui.LoopGroup
 import org.velta.kmp.ui.LoopMember
+import org.velta.kmp.ui.LoopMenu
 import org.velta.kmp.ui.LoopPeer
+import org.velta.kmp.ui.LoopRow
 import org.velta.kmp.ui.LoopStatus
 import org.velta.kmp.ui.TypingBoard
 import org.velta.kmp.ui.TypingSendState
 import org.velta.kmp.ui.TYPING_IDLE_MS
 import org.velta.kmp.ui.TYPING_REPEAT_MS
 import org.velta.kmp.ui.TYPING_SHOW_TTL_MS
+import org.velta.kmp.ui.loopChatMenu
 import org.velta.kmp.ui.loopGroupMembersOk
 import org.velta.kmp.ui.loopGroupNameOk
 import org.velta.kmp.ui.loopGroupOf
 import org.velta.kmp.ui.loopListRows
 import org.velta.kmp.ui.loopPeerOf
 import org.velta.kmp.ui.loopTypingLine
+import org.velta.kmp.ui.loopTypingWanted
+import org.velta.kmp.ui.loopUnpairBody
 import org.velta.kmp.ui.parseLoopMessages
 import org.velta.kmp.ui.parseLoopPush
 import org.velta.kmp.ui.parseLoopStatus
@@ -101,13 +108,80 @@ class LoopRulesTest {
         assertEquals("Nearby", parsed.nearby.single().name)
         assertEquals("g", parsed.groups.single().gid)
         val msgs = parseLoopMessages(
-            Json.parseToJsonElement("""[{"id":"1","dir":"in","text":"hi"},{"id":"2","dir":"sys","text":"joined"},{"id":"3","dir":"out","text":"","file":{"name":"a.png"}}]"""),
+            Json.parseToJsonElement("""[{"id":"1","dir":"in","text":"hi"},{"id":"2","dir":"sys","text":"joined"},{"id":"3","dir":"out","text":"","file":{"name":"a.png","path":"/tmp/a.png"}}]"""),
         )
         assertTrue(msgs[0].incoming)
         assertTrue(msgs[1].system)
         assertEquals("a.png", msgs[2].text)
+        assertEquals("/tmp/a.png", msgs[2].filePath)
         assertEquals("p2p:p", (parseLoopPush("""{"method":"p2p-event","params":{"kind":"typing","peerId":"p","on":true}}""") as LoopEvent.Typing).chatId)
         assertTrue(parseLoopPush("""{"method":"p2p-event","params":{"kind":"message","peerId":"p"}}""") is LoopEvent.Refresh)
+    }
+
+    @Test
+    fun menuTypingAndUnpairText() {
+        assertTrue(loopTypingWanted(null))
+        assertFalse(loopTypingWanted("0"))
+        assertEquals(listOf(LoopMenu.Unpair), loopChatMenu(false, false, false))
+        assertEquals(listOf(LoopMenu.Rename, LoopMenu.Disband), loopChatMenu(true, true, false))
+        assertEquals(listOf(LoopMenu.Leave), loopChatMenu(true, false, false))
+        assertEquals(listOf(LoopMenu.Delete), loopChatMenu(true, true, true))
+        val body = loopUnpairBody("Pam", listOf("Room"), listOf("Other"))
+        assertTrue(body.contains("\"Room\""))
+        assertTrue(body.contains("\"Other\""))
+    }
+
+    @Test
+    fun fileRenameUnpairAndTyping() = runBlocking {
+        val h = harness(pref = "1", available = true, status = RICH)
+        try {
+            h.model.connect()
+            withTimeout(10_000) { while (!h.model.loopReady) yield() }
+            h.model.setLoopTyping(false)
+            assertEquals("0", h.prefs[LOOP_TYPING_PREF])
+            h.model.openLoopChat(LoopRow("p2p:p", "Pam", "", false, false, 1))
+            h.model.onLoopDraft("hi")
+            h.model.onAttachmentPicked("/tmp/a.png", "a.png")
+            withTimeout(10_000) { while (h.loop.requests.none { "p2p_send_file" in it }) yield() }
+            assertTrue(h.loop.requests.none { "p2p_typing" in it })
+            h.model.askLoopRenameDevice()
+            h.model.confirmLoopAsk("Ada")
+            withTimeout(10_000) { while (h.loop.requests.none { "p2p_set_name" in it }) yield() }
+            h.model.askLoop(LoopMenu.Unpair)
+            withTimeout(10_000) { while (h.model.loopAsk == null) yield() }
+            assertTrue((h.model.loopAsk as LoopAsk.Unpair).body.contains("\"Room\""))
+            h.model.confirmLoopAsk()
+            withTimeout(10_000) {
+                while (h.model.screen is AppModel.Screen.LoopChat || h.loop.requests.none { "p2p_remove_peer" in it }) yield()
+            }
+            h.model.openLoopChat(LoopRow("p2pg:g", "Room", "", true, false, 0))
+            h.model.askLoop(LoopMenu.Disband)
+            assertTrue(h.model.loopAsk is LoopAsk.Leave)
+            h.model.confirmLoopAsk()
+            withTimeout(10_000) { while (h.loop.requests.none { "p2p_group_disband" in it }) yield() }
+        } finally {
+            h.scope.cancel()
+        }
+    }
+
+    @Test
+    fun finishedGroupDeletes() = runBlocking {
+        val h = harness(pref = "1", available = true, status = DONE)
+        try {
+            h.model.connect()
+            withTimeout(10_000) { while (!h.model.loopReady) yield() }
+            h.model.openLoopChat(LoopRow("p2pg:g", "Room", "", true, false, 0))
+            withTimeout(10_000) { while (h.model.loopStatus == null) yield() }
+            assertFalse(h.model.loopWritable())
+            assertEquals(listOf(LoopMenu.Delete), h.model.loopMenu())
+            h.model.askLoop(LoopMenu.Delete)
+            h.model.confirmLoopAsk()
+            withTimeout(10_000) {
+                while (h.model.screen is AppModel.Screen.LoopChat || h.loop.requests.none { "p2p_group_delete" in it }) yield()
+            }
+        } finally {
+            h.scope.cancel()
+        }
     }
 
     @Test
@@ -227,7 +301,24 @@ class LoopRulesTest {
                 "get_chatlist_entries" to "[]",
             ),
         )
-        val loop = ScriptedRpcTransport(mapOf("p2p_status" to status))
+        val loop = ScriptedRpcTransport(
+            mapOf(
+                "p2p_status" to status,
+                "p2p_messages" to "[]",
+                "p2p_group_messages" to "[]",
+                "p2p_send_file" to """{"id":"f","path":"/tmp/f"}""",
+                "p2p_group_send_file" to """{"id":"f"}""",
+                "p2p_peer_groups" to """{"created":[{"gid":"g","name":"Room","removed":false}],"member":[]}""",
+                "p2p_remove_peer" to "null",
+                "p2p_set_name" to "null",
+                "p2p_group_rename" to "null",
+                "p2p_group_leave" to "null",
+                "p2p_group_disband" to "null",
+                "p2p_group_delete" to "null",
+                "p2p_typing_peer" to "true",
+                "p2p_typing_group" to "0",
+            ),
+        )
         val platform = LoopPlatform(prefs, available, core, loop)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         return Harness(AppModel(platform, scope), scope, loop, prefs, platform)
@@ -236,5 +327,9 @@ class LoopRulesTest {
     private companion object {
         const val STATUS =
             """{"nodeId":"me","name":"Me","peers":[],"nearby":[],"groups":[]}"""
+        const val RICH =
+            """{"nodeId":"me","name":"Me","peers":[{"id":"p","name":"Pam","online":true,"queued":0,"lastTs":1}],"nearby":[],"groups":[{"gid":"g","name":"Room","removed":false,"closed":false,"canManage":true,"members":[]}]}"""
+        const val DONE =
+            """{"nodeId":"me","name":"Me","peers":[],"nearby":[],"groups":[{"gid":"g","name":"Room","removed":true,"closed":true,"canManage":false,"members":[]}]}"""
     }
 }

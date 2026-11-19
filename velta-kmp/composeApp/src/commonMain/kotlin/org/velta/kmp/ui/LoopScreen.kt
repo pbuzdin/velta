@@ -1,6 +1,7 @@
 package org.velta.kmp.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,22 +41,43 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun LoopSettingsRow(model: AppModel) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable { model.setLoop(!model.loopOn) }
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(L.t("Velta Loop"))
-            Text(
-                L.t("Local chat on the same network"),
-                fontSize = 12.sp,
-                color = Velta.tokens.textDim,
-            )
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { model.setLoop(!model.loopOn) }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(L.t("Velta Loop"))
+                Text(
+                    L.t("Local chat on the same network"),
+                    fontSize = 12.sp,
+                    color = Velta.tokens.textDim,
+                )
+            }
+            Checkbox(checked = model.loopOn, onCheckedChange = { model.setLoop(it) })
         }
-        Checkbox(checked = model.loopOn, onCheckedChange = { model.setLoop(it) })
+        if (model.loopOn) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { model.setLoopTyping(!model.loopTypingOn) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(L.t("Typing indicator"))
+                    Text(
+                        L.t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."),
+                        fontSize = 12.sp,
+                        color = Velta.tokens.textDim,
+                    )
+                }
+                Checkbox(checked = model.loopTypingOn, onCheckedChange = { model.setLoopTyping(it) })
+            }
+        }
     }
 }
 
@@ -62,6 +86,14 @@ fun LoopCard(model: AppModel) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         Text(L.t("Velta Loop"), fontWeight = FontWeight.SemiBold, color = Velta.tokens.text)
         Text(L.t("Local chat on the same network"), fontSize = 12.sp, color = Velta.tokens.textDim)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                model.loopStatus?.name?.ifBlank { null } ?: L.t("Your name"),
+                modifier = Modifier.weight(1f),
+                color = Velta.tokens.text,
+            )
+            TextButton(onClick = { model.askLoopRenameDevice() }) { Text(L.t("Rename")) }
+        }
         Row {
             TextButton(onClick = { model.showLoopInvite() }) { Text(L.t("Show invite")) }
             TextButton(onClick = { model.openLoopPaste() }) { Text(L.t("Paste code…")) }
@@ -124,6 +156,25 @@ fun LoopChatScreen(model: AppModel, chat: AppModel.Screen.LoopChat) {
                         Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"))
                     }
                 },
+                actions = {
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menu = true }) {
+                            Icon(VeltaIcons.dotsVertical, contentDescription = L.t("Menu"))
+                        }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            model.loopMenu().forEach { item ->
+                                DropdownMenuItem(
+                                    text = { Text(loopMenuLabel(item)) },
+                                    onClick = {
+                                        menu = false
+                                        model.askLoop(item)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
             )
         },
     ) { inner ->
@@ -135,41 +186,68 @@ fun LoopChatScreen(model: AppModel, chat: AppModel.Screen.LoopChat) {
                         msg.incoming -> TextAlign.Start
                         else -> TextAlign.End
                     }
+                    val body = buildString {
+                        if (chat.isGroup && msg.incoming && msg.author.isNotBlank()) {
+                            append(msg.author)
+                            append(": ")
+                        }
+                        if (msg.fileName.isNotBlank() && msg.fileName != msg.text) {
+                            append(msg.fileName)
+                            append('\n')
+                        }
+                        append(msg.text)
+                    }
                     Text(
-                        buildString {
-                            if (chat.isGroup && msg.incoming && msg.author.isNotBlank()) {
-                                append(msg.author)
-                                append(": ")
-                            }
-                            append(msg.text)
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        body,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .then(
+                                if (msg.filePath.isNotBlank()) {
+                                    Modifier.clickable { model.openLoopFile(msg.filePath, msg.fileName.ifBlank { msg.text }) }
+                                } else {
+                                    Modifier
+                                },
+                            ),
                         textAlign = align,
                         color = if (msg.system) Velta.tokens.textDim else Velta.tokens.text,
                     )
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = {
-                        draft = it
-                        model.onLoopDraft(it)
-                    },
-                    modifier = Modifier.weight(1f),
+            if (!model.loopWritable()) {
+                Text(
+                    L.t("This group is over: nobody can write in it any more. The history stays on this device."),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    textAlign = TextAlign.Center,
+                    color = Velta.tokens.textDim,
+                    fontSize = 12.sp,
                 )
-                Button(
-                    onClick = {
-                        model.sendLoop(draft) { ok ->
-                            if (ok) draft = ""
-                        }
-                    },
-                    enabled = draft.isNotBlank(),
-                    modifier = Modifier.padding(start = 8.dp),
-                ) { Text(L.t("Send")) }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { model.attach(AppModel.AttachKind.FILE) }) {
+                        Icon(VeltaIcons.attach, contentDescription = L.t("Attach"))
+                    }
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = {
+                            draft = it
+                            model.onLoopDraft(it)
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            model.sendLoop(draft) { ok ->
+                                if (ok) draft = ""
+                            }
+                        },
+                        enabled = draft.isNotBlank(),
+                        modifier = Modifier.padding(start = 8.dp),
+                    ) { Text(L.t("Send")) }
+                }
             }
         }
     }
@@ -275,6 +353,58 @@ fun LoopNewGroupDialog(model: AppModel) {
                 )
                 Text(peer.name.ifBlank { peer.id.take(8) })
             }
+        }
+    }
+}
+
+@Composable
+fun LoopAskDialog(model: AppModel) {
+    val ask = model.loopAsk ?: return
+    when (ask) {
+        is LoopAsk.Rename -> {
+            var name by remember(ask) { mutableStateOf(ask.name) }
+            VeltaDialog(
+                title = L.t("Rename"),
+                confirmLabel = L.t("Rename"),
+                onConfirm = { model.confirmLoopAsk(name) },
+                onDismiss = { model.dismissLoopAsk() },
+                confirmEnabled = loopGroupNameOk(name),
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { if (it.length <= LOOP_NAME_MAX) name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(if (ask.gid == null) L.t("Your name") else L.t("Group name")) },
+                )
+            }
+        }
+        is LoopAsk.Unpair -> VeltaDialog(
+            title = L.t("Remove device"),
+            confirmLabel = L.t("Remove"),
+            onConfirm = { model.confirmLoopAsk() },
+            onDismiss = { model.dismissLoopAsk() },
+        ) { Text(ask.body) }
+        is LoopAsk.Leave -> VeltaDialog(
+            title = if (ask.disband) L.t("Disband group") else L.t("Leave group"),
+            confirmLabel = if (ask.disband) L.t("Disband") else L.t("Leave"),
+            onConfirm = { model.confirmLoopAsk() },
+            onDismiss = { model.dismissLoopAsk() },
+        ) {
+            Text(
+                if (ask.disband) {
+                    L.t("You created this group. Disbanding closes it for everyone — nobody can write in it any more. The history stays on each device.")
+                } else {
+                    L.t("You will leave this group and no longer receive its messages. The history stays on this device.")
+                },
+            )
+        }
+        is LoopAsk.Delete -> VeltaDialog(
+            title = L.t("Delete chat"),
+            confirmLabel = L.t("Delete"),
+            onConfirm = { model.confirmLoopAsk() },
+            onDismiss = { model.dismissLoopAsk() },
+        ) {
+            Text(L.t("Remove \"{name}\" from your chat list?").replace("{name}", ask.name))
         }
     }
 }

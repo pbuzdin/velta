@@ -11,6 +11,9 @@ import org.velta.kmp.core.RpcClient
 /** Web `localStorage` key. Absent is off: the engine never binds. */
 const val LOOP_PREF = "velta-p2p"
 
+/** Web key. Absent is on; `"0"` sends and shows nothing. */
+const val LOOP_TYPING_PREF = "velta-p2p-typing"
+
 const val LOOP_NAME_MAX = 64
 const val LOOP_GROUP_MAX_OTHERS = 4
 const val LOOP_MSG_LIMIT = 200
@@ -35,6 +38,8 @@ data class LoopGroup(
     val name: String,
     val removed: Boolean,
     val members: List<LoopMember>,
+    val canManage: Boolean = false,
+    val closed: Boolean = false,
 )
 
 data class LoopStatus(
@@ -51,6 +56,8 @@ data class LoopMessage(
     val incoming: Boolean,
     val system: Boolean,
     val author: String,
+    val filePath: String = "",
+    val fileName: String = "",
 )
 
 data class LoopRow(
@@ -79,6 +86,53 @@ fun loopGroupNameOk(name: String): Boolean {
 }
 
 fun loopGroupMembersOk(count: Int): Boolean = count in 1..LOOP_GROUP_MAX_OTHERS
+
+fun loopTypingWanted(pref: String?): Boolean = pref != "0"
+
+enum class LoopMenu { Rename, Leave, Disband, Delete, Unpair }
+
+sealed class LoopAsk {
+    data class Unpair(val peerId: String, val body: String) : LoopAsk()
+    data class Leave(val gid: String, val disband: Boolean) : LoopAsk()
+    data class Delete(val gid: String, val name: String) : LoopAsk()
+    /** gid null renames this device. */
+    data class Rename(val gid: String?, val name: String) : LoopAsk()
+}
+
+/** 1:1 unpairs. A live group renames (creator) or leaves. A finished group deletes. */
+fun loopChatMenu(group: Boolean, canManage: Boolean, removed: Boolean): List<LoopMenu> {
+    if (!group) return listOf(LoopMenu.Unpair)
+    if (removed) return listOf(LoopMenu.Delete)
+    return if (canManage) listOf(LoopMenu.Rename, LoopMenu.Disband) else listOf(LoopMenu.Leave)
+}
+
+fun loopMenuLabel(item: LoopMenu): String = when (item) {
+    LoopMenu.Rename -> L.t("Rename")
+    LoopMenu.Leave -> L.t("Leave group")
+    LoopMenu.Disband -> L.t("Disband group")
+    LoopMenu.Delete -> L.t("Delete chat")
+    LoopMenu.Unpair -> L.t("Remove device")
+}
+
+fun loopUnpairBody(name: String, created: List<String>, member: List<String>): String {
+    var text = L.t("Forget \"{name}\"? Its chat history and received files will be deleted. The device can re-pair with a new invite.")
+        .replace("{name}", name)
+    if (created.size == 1) {
+        text += " " + L.t("{name} created {groups}: that group will be deleted from this device too.")
+            .replace("{name}", name)
+            .replace("{groups}", created.joinToString(", ") { "\"$it\"" })
+    } else if (created.size > 1) {
+        text += " " + L.t("{name} created {groups}: those groups will be deleted from this device too.")
+            .replace("{name}", name)
+            .replace("{groups}", created.joinToString(", ") { "\"$it\"" })
+    }
+    if (member.isNotEmpty()) {
+        text += " " + L.t("{name} is also in {groups}: it stays there as a member you can't message directly any more. To take it out of a group you created, remove it from the group first.")
+            .replace("{name}", name)
+            .replace("{groups}", member.joinToString(", ") { "\"$it\"" })
+    }
+    return text
+}
 
 data class TypingSendState(
     val active: Boolean = false,
@@ -180,6 +234,8 @@ fun parseLoopStatus(el: JsonElement): LoopStatus {
                 members = g.objs("members").map { m ->
                     LoopMember(m.str("id"), m.str("name"), m.bool("self"), m.bool("online"))
                 },
+                canManage = g.bool("canManage"),
+                closed = g.bool("closed"),
             )
         },
     )
@@ -189,13 +245,16 @@ fun parseLoopMessages(el: JsonElement): List<LoopMessage> {
     val arr = el as? JsonArray ?: return emptyList()
     return arr.mapNotNull { it as? JsonObject }.map { o ->
         val dir = o.str("dir")
-        val file = (o["file"] as? JsonObject)?.str("name").orEmpty()
+        val file = o["file"] as? JsonObject
+        val fileName = file?.str("name").orEmpty()
         LoopMessage(
             id = o.str("id").ifBlank { o.str("seq") },
-            text = o.str("text").ifBlank { file },
+            text = o.str("text").ifBlank { fileName },
             incoming = dir == "in",
             system = dir == "sys",
             author = o.str("from"),
+            filePath = file?.str("path").orEmpty(),
+            fileName = fileName,
         )
     }
 }
@@ -233,7 +292,7 @@ fun parseLoopPush(line: String): LoopEvent {
     }
 }
 
-/** Text, pairing, and local groups. File methods stay in the engine. */
+/** Text, files, pairing, and local groups. */
 class VeltaLoop(private val client: RpcClient) : AutoCloseable {
     val pushes = client.pushes
 
@@ -286,6 +345,51 @@ class VeltaLoop(private val client: RpcClient) : AutoCloseable {
             "p2p_group_create",
             RpcClient.params(RpcClient.param(name), JsonArray(memberIds.map { JsonPrimitive(it) })),
         )
+    }
+
+    suspend fun setName(name: String) {
+        client.call("p2p_set_name", RpcClient.params(RpcClient.param(name)))
+    }
+
+    suspend fun peerImpact(peer: String): Pair<List<String>, List<String>> {
+        val el = client.call("p2p_peer_groups", RpcClient.params(RpcClient.param(peer))) as? JsonObject
+            ?: return emptyList<String>() to emptyList()
+        fun names(key: String) = el.objs(key).map { it.str("name") }.filter { it.isNotBlank() }
+        return names("created") to names("member")
+    }
+
+    suspend fun removePeer(peer: String) {
+        client.call("p2p_remove_peer", RpcClient.params(RpcClient.param(peer)))
+    }
+
+    suspend fun sendPeerFile(peer: String, path: String, name: String, caption: String) {
+        client.call(
+            "p2p_send_file",
+            RpcClient.params(RpcClient.param(peer), RpcClient.param(path), RpcClient.param(name), RpcClient.param(caption)),
+        )
+    }
+
+    suspend fun sendGroupFile(gid: String, path: String, name: String, caption: String) {
+        client.call(
+            "p2p_group_send_file",
+            RpcClient.params(RpcClient.param(gid), RpcClient.param(path), RpcClient.param(name), RpcClient.param(caption)),
+        )
+    }
+
+    suspend fun renameGroup(gid: String, name: String) {
+        client.call("p2p_group_rename", RpcClient.params(RpcClient.param(gid), RpcClient.param(name)))
+    }
+
+    suspend fun leaveGroup(gid: String) {
+        client.call("p2p_group_leave", RpcClient.params(RpcClient.param(gid)))
+    }
+
+    suspend fun disbandGroup(gid: String) {
+        client.call("p2p_group_disband", RpcClient.params(RpcClient.param(gid)))
+    }
+
+    suspend fun deleteGroup(gid: String) {
+        client.call("p2p_group_delete", RpcClient.params(RpcClient.param(gid)))
     }
 
     override fun close() {

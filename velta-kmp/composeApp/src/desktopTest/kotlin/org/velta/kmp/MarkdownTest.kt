@@ -3,6 +3,7 @@ package org.velta.kmp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import org.velta.kmp.ui.READ_MORE_LINES
 import org.velta.kmp.ui.markdownAnnotated
 import org.velta.kmp.ui.messageInvites
 import org.velta.kmp.ui.parseInviteLink
@@ -17,6 +18,11 @@ class MarkdownTest {
     private val accent = Color(0xFF5AA2E6)
     private val bg = Color(0x0FF4F4F4)
     private val ink = Color(0xFFF2F2F5)
+
+    @Test
+    fun readMoreCapIsTwelveLines() {
+        assertEquals(12, READ_MORE_LINES)
+    }
 
     @Test
     fun boldItalicUnderlineCode() {

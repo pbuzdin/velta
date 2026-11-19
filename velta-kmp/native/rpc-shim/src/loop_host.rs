@@ -4,7 +4,8 @@
 //! calls `sendLoopLine`, events call `RpcShim.onLoopLine`. The engine binds
 //! its LAN socket only after `start_loop` — the pref gate lives in Kotlin.
 //!
-//! ponytail: text, pairing, and groups. File send stays in the engine.
+//! ponytail: file send and unpair copy or delete on a blocking thread.
+//! Add/remove member and file retry stay in the engine.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -212,6 +213,46 @@ async fn call(engine: &Arc<P2p>, method: &str, params: &Value) -> Result<Value> 
         "p2p_group_messages" => engine
             .group_messages(&arg(params, 0), limit_at(params, 1))
             .map(Value::Array),
+        "p2p_set_name" => engine.set_name(arg(params, 0)).map(|_| Value::Null),
+        "p2p_peer_groups" => engine.peer_group_impact(&arg(params, 0)),
+        "p2p_remove_peer" => {
+            let engine = engine.clone();
+            let peer = arg(params, 0);
+            tokio::task::spawn_blocking(move || engine.remove_peer(&peer))
+                .await
+                .map_err(|e| anyhow!("{e}"))??;
+            Ok(Value::Null)
+        }
+        "p2p_send_file" => {
+            let engine = engine.clone();
+            let peer = arg(params, 0);
+            let src = arg(params, 1);
+            let name = arg(params, 2);
+            let caption = arg(params, 3);
+            let (id, path) = tokio::task::spawn_blocking(move || {
+                engine.send_file(&peer, &src, &name, &caption)
+            })
+            .await
+            .map_err(|e| anyhow!("{e}"))??;
+            Ok(json!({ "id": id, "path": path.to_string_lossy() }))
+        }
+        "p2p_group_send_file" => {
+            let engine = engine.clone();
+            let gid = arg(params, 0);
+            let src = arg(params, 1);
+            let name = arg(params, 2);
+            let caption = arg(params, 3);
+            let value = tokio::task::spawn_blocking(move || {
+                engine.group_send_file(&gid, &src, &name, &caption)
+            })
+            .await
+            .map_err(|e| anyhow!("{e}"))??;
+            Ok(value)
+        }
+        "p2p_group_rename" => engine.group_rename(&arg(params, 0), &arg(params, 1)),
+        "p2p_group_leave" => engine.group_leave(&arg(params, 0)),
+        "p2p_group_disband" => engine.group_disband(&arg(params, 0)),
+        "p2p_group_delete" => engine.group_delete(&arg(params, 0)).map(|_| Value::Null),
         _ => Err(anyhow!("unknown method")),
     }
 }
