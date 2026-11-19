@@ -18,6 +18,7 @@ import org.velta.kmp.ui.Onboarding
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -227,5 +228,82 @@ class OnboardingTest {
             model.obSteps.map { it.text to it.state },
         )
         assertTrue(model.obBusy)
+    }
+
+    @Test
+    fun addAccountCanReturnAndCreatesBesideTheOpenProfile() = runBlocking {
+        val fx = configuredProfile()
+        try {
+            configuredProfileReady(fx)
+            fx.model.addAccountFromSwitcher()
+            assertEquals(AppModel.Screen.Login, fx.model.screen)
+            assertTrue(fx.model.addingAccount)
+            fx.model.cancelAddAccount()
+            assertEquals(AppModel.Screen.ChatList, fx.model.screen)
+            assertEquals(1L, fx.model.accountId)
+            assertFalse(fx.model.addingAccount)
+            assertTrue(fx.t.calls("add_account").isEmpty())
+
+            fx.model.addAccountFromSwitcher()
+            fx.model.welcomeAutopick()
+            fx.awaitNickname()
+            assertEquals(2L, fx.model.accountId)
+            assertEquals(listOf("[2,null]"), fx.t.calls("init_transports"))
+            assertFalse(fx.model.addingAccount)
+        } finally {
+            fx.scope.cancel()
+        }
+    }
+
+    @Test
+    fun failedAddReturnsToTheOpenProfile() = runBlocking {
+        val fx = configuredProfile(extra = mapOf("init_transports" to "ERROR:nope"))
+        try {
+            configuredProfileReady(fx)
+            fx.model.addAccountFromSwitcher()
+            fx.model.welcomeAutopick()
+            withTimeout(10_000) { while (!fx.model.obFailed || fx.model.obBusy) yield() }
+            assertEquals(1L, fx.model.accountId)
+            assertEquals(AppModel.Screen.Login, fx.model.screen)
+            val addAt = fx.t.requests.indexOfFirst { "\"add_account\"" in it }
+            assertTrue(addAt >= 0)
+            assertTrue(fx.t.requests.drop(addAt).any { "\"select_account\"" in it && "[1]" in it })
+            fx.model.cancelAddAccount()
+            assertEquals(AppModel.Screen.ChatList, fx.model.screen)
+            assertEquals(1L, fx.model.accountId)
+        } finally {
+            fx.scope.cancel()
+        }
+    }
+
+    private fun configuredProfile(extra: Map<String, String> = emptyMap()): Fx {
+        val t = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.69.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
+                "get_account_info" to """{"id":1,"addr":"me@chat.example","kind":"Configured"}""",
+                "is_configured" to "true",
+                "add_account" to "2",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
+                "get_chatlist_entries" to "[]",
+                "set_config" to "null",
+                "add_device_message" to "1",
+                "init_transports" to "null",
+            ) + extra,
+        )
+        val platform = object : CorePlatform {
+            override fun accountsDir() = "/tmp/velta-kmp-onboard-add"
+            override fun spawnRpcServer(accountsDir: String): RpcTransport = t
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        return Fx(t, AppModel(platform, scope), scope)
+    }
+
+    private suspend fun configuredProfileReady(fx: Fx) {
+        fx.model.connect()
+        withTimeout(10_000) { while (fx.model.screen != AppModel.Screen.ChatList) yield() }
+        assertEquals(1L, fx.model.accountId)
     }
 }

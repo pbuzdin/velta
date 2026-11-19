@@ -93,4 +93,16 @@ interface CorePlatform {
      * [org.velta.kmp.ui.AppIconChoice.prefValue] (`default` / `badge` / `classic`).
      */
     fun applyAppIcon(choice: String) {}
+
+    /** Android shim has the Loop engine. Desktop's stock core does not. */
+    fun loopAvailable(): Boolean = false
+
+    /**
+     * Start the LAN engine rooted at [accountsDir]. Null when this platform
+     * cannot. The caller only invokes this while `velta-p2p` is on.
+     */
+    fun openLoop(accountsDir: String): RpcTransport? = null
+
+    /** Stop the engine and release its socket. Idempotent. */
+    fun closeLoop() {}
 }

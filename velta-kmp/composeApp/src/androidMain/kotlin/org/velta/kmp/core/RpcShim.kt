@@ -31,6 +31,15 @@ object RpcShim {
     /** One request line. 0 = queued, -1 = no session. */
     external fun sendLine(line: String): Int
 
+    /** Start the Loop engine. 1 = up, -1 = failed. No listening port. */
+    external fun startLoop(accountsDir: String): Int
+
+    /** Stop the Loop engine. Idempotent; returns 0. */
+    external fun stopLoop(): Int
+
+    /** One Loop request line. 0 = queued, -1 = engine is not up. */
+    external fun sendLoopLine(line: String): Int
+
     @Volatile
     private var running = false
 
@@ -87,6 +96,87 @@ object RpcShim {
     fun onNativeLine(line: String) {
         val listener = synchronized(this) { onLine } ?: return
         listener(line)
+    }
+
+    @Volatile
+    private var loopSymbols: Boolean? = null
+
+    /** Old builds of the shim lack these symbols. Cached after one probe. */
+    fun loopLinked(): Boolean {
+        loopSymbols?.let { return it }
+        if (!available) return false
+        val ok = try {
+            stopLoop()
+            true
+        } catch (t: UnsatisfiedLinkError) {
+            println("velta-kmp: loop symbols missing: $t")
+            false
+        }
+        loopSymbols = ok
+        return ok
+    }
+
+    @Volatile
+    private var loopRunning = false
+
+    @Volatile
+    private var loopGeneration = 0
+
+    private var loopLineListener: ((String) -> Unit)? = null
+    private var loopExitListener: (() -> Unit)? = null
+
+    fun setLoopListeners(line: ((String) -> Unit)?, exit: (() -> Unit)?) = synchronized(this) {
+        loopLineListener = line
+        loopExitListener = exit
+    }
+
+    fun stopLoopOnce(): Int {
+        synchronized(this) {
+            if (!loopRunning) return 0
+            loopRunning = false
+            loopGeneration++
+            loopLineListener = null
+            loopExitListener = null
+        }
+        return stopLoop()
+    }
+
+    /** One engine per process. A second call while it is up reuses it. */
+    fun startLoopOnce(accountsDir: String): Int {
+        val seen = synchronized(this) {
+            if (loopRunning) return 1
+            loopGeneration
+        }
+        val code = startLoop(accountsDir)
+        return synchronized(this) {
+            if (code > 0 && loopGeneration == seen) {
+                loopRunning = true
+                1
+            } else if (loopGeneration != seen) {
+                -1
+            } else {
+                code
+            }
+        }
+    }
+
+    @JvmStatic
+    fun onLoopLine(line: String) {
+        val listener = synchronized(this) { loopLineListener } ?: return
+        listener(line)
+    }
+
+    @JvmStatic
+    fun onLoopExit() {
+        val listener = synchronized(this) {
+            loopGeneration++
+            loopRunning = false
+            loopLineListener = null
+            val exit = loopExitListener
+            loopExitListener = null
+            exit
+        }
+        listener?.invoke()
     }
 
     @JvmStatic

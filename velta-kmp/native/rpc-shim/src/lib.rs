@@ -21,6 +21,20 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use yerpc::{RpcClient, RpcSession};
 
+pub mod p2p;
+mod loop_host;
+
+/// Engine log line. `p2p.rs` calls this; it is not the core session log.
+pub(crate) fn log(msg: &str) {
+    println!("velta-shim: {msg}");
+}
+
+pub(crate) fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
+    getrandom::getrandom(&mut bytes).expect("OS random source unavailable");
+    bytes
+}
+
 /// Per-start stop signal (#224). A stale permit must not kill the next session.
 static STOP: std::sync::RwLock<Option<Arc<tokio::sync::Notify>>> = std::sync::RwLock::new(None);
 
@@ -287,7 +301,7 @@ fn remember_vm(env: &mut JNIEnv) -> bool {
     true
 }
 
-fn jni_call(method: &str, line: Option<&str>) {
+pub(crate) fn jni_call(method: &str, line: Option<&str>) {
     let vm = {
         let guard = match VM.lock() {
             Ok(guard) => guard,
@@ -347,6 +361,54 @@ fn jni_on_line(line: &str) {
 
 fn jni_on_exit() {
     jni_call("onNativeExit", None);
+}
+
+pub(crate) fn jni_on_loop_line(line: &str) {
+    jni_call("onLoopLine", Some(line));
+}
+
+pub(crate) fn jni_on_loop_exit() {
+    jni_call("onLoopExit", None);
+}
+
+/// JNI: `RpcShim.startLoop(accountsDir) -> 1`, or -1. Does not open a port.
+#[no_mangle]
+pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startLoop<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    accounts_dir: JString<'local>,
+) -> i32 {
+    if !remember_vm(&mut env) {
+        return -1;
+    }
+    let dir: String = match env.get_string(&accounts_dir) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    loop_host::start_loop(dir)
+}
+
+/// JNI: `RpcShim.stopLoop() -> 0`. Idempotent.
+#[no_mangle]
+pub extern "system" fn Java_org_velta_kmp_core_RpcShim_stopLoop(
+    _env: JNIEnv,
+    _class: JClass,
+) -> i32 {
+    loop_host::stop_loop()
+}
+
+/// JNI: `RpcShim.sendLoopLine(line) -> 0`, or -1 when the engine is not up.
+#[no_mangle]
+pub extern "system" fn Java_org_velta_kmp_core_RpcShim_sendLoopLine(
+    mut env: JNIEnv,
+    _class: JClass,
+    line: JString,
+) -> i32 {
+    let line: String = match env.get_string(&line) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    loop_host::send_loop_line(line)
 }
 
 /// JNI: `RpcShim.startCore(accountsDir, dbKey) -> 1`, or a negative code.

@@ -67,8 +67,10 @@ private val FAILED = Color(0xFFE0685D)
 @Composable
 internal fun WelcomeScreen(model: AppModel) {
     val tokens = Velta.tokens
-    PlatformBackHandler(enabled = model.welcomeMode != AppModel.WelcomeMode.Actions && !model.obBusy) {
-        model.welcomeShowActions()
+    PlatformBackHandler(
+        enabled = !model.obBusy && (model.welcomeMode != AppModel.WelcomeMode.Actions || model.addingAccount),
+    ) {
+        model.welcomeBack()
     }
     Column(Modifier.fillMaxSize().background(tokens.bg).windowInsetsPadding(WindowInsets.systemBars)) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -118,6 +120,9 @@ internal fun WelcomeScreen(model: AppModel) {
                             AppModel.WelcomeMode.Actions -> if (!model.obBusy) ActionButtons(model)
                             AppModel.WelcomeMode.Create -> CreateForm(model)
                             AppModel.WelcomeMode.SecondDevice -> SecondDeviceForm(model)
+                        }
+                        if (model.addingAccount && !model.obBusy) {
+                            SplashTextButton(L.t("Cancel")) { model.cancelAddAccount() }
                         }
                     }
                     model.welcomeNotice?.let {

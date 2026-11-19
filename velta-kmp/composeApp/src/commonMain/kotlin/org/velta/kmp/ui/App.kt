@@ -221,6 +221,7 @@ fun App(model: AppModel) {
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
                     is AppModel.Screen.Webxdc -> WebxdcScreen(model, current)
+                    is AppModel.Screen.LoopChat -> LoopChatScreen(model, current)
                 }
             }
             CreatedNotice(model)
@@ -233,6 +234,11 @@ fun App(model: AppModel) {
             if (!model.locked && model.batteryPromptOpen) BatteryPromptDialog(model)
             if (!model.locked && model.profileEditor != null) ProfileEditorDialog(model)
             if (!model.locked && model.secondDeviceOpen) SecondDeviceSheet(model)
+            if (!model.locked && model.deleteProfileOpen) DeleteProfileDialog(model)
+            if (!model.locked && model.loopInvite != null) LoopInviteDialog(model)
+            if (!model.locked && model.loopPasteOpen) LoopPasteDialog(model)
+            if (!model.locked && model.loopPair != null) LoopPairDialog(model)
+            if (!model.locked && model.loopNewGroup) LoopNewGroupDialog(model)
         }
     }
 }
@@ -369,20 +375,44 @@ private fun AccountsScreen(model: AppModel) {
             item {
                 AppLockRow(model)
             }
+            item { SyncOnlyRow(model) }
             item { BackupRows(model) }
             item { ProxyRow(model) }
         }
     }
 }
 
+/** #101: only the open profile syncs. Sits with the profile actions. */
+@Composable
+private fun SyncOnlyRow(model: AppModel) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { model.setSyncOnly(!model.syncOnlyActive) }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(L.t("Sync only active profile — other profiles won't receive messages until you switch to them"))
+            Text(
+                L.t("Only the selected profile runs mail sync; background profiles are fully paused."),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Checkbox(checked = model.syncOnlyActive, onCheckedChange = { model.setSyncOnly(it) })
+    }
+}
+
 /** #334 step 11: this device offers a profile QR, or writes a backup tar. */
 @Composable
 private fun BackupRows(model: AppModel) {
+    val busy = model.accountOpRunning()
     Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable(enabled = !model.secondDeviceOpen) { model.startSecondDevice() }
+                .clickable(enabled = !busy) { model.startSecondDevice() }
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -392,7 +422,7 @@ private fun BackupRows(model: AppModel) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable(enabled = model.backupExportDir != null && !model.backupBusy) { model.exportBackup() }
+                .clickable(enabled = model.backupExportDir != null && !busy) { model.exportBackup() }
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -400,6 +430,75 @@ private fun BackupRows(model: AppModel) {
                 if (model.backupBusy) L.t("Exporting…") else L.t("Export backup"),
                 modifier = Modifier.weight(1f),
             )
+        }
+        if (model.accounts.size == 1) {
+            HorizontalDivider()
+            Text(
+                L.t("This is the last remaining profile — it cannot be deleted here."),
+                color = Velta.tokens.danger,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+        } else if (canDeleteProfile(model.accounts.size)) {
+            HorizontalDivider()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy) { model.openDeleteProfile() }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(L.t("Delete profile"), color = Velta.tokens.danger, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** #358: type the address. Export is a tip, not an automatic backup. */
+@Composable
+private fun DeleteProfileDialog(model: AppModel) {
+    var typed by remember { mutableStateOf("") }
+    val me = model.accounts.firstOrNull { it.id == model.accountId }
+    val name = me?.displayName?.takeIf { it.isNotBlank() }
+        ?: me?.addr?.takeIf { it.isNotBlank() }
+        ?: model.accountAddr?.takeIf { it.isNotBlank() }
+        ?: L.t("this profile")
+    val addr = model.accountAddr?.takeIf { it.isNotBlank() } ?: L.t("(no address)")
+    VeltaDialog(
+        title = L.t("Delete profile"),
+        confirmLabel = if (model.deleteProfileBusy) L.t("Deleting profile…") else L.t("Delete this profile"),
+        confirmEnabled = deleteAddressMatches(typed, model.accountAddr.orEmpty()) && !model.accountOpRunning(),
+        onConfirm = { model.deleteCurrentProfile(typed) },
+        onDismiss = { model.closeDeleteProfile() },
+    ) {
+        Text(
+            L.t("Removes {name} for good: the account, its keys, the message database and all blobs on this device. This cannot be undone.")
+                .replace("{name}", name),
+            color = Velta.tokens.text,
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            L.t("Tip: write an <b>Export backup</b> first — it is the only copy that survives this.")
+                .replace("<b>", "")
+                .replace("</b>", ""),
+            style = MaterialTheme.typography.bodySmall,
+            color = Velta.tokens.textDim,
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            L.t("Type the profile's address ({addr}) to confirm.").replace("{addr}", addr),
+            color = Velta.tokens.text,
+        )
+        OutlinedTextField(
+            value = typed,
+            onValueChange = { typed = it },
+            singleLine = true,
+            enabled = !model.deleteProfileBusy,
+            placeholder = { Text(L.t("Type the profile address to confirm deletion")) },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        model.deleteProfileError?.let {
+            Text(it, color = Velta.tokens.danger, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -944,13 +1043,16 @@ private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> 
             )
         }
         val shown = model.chatsFor(model.chatCategory)
+        val loopShown = model.loopRowsFor(model.chatCategory)
+        val showLoopCard = model.loopOn && model.loopReady && model.chatCategory == "all"
         val showArchivedLink = model.chatCategory == "all" && model.archivedChats.isNotEmpty()
-        if (shown.isEmpty() && showArchivedLink) {
+        val listEmpty = shown.isEmpty() && loopShown.isEmpty() && !showLoopCard
+        if (listEmpty && showArchivedLink) {
             // Web 2430: no chats but archived exist → the archived link alone.
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 ArchivedLinkRow(model.archivedChats.size, onArchived)
             }
-        } else if (shown.isEmpty()) {
+        } else if (listEmpty) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
                     when {
@@ -968,6 +1070,13 @@ private fun ChatsView(model: AppModel, onPullTop: () -> Unit, onArchived: () -> 
                     .fillMaxWidth(),
                 state = listState,
             ) {
+                if (showLoopCard) {
+                    item(key = "loop-card") { LoopCard(model) }
+                }
+                items(loopShown, key = { it.id }) { row ->
+                    LoopListRow(row) { model.openLoopChat(row) }
+                    HorizontalDivider()
+                }
                 items(shown, key = { it.id }) { item ->
                     ChatListRow(
                         item,
@@ -1485,8 +1594,14 @@ private fun NewChatView(model: AppModel) {
                         model.startNewChannelFlow()
                     }
                 }
-                // Web's "New local group (no relay)" is P2P-gated; KMP has no
-                // P2P flag, so the option never shows (web: p2pEnabled()).
+                if (model.loopOn && model.loopReady) {
+                    item {
+                        SideOptionRow(L.t("New local group (no relay)")) {
+                            model.toggleListView("chats")
+                            model.openLoopGroup()
+                        }
+                    }
+                }
                 item {
                     SideOptionRow(L.t("Join chat via invite link")) {
                         model.toggleListView("chats")
@@ -1604,7 +1719,7 @@ private fun PickContactsScreen(model: AppModel) {
  * never floating labels.
  */
 @Composable
-private fun VeltaDialog(
+internal fun VeltaDialog(
     title: String,
     confirmLabel: String,
     onConfirm: () -> Unit,
@@ -2516,6 +2631,7 @@ private fun SettingsScreen(model: AppModel) {
         ) {
             // Stable drawer head: "Edit profile" (KMP has no drawer — Settings leads with it).
             TextButton(onClick = { model.openProfileEditor() }) { Text(L.t("Edit profile")) }
+            LoopSettingsRow(model)
             SettingsSection(L.t("Theme"))
             VeltaThemeChoice.entries.forEach { c ->
                 Row(

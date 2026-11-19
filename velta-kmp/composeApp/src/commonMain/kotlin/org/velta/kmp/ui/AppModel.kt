@@ -62,6 +62,8 @@ class AppModel(
         data class Profile(val chatId: Long, val title: String) : Screen
         /** A running webxdc app (P3a runtime): WebView hosts the archive. */
         data class Webxdc(val msgId: Long, val title: String) : Screen
+        /** A Velta Loop chat. [id] is `p2p:` or `p2pg:`, never a core chat id. */
+        data class LoopChat(val id: String, val title: String, val isGroup: Boolean) : Screen
     }
 
     var screen by mutableStateOf<Screen>(Screen.Booting)
@@ -993,6 +995,10 @@ class AppModel(
             pendingScan = text
             return
         }
+        if (text.trim().startsWith("VELTAP2P1:")) {
+            acceptLoopTicket(text.trim())
+            return
+        }
         if (screen == Screen.Login) {
             welcomeFromCode(text)
             return
@@ -1063,7 +1069,7 @@ class AppModel(
                         }
                         if (onThisRelay == null) {
                             veltaCore.addTransportFromQr(id, raw)
-                            veltaCore.startIoForAllAccounts()
+                            startMailIo(veltaCore, id)
                         }
                         accountAddr = veltaCore.accountInfo(id).addr
                         loadChats()
@@ -1072,7 +1078,7 @@ class AppModel(
                     }
                     qr.isSecureJoin -> {
                         // The core returns the existing chat when we are already in it.
-                        veltaCore.startIoForAllAccounts()
+                        startMailIo(veltaCore, id)
                         val chatId = veltaCore.secureJoin(id, raw)
                         loadChats()
                         val item = chats.firstOrNull { it.id == chatId }
@@ -1393,6 +1399,7 @@ class AppModel(
     /** Deliberate teardown (service destroyed): drop the client and stop the
      * platform core. The next connect() starts fresh. */
     fun shutdownCore() {
+        stopLoopQuiet()
         core?.raw?.close()
         core = null
         transport = null
@@ -1401,6 +1408,432 @@ class AppModel(
         platform.stopRpcServer()
         platform.dropDek()
         println("velta-kmp: core stopped (shutdownCore)")
+    }
+
+    private fun loopNow(): Long = loopEpoch.elapsedNow().inWholeMilliseconds
+
+    private fun loopToast() {
+        showToast(L.t("Local groups need the Velta app with local chat on"))
+    }
+
+    fun loopRowsFor(category: String): List<LoopRow> {
+        if (!loopOn || !loopReady) return emptyList()
+        return when (category) {
+            "all" -> loopRows
+            "groups" -> loopRows.filter { it.group }
+            "people" -> loopRows.filter { !it.group }
+            else -> emptyList()
+        }
+    }
+
+    fun setLoop(on: Boolean) {
+        if (!on) {
+            loopOn = false
+            platform.setPref(LOOP_PREF, "0")
+            stopLoopQuiet()
+            return
+        }
+        if (!platform.loopAvailable()) {
+            loopOn = false
+            loopToast()
+            return
+        }
+        scope.launch {
+            try {
+                if (startLoop()) {
+                    loopOn = true
+                    platform.setPref(LOOP_PREF, "1")
+                    if (screen == Screen.Login) screen = Screen.ChatList
+                } else {
+                    loopOn = false
+                    loopToast()
+                }
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                println("velta-kmp: loop: $t")
+                loopOn = false
+                loopToast()
+            }
+        }
+    }
+
+    private suspend fun startLoopIfPref() {
+        if (platform.pref(LOOP_PREF) != "1") return
+        try {
+            if (startLoop()) {
+                loopOn = true
+                if (screen == Screen.Login) screen = Screen.ChatList
+            } else {
+                failLoopStart()
+            }
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            println("velta-kmp: loop: $t")
+            failLoopStart()
+        }
+    }
+
+    private fun failLoopStart() {
+        loopOn = false
+        platform.setPref(LOOP_PREF, "0")
+        loopToast()
+    }
+
+    private suspend fun startLoop(): Boolean {
+        if (loopReady && loopClient != null) return true
+        val transport = platform.openLoop(platform.accountsDir()) ?: return false
+        val client = RpcClient(
+            transport,
+            log = { line -> println("velta-kmp: loop $line") },
+            onDead = { if (!loopStopping) onLoopDead() },
+        )
+        val loop = VeltaLoop(client)
+        loopClient = loop
+        try {
+            reloadLoop(loop, null)
+            loopReady = true
+            collectLoop(loop)
+            return true
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            loopClient = null
+            loop.close()
+            platform.closeLoop()
+            throw c
+        } catch (t: Throwable) {
+            println("velta-kmp: loop start failed: $t")
+            loopClient = null
+            loop.close()
+            platform.closeLoop()
+            return false
+        }
+    }
+
+    private fun collectLoop(loop: VeltaLoop) {
+        scope.launch {
+            try {
+                loop.pushes.collect { line ->
+                    when (val ev = parseLoopPush(line)) {
+                        is LoopEvent.Typing -> noteLoopTyping(ev)
+                        is LoopEvent.PairRequest -> loopPair = ev.peerId to ev.name
+                        is LoopEvent.Refresh -> pokeLoop(ev.chatId)
+                        LoopEvent.Ignore -> Unit
+                    }
+                }
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                println("velta-kmp: loop events: $t")
+            }
+        }
+    }
+
+    private fun onLoopDead() {
+        if (loopStopping || loopClient == null) return
+        loopReady = false
+        loopOn = false
+        loopRows = emptyList()
+        loopMessages = emptyList()
+        loopStatus = null
+        if (screen is Screen.LoopChat) screen = Screen.ChatList
+        loopClient?.close()
+        loopClient = null
+        platform.closeLoop()
+        loopToast()
+    }
+
+    private fun stopLoopQuiet() {
+        loopStopping = true
+        loopReady = false
+        loopStatus = null
+        loopRows = emptyList()
+        loopMessages = emptyList()
+        loopTyping = ""
+        loopInvite = null
+        loopPasteOpen = false
+        loopPair = null
+        loopNewGroup = false
+        loopPreviews.clear()
+        typingIdle?.cancel()
+        typingIdle = null
+        val loop = loopClient
+        loopClient = null
+        loop?.close()
+        platform.closeLoop()
+        loopStopping = false
+        if (screen is Screen.LoopChat) screen = Screen.ChatList
+    }
+
+    private fun pokeLoop(focus: String?) {
+        loopDirty = true
+        if (focus != null) loopFocus = focus
+        if (loopRefresh?.isActive == true) return
+        loopRefresh = scope.launch {
+            while (loopDirty) {
+                loopDirty = false
+                val focusNow = loopFocus
+                loopFocus = null
+                delay(150)
+                val loop = loopClient ?: return@launch
+                try {
+                    reloadLoop(loop, focusNow)
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    println("velta-kmp: loop refresh: $t")
+                }
+            }
+        }
+    }
+
+    private suspend fun reloadLoop(loop: VeltaLoop, focus: String?) {
+        val status = loop.status()
+        loopStatus = status
+        val ids = status.groups.map { loopGroupChatId(it.gid) } + status.peers.map { loopPeerChatId(it.id) }
+        val open = (screen as? Screen.LoopChat)?.id
+        val fetch = LinkedHashSet<String>()
+        if (open != null && open in ids) fetch.add(open)
+        if (focus != null && focus in ids) fetch.add(focus)
+        for (id in ids) if (id !in loopPreviews) fetch.add(id)
+        for (id in fetch) {
+            val limit = if (id == open) LOOP_MSG_LIMIT else 1
+            val msgs = loop.history(id, limit)
+            val last = msgs.lastOrNull { !it.system && it.text.isNotBlank() }?.text
+            if (last != null) loopPreviews[id] = last
+            if (id == open) loopMessages = msgs
+        }
+        if (open != null && open !in ids) loopMessages = emptyList()
+        loopPreviews.keys.retainAll(ids.toSet())
+        publishLoopRows()
+    }
+
+    private fun publishLoopRows() {
+        val status = loopStatus ?: return
+        val now = loopNow()
+        val typing = HashMap<String, String>()
+        val ids = status.groups.map { loopGroupChatId(it.gid) } + status.peers.map { loopPeerChatId(it.id) }
+        for (id in ids) {
+            val line = loopTypingLine(typingBoard.active(id, now).map { senderName(it) })
+            if (line.isNotEmpty()) typing[id] = line
+        }
+        loopRows = loopListRows(status, loopPreviews, typing)
+        val open = (screen as? Screen.LoopChat)?.id
+        loopTyping = if (open == null) "" else typing[open].orEmpty()
+    }
+
+    private fun senderName(id: String): String {
+        val status = loopStatus
+        status?.peers?.firstOrNull { it.id == id }?.name?.takeIf { it.isNotBlank() }?.let { return it }
+        status?.groups?.forEach { g ->
+            g.members.firstOrNull { it.id == id }?.name?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return id.take(8)
+    }
+
+    private fun noteLoopTyping(ev: LoopEvent.Typing) {
+        if (ev.sender.isBlank()) return
+        typingBoard.note(ev.chatId, ev.sender, ev.on, loopNow())
+        publishLoopRows()
+        typingExpire?.cancel()
+        typingExpire = scope.launch {
+            delay(TYPING_SHOW_TTL_MS)
+            publishLoopRows()
+        }
+    }
+
+    fun openLoopChat(row: LoopRow) {
+        onLoopDraft("")
+        screen = Screen.LoopChat(row.id, row.title, row.group)
+        typingSend = TypingSendState()
+        loopMessages = emptyList()
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                reloadLoop(loop, row.id)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                println("velta-kmp: loop history: $t")
+            }
+        }
+    }
+
+    fun closeLoopChat() {
+        onLoopDraft("")
+        typingSend = TypingSendState()
+        screen = Screen.ChatList
+    }
+
+    fun onLoopDraft(text: String) {
+        val chat = screen as? Screen.LoopChat ?: return
+        val now = loopNow()
+        val (next, send) = typingOnKey(typingSend, text.isNotEmpty(), now)
+        typingSend = next
+        if (send != null) emitLoopTyping(chat, send)
+        typingIdle?.cancel()
+        typingIdle = null
+        if (!next.active) return
+        val wait = (next.idleDeadline - now).coerceAtLeast(0)
+        typingIdle = scope.launch {
+            delay(wait)
+            val (cleared, off) = typingOnIdle(typingSend, loopNow())
+            typingSend = cleared
+            if (off == false) emitLoopTyping(chat, false)
+        }
+    }
+
+    private fun emitLoopTyping(chat: Screen.LoopChat, on: Boolean) {
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                val peer = loopPeerOf(chat.id)
+                val gid = loopGroupOf(chat.id)
+                if (peer != null) loop.typingPeer(peer, on)
+                else if (gid != null) loop.typingGroup(gid, on)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun sendLoop(text: String, onDone: (Boolean) -> Unit) {
+        val chat = screen as? Screen.LoopChat ?: return onDone(false)
+        val loop = loopClient ?: return onDone(false)
+        if (text.isBlank() || text.length > 64 * 1024) return onDone(false)
+        onLoopDraft("")
+        scope.launch {
+            try {
+                val peer = loopPeerOf(chat.id)
+                val gid = loopGroupOf(chat.id)
+                when {
+                    peer != null -> loop.sendPeer(peer, text)
+                    gid != null -> loop.sendGroup(gid, text)
+                    else -> error("not a loop chat")
+                }
+                reloadLoop(loop, chat.id)
+                onDone(true)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString())
+                onDone(false)
+            }
+        }
+    }
+
+    fun showLoopInvite() {
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                loopInvite = loop.invite()
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString())
+            }
+        }
+    }
+
+    fun dismissLoopInvite() {
+        loopInvite = null
+    }
+
+    fun openLoopPaste() {
+        loopPasteOpen = true
+    }
+
+    fun dismissLoopPaste() {
+        loopPasteOpen = false
+    }
+
+    fun acceptLoopTicket(ticket: String) {
+        val trimmed = ticket.trim()
+        if (!trimmed.startsWith("VELTAP2P1:")) {
+            showToast(L.t("Pairing failed: {why}").replace("{why}", trimmed))
+            return
+        }
+        scope.launch {
+            try {
+                if (!loopReady) {
+                    if (!platform.loopAvailable()) {
+                        loopToast()
+                        return@launch
+                    }
+                    if (!startLoop()) {
+                        loopToast()
+                        return@launch
+                    }
+                    loopOn = true
+                    platform.setPref(LOOP_PREF, "1")
+                    if (screen == Screen.Login) screen = Screen.ChatList
+                }
+                loopClient?.accept(trimmed)
+                loopPasteOpen = false
+                loopClient?.let { reloadLoop(it, null) }
+                showToast(L.t("Paired"))
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(L.t("Pairing failed: {why}").replace("{why}", t.message ?: t.toString()))
+            }
+        }
+    }
+
+    fun pairLoopNearby(id: String) {
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                loop.pairNearby(id)
+                reloadLoop(loop, loopPeerChatId(id))
+                showToast(L.t("Paired"))
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(L.t("Pairing failed: {why}").replace("{why}", t.message ?: t.toString()))
+            }
+        }
+    }
+
+    fun answerLoopPair(accept: Boolean) {
+        val pair = loopPair ?: return
+        loopPair = null
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                loop.approve(pair.first, accept)
+                if (accept) reloadLoop(loop, loopPeerChatId(pair.first))
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString())
+            }
+        }
+    }
+
+    fun openLoopGroup() {
+        loopNewGroup = loopReady
+    }
+
+    fun dismissLoopGroup() {
+        loopNewGroup = false
+    }
+
+    fun createLoopGroup(name: String, memberIds: List<String>) {
+        if (!loopGroupNameOk(name) || !loopGroupMembersOk(memberIds.size)) return
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                loop.createGroup(name.trim(), memberIds)
+                loopNewGroup = false
+                reloadLoop(loop, null)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(t.message ?: t.toString())
+            }
+        }
     }
 
     private fun modelAccountsSummary(): String =
@@ -1443,8 +1876,7 @@ class AppModel(
             // selected id) and arm mail. A failure must not hide the local list.
             runCatching { veltaCore.selectAccount(account.id) }
                 .onFailure { println("velta-kmp: selectAccount on resume failed: $it") }
-            runCatching { veltaCore.startIoForAllAccounts() }
-                .onFailure { println("velta-kmp: startIo on resume failed: $it") }
+            startMailIoQuiet(veltaCore, account.id, "startIo on resume failed")
             // Sequential on purpose: the chat list is loaded BEFORE the screen
             // switches, so resume never flashes an empty list.
             loadChats()
@@ -1457,6 +1889,7 @@ class AppModel(
             status = "connected"
             screen = Screen.Login
         }
+        startLoopIfPref()
         pendingScan?.let { text ->
             pendingScan = null
             onQrScanned(text)
@@ -1468,6 +1901,11 @@ class AppModel(
     enum class WelcomeMode { Actions, Create, SecondDevice }
 
     var welcomeMode by mutableStateOf(WelcomeMode.Actions)
+
+    /** Add account was opened over a profile that already works. */
+    var addingAccount by mutableStateOf(false)
+        private set
+    private var addAccountReturnId: Long? = null
     var relayInput by mutableStateOf("")
     var backupInput by mutableStateOf("")
     var nicknameInput by mutableStateOf("")
@@ -1528,6 +1966,62 @@ class AppModel(
     var backupBusy by mutableStateOf(false)
         private set
 
+    /** Delete-profile dialog. Busy only disables that button. */
+    var deleteProfileOpen by mutableStateOf(false)
+        private set
+    var deleteProfileBusy by mutableStateOf(false)
+        private set
+    var deleteProfileError by mutableStateOf<String?>(null)
+        private set
+
+    /** #101. Absent is off, so mail IO stays start_io_for_all_accounts. */
+    var syncOnlyActive by mutableStateOf(platform.pref("velta-sync-only-active") == "1")
+        private set
+
+    /** Shown on only after the engine is actually up. The pref stays off until then. */
+    var loopOn by mutableStateOf(false)
+        private set
+    var loopReady by mutableStateOf(false)
+        private set
+    var loopStatus by mutableStateOf<LoopStatus?>(null)
+        private set
+    var loopRows by mutableStateOf<List<LoopRow>>(emptyList())
+        private set
+    var loopMessages by mutableStateOf<List<LoopMessage>>(emptyList())
+        private set
+    var loopTyping by mutableStateOf("")
+        private set
+    var loopInvite by mutableStateOf<String?>(null)
+        private set
+    var loopPasteOpen by mutableStateOf(false)
+        private set
+    var loopPair by mutableStateOf<Pair<String, String>?>(null)
+        private set
+    var loopNewGroup by mutableStateOf(false)
+        private set
+    private var loopClient: VeltaLoop? = null
+    private var loopStopping = false
+    private val loopPreviews = HashMap<String, String>()
+    private val typingBoard = TypingBoard()
+    private var typingSend = TypingSendState()
+    private var typingIdle: Job? = null
+    private var typingExpire: Job? = null
+    private var loopDirty = false
+    private var loopFocus: String? = null
+    private var loopRefresh: Job? = null
+    private val loopClock = TimeSource.Monotonic
+    private val loopEpoch = loopClock.markNow()
+
+    /** ponytail: one busy flag for export, delete, second-device, and welcome. Split if those must overlap. */
+    fun accountOpRunning(): Boolean =
+        backupBusy || deleteProfileBusy || secondDeviceOpen || obBusy
+
+    private fun blockAccountOp(): Boolean {
+        if (!accountOpRunning()) return false
+        showToast(L.t("Another account operation is running — try again in a moment"))
+        return true
+    }
+
     /** Stored proxy_url of the open account, and a short label. */
     var proxyUrl by mutableStateOf<String?>(null)
         private set
@@ -1582,6 +2076,38 @@ class AppModel(
         obFailed = false
     }
 
+    /** Sub-form returns to the choices. From the choices, an existing profile can leave. */
+    fun welcomeBack() {
+        if (obBusy) return
+        if (welcomeMode != WelcomeMode.Actions) welcomeShowActions()
+        else if (addingAccount) cancelAddAccount()
+    }
+
+    fun cancelAddAccount() {
+        if (obBusy || !addingAccount) return
+        val back = addAccountReturnId
+        addingAccount = false
+        addAccountReturnId = null
+        welcomeShowActions()
+        val veltaCore = core
+        val current = accountId
+        if (back != null && current != null && current != back && veltaCore != null) {
+            scope.launch {
+                try {
+                    veltaCore.selectAccount(back)
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    println("velta-kmp: select previous account failed: $t")
+                }
+                accountId = back
+                screen = Screen.ChatList
+            }
+        } else {
+            screen = Screen.ChatList
+        }
+    }
+
     /** Scanned / deep-linked code on the splash: a DCBACKUP code is a second
      * device, anything else goes through the create form (stable: the scan
      * fills the relay field and presses Create account). */
@@ -1597,12 +2123,35 @@ class AppModel(
         }
     }
 
+    /** Reuse an empty profile. A configured one gets a new account (web addAccountWithQr). */
     private suspend fun welcomeAccount(veltaCore: VeltaCore): Long {
-        val id = accountId ?: unconfiguredAccountId ?: veltaCore.addAccount()
+        val current = accountId
+        val id = when {
+            current == null -> unconfiguredAccountId ?: veltaCore.addAccount()
+            addingAccount && veltaCore.isConfigured(current) -> veltaCore.addAccount().also {
+                veltaCore.selectAccount(it)
+            }
+            else -> current
+        }
         accountId = id
         unconfiguredAccountId = null
         syncDownloadLimit(veltaCore, id)
         return id
+    }
+
+    /** A failed add must not leave the core on the stray profile (#99). */
+    private suspend fun restorePreviousAccount() {
+        val back = addAccountReturnId ?: return
+        if (accountId == back) return
+        accountId = back
+        val veltaCore = core ?: return
+        try {
+            veltaCore.selectAccount(back)
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            println("velta-kmp: select previous account failed: $t")
+        }
     }
 
     /** rpc-core _prepareFirstConfigure: claim the suppressed device labels. */
@@ -1625,7 +2174,7 @@ class AppModel(
         run: suspend (VeltaCore, Long) -> Unit,
     ) {
         val veltaCore = core ?: return
-        if (obBusy) return
+        if (blockAccountOp()) return
         obBusy = true
         obTrigger = trigger
         obFailed = false
@@ -1639,18 +2188,22 @@ class AppModel(
                 val id = welcomeAccount(veltaCore)
                 prepareFirstConfigure(veltaCore, id)
                 run(veltaCore, id)
-                runCatching { veltaCore.startIoForAllAccounts() }
+                startMailIoQuiet(veltaCore, id, "startIo after create failed")
                 accountAddr = veltaCore.accountInfo(id).addr
                 obPhases = emptyList()
                 addStep(L.t("Account created — welcome!"))
                 finishSteps(true)
+                addingAccount = false
+                addAccountReturnId = null
                 afterNickname = then
                 nicknameInput = ""
                 askNickname = true
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 obPhases = emptyList()
                 failStep(L.t("Setup failed: ") + (t.message ?: t.toString()))
                 obFailed = true
+                restorePreviousAccount()
             } finally {
                 obBusy = false
             }
@@ -1779,6 +2332,8 @@ class AppModel(
     }
 
     private suspend fun welcomeDone() {
+        addingAccount = false
+        addAccountReturnId = null
         welcomeMode = WelcomeMode.Actions
         obSteps = emptyList()
         obTrigger = null
@@ -1792,7 +2347,7 @@ class AppModel(
     /** "Add as a second device…": receive a profile from a DCBACKUP code. */
     fun welcomeReceive() {
         val veltaCore = core ?: return
-        if (obBusy) return
+        if (blockAccountOp()) return
         val code = backupInput.trim()
         if (!Onboarding.isBackupCode(code)) {
             welcomeNotice = L.t("That doesn't look like a second-device code")
@@ -1808,15 +2363,17 @@ class AppModel(
             try {
                 val id = welcomeAccount(veltaCore)
                 veltaCore.getBackup(id, code)
-                runCatching { veltaCore.startIoForAllAccounts() }
+                startMailIoQuiet(veltaCore, id, "startIo after receive failed")
                 finishSteps(true)
                 addStep(L.t("Profile received — signing in"))
                 finishSteps(true)
                 accountAddr = veltaCore.accountInfo(id).addr
                 welcomeDone()
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 failStep(L.t("Transfer failed: ") + (t.message ?: t.toString()))
                 obFailed = true
+                restorePreviousAccount()
             } finally {
                 imexKind = null
                 obBusy = false
@@ -1836,7 +2393,7 @@ class AppModel(
             return
         }
         val veltaCore = core ?: return
-        if (path == null || obBusy) return
+        if (path == null || blockAccountOp()) return
         obBusy = true
         obFailed = false
         welcomeNotice = null
@@ -1847,16 +2404,18 @@ class AppModel(
             try {
                 val id = welcomeAccount(veltaCore)
                 veltaCore.importBackup(id, path)
-                runCatching { veltaCore.startIoForAllAccounts() }
+                startMailIoQuiet(veltaCore, id, "startIo after restore failed")
                 finishSteps(true)
                 addStep(L.t("Profile restored — restarting"))
                 finishSteps(true)
                 accountAddr = veltaCore.accountInfo(id).addr
                 welcomeDone()
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 log("restore: ${t.message ?: t}")
                 failStep(L.t("Restore failed: couldn't import the backup"))
                 obFailed = true
+                restorePreviousAccount()
             } finally {
                 imexKind = null
                 obBusy = false
@@ -1881,7 +2440,7 @@ class AppModel(
                 veltaCore.addTransport(id, addr.trim(), password)
                 status = "configuring"
                 veltaCore.configure(id)
-                veltaCore.startIoForAllAccounts()
+                startMailIo(veltaCore, id)
                 accountAddr = veltaCore.accountInfo(id).addr
                 loadChats()
                 screen = Screen.ChatList
@@ -2568,16 +3127,88 @@ class AppModel(
         scope.launch { switchAccountNow(veltaCore, id) }
     }
 
+    /** Mail for this session. Sync-only starts [id]; otherwise every account. */
+    private suspend fun startMailIo(veltaCore: VeltaCore, id: Long) {
+        if (syncOnlyActive) veltaCore.startIo(id) else veltaCore.startIoForAllAccounts()
+    }
+
+    /** A failed start must not fail the caller. Cancellation still propagates. */
+    private suspend fun startMailIoQuiet(veltaCore: VeltaCore, id: Long, why: String) {
+        try {
+            startMailIo(veltaCore, id)
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            println("velta-kmp: $why: $t")
+        }
+    }
+
+    fun setSyncOnly(on: Boolean) {
+        syncOnlyActive = on
+        platform.setPref("velta-sync-only-active", if (on) "1" else "0")
+        val veltaCore = core ?: return
+        val selected = accountId
+        scope.launch {
+            try {
+                if (on) stopOtherIo(veltaCore, selected) else veltaCore.startIoForAllAccounts()
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                showToast(L.t("Couldn't apply the sync mode: ") + (t.message ?: t.toString()))
+            }
+        }
+    }
+
+    private suspend fun stopOtherIo(veltaCore: VeltaCore, selected: Long?) {
+        val ids = try {
+            veltaCore.allAccountIds()
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (_: Throwable) {
+            return
+        }
+        for (other in ids) {
+            if (other == selected) continue
+            try {
+                veltaCore.stopIo(other)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     private suspend fun switchAccountNow(veltaCore: VeltaCore, id: Long) {
+        val prev = accountId
         closeThread()
         coreReplyCounts = null
         saveOpenDraft() // stable keeps the open chat's draft per account
         // Message ids are per-account databases: forget what was marked.
         synchronized(seenSent) { seenSent.clear() }
-        try {
+        val selectedOk = try {
             veltaCore.selectAccount(id)
+            true
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
         } catch (t: Throwable) {
             println("velta-kmp: selectAccount failed: $t")
+            false
+        }
+        if (selectedOk && syncOnlyActive && prev != null && prev != id) {
+            try {
+                veltaCore.stopIo(prev)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                println("velta-kmp: stopIo on switch failed: $t")
+            }
+            try {
+                veltaCore.startIo(id)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                println("velta-kmp: startIo on switch failed: $t")
+            }
         }
         accountId = id
         revealedMedia = emptySet()
@@ -2647,9 +3278,71 @@ class AppModel(
         refreshRelayLine()
     }
 
-    /** "Add account" from the switcher → the login screen (login() reuses/creates). */
+    /** "Add account" from the switcher. The open profile stays until create succeeds. */
     fun addAccountFromSwitcher() {
+        if (blockAccountOp()) return
+        welcomeShowActions()
+        addAccountReturnId = accountId
+        addingAccount = accountId != null
         screen = Screen.Login
+    }
+
+    fun openDeleteProfile() {
+        if (deleteProfileBusy || !canDeleteProfile(accounts.size)) return
+        deleteProfileError = null
+        deleteProfileOpen = true
+    }
+
+    fun closeDeleteProfile() {
+        if (deleteProfileBusy) return
+        deleteProfileOpen = false
+        deleteProfileError = null
+    }
+
+    /**
+     * Web `deleteAccount` for the profile you are in. Suggest an export in
+     * the dialog; this does not write one.
+     */
+    fun deleteCurrentProfile(typed: String) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        if (blockAccountOp()) return
+        if (!canDeleteProfile(accounts.size)) return
+        if (!deleteAddressMatches(typed, accountAddr.orEmpty())) return
+        deleteProfileBusy = true
+        deleteProfileError = null
+        scope.launch {
+            try {
+                veltaCore.removeAccount(id)
+                val selected = try {
+                    veltaCore.selectedAccountId()
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    throw c
+                } catch (_: Throwable) {
+                    null
+                }
+                val next = profileAfterDelete(veltaCore.allAccountIds(), selected, id)
+                if (next == null) {
+                    deleteProfileError = L.t("This is the last remaining profile — it cannot be deleted here.")
+                    return@launch
+                }
+                val row = accounts.firstOrNull { it.id == next }
+                val named = row?.displayName?.takeIf { it.isNotBlank() }
+                    ?: row?.addr?.takeIf { it.isNotBlank() }
+                accounts = accounts.filter { it.id != id }
+                deleteProfileOpen = false
+                switchAccountNow(veltaCore, next)
+                startMailIoQuiet(veltaCore, next, "startIo after delete failed")
+                val name = named ?: accountAddr?.takeIf { it.isNotBlank() } ?: L.t("this profile")
+                showToast(L.t("Profile deleted — switched to {name}").replace("{name}", name))
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                deleteProfileError = L.t("Delete failed: ") + (t.message ?: t.toString())
+            } finally {
+                deleteProfileBusy = false
+            }
+        }
     }
 
     // ---- Battery allowance (P4) — injected by the Android entry point ----
@@ -2815,7 +3508,8 @@ class AppModel(
         return try {
             ensureConnected()
             val veltaCore = core ?: return false
-            veltaCore.startIoForAllAccounts()
+            val mailId = accountId
+            if (mailId != null) startMailIo(veltaCore, mailId) else veltaCore.startIoForAllAccounts()
             veltaCore.backgroundFetch(BackgroundPolicy.FETCH_SECS)
             println("velta-kmp: $reason fetch done")
             true
@@ -4105,7 +4799,7 @@ class AppModel(
     fun startSecondDevice() {
         val veltaCore = core ?: return
         val id = accountId ?: return
-        if (secondDeviceOpen) return
+        if (blockAccountOp()) return
         val gen = ++transferGen
         secondDeviceOpen = true
         secondDeviceQr = null
@@ -4153,7 +4847,7 @@ class AppModel(
         val veltaCore = core ?: return
         val id = accountId ?: return
         val dir = backupExportDir?.invoke() ?: return
-        if (backupBusy || secondDeviceOpen) return
+        if (blockAccountOp()) return
         backupBusy = true
         imexKind = "export"
         transferPercent = null
@@ -4190,7 +4884,7 @@ class AppModel(
 
     /** Relay card: confirm, then a new profile. Does not reuse the open account. */
     fun askRelayAccount(host: String, token: String) {
-        if (obBusy) return
+        if (blockAccountOp()) return
         chatConfirm = PendingConfirm(relayAccountConfirm(host)) {
             startRelayAccount(Onboarding.RelayInvite(host, token))
         }
@@ -4199,7 +4893,7 @@ class AppModel(
     private fun startRelayAccount(invite: Onboarding.RelayInvite) {
         val veltaCore = core ?: return
         val previous = accountId
-        if (obBusy) return
+        if (blockAccountOp()) return
         obBusy = true
         scope.launch {
             var created: Long? = null
@@ -4210,7 +4904,7 @@ class AppModel(
                 prepareFirstConfigure(veltaCore, id)
                 veltaCore.addTransport(id, creds.email, creds.password)
                 parkedClaim = null
-                runCatching { veltaCore.startIoForAllAccounts() }
+                startMailIoQuiet(veltaCore, id, "startIo after relay account failed")
                 switchAccountNow(veltaCore, id)
                 showToast(L.t("Account created on {host}").replace("{host}", invite.host))
             } catch (t: Throwable) {

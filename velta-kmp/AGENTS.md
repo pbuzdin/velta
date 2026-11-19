@@ -306,8 +306,8 @@ never run Gradle on the Windows side.
   (single-pick), new group (multi-pick + name dialog + Admin group switch
   → create_group_chat / create_group_with_admin + add_contact_to_chat),
   new channel (create_broadcast), join invite / add relay / add account →
-  Join screen. The P2P-only "New local group" never shows — KMP has no
-  P2P flag). Row previews ride `listPreview` and for media types pass
+  Join screen. "New local group (no relay)" shows when Velta Loop is on
+  and the engine is up). Row previews ride `listPreview` and for media types pass
   `summaryText2` through UNCHANGED — the core's summary already embeds
   the type emoji (`summary.rs get_summary_text_ext`, add_type_emoji:
   "📷 help", "🎥 Video", "📎 file – text"; re-prefixing showed one
@@ -519,6 +519,9 @@ never run Gradle on the Windows side.
   second device" runs `provide_backup` and `get_backup_qr` together
   (cancel = `stop_ongoing_process`); Export backup writes a tar into
   the platform cache dir and hands the newest file to `saveFile`.
+  Delete profile asks you to type the address, refuses the last profile, then `remove_account`, select, and mail IO for the mode; the export row is only a tip (`ui/DeleteProfileRules.kt`).
+  Add account opens the welcome splash over the profile you are in: Cancel returns to it, and a configured profile is not reused (`add_account`, then select the previous one back if setup fails).
+  Sync only the active profile is the pref `velta-sync-only-active` (absent is off). On means `start_io` for the selected account and `stop_io` for the others, including on switch and after delete; off is `start_io_for_all_accounts`. Export, delete, second-device, and welcome share one busy guard.
   Welcome already receives and restores. SOCKS5 is a pasted
   `velta://proxy` link (`ui/ProxyRules.kt` = `app/js/proxy.js` plus
   `proxy_store.rs` `url_of`): `set_config` `proxy_url` /
@@ -559,8 +562,8 @@ never run Gradle on the Windows side.
   `velta-stickers-in-attach` is on only when `"1"` (off stores `"0"`).
   Off: sticker button inside the empty composer. On: Stickers is an
   Attach row and the button is gone. Either way the button is gone
-  while the field has text. P2P groups offer neither; this client has
-  no P2P groups yet. Per-message language is
+  while the field has text. Mail chats still pass `p2pGroup = false`.
+  The Loop composer is text only (no stickers, no voice). Per-message language is
   Cyrillic vs Latin (`detectTextLang`); a tie or no letters follows the
   UI language, and French hyphenates as English. Font size and hyphens
   apply to the bubble body only. Rules: `ui/ChatAppearance.kt`.
@@ -608,9 +611,9 @@ never run Gradle on the Windows side.
   `get_account_info` kind `"Configured"` / `"Unconfigured"` (no `isConfigured`
   on the wire; that field is fixture-only). The core's selected account
   persists across restarts. Resume of a configured account calls
-  `select_account` and `start_io_for_all_accounts`, same as the web client's
-  init. An unconfigured-only account stays on Login and does not select or
-  start IO. `get_all_accounts` returns every Account in one call;
+  `select_account` and then mail IO (`start_io_for_all_accounts`, or
+  `start_io` when `velta-sync-only-active` is `"1"`). An unconfigured-only
+  account stays on Login and does not select or start IO. `get_all_accounts` returns every Account in one call;
   `add_account` auto-selects the new account.
 - `RpcClient.call` bounds ordinary RPCs at 30s by default
   (`RpcException(method, code -2)` names the METHOD, not `id=N`);
@@ -637,7 +640,10 @@ never run Gradle on the Windows side.
   once after 2 s. `RpcShim.startCoreOnce` reuses the running session:
   each JNI `startCore` would spawn a second core on the same accounts dir.
   The client talks through `JniRpcTransport` (`sendLine` /
-  `onNativeLine`). There is no listening port and no auth token (#357) —
+  `onNativeLine`). Velta Loop is a second JNI channel on the same shim
+  (`startLoop` / `sendLoopLine` / `onLoopLine`); it binds only when
+  `velta-p2p` is `"1"`. Desktop `loopAvailable()` is false, so the
+  switch does not turn on there. There is no listening port and no auth token (#357) —
   a second process has no socket to open. Pinned by the shim's
   `cargo test` (`session_answers_get_system_info_without_a_socket`,
   `send_line_without_a_session_fails`). Unexpected exit calls

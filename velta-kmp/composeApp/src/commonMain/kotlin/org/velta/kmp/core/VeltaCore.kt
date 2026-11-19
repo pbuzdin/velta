@@ -216,6 +216,11 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         client.call("select_account", RpcClient.params(RpcClient.param(id)))
     }
 
+    /** Permanently removes this profile (account, keys, database, blobs). */
+    suspend fun removeAccount(id: Long) {
+        client.call("remove_account", RpcClient.params(RpcClient.param(id)))
+    }
+
     /**
      * All configured transports (relays) with their metadata merged in.
      * `list_transports` already orders the sending transport first (quilt #11).
@@ -406,6 +411,14 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
 
     suspend fun startIoForAllAccounts() {
         client.call("start_io_for_all_accounts")
+    }
+
+    suspend fun startIo(accountId: Long) {
+        client.call("start_io", RpcClient.params(RpcClient.param(accountId)))
+    }
+
+    suspend fun stopIo(accountId: Long) {
+        client.call("stop_io", RpcClient.params(RpcClient.param(accountId)))
     }
 
     /** Rough relay status for the chat-list strip. 1000 down, 2000 connecting, 4000 connected. */

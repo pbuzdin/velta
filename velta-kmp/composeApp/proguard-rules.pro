@@ -6,6 +6,8 @@
 -keepclassmembers class org.velta.kmp.core.RpcShim {
     public static void onNativeLine(java.lang.String);
     public static void onNativeExit();
+    public static void onLoopLine(java.lang.String);
+    public static void onLoopExit();
 }
 
 # kotlinx.serialization (R8 full mode): keep serializers for the wire models.

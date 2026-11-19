@@ -8,6 +8,7 @@ import org.velta.kmp.ui.APP_ICON_PREF
 import org.velta.kmp.ui.launcherAliasState
 import org.velta.kmp.ui.notificationIconName
 import org.velta.kmp.core.CorePlatform
+import org.velta.kmp.core.JniLoopTransport
 import org.velta.kmp.core.JniRpcTransport
 import org.velta.kmp.core.RpcShim
 import org.velta.kmp.core.RpcTransport
@@ -57,6 +58,28 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
 
     override fun stopRpcServer() {
         if (RpcShim.available) RpcShim.stopCoreOnce()
+    }
+
+    override fun loopAvailable(): Boolean = RpcShim.available && RpcShim.loopLinked()
+
+    override fun openLoop(accountsDir: String): RpcTransport? {
+        if (!loopAvailable()) return null
+        return try {
+            val code = RpcShim.startLoopOnce(accountsDir)
+            if (code <= 0) null else JniLoopTransport()
+        } catch (t: Throwable) {
+            println("velta-kmp: loop start threw: $t")
+            null
+        }
+    }
+
+    override fun closeLoop() {
+        if (!RpcShim.available) return
+        try {
+            RpcShim.stopLoopOnce()
+        } catch (t: Throwable) {
+            println("velta-kmp: loop stop threw: $t")
+        }
     }
 
     override fun isAppLocked(): Boolean {
