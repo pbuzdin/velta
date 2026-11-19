@@ -458,7 +458,9 @@ never run Gradle on the Windows side.
   name (max 64), description. Save = `set_config` displayname →
   selfavatar → selfstatus (only when changed), blanks as null; errors stay
   in the dialog. Settings and Profile host a ToastHost now.
-  Rules: `ui/ProfileEditRules.kt`.
+  Storage sums attachment bytes from `get_message_ids` in pages of 500.
+  Chats in common (1:1 only) loads on open, ids only.
+  Rules: `ui/ProfileEditRules.kt`, `ui/ProfileInfoRules.kt`.
 - **Auto-download limit + Text-only mode** (#358 D, stable drawer radios,
   savedDownloadLimit, text-only-mode.js, `_hiddenCard`): Settings radios.
   The limit is a device pref (`velta-download-limit`, 640 KB migrates to

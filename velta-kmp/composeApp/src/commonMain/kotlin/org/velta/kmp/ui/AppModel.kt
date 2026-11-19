@@ -644,6 +644,43 @@ class AppModel(
     var profileLoading by mutableStateOf(false)
         private set
 
+    /** Storage row. "…" while paging, "—" on failure, else formatStorageBytes. */
+    var storageText by mutableStateOf("…")
+        private set
+
+    /** Chats in common. Null until the row is opened. Count is "" until then. */
+    var commonChats by mutableStateOf<List<ChatListItem>?>(null)
+        private set
+    var commonCount by mutableStateOf("")
+        private set
+
+    private val profileGate = Any()
+    private var profileEpoch = 0
+    private var commonStarted = false
+
+    /** New profile: drop the previous walk so it cannot publish a stale size. */
+    private fun beginProfile(): Int = synchronized(profileGate) {
+        profileEpoch += 1
+        storageText = "…"
+        commonChats = null
+        commonCount = ""
+        commonStarted = false
+        profileEpoch
+    }
+
+    /** Sheet closed or account switched: stop paging. */
+    private fun endProfileWalk() {
+        synchronized(profileGate) { profileEpoch += 1 }
+    }
+
+    private fun profileLive(epoch: Int) = profileEpoch == epoch
+
+    private fun publishStorage(epoch: Int, text: String) {
+        synchronized(profileGate) {
+            if (profileEpoch == epoch) storageText = text
+        }
+    }
+
     // ---- Relay management (P4) ----
     var relays by mutableStateOf<List<org.velta.kmp.core.RelayCard>>(emptyList())
     var relaysLoading by mutableStateOf(false)
@@ -901,6 +938,7 @@ class AppModel(
             pendingAttachment = null
             resetChatActions()
             profile = null
+            endProfileWalk()
             screen = Screen.ChatList
             locked = true
             status = "locked"
@@ -1927,16 +1965,89 @@ class AppModel(
     // ---- Profile (contact sheet) ----
 
     fun openProfile(chatId: Long, title: String) {
+        val epoch = beginProfile()
         screen = Screen.Profile(chatId, title)
         profile = null
         loadChatMembers(chatId)
         scope.launch { loadProfile(chatId) }
+        sumStorage(chatId, epoch)
     }
 
     fun backFromProfile() {
+        endProfileWalk()
         closeEphemeralDialog()
         val p = profile
         if (p != null) screen = Screen.Chat(p.chatId, p.chatName, false) else screen = Screen.ChatList
+    }
+
+    /** Sum attachment bytes. One id list, then pages of [STORAGE_PAGE]. */
+    private fun sumStorage(chatId: Long, epoch: Int) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                if (!profileLive(epoch)) return@launch
+                val ids = veltaCore.messageIds(id, chatId)
+                var total = 0L
+                for (chunk in ids.chunked(STORAGE_PAGE)) {
+                    if (!profileLive(epoch)) return@launch
+                    total += veltaCore.messages(id, chunk).sumOf { it.fileBytes ?: 0L }
+                    publishStorage(epoch, formatStorageBytes(total) + "…")
+                }
+                publishStorage(epoch, formatStorageBytes(total))
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                println("velta-kmp: storage $chatId failed: $t")
+                publishStorage(epoch, "—")
+            }
+        }
+    }
+
+    /** First open of the row only (#171). Ids via get_chat_contacts, never members. */
+    fun loadChatsInCommon() {
+        val p = profile ?: return
+        val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+        val want = p.contactId
+        if (!showsChatsInCommon(kind, want) || want == null) return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val epoch: Int
+        synchronized(profileGate) {
+            if (commonStarted) return
+            commonStarted = true
+            commonCount = "…"
+            epoch = profileEpoch
+        }
+        scope.launch {
+            val found = ArrayList<ChatListItem>()
+            try {
+                for (c in commonCandidates(chats)) {
+                    if (!profileLive(epoch)) return@launch
+                    val ids = try {
+                        veltaCore.chatContactIds(id, c.id)
+                    } catch (t: kotlinx.coroutines.CancellationException) {
+                        throw t
+                    } catch (_: Throwable) {
+                        continue
+                    }
+                    if (!profileLive(epoch)) return@launch
+                    if (want in ids) found += c
+                }
+                synchronized(profileGate) {
+                    if (profileEpoch != epoch) return@synchronized
+                    commonChats = found
+                    commonCount = "(${found.size})"
+                }
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                println("velta-kmp: chats in common failed: $t")
+                synchronized(profileGate) {
+                    if (profileEpoch == epoch) commonCount = "—"
+                }
+            }
+        }
     }
 
     /** Disappearing-messages editor (stable openEphemeralDialog): the
@@ -2162,6 +2273,7 @@ class AppModel(
             chatConfirm = PendingConfirm(contactRequestConfirm(item.name)) { acceptContactRequest(item) }
             return
         }
+        endProfileWalk()
         stopAudio()
         stopVoice(send = false)
         closeChatSearch()
@@ -2508,6 +2620,7 @@ class AppModel(
         senderNames = emptyMap()
         stickerPacks = emptyMap()
         profile = null
+        endProfileWalk()
         inviteLink = null
         inviteError = null
         inviteName = ""

@@ -4146,6 +4146,7 @@ private fun profileRows(model: AppModel, p: AppModel.ProfileData) {
         add(L.t("Notifications") to if (p.muted) L.t("Off") else L.t("On"))
         // Stable showChatInfo: groups and 1:1 chats only; admin-only in admin groups.
         if (showsEphemeralRow(kind)) add(ephKey to ephemeralTimerLabel(p.ephemeralSecs))
+        add(L.t("Storage") to model.storageText)
     }
     val canSetTimer = canSetEphemeral(kind, p.groupAdminId)
     rows.forEach { (k, v) ->
@@ -4176,6 +4177,54 @@ private fun profileRows(model: AppModel, p: AppModel.ProfileData) {
                 v,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(0.6f),
+            )
+        }
+        HorizontalDivider()
+    }
+    ChatsInCommonBlock(model, p)
+}
+
+/** Collapsed until tapped. The first open is the only walk (#171). */
+@Composable
+private fun ChatsInCommonBlock(model: AppModel, p: AppModel.ProfileData) {
+    val kind = stableChatKind(p.isSelfTalk, p.isDeviceTalk, false, p.chatType)
+    if (!showsChatsInCommon(kind, p.contactId)) return
+    var open by remember(p.chatId) { mutableStateOf(false) }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable {
+                open = !open
+                if (open) model.loadChatsInCommon()
+            }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            L.t("Chats in common"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(0.4f),
+        )
+        Text(
+            model.commonCount,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(0.6f),
+        )
+    }
+    HorizontalDivider()
+    if (!open) return
+    model.commonChats.orEmpty().forEach { c ->
+        Row(
+            Modifier.fillMaxWidth().clickable { model.openChat(c) }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                c.name,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         HorizontalDivider()

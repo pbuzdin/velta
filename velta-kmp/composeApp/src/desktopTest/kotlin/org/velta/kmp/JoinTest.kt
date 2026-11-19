@@ -60,7 +60,7 @@ class JoinTest {
             model.joinText = "DCACCOUNT:https://relay.example/i/tok"
             model.checkJoin()
             withTimeout(10_000) {
-                while (model.joinChecked == null) yield()
+                while (model.joinChecked == null || model.joinBusy) yield()
             }
             assertEquals("account", model.joinChecked?.kind)
 
@@ -127,7 +127,7 @@ class JoinTest {
             model.joinText = "DCACCOUNT:https://relay.example/i/tok"
             model.checkJoin()
             withTimeout(10_000) {
-                while (model.joinChecked == null) yield()
+                while (model.joinChecked == null || model.joinBusy) yield()
             }
             model.join()
             withTimeout(10_000) {
@@ -181,7 +181,7 @@ class JoinTest {
             model.joinText = "DCACCOUNT:https://relay.example/i/tok"
             model.checkJoin()
             withTimeout(10_000) {
-                while (model.joinChecked == null) yield()
+                while (model.joinChecked == null || model.joinBusy) yield()
             }
             model.join()
             withTimeout(10_000) {
@@ -225,7 +225,7 @@ class JoinTest {
             model.joinText = "DCJOIN:example/0000aaaa"
             model.checkJoin()
             withTimeout(10_000) {
-                while (model.joinChecked == null) yield()
+                while (model.joinChecked == null || model.joinBusy) yield()
             }
             assertEquals("askVerifyGroup", model.joinChecked?.kind)
             assertEquals("Test Group", model.joinChecked?.grpname)
@@ -275,7 +275,7 @@ class JoinTest {
             model.joinText = "DCJOIN:example/0000aaaa"
             model.checkJoin()
             withTimeout(10_000) {
-                while (model.joinChecked == null) yield()
+                while (model.joinChecked == null || model.joinBusy) yield()
             }
             model.join()
             withTimeout(10_000) {

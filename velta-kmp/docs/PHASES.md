@@ -74,8 +74,7 @@ Groups and channels share that editor for the name, picture, and description (`s
 
 **P4 leftovers (small):**
 1. Desktop webxdc (Android runs apps in a WebView; the Tauri sandbox is not in this client).
-2. Storage and Chats-in-common profile rows.
-3. In-app brand mark extras, if any — the default launcher is the official
+2. In-app brand mark extras, if any — the default launcher is the official
    V on `#0A1A2E` with a near-white ice short stroke; the #382 K-badge icon
    and Classic KMP remain App icon picker choices. The header already uses
    `v_logo.png`.

@@ -47,6 +47,9 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
             "is_sending_finished" to "true",
             // Group and channel profiles read this on open.
             "get_chat_description" to "\"\"",
+            // Profile storage asks on open. An empty list returns; a missing
+            // answer hangs the coroutine until the 30 s timeout.
+            "get_message_ids" to "[]",
         )
     }
 
