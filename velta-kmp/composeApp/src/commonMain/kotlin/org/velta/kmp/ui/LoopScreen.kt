@@ -4,13 +4,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -20,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -32,52 +37,69 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * Drawer row that turns Velta Loop on or off. Kept here (not moved to a
+ * dedicated screen) because the chat list only shows Loop once it is on —
+ * the drawer is the place to enable it. Other drawer rows are destinations,
+ * so this is a menu row with the same padding, outline icon and title size,
+ * plus a trailing Switch rather than a checkbox.
+ */
 @Composable
 fun LoopSettingsRow(model: AppModel) {
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable { model.setLoop(!model.loopOn) }
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(L.t("Velta Loop"))
-                Text(
-                    L.t("Local chat on the same network"),
-                    fontSize = 12.sp,
-                    color = Velta.tokens.textDim,
-                )
-            }
-            Checkbox(checked = model.loopOn, onCheckedChange = { model.setLoop(it) })
-        }
+        LoopToggleRow(
+            icon = VeltaIcons.wifi,
+            title = L.t("Velta Loop"),
+            subtitle = L.t("Local chat on the same network"),
+            checked = model.loopOn,
+            onCheckedChange = { model.setLoop(it) },
+        )
         if (model.loopOn) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { model.setLoopTyping(!model.loopTypingOn) }
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(L.t("Typing indicator"))
-                    Text(
-                        L.t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."),
-                        fontSize = 12.sp,
-                        color = Velta.tokens.textDim,
-                    )
-                }
-                Checkbox(checked = model.loopTypingOn, onCheckedChange = { model.setLoopTyping(it) })
-            }
+            LoopToggleRow(
+                icon = VeltaIcons.typing,
+                title = L.t("Typing indicator"),
+                subtitle = L.t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."),
+                checked = model.loopTypingOn,
+                onCheckedChange = { model.setLoopTyping(it) },
+            )
         }
+    }
+}
+
+@Composable
+private fun LoopToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = Velta.tokens.textDim)
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Velta.tokens.text, fontSize = 15.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, fontSize = 12.sp, color = Velta.tokens.textDim)
+        }
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
