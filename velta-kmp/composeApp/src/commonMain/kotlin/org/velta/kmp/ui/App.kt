@@ -224,6 +224,7 @@ fun App(model: AppModel) {
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
                     is AppModel.Screen.Webxdc -> WebxdcScreen(model, current)
+                    is AppModel.Screen.Html -> HtmlScreen(model, current)
                     is AppModel.Screen.LoopChat -> LoopChatScreen(model, current)
                 }
             }
@@ -5422,6 +5423,17 @@ private fun MessageBubble(
                                 model,
                             ) { model.askSocksProxy(s.link) }
                         }
+                    }
+                    if (message.hasHtml) {
+                        Text(
+                            L.t("Show Full Message…"),
+                            color = if (outgoing) quoteName else tokens.accent,
+                            fontSize = model.msgFont.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .clickable(enabled = !selectionMode) { model.showFullMessage(message) },
+                        )
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

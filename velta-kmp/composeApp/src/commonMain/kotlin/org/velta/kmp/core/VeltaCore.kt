@@ -436,6 +436,17 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         (client.call("get_connectivity_html", RpcClient.params(RpcClient.param(accountId)))
             as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
 
+    /** Original HTML body (rpc-core getMessageHtml). Empty when the core has none.
+     *  JsonNull is a JsonPrimitive whose content throws — same guard as getConfig. */
+    suspend fun getMessageHtml(accountId: Long, msgId: Long): String {
+        val el = client.call(
+            "get_message_html",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(msgId)),
+        )
+        val p = el as? JsonPrimitive ?: return ""
+        return if (p.isString) p.content else ""
+    }
+
     /** Sticker packs (misc_get_stickers): pack name → sticker file paths. */
     suspend fun getStickers(accountId: Long): Map<String, List<String>> {
         val result = client.call("misc_get_stickers", RpcClient.params(RpcClient.param(accountId)))

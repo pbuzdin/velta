@@ -540,6 +540,11 @@ never run Gradle on the Windows side.
   `https://xdc.local/<msgId>/` and `window.webxdc` is injected
   (`WebxdcScreen.android.kt`). Desktop says apps run in the web app.
   This is not the Tauri `webxdc_begin` / `webxdc_end` sandbox.
+  Full HTML (`hasHtml` → `get_message_html`, and `.html` files) is a
+  different WebView: JavaScript off, no bridge, network and file access
+  off, origin `https://html-view.invalid/`. CSP blocks remote images.
+  A tapped http(s) link leaves through `openHttp`. Desktop shows a
+  notice and does not open the file.
 - One GraphicsLayer records the scrolling content. Header and composer are
   overlay siblings that sample it. `rememberGraphicsLayer` lives in
   `androidx.compose.ui.graphics` (CMP 1.9), not the `layer` package.

@@ -62,6 +62,8 @@ class AppModel(
         data class Profile(val chatId: Long, val title: String) : Screen
         /** A running webxdc app (P3a runtime): WebView hosts the archive. */
         data class Webxdc(val msgId: Long, val title: String) : Screen
+        /** Original HTML mail, or an HTML file. [path] is read by the Android viewer. */
+        data class Html(val title: String, val html: String, val path: String?, val back: Chat?) : Screen
         /** A Velta Loop chat. [id] is `p2p:` or `p2pg:`, never a core chat id. */
         data class LoopChat(val id: String, val title: String, val isGroup: Boolean) : Screen
     }
@@ -4301,6 +4303,35 @@ class AppModel(
         open()
     }
 
+    /** "Show Full Message…": original body, only when the core kept one. */
+    fun showFullMessage(message: MessageObject) {
+        if (!message.hasHtml) return
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        val back = screen as? Screen.Chat
+        scope.launch {
+            val html = try {
+                veltaCore.getMessageHtml(id, message.id)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Throwable) {
+                ""
+            }
+            if (accountId != id) return@launch
+            if (back != null && screen != back) return@launch
+            if (html.isBlank()) {
+                showToast(L.t("The full version isn't available for this message"))
+                return@launch
+            }
+            screen = Screen.Html(L.t("Full message"), html, null, back)
+        }
+    }
+
+    fun closeHtml() {
+        val html = screen as? Screen.Html ?: return
+        screen = html.back ?: Screen.ChatList
+    }
+
     /** File / video tap: stable _openFile → openAttachmentFile. */
     fun openMessageFile(message: MessageObject) {
         val veltaCore = core ?: return
@@ -4312,12 +4343,15 @@ class AppModel(
                 val name = attachmentName(msg.fileName, path)
                 when (documentOpenPlan(path, name, mediaInLightbox)) {
                     OpenPlan.Lightbox -> lightbox = Lightbox(path, msg.fileName?.ifBlank { null } ?: "image")
-                    // No sandboxed in-app viewer: HTML goes out as plain text
-                    // so no browser runs the untrusted page (stable: iframe).
-                    OpenPlan.Html, OpenPlan.Native -> {
+                    OpenPlan.Html -> screen = Screen.Html(
+                        title = name.ifBlank { L.t("HTML preview") },
+                        html = "",
+                        path = path,
+                        back = screen as? Screen.Chat,
+                    )
+                    OpenPlan.Native -> {
                         val open = openFile ?: return@launch
-                        val mime = if (documentOpenPlan(path, name, mediaInLightbox) == OpenPlan.Html) "text/plain" else msg.fileMime
-                        when (val err = open(path, name, mime)) {
+                        when (val err = open(path, name, msg.fileMime)) {
                             null -> {}
                             "no-app" -> if (accountId == id) {
                                 showToast(L.t("No app can open this file"), 6000, L.t("Save as…") to { downloadAttachment(msg) })
