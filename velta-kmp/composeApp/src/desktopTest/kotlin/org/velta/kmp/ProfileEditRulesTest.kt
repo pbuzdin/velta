@@ -182,7 +182,7 @@ class ProfileEditRulesTest {
             assertNull(m.pendingAttachment, "the picture is not an attachment")
             m.saveProfileEditor()
             until { m.profileEditor == null }
-            val sets = t.requests.filter { "\"set_config\"" in it && "download_limit" !in it }
+            val sets = t.requests.filter { "\"set_config\"" in it && "download_limit" !in it && "media_quality" !in it && "mdns_enabled" !in it }
             assertTrue(sets[0].contains("""[1,"displayname","Ann B"]"""), sets[0])
             assertTrue(sets[1].contains("""[1,"selfavatar","/tmp/pick.jpg"]"""), sets[1])
             assertTrue(sets[2].contains("""[1,"selfstatus","new bio"]"""), sets[2])

@@ -28,6 +28,14 @@ enum class VeltaThemeMode { System, Dark, Light, Brutal, Amoled }
  * AMOLED is a separate flag, not a choice — see [veltaEffectiveMode]. */
 enum class VeltaThemeChoice { Auto, Dark, Light, Brutal }
 
+/** THEME_LABELS (ui.js:1137) — the state word in "Theme: Dark". */
+fun themeLabel(c: VeltaThemeChoice): String = when (c) {
+    VeltaThemeChoice.Auto -> "Auto"
+    VeltaThemeChoice.Dark -> "Dark"
+    VeltaThemeChoice.Light -> "Light"
+    VeltaThemeChoice.Brutal -> "Brutal"
+}
+
 fun veltaTokensFor(mode: VeltaThemeMode, systemDark: Boolean): VeltaTokens = when (mode) {
     VeltaThemeMode.System -> if (systemDark) VeltaTokenSets.Dark else VeltaTokenSets.Light
     VeltaThemeMode.Dark -> VeltaTokenSets.Dark

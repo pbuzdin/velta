@@ -29,6 +29,13 @@ enum class AppIconChoice {
     }
 }
 
+/** The settings label; the state word in "App icon: K badge". */
+internal fun appIconLabel(c: AppIconChoice): String = when (c) {
+    AppIconChoice.Default -> "Default"
+    AppIconChoice.Badge -> "K badge"
+    AppIconChoice.Classic -> "Classic KMP"
+}
+
 const val LAUNCHER_ALIAS_DEFAULT = "org.velta.kmp.MainActivityDefault"
 const val LAUNCHER_ALIAS_BADGE = "org.velta.kmp.MainActivityBadge"
 const val LAUNCHER_ALIAS_CLASSIC = "org.velta.kmp.MainActivityClassic"

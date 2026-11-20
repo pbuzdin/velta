@@ -98,7 +98,7 @@ android {
         // downgrades. Every build is a strict upgrade, which vivo's Super
         // Care gate expects from an unknown source. Int-safe until ~5960.
         versionCode = (System.currentTimeMillis() / 60_000L).toInt()
-        versionName = "0.9.0"
+        versionName = "0.9.1"
         buildConfigField("String", "VAPID_KEY", quoted(veltaVapidKey))
     }
 

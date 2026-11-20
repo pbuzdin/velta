@@ -169,7 +169,7 @@ internal fun MessageSheetHost(model: AppModel) {
     val (tiles, danger) = messageSheetRows(items)
     val chips = reactionChips(m.reactions)
     val canReact = !held
-    val strip = model.stripTrackers
+    val strip = model.stripTrackersOn
     val href = if (isHttpLink(target.linkHref)) (if (strip) stripTrackingUrl(target.linkHref) else target.linkHref) else ""
     val links = remember(m.id, m.text, target.linkHref) {
         if (held) emptyList() else sheetLinks(messageLinks(m.text), target.linkHref, strip)

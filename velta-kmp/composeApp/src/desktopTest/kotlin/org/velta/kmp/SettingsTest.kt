@@ -179,4 +179,40 @@ class SettingsTest {
             L.lang = "en"
         }
     }
+
+    @Test
+    fun drawerTogglePrefsPersistWithStableConventions() {
+        val platform = MemPrefsPlatform()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val model = AppModel(platform, scope)
+        try {
+            // Absent keys = defaults: Standard quality, toggles on.
+            assertEquals("0", model.mediaQuality)
+            assertEquals(true, model.readReceipts)
+            assertEquals(true, model.stripTrackersOn)
+            // Stable storage: mdns stores "1"/"0"; strip-trackers and the
+            // default remove the key; media quality stores both values.
+            model.onSetReadReceipts(false)
+            model.onSetStripTrackers(false)
+            model.onSetMediaQuality("1")
+            assertEquals("0", platform.store["velta-mdns"])
+            assertEquals("0", platform.store["velta-strip-trackers"])
+            assertEquals("1", platform.store["velta-media-quality"])
+            // A NEW model resumes every setting (web localStorage semantics).
+            val model2 = AppModel(platform, scope)
+            assertEquals("1", model2.mediaQuality)
+            assertEquals(false, model2.readReceipts)
+            assertEquals(false, model2.stripTrackersOn)
+            // Back on: mdns stores "1", strip-trackers removes the key.
+            model2.onSetReadReceipts(true)
+            model2.onSetStripTrackers(true)
+            assertEquals("1", platform.store["velta-mdns"])
+            assertNull(platform.store["velta-strip-trackers"])
+            // Junk values are a no-op.
+            model2.onSetMediaQuality("9")
+            assertEquals("1", model2.mediaQuality)
+        } finally {
+            scope.cancel()
+        }
+    }
 }

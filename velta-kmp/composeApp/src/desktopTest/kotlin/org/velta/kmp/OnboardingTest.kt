@@ -112,7 +112,7 @@ class OnboardingTest {
         model.nicknameInput = "Pavel"
         model.finishNickname(true)
         withTimeout(10_000) { while (model.screen != AppModel.Screen.ChatList) yield() }
-        assertEquals(listOf("[1,\"displayname\",\"Pavel\"]"), t.calls("set_config").filterNot { "download_limit" in it })
+        assertEquals(listOf("[1,\"displayname\",\"Pavel\"]"), t.calls("set_config").filterNot { "download_limit" in it || "media_quality" in it || "mdns_enabled" in it })
         assertEquals("Account created on chat.example", model.createdNotice)
     }
 
@@ -126,7 +126,7 @@ class OnboardingTest {
         assertEquals("Attempting to connect to relay at nine.testrun.org", model.obSteps.first().text)
         model.finishNickname(false)
         withTimeout(10_000) { while (model.screen != AppModel.Screen.ChatList) yield() }
-        assertTrue(t.calls("set_config").filterNot { "download_limit" in it }.isEmpty(), "Skip sets no name")
+        assertTrue(t.calls("set_config").filterNot { "download_limit" in it || "media_quality" in it || "mdns_enabled" in it }.isEmpty(), "Skip sets no name")
     }
 
     @Test
