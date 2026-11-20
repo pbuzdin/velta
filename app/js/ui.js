@@ -1391,8 +1391,8 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         <div class="drawer-links">
           <button type="button" data-act="edit-profile">${t("Edit profile")}</button>
           <details class="acct-switch" data-acct-switch>
-            <summary data-act="switch-account">Accounts${ICON.chevronDown}</summary>
-            <div class="acct-pop" role="group" aria-label="Accounts" data-i18n-aria="Accounts">
+            <summary data-act="switch-account">Profiles${ICON.chevronDown}</summary>
+            <div class="acct-pop" role="group" aria-label="Profiles" data-i18n-aria="Profiles">
             ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"${a.id === currentAccountId ? ' aria-current="true"' : ""}>${svg(P.profile + (a.id === currentAccountId ? P.checkInner : ""))}<span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
             <div class="ctx-sep"></div>
             <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
@@ -1541,7 +1541,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     </div>`;
   translateTree(drawer);
   const acctLabel = drawer.querySelector("[data-act=switch-account]");
-  if (acctLabel?.firstChild?.nodeType === 3) acctLabel.firstChild.nodeValue = t("Accounts");
+  if (acctLabel?.firstChild?.nodeType === 3) acctLabel.firstChild.nodeValue = t("Profiles");
   document.body.appendChild(drawer);
   // #140: Android push section fills itself on open (push-settings.js).
   const pushSec = drawer.querySelector("[data-push-section]");

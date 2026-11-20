@@ -308,7 +308,7 @@ private fun AccountsScreen(model: AppModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(L.t("Accounts")) },
+                title = { Text(L.t("Profiles")) },
                 navigationIcon = {
                     TextButton(onClick = { model.backFromAccounts() }) { Icon(VeltaIcons.chevronLeft, contentDescription = L.t("Back"), modifier = Modifier.size(26.dp), tint = Velta.tokens.textDim) }
                 },
@@ -2145,7 +2145,7 @@ private fun AppMenu(model: AppModel, onClose: () -> Unit) {
                                 onClose()
                                 model.openProfileEditor()
                             }
-                            DrawerPill(L.t("Accounts")) {
+                            DrawerPill(L.t("Profiles")) {
                                 accountsOpen = !accountsOpen
                                 if (accountsOpen) model.refreshAccounts()
                             }

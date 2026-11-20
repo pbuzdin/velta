@@ -100,12 +100,13 @@ test("drawer markup: native details/summary, no popover or hidden toggle", () =>
   const css = read("app/css/main.css");
   assert.match(ui, /<details class="acct-switch" data-acct-switch>/);
   // #148: always rendered (also with a single profile — the popover is now
-  // Profile management's door) and labeled "Accounts".
-  assert.match(ui, /<summary data-act="switch-account">Accounts(<|\$\{ICON\.chevronDown\})/);
+  // Profile management's door); "Profiles" since the Accounts → Profiles
+  // wording pass (the rest of the product already said "profile").
+  assert.match(ui, /<summary data-act="switch-account">Profiles(<|\$\{ICON\.chevronDown\})/);
   assert.doesNotMatch(ui, /accounts\.length \? `<details class="acct-switch"/);
   // Profile management has two doors (#148): the row inside the switcher
   // popover and the standalone mid-drawer item — both open the same modal.
-  assert.match(ui, /class="acct-pop" role="group" aria-label="Accounts"[\s\S]*?data-act="profile-management"/);
+  assert.match(ui, /class="acct-pop" role="group" aria-label="Profiles"[\s\S]*?data-act="profile-management"/);
   assert.equal((ui.match(/data-act="profile-management"/g) || []).length, 2);
   assert.match(ui, /aria-current="true"/);
   assert.doesNotMatch(ui, /popovertarget", "acct-pop"|acctPop/);
