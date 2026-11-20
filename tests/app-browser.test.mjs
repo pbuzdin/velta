@@ -50,10 +50,10 @@ test("mirrors: normalize, default stays, extras cap, last success goes first", (
   assert.equal(normalizeMirror("not a url"), null);
   assert.deepEqual(mirrorList(), DEFAULT_MIRRORS);
   assert.equal(addMirror(DEFAULT_MIRROR), DEFAULT_MIRROR);
-  assert.equal(addMirror(DEFAULT_MIRRORS[1]), DEFAULT_MIRRORS[1]);
+  assert.equal(addMirror(DEFAULT_MIRRORS.at(-1)), DEFAULT_MIRRORS.at(-1));
   assert.deepEqual(mirrorList(), DEFAULT_MIRRORS, "built-ins are never stored as extras");
-  removeMirror(DEFAULT_MIRRORS[1]);
-  assert.ok(mirrorList().includes(DEFAULT_MIRRORS[1]));
+  removeMirror(DEFAULT_MIRRORS.at(-1));
+  assert.ok(mirrorList().includes(DEFAULT_MIRRORS.at(-1)));
   assert.equal(addMirror("https://m2.example/"), "https://m2.example");
   assert.equal(addMirror("https://m1.example"), "https://m1.example");
   assert.deepEqual(mirrorList(), [...DEFAULT_MIRRORS, "https://m2.example", "https://m1.example"]);

@@ -19,7 +19,9 @@ export const MIRROR_OK_KEY = "velta-xdc-mirror-ok";
 export const DEFAULT_MIRROR = "https://apps.testrun.org";
 // Built-in mirrors tried after the default (xdcget catalogs, normalized
 // URLs). Never stored, no Remove button — anything else stays user-added.
-export const DEFAULT_MIRRORS = [DEFAULT_MIRROR, "https://chat.gluek.info/apps"];
+// velta.cc/apps is our own static mirror of the default (apps/sync.py on
+// the website branch); fresher-than-gluek fallback when upstream is down.
+export const DEFAULT_MIRRORS = [DEFAULT_MIRROR, "https://velta.cc/apps", "https://chat.gluek.info/apps"];
 export const isDefaultMirror = (m) => DEFAULT_MIRRORS.includes(m);
 export const MAX_APPS = 10;
 export const MAX_MIRRORS = 8;
