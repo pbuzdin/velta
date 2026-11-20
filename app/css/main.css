@@ -1590,16 +1590,27 @@ button.reaction-chip { font: inherit; color: inherit; }
   width: 100%;
 }
 /* Expanded composer (both skins): the field spans the full row and the
-   attach/send buttons drop to their own row below. Sticker stays tucked in
-   the field's edge and only exists while the field is empty. */
+   tools drop to their own row below — attach cluster left, send cluster
+   right, empty `mid` between. Sticker stays tucked in the field's edge and
+   only exists while the field is empty. */
 .composer.expanded {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas: "wrap wrap wrap" "attach mid send";
+  grid-template-columns: auto auto auto 1fr auto auto;
+  grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
 }
 .composer.expanded .composer-input-wrap { grid-area: wrap; }
 .composer.expanded #btn-attach { grid-area: attach; }
+.composer.expanded #btn-apps { grid-area: apps; }
+.composer.expanded #btn-commands { grid-area: cmds; }
+.composer.expanded #btn-send-later { grid-area: slater; }
 .composer.expanded #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
+/* Desktop-only quick tools (Apps/Commands/Send later): phones keep them in
+   the attach menu — the rest row has no room for six buttons. */
+.desktop-tool { display: none; }
+.desktop-tool[hidden] { display: none; }
+@media (min-width: 600px) {
+  .desktop-tool { display: grid; }
+}
 /* The drop only animates where the buttons actually move (under the desktop
    width). On desktop the grid below is permanent, so nothing ever moves. */
 @media (max-width: 599.98px) {
@@ -1613,11 +1624,14 @@ button.reaction-chip { font: inherit; color: inherit; }
 @media (min-width: 600px) {
   #main-composer.composer {
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas: "wrap wrap wrap" "attach mid send";
+    grid-template-columns: auto auto auto 1fr auto auto;
+    grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
   }
   #main-composer .composer-input-wrap { grid-area: wrap; }
   #main-composer #btn-attach { grid-area: attach; }
+  #main-composer #btn-apps { grid-area: apps; }
+  #main-composer #btn-commands { grid-area: cmds; }
+  #main-composer #btn-send-later { grid-area: slater; }
   #main-composer #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
 }
 /* Lens plate. The list scrolls underneath; at rest the last row sits

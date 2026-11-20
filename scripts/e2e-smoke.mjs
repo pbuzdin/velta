@@ -75,6 +75,7 @@ try {
   assert.ok(h > 55 && h <= 95, `field capped at three lines, clientHeight ${h}`)
   await page.locator('#composer-input').fill('')
   assert.deepEqual(await state(), { display: 'flex', expanded: false, hasText: false }, 'clear: collapsed again')
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('btn-apps')).display), 'none', 'phone: quick tools stay in the attach menu')
   await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth > 0, { timeout: 2000 })
 
   // Touch: focus alone expands, blur collapses (no text needed either way).
@@ -120,7 +121,13 @@ try {
   await desk.locator('#composer-input').fill('')
   assert.deepEqual(await sendRect(), restPos, 'desktop: send does not move on clear')
   await desk.waitForFunction(v => getComputedStyle(document.getElementById('btn-send')).backgroundColor === v, restFill, { timeout: 2000 })
-  console.log('OK: desktop composer — always expanded, pinned send, armed fill')
+  // Quick tools: Apps/Commands beside Attach, Send later beside Send.
+  assert.equal(await desk.evaluate(() => getComputedStyle(document.getElementById('btn-apps')).display), 'grid', 'desktop: quick tools visible')
+  assert.equal(await desk.evaluate(() => document.getElementById('btn-send-later').hidden), false, 'desktop: Send later shown in a normal chat')
+  await desk.locator('#btn-apps').click()
+  await desk.locator('.ctx-menu').waitFor({ state: 'visible', timeout: 2000 })
+  await desk.close()
+  console.log('OK: desktop composer — always expanded, pinned send, armed fill, quick tools')
   await desk.close()
   console.log('OK: desktop composer — always expanded, pinned send, armed fill')
 } finally {

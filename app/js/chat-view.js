@@ -1198,6 +1198,10 @@ export class ChatView {
   _applyGroupComposer(chat) {
     const b = document.getElementById("btn-sticker");
     if (b) b.hidden = !!chat?.isP2pGroup || stickersInAttach();
+    // Same gate as the attach-menu "Send later" row: local chats don't
+    // schedule (this.scheduled is instance-wide, set once by app.js).
+    const sl = document.getElementById("btn-send-later");
+    if (sl) sl.hidden = !!chat?.isP2p;
   }
 
   // One TypingSender per open local chat; switching chats stops the old one.
@@ -4334,6 +4338,47 @@ export class ChatView {
     }
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
     window.addEventListener("velta-stickers-pref", () => this._applyGroupComposer(this.chat));
+    // Desktop quick tools (≥600px): the attach-menu rows people reach for
+    // most, one tap away — Apps/Commands beside Attach, Send later beside
+    // Send. Phones keep everything in the attach menu (no room at 390px).
+    const popAbove = (btn, menu) => {
+      const r = btn.getBoundingClientRect();
+      const x = Math.min(r.left, window.innerWidth - 220);
+      menu.style.top = "auto";
+      menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
+      menu.style.left = x / uiZoom() + "px";
+    };
+    document.getElementById("btn-apps").addEventListener("click", () => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
+      const items = recentApps(this.core.accountId).map(a => ({ label: a.name, icon: ICO.webxdc, onClick: () => this._resendStoredApp(session, a) }));
+      if (items.length) items.push("-");
+      items.push({
+        label: "Browse apps…",
+        onClick: () => openAppBrowser({
+          showModal, toast,
+          alive: () => this._isCurrent(session) && !!this.chat,
+          getBytes: (url, ms) => this.core.getHttpResponse(url, ms).then(r => r.bytes),
+          sendApp: (app, bytes) => this._sendCatalogApp(session, app, bytes),
+        }),
+      });
+      popAbove(document.getElementById("btn-apps"), showContextMenu(items, 8, 8));
+    });
+    document.getElementById("btn-commands").addEventListener("click", () => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
+      const input = document.getElementById("composer-input");
+      const cmds = recentCommands(this.core.accountId, session.chatId);
+      if (!cmds.length) { toast(t("No commands yet")); return; }
+      const menu = showContextMenu(cmds.map(c => ({ label: c, onClick: () => {
+        input.value = c + " ";
+        try { input.selectionStart = input.selectionEnd = input.value.length; } catch {}
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+      } })), 8, 8);
+      popAbove(document.getElementById("btn-commands"), menu);
+    });
+    document.getElementById("btn-send-later").addEventListener("click", () => this._sendLater());
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
       const pm = this.pendingMedia;
