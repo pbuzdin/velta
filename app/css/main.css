@@ -1605,11 +1605,25 @@ button.reaction-chip { font: inherit; color: inherit; }
 .composer.expanded #btn-send-later { grid-area: slater; }
 .composer.expanded #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
 /* Desktop-only quick tools (Apps/Commands/Send later): phones keep them in
-   the attach menu — the rest row has no room for six buttons. */
+   the attach menu — the rest row has no room for six buttons. Captioned
+   pills must out-rank `#main-composer .icon-btn`'s fixed 48px box. */
 .desktop-tool { display: none; }
 .desktop-tool[hidden] { display: none; }
+#main-composer .icon-btn.desktop-tool[hidden] { display: none; }
 @media (min-width: 600px) {
-  .desktop-tool { display: grid; }
+  #main-composer .icon-btn.desktop-tool {
+    display: grid;
+    width: auto;
+    height: 48px;
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 7px;
+    padding: 0 14px 0 10px;
+    border-radius: 24px;
+  }
+}
+#main-composer .icon-btn.desktop-tool .tool-caption {
+  font-size: 13px; line-height: 1; white-space: nowrap; color: inherit;
 }
 /* The drop only animates where the buttons actually move (under the desktop
    width). On desktop the grid below is permanent, so nothing ever moves. */
