@@ -167,7 +167,7 @@ function attachmentName(msg) {
 
 function asBytes(raw) {
   if (raw instanceof Uint8Array) return raw;
-  if (raw == null) throw new Error("This attachment is empty");
+  if (raw == null) throw new Error(t("This attachment is empty"));
   return new Uint8Array(raw);
 }
 
@@ -181,7 +181,7 @@ async function attachmentBytes(core, path) {
     if (raw) return asBytes(raw);
   }
   const res = await fetch(fileUrl(path) || path);
-  if (!res.ok) throw new Error("Couldn't read the file");
+  if (!res.ok) throw new Error(t("Couldn't read the file"));
   return new Uint8Array(await res.arrayBuffer());
 }
 
@@ -200,7 +200,7 @@ function triggerBrowserDownload(bytes, name) {
 // as a browser download. Resolves true when saved, false when cancelled.
 // Shared by the bubble menu and the chat info Files section.
 export async function saveAttachmentFile(core, msg) {
-  if (!msg?.filePath) throw new Error("This attachment isn't available yet");
+  if (!msg?.filePath) throw new Error(t("This attachment isn't available yet"));
   const name = attachmentName(msg);
   const invoke = tauriInvoke();
   if (isAndroid() && invoke) {
@@ -4561,7 +4561,7 @@ export class ChatView {
       return filePath;
     }
     const write = this.core?.transport?.writeCoreFile;
-    if (typeof write !== "function") throw new Error("Sending that file needs the Velta app");
+    if (typeof write !== "function") throw new Error(t("Sending that file needs the Velta app"));
     const safe = String(filename).replace(/[\\/]/g, "_");
     const path = `/uploads/${safe}`;
     await write.call(this.core.transport, path, bytes);
@@ -4596,7 +4596,7 @@ export class ChatView {
       if (filePath) {
         filename = filePath.replace(/\\/g, "/").split("/").pop();
       } else {
-        if (!sendBlob) throw new Error("Nothing to send");
+        if (!sendBlob) throw new Error(t("Nothing to send"));
         const t = sendBlob.type;
         const fromName = String(pm.name || "").split(".").pop();
         const ext = t === "image/jpeg" ? "jpg" : t === "image/webp" ? "webp" : t === "image/gif" ? "gif" : t?.startsWith("video/") ? "mp4" : (fromName || "png");
@@ -5015,10 +5015,10 @@ export class ChatView {
   }
 
   async _sendCatalogApp(session, app, bytes) {
-    if (!this._isCurrent(session) || !this.chat) throw new Error("Chat closed");
+    if (!this._isCurrent(session) || !this.chat) throw new Error(t("Chat closed"));
     const filename = app.filename || "app.xdc";
     const path = await this._writeBlobForSend(filename, bytes);
-    if (!this._isCurrent(session)) throw new Error("Chat closed");
+    if (!this._isCurrent(session)) throw new Error(t("Chat closed"));
     const msg = await this._sendArchivedAware(session.chatId, {
       viewtype: "webxdc", file: path, filename, ...this._quoteFields(),
     });
@@ -5267,12 +5267,12 @@ export class ChatView {
       if (!this._isCurrent(session)) return null;
       if (can) this.readOnly = false;
     }
-    if (this.readOnly) throw new Error("You can't write in this chat");
+    if (this.readOnly) throw new Error(t("You can't write in this chat"));
     const resolved = [];
     for (const file of files) {
       let path = file;
       if (/^content:\/\//i.test(file)) {
-        if (!invoke) throw new Error("Sending that file needs the Velta app");
+        if (!invoke) throw new Error(t("Sending that file needs the Velta app"));
         path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()), encrypt: true });
       } else if (invoke) {
         // Send to / Open with: the user's own pick is the consent, as with

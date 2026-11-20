@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // V2.5 identity backup bundle (Architecture C, spike days 17/20). The wasm
 // core's memfs holds the armored self-key files (export_self_keys writes a
 // DIRECTORY of them); this module wraps those + the relay credentials into
@@ -47,7 +48,7 @@ export async function unwrapIdentityBundle(bytes, passphrase) {
   if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
   const magic = new TextEncoder().encode(MAGIC);
   if (bytes.length < magic.length + 28 || !magic.every((b, i) => bytes[i] === b)) {
-    throw new Error("Not a Velta identity backup file");
+    throw new Error(t("Not a Velta identity backup file"));
   }
   const salt = bytes.subarray(magic.length, magic.length + 16);
   const iv = bytes.subarray(magic.length + 16, magic.length + 28);
@@ -57,10 +58,10 @@ export async function unwrapIdentityBundle(bytes, passphrase) {
   try {
     parsed = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext)));
   } catch {
-    throw new Error("Wrong passphrase or corrupted backup");
+    throw new Error(t("Wrong passphrase or corrupted backup"));
   }
   if (parsed?.kind !== "velta-identity" || !parsed.addr || !parsed.mail_pw || typeof parsed.keys !== "object") {
-    throw new Error("Identity backup is missing required fields");
+    throw new Error(t("Identity backup is missing required fields"));
   }
   return parsed;
 }

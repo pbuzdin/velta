@@ -43,9 +43,9 @@ export function normalizeLufiServer(input) {
   if (!s) return DEFAULT_LUFI_SERVER;
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = "https://" + s;
   let u;
-  try { u = new URL(s); } catch { throw new Error("Not a valid server URL"); }
+  try { u = new URL(s); } catch { throw new Error(t("Not a valid server URL")); }
   if (u.protocol !== "https:") throw new Error("The Lufi server must use https://");
-  if (u.username || u.password) throw new Error("Server URL must not contain credentials");
+  if (u.username || u.password) throw new Error(t("Server URL must not contain credentials"));
   return (u.origin + u.pathname).replace(/\/+$/, "");
 }
 
@@ -158,9 +158,9 @@ export async function lufiUpload({ server, file, readSlice, transport, delay, de
       onProgress?.({ part: j, parts, sentBytes: Math.min(file.size, j * LUFI_SLICE), phase: "send" });
       const replyText = await transport.send(buildPartFrame(meta, enc));
       let reply;
-      try { reply = JSON.parse(replyText); } catch { throw new Error("Unexpected reply from the Lufi server"); }
-      if (!reply || !reply.success) throw new Error(reply?.msg ? String(reply.msg).replace(/<[^>]*>/g, "") : "The Lufi server refused the upload");
-      if (!/^[A-Za-z0-9_-]+$/.test(String(reply.short || ""))) throw new Error("Lufi server sent no file id");
+      try { reply = JSON.parse(replyText); } catch { throw new Error(t("Unexpected reply from the Lufi server")); }
+      if (!reply || !reply.success) throw new Error(reply?.msg ? String(reply.msg).replace(/<[^>]*>/g, "") : t(t("The Lufi server refused the upload")));
+      if (!/^[A-Za-z0-9_-]+$/.test(String(reply.short || ""))) throw new Error(t("Lufi server sent no file id"));
       short = String(reply.short);
       if (reply.token) token = String(reply.token);
       last = reply;

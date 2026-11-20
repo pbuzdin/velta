@@ -189,7 +189,7 @@ export function parseCatalog(text, base) {
 
 // First mirror whose index parses to a non-empty list. Others are skipped.
 export async function loadCatalog(mirrors, getText) {
-  let last = new Error("No catalog mirror answered");
+  let last = new Error(t("No catalog mirror answered"));
   const seen = [];
   for (const raw of mirrors) {
     const base = normalizeMirror(raw);
@@ -199,7 +199,7 @@ export async function loadCatalog(mirrors, getText) {
       const text = await getText(base + "/xdcget-lock.json");
       const apps = parseCatalog(text, base);
       if (apps.length) return { base, apps };
-      last = new Error("Empty catalog");
+      last = new Error(t("Empty catalog"));
     } catch (e) {
       last = e instanceof Error ? e : new Error(String(e));
     }

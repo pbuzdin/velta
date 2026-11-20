@@ -8,6 +8,7 @@ import { ICON } from "./icons.js";
 // refuse framing (X-Frame-Options / frame-ancestors) show an empty frame;
 // the bar's external-open button is the always-working escape hatch.
 import { isAndroid, tauriInvoke } from "./tauri.js";
+import { t } from "./i18n.js";
 
 const STYLE_ID = "inapp-browser-styles";
 
@@ -77,11 +78,11 @@ function openIframeOverlay(url) {
         <div class="iab-title" data-title></div>
         <div class="iab-domain" data-domain></div>
       </div>
-      <button type="button" class="icon-btn" data-external title="Open in system browser" aria-label="Open in system browser">
+      <button type="button" class="icon-btn" data-external title="${t("Open in system browser")}" aria-label="${t("Open in system browser")}">
         ${ICON.openExternal}
       </button>
     </div>
-    <progress class="iab-progress" data-progress aria-label="Loading page"></progress>
+    <progress class="iab-progress" data-progress aria-label="${t("Loading page")}"></progress>
     <iframe class="iab-frame" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-downloads" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
 
   // The URL comes from a message: set it through the DOM, never through the

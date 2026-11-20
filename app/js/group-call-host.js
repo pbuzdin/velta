@@ -12,6 +12,7 @@
 import { GroupCall, randomId } from "./group-call.js";
 import { GroupCallSignal, decodeRealtime, fromStatusUpdate, cleanTitle } from "./group-call-signal.js";
 import { FALLBACK_ICE_SERVERS } from "./calls.js";
+import { t } from "./i18n.js";
 
 let current = null;
 const listeners = new Set();
@@ -122,8 +123,8 @@ export class GroupCallSession {
 /** Start (or return) the call for webxdc instance `msgId`. One call at a time. */
 export async function joinGroupCall(opts) {
   if (current && current.msgId === Number(opts.msgId)) return current;
-  if (current) throw new Error("You are already in a group call");
-  if (opts.busy?.()) throw new Error("Finish the current call first");
+  if (current) throw new Error(t("You are already in a group call"));
+  if (opts.busy?.()) throw new Error(t("Finish the current call first"));
   const s = new GroupCallSession(opts);
   current = s;
   notify();
