@@ -10,6 +10,7 @@ import { formatSplashVersion } from "./format.js";
 import { searchEmoji } from "./emoji.js";
 import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
 import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
+import { parseColor, rgbToHsl, nameColor } from "./name-color.js";
 import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
@@ -1539,6 +1540,16 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       ${inTauri ? `<div class="drawer-ver"><span>Tauri</span><span data-v="tauri">…</span></div>` : ""}
       ${inTauri ? "" : `<div class="drawer-ver"><span>${t("Service worker")}</span><span data-v="sw">…</span></div>`}
     </div>`;
+  // Fingerprint header: rotate the classic header gradient to the active
+  // profile's hue pair (from its color, else the name fingerprint).
+  // Lightness pinned at 30%/33% — the worst hue keeps the #f4f4f4 ink at
+  // 4.79:1 (swept 0..360; the old static pins would have dipped to 4.22).
+  const head = drawer.querySelector(".drawer-head");
+  if (head) {
+    const rgb = parseColor(account.color) || parseColor(nameColor(account.displayName));
+    const [h] = rgb ? rgbToHsl(rgb) : [215];
+    head.style.background = `linear-gradient(135deg, hsl(${Math.round(h)} 45% 30%), hsl(${Math.round((h + 40) % 360)} 30% 33%))`;
+  }
   translateTree(drawer);
   const acctLabel = drawer.querySelector("[data-act=switch-account]");
   if (acctLabel?.firstChild?.nodeType === 3) acctLabel.firstChild.nodeValue = t("Profiles");
