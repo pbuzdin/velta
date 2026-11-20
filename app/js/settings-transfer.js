@@ -156,6 +156,8 @@ export const SETTINGS = [
   oneOf("voice-speed", "Playback speed", "velta-voice-speed", [["1", "1"], ["1.5", "1.5"], ["2", "2"]], "1"),
   offByDefault("stickers-in-attach", "Stickers in attachments menu", "velta-stickers-in-attach"),
   offByDefault("glass-composer", "Liquid glass composer", "velta-glass-composer"),
+  onByDefault("send-later", "Send later", "velta-send-later"),
+  onByDefault("commands-button", "Commands button", "velta-cmds-button"),
   onByDefault("read-receipts", "Read receipts", "velta-mdns"),
   onByDefault("remember-scroll", "Remember scroll position", "velta-remember-scroll"),
   onByDefault("local-chat-typing", "Local chat typing hints", "velta-p2p-typing"),

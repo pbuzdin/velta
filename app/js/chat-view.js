@@ -389,6 +389,10 @@ export const THREAD_BUTTON_MIN_REPLIES = 1;
 // #278: drawer → Chat appearance. "1" = Attach → Stickers, no composer button.
 export const stickersInAttach = () => { try { return localStorage.getItem("velta-stickers-in-attach") === "1"; } catch { return false; } };
 
+// Drawer "Chat appearance" toggles write these keys; absence = enabled.
+const sendLaterEnabled = () => localStorage.getItem("velta-send-later") !== "0";
+const commandsButtonEnabled = () => localStorage.getItem("velta-cmds-button") !== "0";
+
 const ICO = {
   sticker: ICON.sticker,
   reply: ICON.reply,
@@ -1198,10 +1202,12 @@ export class ChatView {
   _applyGroupComposer(chat) {
     const b = document.getElementById("btn-sticker");
     if (b) b.hidden = !!chat?.isP2pGroup || stickersInAttach();
-    // Same gate as the attach-menu "Send later" row: local chats don't
-    // schedule (this.scheduled is instance-wide, set once by app.js).
+    const cmds = document.getElementById("btn-commands");
+    if (cmds) cmds.hidden = !commandsButtonEnabled();
+    // Same gates as the attach-menu rows: local chats don't schedule
+    // (this.scheduled is instance-wide, set once by app.js).
     const sl = document.getElementById("btn-send-later");
-    if (sl) sl.hidden = !!chat?.isP2p;
+    if (sl) sl.hidden = !!chat?.isP2p || !sendLaterEnabled();
   }
 
   // One TypingSender per open local chat; switching chats stops the old one.
@@ -4338,6 +4344,7 @@ export class ChatView {
     }
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
     window.addEventListener("velta-stickers-pref", () => this._applyGroupComposer(this.chat));
+    window.addEventListener("velta-composer-pref", () => this._applyGroupComposer(this.chat));
     // Desktop quick tools (≥600px): the attach-menu rows people reach for
     // most, one tap away — Apps/Commands beside Attach, Send later beside
     // Send. Phones keep everything in the attach menu (no room at 390px).
@@ -4436,7 +4443,7 @@ export class ChatView {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
       }
       // Scheduled messages: the keyboard/screen-reader route to "Send later".
-      if (!this.chat?.isP2p && this.scheduled) {
+      if (!this.chat?.isP2p && this.scheduled && sendLaterEnabled()) {
         attachItems.push({ label: "Send later", icon: ICO.clock, onClick: () => this._sendLater() });
       }
       const menu = showContextMenu(attachItems.map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
@@ -4708,7 +4715,7 @@ export class ChatView {
 
   // Text only for now: attachments, voice and edits keep the normal path.
   async _sendLater() {
-    if (this._sendLaterOpen) return;
+    if (this._sendLaterOpen || !sendLaterEnabled()) return;
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat || !this.scheduled) return;
     if (this.chat.isP2p) { toast(t("Local chats can't schedule messages")); return; }

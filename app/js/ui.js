@@ -1277,6 +1277,8 @@ export function chatAppearanceHtml() {
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-stickers-in-attach${localStorage.getItem("velta-stickers-in-attach") === "1" ? " checked" : ""}><span>${escapeHtml(t("Stickers in attachments menu"))}</span></label>
           ${glassComposerAvailable() ? `<label class="scale-opt"><input type="checkbox" role="switch" data-glass-composer${localStorage.getItem("velta-glass-composer") === "1" ? " checked" : ""}><span>${escapeHtml(t("Liquid glass composer"))}</span></label>` : ""}
+          <label class="scale-opt"><input type="checkbox" role="switch" data-send-later${localStorage.getItem("velta-send-later") === "0" ? "" : " checked"}><span>${escapeHtml(t("Send later"))}</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-commands-button${localStorage.getItem("velta-cmds-button") === "0" ? "" : " checked"}><span>${escapeHtml(t("Commands button"))}</span></label>
           <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
@@ -1345,6 +1347,15 @@ export function wireChatAppearance(root, { onChange } = {}) {
   sec.querySelector("[data-glass-composer]")?.addEventListener("change", e => {
     try { localStorage.setItem("velta-glass-composer", e.target.checked ? "1" : "0"); } catch {}
     window.dispatchEvent(new Event("velta-glass-pref"));
+  });
+  // Send later feature + Commands quick button: chat-view listens for this.
+  sec.querySelector("[data-send-later]")?.addEventListener("change", e => {
+    try { if (e.target.checked) localStorage.removeItem("velta-send-later"); else localStorage.setItem("velta-send-later", "0"); } catch {}
+    window.dispatchEvent(new Event("velta-composer-pref"));
+  });
+  sec.querySelector("[data-commands-button]")?.addEventListener("change", e => {
+    try { if (e.target.checked) localStorage.removeItem("velta-cmds-button"); else localStorage.setItem("velta-cmds-button", "0"); } catch {}
+    window.dispatchEvent(new Event("velta-composer-pref"));
   });
   sec.querySelector("[data-ca-reset]").addEventListener("click", () => {
     const st = A.apply(A.reset());
