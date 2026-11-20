@@ -126,6 +126,18 @@ try {
   assert.equal(await desk.evaluate(() => document.getElementById('btn-send-later').hidden), false, 'desktop: Send later shown in a normal chat')
   await desk.locator('#btn-apps').click()
   await desk.locator('.ctx-menu').waitFor({ state: 'visible', timeout: 2000 })
+  // Attach menu: the [popover] base must not win overflow back — with both
+  // details open the menu scrolls inside its box instead of spilling.
+  await desk.evaluate(() => document.getElementById('btn-attach').click())
+  await desk.locator('.attach-pop').waitFor({ state: 'visible', timeout: 2000 })
+  await desk.evaluate(() => { for (const d of document.querySelectorAll('.attach-pop details')) d.open = true })
+  const over = await desk.evaluate(() => {
+    const m = document.querySelector('.attach-pop')
+    const r = m.getBoundingClientRect()
+    return { y: getComputedStyle(m).overflowY, fits: r.top >= 0 && r.bottom <= innerHeight, scrollable: m.scrollHeight >= m.clientHeight }
+  })
+  assert.equal(over.y, 'auto', 'attach menu: popup overflow owned by the menu')
+  assert.ok(over.fits, 'attach menu: stays inside the viewport with details open')
   await desk.close()
   console.log('OK: desktop composer — always expanded, pinned send, armed fill, quick tools')
   await desk.close()

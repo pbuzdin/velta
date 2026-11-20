@@ -4463,13 +4463,10 @@ export class ChatView {
       menu.style.top = "auto";
       menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
       menu.style.left = x / uiZoom() + "px";
-      requestAnimationFrame(() => {
-        if (!this._isCurrent(session)) return;
-        if (menu.getBoundingClientRect().top < 8) {
-          menu.style.bottom = "auto";
-          menu.style.top = "8px";
-        }
-      });
+      // The menu grows upward from the attach button: cap it at the space
+      // that actually exists above, so details toggles scroll inside the
+      // popup instead of clipping at the viewport top.
+      menu.style.maxHeight = Math.max(180, r.top - 12) / uiZoom() + "px";
       return menu;
     });
   }

@@ -2569,8 +2569,14 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 @media (prefers-reduced-motion: reduce) { #bar-menu.update { animation: none; } }
 
 /* attach pop reuses ctx-menu; Apps / Commands disclosures (#137) */
-.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); overflow: auto; }
-.attach-sub { max-height: 220px; overflow: auto; }
+/* The [popover] base sets overflow: visible at (0,2,0), which beat this
+   class — details content spilled past the height cap with no scrollbar.
+   Re-own scrolling at popover specificity; one scrollbar on the menu, the
+   details sub-lists flow into it. scrollbar-gutter keeps rows from jumping
+   sideways when the bar appears. */
+.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); }
+.ctx-menu.attach-pop[popover] { overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+.attach-sub { min-width: 0; }
 .attach-sub .ctx-item { min-width: 0; }
 .attach-sub .ctx-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attach-empty { padding: 2px 12px 8px; color: var(--text-dim); font-size: 13px; }
