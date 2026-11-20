@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.5.6: a composer with a tools row, a catalog at home, and old Macs launch again — Velta</title>
+  <meta name="description" content="The composer grows a permanent tools row on desktop and an armed send everywhere, the app catalog gains a Velta-hosted mirror, and 1.5.5's failure to launch on older macOS is fixed. Plus Profiles in the drawer, Send later and Commands toggles, and 49 more strings translated.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.5.6: a composer with a tools row, a catalog at home, and old Macs launch again</h1>
+    <p><time>21 November 2026</time> · 3 min read</p>
+    <p>The composer gets a permanent tools row on desktop and an armed send everywhere, the app catalog gains a Velta-hosted mirror, and the 1.5.5 launch failure on older macOS is fixed. Plus Profiles in the drawer, toggles for the new composer tools, and 49 more strings in French and Russian.</p>
+    <div class="body">
+<p>1.5.6 is a reach release: almost everything in it shortens the distance between "I want to do this" and the thing happening. The composer learns where its tools live, the app catalog gets a mirror we host ourselves, and one quiet fix lets 1.5.5's forgotten users — people on older Macs — finally open the app at all.</p>
+<h2>The composer grows up</h2>
+<p>Since 1.5.5, typing expands the message field to a full-width column with the buttons on a row below. On the phone that behavior is unchanged. On desktop it no longer waits for the first keystroke: the two-row layout is now permanent, so the send button lives in one place from the moment a chat opens — it stops jumping between "inline at rest" and "below while typing" every time you clear the field.</p>
+<p>Send also learned to show its state. While there is text in the field it fills with the accent color; when the field is empty it goes back to the quiet outline arrow. One glance tells you whether the message is armed.</p>
+<h2>Tools within reach</h2>
+<p>That desktop tools row now carries more than paperclip and send. <strong>Apps</strong> and <strong>Commands</strong> sit beside the attach button — your recent webxdc apps and recent slash commands, one tap each, with <strong>Send later</strong> next to send. All three wear text captions, and Commands wears a new keycap-slash icon. Each of them still lives in the attach menu too, and phones keep everything in that menu, where there is room.</p>
+<p>Two of them can be switched off if you never use them — under <strong>Chat appearance</strong>, "Send later" turns the whole scheduling feature off (every entry point, including the keyboard shortcut), and "Commands button" hides the quick tool. Both apply without a reload.</p>
+<h2>The catalog has a mirror at home</h2>
+<p>The in-app app catalog has always listed a public mirror; now it tries three, in order: the upstream catalog, <strong>velta.cc/apps</strong> — a static mirror we host ourselves, synced from upstream — and a community mirror as the last fallback. The client remembers which one answered and starts there next time. Our mirror curates: one catalog app was left out of it. The catalog screen also got its spacing fixed, and the Add-mirror button finally matches the height of the field it sits beside.</p>
+<h2>Old Macs launch again</h2>
+<p>1.5.5 had a bug that mattered more than its size: on macOS versions whose system WebKit predates Safari 17.2, the app failed to start at all — a single line of new JavaScript syntax killed the whole program before the first screen drew, and the only visible sign was a syntax error mentioning a keyword called <code>with</code>. Windows and Android never noticed. 1.5.6 loads its translations in a way every engine understands, and the app opens. If 1.5.5 never launched on your Mac, this release is the one to install.</p>
+<h2>Profiles, and a header that knows you</h2>
+<p>The drawer's account switcher now says <strong>Profiles</strong> — the word the rest of the app already used. And the drawer header takes its color from the profile you are in: a gradient built from the profile's identity color, rotated per profile and checked against the text on top of it for every hue it can produce, so switching profiles changes the header without ever hurting readability.</p>
+<h2>Also in this release</h2>
+<ul>
+<li><strong>Slash suggestions keep their manners</strong> — sending "/coverage run 42" no longer suggests the whole line back; only the bare command is remembered, and the arguments stay yours to type.</li>
+<li><strong>The attach menu scrolls properly</strong> — opening the Apps or Commands sections no longer spills content past the menu's edge; the menu owns one scrollbar and stays inside the window.</li>
+<li><strong>49 more strings translated</strong> — the lock screen, backup and transfer errors, server errors from large-file uploads, call refusals, and the in-app browser are all in French and Russian now; the two languages still cover the whole interface.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.6">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.5.5...v1.5.6">Compare 1.5.5 with 1.5.6</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=9"></script>
+</body>
+</html>
