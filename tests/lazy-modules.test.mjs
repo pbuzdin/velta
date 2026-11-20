@@ -43,6 +43,7 @@ test("every import() specifier in app/js resolves to a shipped .js file", () => 
   for (const f of readdirSync(js).filter(n => n.endsWith(".js"))) {
     for (const m of read(f).matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)) {
       count++;
+      if (m[1].startsWith("node:")) continue; // builtins — Node-only code paths (i18n.js file: fallback)
       const p = resolve(js, m[1]);
       if (!m[1].endsWith(".js") || !existsSync(p)) bad.push(`${f}: ${m[1]}`);
     }
