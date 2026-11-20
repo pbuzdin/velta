@@ -8,10 +8,11 @@ globalThis.localStorage = { getItem: k => mem.get(k) ?? null, setItem: (k, v) =>
 const { commandFromText, recordCommand, recentCommands, attachRecentCommands, KEY } = await import("../app/js/recent-commands.js");
 
 test("commandFromText: first line, trimmed, max 64, must start with /", () => {
-  assert.equal(commandFromText("  /start foo  \nsecond"), "/start foo");
+  assert.equal(commandFromText("  /start foo  \nsecond"), "/start");
   assert.equal(commandFromText("hello /x"), null);
   assert.equal(commandFromText("/"), null);
   assert.equal(commandFromText("/ x"), null);
+  assert.equal(commandFromText("/setcookie session123"), "/setcookie");
   assert.equal(commandFromText("/" + "a".repeat(100)).length, 64);
 });
 
@@ -30,10 +31,10 @@ test("history: distinct, most recent first, capped at 10, per account", () => {
 test("per-chat with fallback to account-global; prefix filter case-insensitive", () => {
   mem.clear();
   recordCommand(1, 5, "/help");
-  recordCommand(1, 6, "/start foo");
+  recordCommand(1, 6, "/start foo"); // args are dropped: stored as "/start"
   assert.deepEqual(recentCommands(1, 5), ["/help"]);
-  assert.deepEqual(recentCommands(1, 7), ["/start foo", "/help"]); // fallback
-  assert.deepEqual(recentCommands(1, 7, "/ST"), ["/start foo"]);
+  assert.deepEqual(recentCommands(1, 7), ["/start", "/help"]); // fallback
+  assert.deepEqual(recentCommands(1, 7, "/ST"), ["/start"]);
 });
 
 test("corrupt storage degrades to empty", () => {
@@ -75,7 +76,7 @@ test("popup opens on /, filters, listbox roles, hides when not /", () => {
   type("/");
   assert.equal(rc.isOpen(), true);
   assert.equal(pop().getAttribute("role"), "listbox");
-  assert.deepEqual(pop().children.map(c => c.textContent), ["/stop", "/start foo", "/help"]);
+  assert.deepEqual(pop().children.map(c => c.textContent), ["/stop", "/start", "/help"]);
   assert.ok(pop().children.every(c => c.getAttribute("role") === "option"));
   assert.equal(input.getAttribute("aria-expanded"), "true");
   type("/st"); assert.equal(pop().children.length, 2);
@@ -103,7 +104,7 @@ test("click on option inserts it", () => {
   type("/");
   const li = pop().children[1];
   pop().dispatchEvent({ type: "click", target: li });
-  assert.equal(input.value, "/start foo ");
+  assert.equal(input.value, "/start ");
 });
 
 test("chat-view wiring: records on send, hides, keydown consults popup first", () => {
