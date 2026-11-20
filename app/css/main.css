@@ -2590,8 +2590,12 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .app-row small { display: block; color: var(--text-dim); font-size: 13px; margin-top: 2px; }
 .mirror-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .mirror-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-.mirror-add { display: flex; gap: 8px; align-items: center; }
+/* Inline field+button row: the button stretches to the field's height and
+   centers its label — first such pairing in the app, so the row sets the
+   pattern (each component keeps its own token radius). */
+.mirror-add { display: flex; gap: 8px; align-items: stretch; }
 .mirror-add .text-field { flex: 1; }
+.mirror-add .btn-text { display: grid; place-items: center; }
 /* Catalog-mirrors section: the details content carries no inset of its own —
    align hint, rows and the add form with the summary row and let them breathe. */
 .app-browser .drawer-details[open] { padding-bottom: 6px; }
