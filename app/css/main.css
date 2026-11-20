@@ -1600,9 +1600,25 @@ button.reaction-chip { font: inherit; color: inherit; }
 .composer.expanded .composer-input-wrap { grid-area: wrap; }
 .composer.expanded #btn-attach { grid-area: attach; }
 .composer.expanded #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
-.composer.expanded > .icon-btn { animation: composer-drop .18s ease-out; }
+/* The drop only animates where the buttons actually move (under the desktop
+   width). On desktop the grid below is permanent, so nothing ever moves. */
+@media (max-width: 599.98px) {
+  .composer.expanded > .icon-btn { animation: composer-drop .18s ease-out; }
+}
 @keyframes composer-drop {
   from { opacity: 0; transform: translateY(-4px); }
+}
+/* Desktop: always expanded — send lives in one spot, typing never reflows
+   the tools. Mirrors .composer.expanded above; keep the two in sync. */
+@media (min-width: 600px) {
+  #main-composer.composer {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "wrap wrap wrap" "attach mid send";
+  }
+  #main-composer .composer-input-wrap { grid-area: wrap; }
+  #main-composer #btn-attach { grid-area: attach; }
+  #main-composer #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
 }
 /* Lens plate. The list scrolls underneath; at rest the last row sits
    above it (padding), and a drag carries bubbles through the curve.
@@ -1747,6 +1763,12 @@ button.reaction-chip { font: inherit; color: inherit; }
 .sticker-emoji { font-size: 96px; line-height: 1; padding: 6px 10px; }
 .send-btn { color: var(--accent-text); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
+/* Armed send: accent fill while there's text to send — the same
+   accent/--on-accent pairing as the primary buttons, AA on every theme. */
+#main-composer.has-text .send-btn:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 /* Composer buttons sized to the input line (bottom-aligned like the input,
    no extra offset — a 48px button centers its icon on the text line), with
    icons a notch larger than the generic 24px. */

@@ -98,6 +98,31 @@ try {
   assert.deepEqual(touchErrors, [])
   await touch.close()
   console.log('OK: expanding composer — rest/typing/clear + touch focus/blur')
+
+  // Desktop (≥600px): always expanded — grid at rest, send pinned to one
+  // spot through typing/clearing; send fills accent only while armed.
+  const desk = await browser.newPage({ viewport: { width: 1000, height: 800 } })
+  desk.on('pageerror', e => errors.push(e.message))
+  await desk.addInitScript(() => localStorage.setItem('velta-mock', '1'))
+  await desk.goto(`http://127.0.0.1:${server.address().port}/index.html`)
+  await desk.locator('.chat-item', { hasText: 'Ada Byron' }).first().click({ timeout: 15000 })
+  await desk.locator('#chat-view').waitFor({ state: 'visible' })
+  assert.equal(await desk.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'grid', 'desktop: expanded at rest')
+  const sendRect = () => desk.evaluate(() => { const r = document.getElementById('btn-send').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)] })
+  const restPos = await sendRect()
+  const restFill = await desk.evaluate(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor)
+  await desk.locator('#composer-input').fill('desktop always expanded')
+  assert.deepEqual(await sendRect(), restPos, 'desktop: send does not move while typing')
+  // The .15s background transition stalls in an occluded pane — wait it out.
+  await desk.waitForFunction(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor !== 'rgba(0, 0, 0, 0)', undefined, { timeout: 2000 })
+  const armedFill = await desk.evaluate(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor)
+  assert.notEqual(armedFill, restFill, 'desktop: send fills accent while there is text')
+  await desk.locator('#composer-input').fill('')
+  assert.deepEqual(await sendRect(), restPos, 'desktop: send does not move on clear')
+  await desk.waitForFunction(v => getComputedStyle(document.getElementById('btn-send')).backgroundColor === v, restFill, { timeout: 2000 })
+  console.log('OK: desktop composer — always expanded, pinned send, armed fill')
+  await desk.close()
+  console.log('OK: desktop composer — always expanded, pinned send, armed fill')
 } finally {
   await browser.close()
   server.close()
