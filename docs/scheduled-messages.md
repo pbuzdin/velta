@@ -8,9 +8,12 @@ No `core/` change.
 
 ## Using it
 
-- **Open "Send later"**: right-click or long-press (500 ms, touch) the Send
+- **Open "Send later"**: the **Send later** button beside Send (desktop,
+  ≥600px windows), right-click or long-press (500 ms, touch) the Send
   button, the ContextMenu key / Shift+F10 on it, **Ctrl/Cmd+Shift+Enter** in
   the composer, or **Attach menu → Send later** (keyboard/screen-reader route).
+  The feature can be turned off in Settings → Chat appearance ("Send later"),
+  which hides every one of these entry points.
 - **Presets** (user's local time zone): in 1 hour, tonight 20:00 (hidden
   after ~19:59), tomorrow 09:00, next Monday 09:00 (on a Monday: the following
   one). **Custom**: native `<input type="datetime-local">`, local time; the
