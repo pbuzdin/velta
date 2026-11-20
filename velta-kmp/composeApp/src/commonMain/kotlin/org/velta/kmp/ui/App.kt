@@ -1,5 +1,6 @@
 package org.velta.kmp.ui
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -17,6 +18,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -32,6 +34,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -80,6 +83,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Switch
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -2765,262 +2769,223 @@ private fun SettingsScreen(model: AppModel) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            // Stable drawer head: "Edit profile" (KMP has no drawer — Settings leads with it).
+            // Stable drawer head: "Edit profile" leads, like the drawer's pills.
             TextButton(onClick = { model.openProfileEditor() }) { Text(L.t("Edit profile")) }
-            SettingsSection(L.t("Theme"))
-            VeltaThemeChoice.entries.forEach { c ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { model.onSetTheme(c) }
-                        .padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = model.themeChoice == c, onClick = { model.onSetTheme(c) })
-                    Text(
-                        when (c) {
-                            VeltaThemeChoice.Auto -> L.t("Auto")
-                            VeltaThemeChoice.Dark -> L.t("Dark")
-                            VeltaThemeChoice.Light -> L.t("Light")
-                            VeltaThemeChoice.Brutal -> L.t("Brutal")
-                        },
-                    )
-                }
-            }
-            // The web shows the AMOLED switch only while the effective theme
-            // is dark (ui.js:1406); visible-in-light would silently do nothing.
-            if (veltaEffectiveMode(model.themeChoice, amoled = false, systemDark = systemDark) == VeltaThemeMode.Dark) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { model.onSetAmoled(!model.amoled) }
-                        .padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = model.amoled, onCheckedChange = { model.onSetAmoled(it) })
-                    Text(L.t("Pure black (AMOLED)"))
-                }
-            }
-            SettingsSection(L.t("App icon"))
-            Column(Modifier.selectableGroup()) {
-                AppIconChoice.entries.forEach { c ->
+
+            // Stable drawer order (buildDrawer): each group is a collapsed
+            // <details> whose summary carries the current state.
+            SettingsDetails("Theme", themeLabel(model.themeChoice)) {
+                VeltaThemeChoice.entries.forEach { c ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .selectable(
-                                selected = model.appIconChoice == c,
-                                role = androidx.compose.ui.semantics.Role.RadioButton,
-                            ) { model.onSetAppIcon(c) }
-                            .padding(vertical = 6.dp),
+                            .clickable { model.onSetTheme(c) }
+                            .padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RadioButton(selected = model.appIconChoice == c, onClick = null)
-                        Image(
-                            painterResource(
-                                when (c) {
-                                    AppIconChoice.Default -> Res.drawable.icon_preview_default
-                                    AppIconChoice.Badge -> Res.drawable.icon_preview_badge
-                                    AppIconChoice.Classic -> Res.drawable.icon_preview_classic
-                                },
-                            ),
-                            contentDescription = null,
+                        RadioButton(selected = model.themeChoice == c, onClick = { model.onSetTheme(c) })
+                        Text(L.t(themeLabel(c)))
+                    }
+                }
+                // The web shows the AMOLED switch only while the effective theme
+                // is dark (ui.js:1406); visible-in-light would silently do nothing.
+                if (veltaEffectiveMode(model.themeChoice, amoled = false, systemDark = systemDark) == VeltaThemeMode.Dark) {
+                    SettingsToggleRow("Pure black (AMOLED)", model.amoled, model::onSetAmoled)
+                }
+            }
+            SettingsDetails("Language", L.LANGS.firstOrNull { it.first == model.lang }?.second ?: "English") {
+                L.LANGS.forEach { (code, nativeName) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { model.onSetLang(code) }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = model.lang == code, onClick = { model.onSetLang(code) })
+                        Text(nativeName)
+                    }
+                }
+                Text(
+                    L.t("Untranslated text stays in English."),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            SettingsDetails("Chat appearance") {
+                val fontPx = model.msgFont
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(L.t("Message text size"))
+                    Text(pxLabel(fontPx), color = Velta.tokens.textDim)
+                }
+                Slider(
+                    value = fontPx,
+                    onValueChange = { model.onSetMsgFont(it) },
+                    valueRange = 10f..22f,
+                    steps = 23,
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Message text size") },
+                )
+                val themeRadiusPx = Velta.tokens.radiusBubble.value.roundToInt()
+                val shownRadius = model.bubbleRadius ?: themeRadiusPx
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(L.t("Message corners"))
+                    Text("$shownRadius px", color = Velta.tokens.textDim)
+                }
+                Slider(
+                    value = shownRadius.toFloat(),
+                    onValueChange = { model.onSetBubbleRadius(it.roundToInt(), themeRadiusPx) },
+                    valueRange = 0f..14f,
+                    steps = 13,
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Message corners") },
+                )
+                SettingsSection(L.t("Accent color"))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Accent.PRESETS.forEach { preset ->
+                        val selected = model.accentHex == preset
+                        Box(
                             modifier = Modifier
-                                .padding(end = 12.dp)
-                                .size(48.dp),
-                        )
-                        Text(
-                            when (c) {
-                                AppIconChoice.Default -> L.t("Default")
-                                AppIconChoice.Badge -> L.t("K badge")
-                                AppIconChoice.Classic -> L.t("Classic KMP")
-                            },
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(preset?.let { Accent.toColor(it) } ?: Velta.tokens.accent)
+                                .border(
+                                    if (selected) 2.dp else 1.dp,
+                                    if (selected) Velta.tokens.text else Velta.tokens.border,
+                                    CircleShape,
+                                )
+                                .clickable { model.onSetAccent(preset) },
                         )
                     }
                 }
+                var custom by remember { mutableStateOf(model.accentHex ?: "") }
+                OutlinedTextField(
+                    value = custom,
+                    onValueChange = { v ->
+                        custom = v
+                        // Web <input type=color> applies on every change; the
+                        // normHex gate only lets valid #rgb/#rrggbb through.
+                        Accent.normHex(v)?.let { model.onSetAccent(it) }
+                    },
+                    label = { Text("#1fa69a") },
+                    singleLine = true,
+                    isError = custom.isNotBlank() && Accent.normHex(custom) == null,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                SettingsToggleRow("Hyphenate long words (English, Russian)", model.hyphensOn, model::onSetHyphens)
+                SettingsToggleRow("Stickers in attachments menu", model.stickersInAttach, model::onSetStickersInAttach)
+                if (glassComposerAvailable()) {
+                    SettingsToggleRow("Liquid glass composer", model.glassComposer, model::onSetGlassComposer)
+                }
+                // Stable ca-actions reset (ui.js [data-ca-reset]).
+                TextButton(onClick = { model.resetChatAppearance() }) { Text(L.t("Reset to defaults")) }
             }
-            SettingsHint(L.t("Some launchers take a moment to update the icon, or may close the app."))
-            SettingsSection(L.t("Accent color"))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Accent.PRESETS.forEach { preset ->
-                    val selected = model.accentHex == preset
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(preset?.let { Accent.toColor(it) } ?: Velta.tokens.accent)
-                            .border(
-                                if (selected) 2.dp else 1.dp,
-                                if (selected) Velta.tokens.text else Velta.tokens.border,
-                                CircleShape,
+            SettingsDetails("App icon", appIconLabel(model.appIconChoice)) {
+                Column(Modifier.selectableGroup()) {
+                    AppIconChoice.entries.forEach { c ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .selectable(
+                                    selected = model.appIconChoice == c,
+                                    role = androidx.compose.ui.semantics.Role.RadioButton,
+                                ) { model.onSetAppIcon(c) }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = model.appIconChoice == c, onClick = null)
+                            Image(
+                                painterResource(
+                                    when (c) {
+                                        AppIconChoice.Default -> Res.drawable.icon_preview_default
+                                        AppIconChoice.Badge -> Res.drawable.icon_preview_badge
+                                        AppIconChoice.Classic -> Res.drawable.icon_preview_classic
+                                    },
+                                ),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .padding(end = 12.dp)
+                                    .size(48.dp),
                             )
-                            .clickable { model.onSetAccent(preset) },
-                    )
-                }
-            }
-            var custom by remember { mutableStateOf(model.accentHex ?: "") }
-            OutlinedTextField(
-                value = custom,
-                onValueChange = { v ->
-                    custom = v
-                    // Web <input type=color> applies on every change; the
-                    // normHex gate only lets valid #rgb/#rrggbb through.
-                    Accent.normHex(v)?.let { model.onSetAccent(it) }
-                },
-                label = { Text("#1fa69a") },
-                singleLine = true,
-                isError = custom.isNotBlank() && Accent.normHex(custom) == null,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            )
-            SettingsSection(L.t("Chat appearance"))
-            val fontPx = model.msgFont
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(L.t("Message text size"))
-                Text(pxLabel(fontPx), color = Velta.tokens.textDim)
-            }
-            Slider(
-                value = fontPx,
-                onValueChange = { model.onSetMsgFont(it) },
-                valueRange = 10f..22f,
-                steps = 23,
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Message text size") },
-            )
-            val themeRadiusPx = Velta.tokens.radiusBubble.value.roundToInt()
-            val shownRadius = model.bubbleRadius ?: themeRadiusPx
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(L.t("Message corners"))
-                Text("$shownRadius px", color = Velta.tokens.textDim)
-            }
-            Slider(
-                value = shownRadius.toFloat(),
-                onValueChange = { model.onSetBubbleRadius(it.roundToInt(), themeRadiusPx) },
-                valueRange = 0f..14f,
-                steps = 13,
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = L.t("Message corners") },
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { model.onSetHyphens(!model.hyphensOn) }
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(checked = model.hyphensOn, onCheckedChange = { model.onSetHyphens(it) })
-                Text(L.t("Hyphenate long words (English, Russian)"))
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { model.onSetStickersInAttach(!model.stickersInAttach) }
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(checked = model.stickersInAttach, onCheckedChange = { model.onSetStickersInAttach(it) })
-                Text(L.t("Stickers in attachments menu"))
-            }
-            if (glassComposerAvailable()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { model.onSetGlassComposer(!model.glassComposer) }
-                        .padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = model.glassComposer, onCheckedChange = { model.onSetGlassComposer(it) })
-                    Text(L.t("Liquid glass composer"))
-                }
-            }
-            SettingsSection(L.t("Notifications"))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { model.onSetMentionInMuted(!model.mentionInMuted) }
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(checked = model.mentionInMuted, onCheckedChange = { model.onSetMentionInMuted(it) })
-                Text(L.t("Notify me when mentioned in muted chats"))
-            }
-            // Stable drawer "Use background connection" (Android only).
-            if (model.backgroundCapable) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { model.onSetBackgroundConnection(!model.backgroundConnection) }
-                        .padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = model.backgroundConnection, onCheckedChange = { model.onSetBackgroundConnection(it) })
-                    Text(L.t("Use background connection"))
-                }
-            }
-            // Stable drawer "Push notifications" (push-settings.js, Android only).
-            if (model.pushBridge != null) PushSettingsSection(model)
-            // Stable drawer "Auto-download limit" + "Text-only mode" (#358).
-            SettingsSection(L.t("Auto-download limit"))
-            SettingsRadios(DOWNLOAD_LIMIT_OPTIONS, model.downloadLimit) { model.onSetDownloadLimit(it) }
-            SettingsHint(L.t(DOWNLOAD_LIMIT_HINT))
-            SettingsSection(L.t("Text-only mode"))
-            SettingsRadios(TEXT_ONLY_OPTIONS, model.textOnlyMode) { model.onSetTextOnlyMode(it) }
-            SettingsHint(L.t(TEXT_ONLY_HINT))
-            SettingsSection(L.t("Invite link domains"))
-            model.inviteDomains().forEach { host ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(host, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (host !in AppModel.INVITE_HOSTS) {
-                        TextButton(onClick = { model.onRemoveInviteHost(host) }) {
-                            Text(L.t("Remove"))
+                            Text(L.t(appIconLabel(c)))
                         }
                     }
                 }
+                SettingsHint(L.t("Some launchers take a moment to update the icon, or may close the app."))
             }
-            var hostInput by remember { mutableStateOf("") }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value = hostInput,
-                    onValueChange = { hostInput = it },
-                    placeholder = { Text("mirror.example.org") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
-                    if (model.onAddInviteHost(hostInput)) hostInput = ""
-                    else model.showToast(L.t("Enter a plain hostname, e.g. mirror.example.org"))
-                }) { Text(L.t("Add")) }
-            }
-            SettingsSection(L.t("Language"))
-            L.LANGS.forEach { (code, nativeName) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { model.onSetLang(code) }
-                        .padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = model.lang == code, onClick = { model.onSetLang(code) })
-                    Text(nativeName)
+            SettingsDetails("Notifications") {
+                SettingsToggleRow("Notify me when mentioned in muted chats", model.mentionInMuted, model::onSetMentionInMuted)
+                // Stable drawer "Use background connection" (Android only).
+                if (model.backgroundCapable) {
+                    SettingsToggleRow("Use background connection", model.backgroundConnection, model::onSetBackgroundConnection)
                 }
             }
+            // Stable keeps push as its own top-level details (data-push-section).
+            if (model.pushBridge != null) {
+                SettingsDetails("Push notifications") { PushSettingsBody(model) }
+            }
+            // Stable drawer "Image quality" (#358 C): the core re-encodes on send.
+            SettingsDetails("Image quality") {
+                SettingsRadios(MEDIA_QUALITY_OPTIONS, model.mediaQuality) { model.onSetMediaQuality(it) }
+                SettingsHint(L.t(MEDIA_QUALITY_HINT))
+            }
+            // Stable drawer "Auto-download limit" + "Text-only mode" (#358).
+            SettingsDetails("Auto-download limit") {
+                SettingsRadios(DOWNLOAD_LIMIT_OPTIONS, model.downloadLimit) { model.onSetDownloadLimit(it) }
+                SettingsHint(L.t(DOWNLOAD_LIMIT_HINT))
+            }
+            SettingsDetails("Text-only mode", textOnlyLabel(model.textOnlyMode)) {
+                SettingsRadios(TEXT_ONLY_OPTIONS, model.textOnlyMode) { model.onSetTextOnlyMode(it) }
+                SettingsHint(L.t(TEXT_ONLY_HINT))
+            }
+            SettingsToggleRow("Strip tracking from links", model.stripTrackersOn, model::onSetStripTrackers)
+            SettingsToggleRow(
+                "Show and send read receipts",
+                model.readReceipts,
+                model::onSetReadReceipts,
+                sub = L.t("Off also stops seen-status sync between your own devices"),
+            )
+            SettingsDetails("Invite link domains") {
+                model.inviteDomains().forEach { host ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(host, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (host !in AppModel.INVITE_HOSTS) {
+                            TextButton(onClick = { model.onRemoveInviteHost(host) }) {
+                                Text(L.t("Remove"))
+                            }
+                        }
+                    }
+                }
+                var hostInput by remember { mutableStateOf("") }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = hostInput,
+                        onValueChange = { hostInput = it },
+                        placeholder = { Text("mirror.example.org") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        if (model.onAddInviteHost(hostInput)) hostInput = ""
+                        else model.showToast(L.t("Enter a plain hostname, e.g. mirror.example.org"))
+                    }) { Text(L.t("Add")) }
+                }
+            }
+            // Stable drawer-foot version row (.drawer-ver).
             Text(
-                L.t("Untranslated text stays in English."),
+                choiceSummary("Chatmail core", model.coreVersion),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
+                color = Velta.tokens.textDim,
+                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
             )
         }
     }
@@ -3030,10 +2995,9 @@ private fun SettingsScreen(model: AppModel) {
  *  radios + Off, or the ntfy link when none is installed, relay support,
  *  last push. Re-read on entry. */
 @Composable
-private fun PushSettingsSection(model: AppModel) {
+private fun PushSettingsBody(model: AppModel) {
     LaunchedEffect(Unit) { model.refreshPush() }
     val s = model.pushStatus ?: return
-    SettingsSection(L.t("Push notifications"))
     Text(
         describePushState(s) { L.t(it) },
         style = MaterialTheme.typography.bodyMedium,
@@ -3073,6 +3037,66 @@ private fun SettingsRadios(options: List<Pair<String, String>>, selected: String
 }
 
 @Composable
+/** Stable drawer <details class="drawer-details"> (main.css:1924): one
+ *  collapsed row "Label: state" with a chevron; content expands in place.
+ *  state=null renders the bare label (stable groups whose options carry
+ *  their own headings). */
+@Composable
+private fun SettingsDetails(label: String, state: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    val reduce = rememberReducedMotion()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(if (reduce) Modifier else Modifier.animateContentSize()),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { open = !open }
+                .padding(vertical = 10.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (state == null) L.t(label) else choiceSummary(label, state),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                VeltaIcons.chevronDown,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer { rotationZ = if (open) 180f else 0f },
+                tint = Velta.tokens.textDim,
+            )
+        }
+        if (open) Column(content = content)
+    }
+}
+
+/** Stable drawer ctx-item switch row; sub is the ctx-sub hint line. */
+@Composable
+private fun SettingsToggleRow(label: String, checked: Boolean, onSet: (Boolean) -> Unit, sub: String? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onSet(!checked) }
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(L.t(label), style = MaterialTheme.typography.bodyLarge)
+            if (sub != null) {
+                Text(sub, style = MaterialTheme.typography.bodySmall, color = Velta.tokens.textDim)
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onSet)
+    }
+}
+
 private fun SettingsHint(text: String) {
     Text(
         text,

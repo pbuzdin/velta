@@ -2,21 +2,29 @@ package org.velta.kmp
 
 import org.velta.kmp.core.MessageObject
 import org.velta.kmp.ui.DOWNLOAD_LIMIT_OPTIONS
+import org.velta.kmp.ui.L
+import org.velta.kmp.ui.MEDIA_QUALITY_OPTIONS
 import org.velta.kmp.ui.SheetAction
 import org.velta.kmp.ui.SheetContext
+import org.velta.kmp.ui.VeltaThemeChoice
+import org.velta.kmp.ui.choiceSummary
 import org.velta.kmp.ui.coversAttachment
 import org.velta.kmp.ui.downloadCardName
 import org.velta.kmp.ui.downloadCardSub
 import org.velta.kmp.ui.downloadLimitToast
 import org.velta.kmp.ui.hiddenKindLabel
+import org.velta.kmp.ui.mediaQualityToast
 import org.velta.kmp.ui.messageSheetActions
 import org.velta.kmp.ui.needsDownloadCard
 import org.velta.kmp.ui.revealActionLabel
 import org.velta.kmp.ui.revealKey
 import org.velta.kmp.ui.savedDownloadLimit
+import org.velta.kmp.ui.savedMediaQuality
 import org.velta.kmp.ui.textOnlyLabel
 import org.velta.kmp.ui.textOnlyModeOf
 import org.velta.kmp.ui.textOnlyStored
+import org.velta.kmp.ui.themeLabel
+import org.velta.kmp.ui.toggleSummary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -91,5 +99,27 @@ class MediaGateRulesTest {
         val sticker = photo().copy(viewType = "Sticker")
         assertTrue(SheetAction.SaveSticker in messageSheetActions(sticker, SheetContext()))
         assertFalse(SheetAction.SaveSticker in messageSheetActions(sticker, SheetContext(covered = true)))
+    }
+
+    @Test fun imageQualityOptionsAndToasts() {
+        assertEquals(listOf("0", "1"), MEDIA_QUALITY_OPTIONS.map { it.first })
+        assertEquals("0", savedMediaQuality(null))
+        assertEquals("0", savedMediaQuality("junk"))
+        assertEquals("1", savedMediaQuality("1"))
+        assertEquals("Image quality: Compact", mediaQualityToast("1"))
+        assertEquals("Image quality: Standard", mediaQualityToast("0"))
+    }
+
+    @Test fun summaryStringsUseTheStateTemplate() {
+        // ui.js toggleText: "{label}: {state}" with on/off translated.
+        assertEquals("Strip tracking from links: off", toggleSummary("Strip tracking from links", on = false))
+        assertEquals("Theme: Brutal", choiceSummary("Theme", "Brutal"))
+        L.lang = "ru"
+        try {
+            assertEquals("Тема: Тёмная", choiceSummary("Theme", themeLabel(VeltaThemeChoice.Dark)))
+            assertEquals("Убирать следжу из ссылок: вкл", toggleSummary("Strip tracking from links", on = true))
+        } finally {
+            L.lang = "en"
+        }
     }
 }

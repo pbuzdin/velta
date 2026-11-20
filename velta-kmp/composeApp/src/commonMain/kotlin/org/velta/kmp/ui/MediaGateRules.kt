@@ -37,6 +37,39 @@ fun savedDownloadLimit(raw: String?): Pair<String, Boolean> {
 fun downloadLimitToast(value: String): String =
     if (value == "0") "Auto-download limit: none" else "Auto-download limit set"
 
+/** Stable drawer "Image quality" (#358 C): app.js `velta-media-quality`,
+ *  mirrored into each account's core `media_quality` (the core re-encodes
+ *  large photos on send). */
+const val MEDIA_QUALITY_KEY = "velta-media-quality"
+val MEDIA_QUALITY_OPTIONS: List<Pair<String, String>> = listOf(
+    "0" to "Standard (compress to 940 KB)",
+    "1" to "Compact (compress to 130 KB)",
+)
+const val MEDIA_QUALITY_HINT = "Large photos only — smaller images are sent unchanged."
+
+/** app.js savedMediaQuality: anything but "1" → "0". */
+fun savedMediaQuality(raw: String?): String = if (raw == "1") "1" else "0"
+
+/** Stable toast after a change (app.js onMediaQuality). */
+fun mediaQualityToast(value: String): String =
+    if (value == "1") "Image quality: Compact" else "Image quality: Standard"
+
+/** Stable drawer rows (ui.js): state text is "{label}: {state}", label and
+ *  state both translated ("Theme: Dark", "Strip tracking from links: on"). */
+fun choiceSummary(label: String, state: String): String =
+    L.t("{label}: {state}")
+        .replace("{label}", L.t(label))
+        .replace("{state}", L.t(state))
+
+fun toggleSummary(label: String, on: Boolean): String =
+    choiceSummary(label, if (on) "on" else "off")
+
+/** trackers.js `velta-strip-trackers`: default on, "0" = off. */
+const val STRIP_TRACKERS_KEY = "velta-strip-trackers"
+
+/** app.js `velta-mdns` read receipts: default on, stored as "1"/"0". */
+const val MDNS_KEY = "velta-mdns"
+
 /** Text-only mode: "unknown" (default, stores nothing) | "off" | "all". */
 const val TEXT_ONLY_KEY = "velta-text-only"
 val TEXT_ONLY_OPTIONS: List<Pair<String, String>> = listOf(

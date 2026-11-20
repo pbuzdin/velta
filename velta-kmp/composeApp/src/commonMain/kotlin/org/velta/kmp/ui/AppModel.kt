@@ -194,9 +194,16 @@ class AppModel(
     )
         private set
 
-    private suspend fun syncDownloadLimit(veltaCore: VeltaCore, id: Long) {
+    /** Per-account mirror of the device-global prefs the web boot-syncs
+     *  into the core (app.js rebuildDrawer boot sync): download_limit,
+     *  media_quality, mdns_enabled. */
+    private suspend fun syncPerAccountPrefs(veltaCore: VeltaCore, id: Long) {
         runCatching { veltaCore.setConfig(id, "download_limit", downloadLimit) }
             .onFailure { println("velta-kmp: download_limit sync failed: $it") }
+        runCatching { veltaCore.setConfig(id, "media_quality", mediaQuality) }
+            .onFailure { println("velta-kmp: media_quality sync failed: $it") }
+        runCatching { veltaCore.setConfig(id, "mdns_enabled", if (readReceipts) "1" else "0") }
+            .onFailure { println("velta-kmp: mdns_enabled sync failed: $it") }
     }
 
     fun onSetDownloadLimit(value: String) {
@@ -232,6 +239,59 @@ class AppModel(
         platform.setPref(TEXT_ONLY_KEY, textOnlyStored(m))
         revealedMedia = emptySet()
         showToast(L.t("Text-only mode: {state}").replace("{state}", L.t(textOnlyLabel(m))))
+    }
+
+    // ── Stable drawer toggles: image quality (#358 C), read receipts, strip trackers ──
+
+    /** Image quality: device-global pref mirrored into the account's core
+     *  `media_quality` like downloadLimit (the core re-encodes on send). */
+    var mediaQuality by mutableStateOf(savedMediaQuality(platform.pref(MEDIA_QUALITY_KEY)))
+        private set
+
+    /** Stable `velta-mdns`: stored "1"/"0", absent (or anything else) = on. */
+    var readReceipts by mutableStateOf(platform.pref(MDNS_KEY) != "0")
+        private set
+
+    /** trackers.js: default on, "0" = off. Feeds MessageSheet's strip flag. */
+    var stripTrackersOn by mutableStateOf(platform.pref(STRIP_TRACKERS_KEY) != "0")
+        private set
+
+    fun onSetMediaQuality(value: String) {
+        if (value == mediaQuality || MEDIA_QUALITY_OPTIONS.none { it.first == value }) return
+        val previous = mediaQuality
+        mediaQuality = value
+        platform.setPref(MEDIA_QUALITY_KEY, value)
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            try {
+                veltaCore.setConfig(id, "media_quality", value)
+                showToast(L.t(mediaQualityToast(value)))
+            } catch (t: Throwable) {
+                mediaQuality = previous
+                platform.setPref(MEDIA_QUALITY_KEY, previous)
+                showToast(L.t("Couldn't save image quality: ") + (t.message ?: t.toString()))
+            }
+        }
+    }
+
+    fun onSetReadReceipts(on: Boolean) {
+        if (on == readReceipts) return
+        readReceipts = on
+        platform.setPref(MDNS_KEY, if (on) "1" else "0")
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        scope.launch {
+            runCatching { veltaCore.setConfig(id, "mdns_enabled", if (on) "1" else "0") }
+                .onFailure { println("velta-kmp: mdns_enabled sync failed: $it") }
+        }
+    }
+
+    fun onSetStripTrackers(on: Boolean) {
+        if (on == stripTrackersOn) return
+        stripTrackersOn = on
+        platform.setPref(STRIP_TRACKERS_KEY, if (on) null else "0")
+        showToast(L.t(toggleSummary("Strip tracking from links", on)))
     }
 
     /** Text-only mode hides this message's attachment right now. */
@@ -2029,7 +2089,7 @@ class AppModel(
         if (account != null) {
             accountId = account.id
             accountAddr = account.addr
-            syncDownloadLimit(veltaCore, account.id)
+            syncPerAccountPrefs(veltaCore, account.id)
             // Write the choice back (the fallback may not be the core's
             // selected id) and arm mail. A failure must not hide the local list.
             runCatching { veltaCore.selectAccount(account.id) }
@@ -2298,7 +2358,7 @@ class AppModel(
         }
         accountId = id
         unconfiguredAccountId = null
-        syncDownloadLimit(veltaCore, id)
+        syncPerAccountPrefs(veltaCore, id)
         return id
     }
 
@@ -2599,7 +2659,7 @@ class AppModel(
                     ?: veltaCore.addAccount()
                 accountId = id
                 unconfiguredAccountId = null
-                syncDownloadLimit(veltaCore, id)
+                syncPerAccountPrefs(veltaCore, id)
                 veltaCore.addTransport(id, addr.trim(), password)
                 status = "configuring"
                 veltaCore.configure(id)
@@ -3386,7 +3446,7 @@ class AppModel(
         } catch (t: Throwable) {
             println("velta-kmp: accountInfo failed: $t")
         }
-        syncDownloadLimit(veltaCore, id)
+        syncPerAccountPrefs(veltaCore, id)
         loadChats()
         screen = Screen.ChatList
     }
@@ -4431,9 +4491,6 @@ class AppModel(
     }
 
     fun canDeleteForAllIds(ids: List<Long>): Boolean = canDeleteForAll(sheetChat, ids.map { msgById(it) })
-
-    /** Tracking-param stripping (stable trackers.js; default on). */
-    val stripTrackers: Boolean get() = platform.pref("velta-strip-trackers") != "0"
 
     /** Own-reaction toggle with optimistic chips (stable _toggleReaction). */
     fun react(message: MessageObject, emoji: String) {
@@ -5545,6 +5602,23 @@ class AppModel(
     fun onSetTheme(c: VeltaThemeChoice) {
         themeChoice = c
         platform.setPref("dw-theme", c.name.lowercase())
+        // Stable: summary + toast share the string ("Theme: Dark").
+        showToast(L.t(choiceSummary("Theme", themeLabel(c))))
+    }
+
+    /** Stable chat-appearance reset (ui.js `[data-ca-reset]`): clear the
+     *  stored appearance keys, re-apply the defaults, toast. */
+    fun resetChatAppearance() {
+        msgFont = clampMsgFont(null as String?)
+        bubbleRadius = storedBubbleRadius(null)
+        hyphensOn = true
+        glassComposer = false
+        stickersInAttach = stickersInAttachPref(null)
+        accentHex = null
+        for (key in listOf("velta-msg-font-size", "velta-bubble-radius", "velta-hyphens", "velta-glass-composer", "velta-stickers-in-attach", "velta-accent")) {
+            platform.setPref(key, null)
+        }
+        showToast(L.t("Chat appearance reset"))
     }
 
     fun onSetAmoled(on: Boolean) {
