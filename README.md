@@ -113,7 +113,7 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
   default on). Small groups (up to 10 members) list everyone on a bare `@`;
   bigger groups start listing after the first letter.
   Details: [docs/mentions.md](docs/mentions.md).
-- **Send later** — long-press or right-click Send, press Ctrl+Shift+Enter, or pick it in the attach menu to schedule a
+- **Send later** — the Send later button beside Send (desktop), long-press or right-click Send, press Ctrl+Shift+Enter, or pick it in the attach menu to schedule a
   message: presets or a date and time. Scheduled messages show as a chip in
   the chat and in a per-chat and global list, where you can edit, send now,
   or delete them. Android uses exact alarms when allowed and still sends on
@@ -548,7 +548,7 @@ The drawer's **Profile management…** modal has four tabs, plus a
 **"Sync only active profile"** switch above them: when enabled, only the
 profile you are currently using syncs mail — other profiles won't receive
 messages until you switch to them (saves battery when you keep several
-profiles around). It opens from two places: the **Accounts** popover in the
+profiles around). It opens from two places: the **Profiles** popover in the
 drawer head (the row under your profile list) and the **Profile
 management…** row in the settings list.
 

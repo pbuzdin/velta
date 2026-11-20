@@ -1077,6 +1077,13 @@ this in #379: every domain tab draws the branded square; see the
   the branded square; the copied link stays the canonical
   `https://i.delta.chat/#…` URL. Backup-transfer QR is unchanged.
 
+- **Loop drawer row** (#416): the Loop row aligns with the other drawer
+  rows; the sync notification shows no time.
+- **Settings accordion** (#420): settings sections render as
+  stable-style accordion summaries. `versionName` is 0.9.1 on the test
+  build (run 44671380103). The drawer pill and screen title read
+  "Profiles" (web parity, 825d547b).
+
 **Still open:** webxdc, N4 release signing, #323–#328 fidelity
 follow-ups, relay-side UnifiedPush delivery, ktlint/detekt. CI native-lib
 cache is #369 (see `docs/agents/release-ci.md`).
