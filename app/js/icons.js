@@ -126,6 +126,8 @@ export const P = {
   qr: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3M21 14v3M14 18v3M18 21h3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   chatLines: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
+  // composer "Commands" quick tool: slash in a keycap — "/ to insert a command
+  cmdSlash: '<rect x="3" y="3" width="18" height="18" rx="5"/><path d="M15.5 8l-7 8"/>',
   dotsVerticalLg: '<circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.8" fill="currentColor" stroke="none"/>',
   attach: '<path d="M21 12.5l-8.5 8.5a5.5 5.5 0 01-7.8-7.8l9.2-9.2a3.7 3.7 0 015.2 5.2l-9 9a1.85 1.85 0 01-2.6-2.6l8.3-8.3"/>',
   sticker: '<path d="M11.5 20H6a2 2 0 01-2-2V6a2 2 0 012-2h12a2 2 0 012 2v6.5L11.5 20Z"/><path d="M13 20a7 7 0 017-7"/><circle cx="8.7" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="15.3" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><path d="M8.5 13.4a4.2 4.2 0 007 0"/>',

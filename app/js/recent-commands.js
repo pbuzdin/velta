@@ -28,11 +28,13 @@ function save(obj) {
   try { globalThis.localStorage?.setItem(KEY, JSON.stringify(obj)); } catch { /* unavailable */ }
 }
 
-// Normalize sent text to a command, or null when it isn't one.
+// Normalize sent text to a command, or null when it isn't one. Only the
+// bare command token is kept.
 export function commandFromText(text) {
   const line = String(text ?? "").split(/\r?\n/, 1)[0].trim();
   if (!line.startsWith("/") || line.length < 2 || /^\/\s/.test(line)) return null;
-  return line.slice(0, MAX_LEN).trimEnd();
+  // Suggestions re-insert the bare command — never an old send's arguments.
+  return line.split(/\s/, 1)[0].slice(0, MAX_LEN);
 }
 
 const push = (list, cmd) => [cmd, ...(Array.isArray(list) ? list : []).filter(c => c !== cmd)].slice(0, MAX);

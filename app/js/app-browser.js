@@ -17,6 +17,12 @@ export const APPS_KEY = "velta-recent-apps";
 export const MIRRORS_KEY = "velta-xdc-mirrors";
 export const MIRROR_OK_KEY = "velta-xdc-mirror-ok";
 export const DEFAULT_MIRROR = "https://apps.testrun.org";
+// Built-in mirrors tried after the default (xdcget catalogs, normalized
+// URLs). Never stored, no Remove button — anything else stays user-added.
+// velta.cc/apps is our own static mirror of the default (apps/sync.py on
+// the website branch); fresher-than-gluek fallback when upstream is down.
+export const DEFAULT_MIRRORS = [DEFAULT_MIRROR, "https://velta.cc/apps", "https://chat.gluek.info/apps"];
+export const isDefaultMirror = (m) => DEFAULT_MIRRORS.includes(m);
 export const MAX_APPS = 10;
 export const MAX_MIRRORS = 8;
 export const MAX_APP_BYTES = 32 * 1024 * 1024;
@@ -66,7 +72,7 @@ function readExtras() {
   const out = [];
   for (const m of v) {
     const n = normalizeMirror(m);
-    if (n && n !== DEFAULT_MIRROR && !out.includes(n)) out.push(n);
+    if (n && !isDefaultMirror(n) && !out.includes(n)) out.push(n);
   }
   return out.slice(0, MAX_MIRRORS);
 }
@@ -83,7 +89,7 @@ function writeOk(v) {
 export function extraMirrors() { return readExtras(); }
 
 export function mirrorList() {
-  const all = [DEFAULT_MIRROR];
+  const all = [...DEFAULT_MIRRORS];
   for (const m of readExtras()) if (!all.includes(m)) all.push(m);
   const ok = normalizeMirror(readOk());
   if (ok && all.includes(ok)) return [ok, ...all.filter(m => m !== ok)];
@@ -93,7 +99,7 @@ export function mirrorList() {
 export function addMirror(raw) {
   const n = normalizeMirror(raw);
   if (!n) return null;
-  if (n === DEFAULT_MIRROR) return n;
+  if (isDefaultMirror(n)) return n;
   const cur = readExtras();
   if (cur.includes(n)) return n;
   if (cur.length >= MAX_MIRRORS) return null;
@@ -103,7 +109,7 @@ export function addMirror(raw) {
 
 export function removeMirror(raw) {
   const n = normalizeMirror(raw);
-  if (!n || n === DEFAULT_MIRROR) return;
+  if (!n || isDefaultMirror(n)) return;
   writeJson(MIRRORS_KEY, readExtras().filter(m => m !== n));
   if (normalizeMirror(readOk()) === n) writeOk("");
 }
@@ -312,7 +318,7 @@ export function openAppBrowser({ showModal, toast, alive, getBytes, sendApp }) {
       const span = document.createElement("span");
       span.textContent = m;
       row.append(span);
-      if (m !== DEFAULT_MIRROR) {
+      if (!isDefaultMirror(m)) {
         const rm = document.createElement("button");
         rm.type = "button";
         rm.className = "btn-text";
@@ -373,7 +379,7 @@ export function openAppBrowser({ showModal, toast, alive, getBytes, sendApp }) {
     e.preventDefault();
     const n = normalizeMirror(input.value);
     if (!n) { toast(t("Enter an http(s) mirror URL"), 3000, { danger: true }); return; }
-    if (n !== DEFAULT_MIRROR && !extraMirrors().includes(n) && extraMirrors().length >= MAX_MIRRORS) {
+    if (!isDefaultMirror(n) && !extraMirrors().includes(n) && extraMirrors().length >= MAX_MIRRORS) {
       toast(t("Mirror list is full"), 3000, { danger: true });
       return;
     }

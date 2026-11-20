@@ -1590,19 +1590,63 @@ button.reaction-chip { font: inherit; color: inherit; }
   width: 100%;
 }
 /* Expanded composer (both skins): the field spans the full row and the
-   attach/send buttons drop to their own row below. Sticker stays tucked in
-   the field's edge and only exists while the field is empty. */
+   tools drop to their own row below — attach cluster left, send cluster
+   right, empty `mid` between. Sticker stays tucked in the field's edge and
+   only exists while the field is empty. */
 .composer.expanded {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas: "wrap wrap wrap" "attach mid send";
+  grid-template-columns: auto auto auto 1fr auto auto;
+  grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
 }
 .composer.expanded .composer-input-wrap { grid-area: wrap; }
 .composer.expanded #btn-attach { grid-area: attach; }
+.composer.expanded #btn-apps { grid-area: apps; }
+.composer.expanded #btn-commands { grid-area: cmds; }
+.composer.expanded #btn-send-later { grid-area: slater; }
 .composer.expanded #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
-.composer.expanded > .icon-btn { animation: composer-drop .18s ease-out; }
+/* Desktop-only quick tools (Apps/Commands/Send later): phones keep them in
+   the attach menu — the rest row has no room for six buttons. Captioned
+   pills must out-rank `#main-composer .icon-btn`'s fixed 48px box. */
+.desktop-tool { display: none; }
+.desktop-tool[hidden] { display: none; }
+#main-composer .icon-btn.desktop-tool[hidden] { display: none; }
+@media (min-width: 600px) {
+  #main-composer .icon-btn.desktop-tool {
+    display: grid;
+    width: auto;
+    height: 48px;
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 7px;
+    padding: 0 14px 0 10px;
+    border-radius: 24px;
+  }
+}
+#main-composer .icon-btn.desktop-tool .tool-caption {
+  font-size: 13px; line-height: 1; white-space: nowrap; color: inherit;
+}
+/* The drop only animates where the buttons actually move (under the desktop
+   width). On desktop the grid below is permanent, so nothing ever moves. */
+@media (max-width: 599.98px) {
+  .composer.expanded > .icon-btn { animation: composer-drop .18s ease-out; }
+}
 @keyframes composer-drop {
   from { opacity: 0; transform: translateY(-4px); }
+}
+/* Desktop: always expanded — send lives in one spot, typing never reflows
+   the tools. Mirrors .composer.expanded above; keep the two in sync. */
+@media (min-width: 600px) {
+  #main-composer.composer {
+    display: grid;
+    grid-template-columns: auto auto auto 1fr auto auto;
+    grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
+  }
+  #main-composer .composer-input-wrap { grid-area: wrap; }
+  #main-composer #btn-attach { grid-area: attach; }
+  #main-composer #btn-apps { grid-area: apps; }
+  #main-composer #btn-commands { grid-area: cmds; }
+  #main-composer #btn-send-later { grid-area: slater; }
+  #main-composer #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
 }
 /* Lens plate. The list scrolls underneath; at rest the last row sits
    above it (padding), and a drag carries bubbles through the curve.
@@ -1747,6 +1791,12 @@ button.reaction-chip { font: inherit; color: inherit; }
 .sticker-emoji { font-size: 96px; line-height: 1; padding: 6px 10px; }
 .send-btn { color: var(--accent-text); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
+/* Armed send: accent fill while there's text to send — the same
+   accent/--on-accent pairing as the primary buttons, AA on every theme. */
+#main-composer.has-text .send-btn:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 /* Composer buttons sized to the input line (bottom-aligned like the input,
    no extra offset — a 48px button centers its icon on the text line), with
    icons a notch larger than the generic 24px. */
@@ -2519,8 +2569,14 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 @media (prefers-reduced-motion: reduce) { #bar-menu.update { animation: none; } }
 
 /* attach pop reuses ctx-menu; Apps / Commands disclosures (#137) */
-.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); overflow: auto; }
-.attach-sub { max-height: 220px; overflow: auto; }
+/* The [popover] base sets overflow: visible at (0,2,0), which beat this
+   class — details content spilled past the height cap with no scrollbar.
+   Re-own scrolling at popover specificity; one scrollbar on the menu, the
+   details sub-lists flow into it. scrollbar-gutter keeps rows from jumping
+   sideways when the bar appears. */
+.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); }
+.ctx-menu.attach-pop[popover] { overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+.attach-sub { min-width: 0; }
 .attach-sub .ctx-item { min-width: 0; }
 .attach-sub .ctx-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attach-empty { padding: 2px 12px 8px; color: var(--text-dim); font-size: 13px; }
@@ -2534,8 +2590,19 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .app-row small { display: block; color: var(--text-dim); font-size: 13px; margin-top: 2px; }
 .mirror-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .mirror-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-.mirror-add { display: flex; gap: 8px; align-items: center; }
+/* Inline field+button row: the button stretches to the field's height and
+   centers its label — first such pairing in the app, so the row sets the
+   pattern (each component keeps its own token radius). */
+.mirror-add { display: flex; gap: 8px; align-items: stretch; }
 .mirror-add .text-field { flex: 1; }
+.mirror-add .btn-text { display: grid; place-items: center; }
+/* Catalog-mirrors section: the details content carries no inset of its own —
+   align hint, rows and the add form with the summary row and let them breathe. */
+.app-browser .drawer-details[open] { padding-bottom: 6px; }
+.app-browser .drawer-details .pm-hint { margin: 4px 12px 10px; font-size: 13px; line-height: 1.45; }
+.app-browser .drawer-details .mirror-row { padding: 4px 12px; }
+.app-browser .drawer-details .mirror-row + .mirror-row { border-top: 1px solid var(--border); }
+.app-browser .drawer-details .mirror-add { margin: 10px 12px 2px; }
 
 /* toasts — bar anchored above the composer / bottom action bar
    (same edge the modals respect); z-index 80 keeps it visible over

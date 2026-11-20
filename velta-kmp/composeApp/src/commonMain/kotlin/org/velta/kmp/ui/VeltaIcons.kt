@@ -3282,6 +3282,46 @@ object VeltaIcons {
         }.build()
     }
 
+    /** app/js/icons.js P.cmdSlash — house style: 24 grid, stroke 2, round caps. */
+    val cmdSlash: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "VeltaIcons.CmdSlash",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathData {
+        moveTo(8.0f, 3.0f)
+        horizontalLineTo(16.0f)
+        arcTo(5.0f, 5.0f, 0.0f, false, true, 21.0f, 8.0f)
+        verticalLineTo(16.0f)
+        arcTo(5.0f, 5.0f, 0.0f, false, true, 16.0f, 21.0f)
+        horizontalLineTo(8.0f)
+        arcTo(5.0f, 5.0f, 0.0f, false, true, 3.0f, 16.0f)
+        verticalLineTo(8.0f)
+        arcTo(5.0f, 5.0f, 0.0f, false, true, 8.0f, 3.0f)
+        close()
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                pathData = PathData {
+        moveTo(15.5f, 8.0f)
+        lineToRelative(-7.0f, 8.0f)
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     /** app/js/icons.js P.dotsVerticalLg — house style: 24 grid, stroke 2, round caps. */
     val dotsVerticalLg: ImageVector by lazy {
         ImageVector.Builder(

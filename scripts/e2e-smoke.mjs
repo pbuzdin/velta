@@ -75,6 +75,7 @@ try {
   assert.ok(h > 55 && h <= 95, `field capped at three lines, clientHeight ${h}`)
   await page.locator('#composer-input').fill('')
   assert.deepEqual(await state(), { display: 'flex', expanded: false, hasText: false }, 'clear: collapsed again')
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('btn-apps')).display), 'none', 'phone: quick tools stay in the attach menu')
   await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth > 0, { timeout: 2000 })
 
   // Touch: focus alone expands, blur collapses (no text needed either way).
@@ -98,6 +99,49 @@ try {
   assert.deepEqual(touchErrors, [])
   await touch.close()
   console.log('OK: expanding composer — rest/typing/clear + touch focus/blur')
+
+  // Desktop (≥600px): always expanded — grid at rest, send pinned to one
+  // spot through typing/clearing; send fills accent only while armed.
+  const desk = await browser.newPage({ viewport: { width: 1000, height: 800 } })
+  desk.on('pageerror', e => errors.push(e.message))
+  await desk.addInitScript(() => localStorage.setItem('velta-mock', '1'))
+  await desk.goto(`http://127.0.0.1:${server.address().port}/index.html`)
+  await desk.locator('.chat-item', { hasText: 'Ada Byron' }).first().click({ timeout: 15000 })
+  await desk.locator('#chat-view').waitFor({ state: 'visible' })
+  assert.equal(await desk.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'grid', 'desktop: expanded at rest')
+  const sendRect = () => desk.evaluate(() => { const r = document.getElementById('btn-send').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)] })
+  const restPos = await sendRect()
+  const restFill = await desk.evaluate(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor)
+  await desk.locator('#composer-input').fill('desktop always expanded')
+  assert.deepEqual(await sendRect(), restPos, 'desktop: send does not move while typing')
+  // The .15s background transition stalls in an occluded pane — wait it out.
+  await desk.waitForFunction(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor !== 'rgba(0, 0, 0, 0)', undefined, { timeout: 2000 })
+  const armedFill = await desk.evaluate(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor)
+  assert.notEqual(armedFill, restFill, 'desktop: send fills accent while there is text')
+  await desk.locator('#composer-input').fill('')
+  assert.deepEqual(await sendRect(), restPos, 'desktop: send does not move on clear')
+  await desk.waitForFunction(v => getComputedStyle(document.getElementById('btn-send')).backgroundColor === v, restFill, { timeout: 2000 })
+  // Quick tools: Apps/Commands beside Attach, Send later beside Send.
+  assert.equal(await desk.evaluate(() => getComputedStyle(document.getElementById('btn-apps')).display), 'grid', 'desktop: quick tools visible')
+  assert.equal(await desk.evaluate(() => document.getElementById('btn-send-later').hidden), false, 'desktop: Send later shown in a normal chat')
+  await desk.locator('#btn-apps').click()
+  await desk.locator('.ctx-menu').waitFor({ state: 'visible', timeout: 2000 })
+  // Attach menu: the [popover] base must not win overflow back — with both
+  // details open the menu scrolls inside its box instead of spilling.
+  await desk.evaluate(() => document.getElementById('btn-attach').click())
+  await desk.locator('.attach-pop').waitFor({ state: 'visible', timeout: 2000 })
+  await desk.evaluate(() => { for (const d of document.querySelectorAll('.attach-pop details')) d.open = true })
+  const over = await desk.evaluate(() => {
+    const m = document.querySelector('.attach-pop')
+    const r = m.getBoundingClientRect()
+    return { y: getComputedStyle(m).overflowY, fits: r.top >= 0 && r.bottom <= innerHeight, scrollable: m.scrollHeight >= m.clientHeight }
+  })
+  assert.equal(over.y, 'auto', 'attach menu: popup overflow owned by the menu')
+  assert.ok(over.fits, 'attach menu: stays inside the viewport with details open')
+  await desk.close()
+  console.log('OK: desktop composer — always expanded, pinned send, armed fill, quick tools')
+  await desk.close()
+  console.log('OK: desktop composer — always expanded, pinned send, armed fill')
 } finally {
   await browser.close()
   server.close()

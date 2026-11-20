@@ -10,6 +10,7 @@ import { formatSplashVersion } from "./format.js";
 import { searchEmoji } from "./emoji.js";
 import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
 import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
+import { parseColor, rgbToHsl, nameColor } from "./name-color.js";
 import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
@@ -1277,6 +1278,8 @@ export function chatAppearanceHtml() {
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-stickers-in-attach${localStorage.getItem("velta-stickers-in-attach") === "1" ? " checked" : ""}><span>${escapeHtml(t("Stickers in attachments menu"))}</span></label>
           ${glassComposerAvailable() ? `<label class="scale-opt"><input type="checkbox" role="switch" data-glass-composer${localStorage.getItem("velta-glass-composer") === "1" ? " checked" : ""}><span>${escapeHtml(t("Liquid glass composer"))}</span></label>` : ""}
+          <label class="scale-opt"><input type="checkbox" role="switch" data-send-later${localStorage.getItem("velta-send-later") === "0" ? "" : " checked"}><span>${escapeHtml(t("Send later"))}</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-commands-button${localStorage.getItem("velta-cmds-button") === "0" ? "" : " checked"}><span>${escapeHtml(t("Commands button"))}</span></label>
           <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
@@ -1346,6 +1349,15 @@ export function wireChatAppearance(root, { onChange } = {}) {
     try { localStorage.setItem("velta-glass-composer", e.target.checked ? "1" : "0"); } catch {}
     window.dispatchEvent(new Event("velta-glass-pref"));
   });
+  // Send later feature + Commands quick button: chat-view listens for this.
+  sec.querySelector("[data-send-later]")?.addEventListener("change", e => {
+    try { if (e.target.checked) localStorage.removeItem("velta-send-later"); else localStorage.setItem("velta-send-later", "0"); } catch {}
+    window.dispatchEvent(new Event("velta-composer-pref"));
+  });
+  sec.querySelector("[data-commands-button]")?.addEventListener("change", e => {
+    try { if (e.target.checked) localStorage.removeItem("velta-cmds-button"); else localStorage.setItem("velta-cmds-button", "0"); } catch {}
+    window.dispatchEvent(new Event("velta-composer-pref"));
+  });
   sec.querySelector("[data-ca-reset]").addEventListener("click", () => {
     const st = A.apply(A.reset());
     sync(st);
@@ -1380,8 +1392,8 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         <div class="drawer-links">
           <button type="button" data-act="edit-profile">${t("Edit profile")}</button>
           <details class="acct-switch" data-acct-switch>
-            <summary data-act="switch-account">Accounts${ICON.chevronDown}</summary>
-            <div class="acct-pop" role="group" aria-label="Accounts" data-i18n-aria="Accounts">
+            <summary data-act="switch-account">Profiles${ICON.chevronDown}</summary>
+            <div class="acct-pop" role="group" aria-label="Profiles" data-i18n-aria="Profiles">
             ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"${a.id === currentAccountId ? ' aria-current="true"' : ""}>${svg(P.profile + (a.id === currentAccountId ? P.checkInner : ""))}<span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
             <div class="ctx-sep"></div>
             <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
@@ -1528,9 +1540,19 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       ${inTauri ? `<div class="drawer-ver"><span>Tauri</span><span data-v="tauri">…</span></div>` : ""}
       ${inTauri ? "" : `<div class="drawer-ver"><span>${t("Service worker")}</span><span data-v="sw">…</span></div>`}
     </div>`;
+  // Fingerprint header: rotate the classic header gradient to the active
+  // profile's hue pair (from its color, else the name fingerprint).
+  // Lightness pinned at 30%/33% — the worst hue keeps the #f4f4f4 ink at
+  // 4.79:1 (swept 0..360; the old static pins would have dipped to 4.22).
+  const head = drawer.querySelector(".drawer-head");
+  if (head) {
+    const rgb = parseColor(account.color) || parseColor(nameColor(account.displayName));
+    const [h] = rgb ? rgbToHsl(rgb) : [215];
+    head.style.background = `linear-gradient(135deg, hsl(${Math.round(h)} 45% 30%), hsl(${Math.round((h + 40) % 360)} 30% 33%))`;
+  }
   translateTree(drawer);
   const acctLabel = drawer.querySelector("[data-act=switch-account]");
-  if (acctLabel?.firstChild?.nodeType === 3) acctLabel.firstChild.nodeValue = t("Accounts");
+  if (acctLabel?.firstChild?.nodeType === 3) acctLabel.firstChild.nodeValue = t("Profiles");
   document.body.appendChild(drawer);
   // #140: Android push section fills itself on open (push-settings.js).
   const pushSec = drawer.querySelector("[data-push-section]");
