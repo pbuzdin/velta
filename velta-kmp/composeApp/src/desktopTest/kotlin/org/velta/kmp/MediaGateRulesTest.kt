@@ -117,7 +117,7 @@ class MediaGateRulesTest {
         L.lang = "ru"
         try {
             assertEquals("Тема: Тёмная", choiceSummary("Theme", themeLabel(VeltaThemeChoice.Dark)))
-            assertEquals("Убирать следжу из ссылок: вкл", toggleSummary("Strip tracking from links", on = true))
+            assertEquals("Убирать следку из ссылок: вкл", toggleSummary("Strip tracking from links", on = true))
         } finally {
             L.lang = "en"
         }
