@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // group-call-signal.js — signaling + roster for group calls (Phase 2,
 // docs/agents/group-calls.md). Pure: the core-facing calls are injected.
 //
@@ -62,7 +63,7 @@ export function fromStatusUpdate(u) {
 }
 
 export function summaryText(n) {
-  return n > 0 ? `Group call · ${n} in call` : "Group call ended";
+  return n > 0 ? t("Group call · {n} in call", { n }) : t("Group call ended");
 }
 
 export class GroupCallSignal {
@@ -138,7 +139,7 @@ export class GroupCallSignal {
     const msg = this._msg("leave", {});
     if (this.rt) await this._rt(msg).catch(() => {});
     await this.sendUpdate({ payload: { veltaCall: msg }, summary: summaryText(left),
-      ...(left === 0 ? { info: "Group call ended" } : {}) }).catch(() => {});
+      ...(left === 0 ? { info: t("Group call ended") } : {}) }).catch(() => {});
   }
 
   /** From GroupCall.send: route an offer/answer. */

@@ -120,8 +120,8 @@ async function lufiFlow({ invoke, file, handle, proxy, accountId, send, isCurren
       if (!isCurrent()) return null;
       server = setLufiServer(opts.server);
       config = opts.config;
-      if (config?.stop_upload) throw new Error("This server does not accept uploads right now");
-      if (Number(config?.need_authentication)) throw new Error("This server requires a login — pick another one");
+      if (config?.stop_upload) throw new Error(t("This server does not accept uploads right now"));
+      if (Number(config?.need_authentication)) throw new Error(t("This server requires a login — pick another one"));
       const max = Number(config?.max_file_size) || 0;
       if (max && file.size > max) throw new Error(`Too large for this server (max ${formatBytes(max)})`);
 

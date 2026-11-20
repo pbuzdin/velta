@@ -2,6 +2,7 @@
 // configuration; legacy v1 proxy tokens use the same-origin registry instead.
 import { normalizeHost, probeDnsVia, wsProxyUrl } from "./ws-relays.js";
 import { installWsLinkPwa, normalizeWsProxyUrl, validWsToken } from "./ws-transport.js";
+import { t } from "./i18n.js";
 
 export const PWA_ONBOARDING_KEY = "velta-pwa-onboarding";
 const RELAY_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
@@ -136,7 +137,7 @@ export async function preparePwaOnboarding({ rawUrl = location.href, storage = s
         verified = await verifyOnboardingEnvelope(pending.envelope, onboardingKeys);
       } catch (err) {
         storage.removeItem(PWA_ONBOARDING_KEY);
-        return { error: String(err?.message || err || "PWA onboarding failed") };
+        return { error: String(err?.message || err || t("PWA onboarding failed")) };
       }
       if (!installWsLinkPwa({ url: verified.registry.proxy, token: verified.token })) {
         storage.removeItem(PWA_ONBOARDING_KEY);
@@ -157,7 +158,7 @@ export async function preparePwaOnboarding({ rawUrl = location.href, storage = s
     }
     return { pending: true, registry };
   } catch (err) {
-    return { error: String(err?.message || err || "PWA onboarding failed") };
+    return { error: String(err?.message || err || t("PWA onboarding failed")) };
   }
 }
 
@@ -174,6 +175,6 @@ export async function selectOnboardingRelay(registry, requested = "", probe = ho
     return { id, host, ok: await probe(host), ms: performance.now() - started };
   }));
   results.sort((a, b) => Number(b.ok) - Number(a.ok) || a.ms - b.ms || a.id.localeCompare(b.id));
-  if (!results[0]?.ok) throw new Error("No onboarding relay is reachable through this proxy");
+  if (!results[0]?.ok) throw new Error(t("No onboarding relay is reachable through this proxy"));
   return results[0].host;
 }

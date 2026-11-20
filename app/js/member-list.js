@@ -98,7 +98,7 @@ export function mountMemberList(host, members, { rowOptions = () => ({}), onOpen
   host.replaceChildren();
   const { search, input, clear } = buildSearchRow(doc, { placeholder: t("Search members"), clearLabel: t("Clear member search") });
   const { scroller, spacer, empty } = buildVirtualScroller(doc, {
-    className: "member-scroll", viewportH, label: "Members", emptyText: "No members found",
+    className: "member-scroll", viewportH, label: "Members", emptyText: t("No members found"),
   });
   host.append(search, scroller, empty);
 

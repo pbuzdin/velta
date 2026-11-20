@@ -626,18 +626,18 @@ if (window.__TAURI__) {
         const el = document.createElement("div");
         el.id = "db-locked";
         const lead = hello && pin
-          ? "Unlock with Windows Hello, or enter your app-lock PIN. Nothing was reset."
+          ? t("Unlock with Windows Hello, or enter your app-lock PIN. Nothing was reset.")
           : hello
-            ? "Unlock with Windows Hello to open this device's profiles. Nothing was reset."
-            : "Enter your app-lock PIN to unlock this device's profiles. Nothing was reset.";
+            ? t("Unlock with Windows Hello to open this device's profiles. Nothing was reset.")
+            : t("Enter your app-lock PIN to unlock this device's profiles. Nothing was reset.");
         el.innerHTML = `
           <div class="db-locked-card">
-            <h2>Velta is locked</h2>
+            <h2>${t("Velta is locked")}</h2>
             <p>${lead}</p>
-            ${hello ? `<button class="btn-primary db-hello-go" type="button">Unlock with Windows Hello</button>` : ""}
+            ${hello ? `<button class="btn-primary db-hello-go" type="button">${t("Unlock with Windows Hello")}</button>` : ""}
             ${pin ? `<form class="db-pin-form">
               <input class="text-field db-pin-input" type="password" required autocomplete="current-password" placeholder="PIN">
-              <button class="btn-primary db-pin-go" type="submit">Unlock</button>
+              <button class="btn-primary db-pin-go" type="submit">${t("Unlock")}</button>
             </form>` : ""}
             <p class="db-locked-hint db-pin-status" hidden></p>
           </div>`;
@@ -653,10 +653,10 @@ if (window.__TAURI__) {
             } catch (err) {
               const msg = String(err?.message || err || "");
               status.textContent = msg.includes("cancelled")
-                ? "Windows Hello was cancelled."
+                ? t("Windows Hello was cancelled.")
                 : msg.includes("hello-unavailable")
-                  ? "Windows Hello is not set up. Use your PIN, or set it up in Windows settings."
-                  : `Couldn't unlock: ${msg}`;
+                  ? t("Windows Hello is not set up. Use your PIN, or set it up in Windows settings.")
+                  : t("Couldn't unlock: {error}", { error: msg });
               status.hidden = false;
               helloGo.disabled = false;
             }
@@ -683,8 +683,8 @@ if (window.__TAURI__) {
             if (wait > 0) tick(wait);
             else {
               status.textContent = msg.includes("corrupt")
-                ? "The PIN file is unreadable — restore your data via Profile management → Import backup."
-                : `Couldn't unlock: ${msg}`;
+                ? t("The PIN file is unreadable — restore your data via Profile management → Import backup.")
+                : t("Couldn't unlock: {error}", { error: msg });
               status.hidden = false;
               go.disabled = false;
             }
@@ -5762,7 +5762,7 @@ async function runBackupExport(pass) {
   const dir = "/backup/export";
   await core.exportBackup(dir, pass || null);
   const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
-  if (!entries.length) throw new Error("The core produced no backup file");
+  if (!entries.length) throw new Error(t("The core produced no backup file"));
   const name = entries[entries.length - 1];
   const bytes = await core.transport.readCoreFile(name);
   const gz = await gzipBytes(bytes);
@@ -5795,14 +5795,14 @@ async function mailLoginForBackup() {
 }
 
 async function runIdentityExport(pass) {
-  if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
+  if (!pass || pass.length < 8) throw new Error(t("Use a passphrase of at least 8 characters — this file IS your account"));
   const { bytesToBase64, wrapIdentityBundle, buildIdentityBundle } = await loadIdentityBackup();
   // core 2.63.0 removed the legacy addr/mail_pw configs. The login is the
   // transport (flat password or the db's imap.password). Prefer the sending address.
   const login = await mailLoginForBackup();
   const addr = login?.addr;
   const mailPw = login?.mailPw;
-  if (!addr || !mailPw) throw new Error("This profile is not configured yet — nothing to back up");
+  if (!addr || !mailPw) throw new Error(t("This profile is not configured yet — nothing to back up"));
   const dir = "/identity/export";
   await core.exportSelfKeys(core.accountId, dir, pass);
   const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
@@ -5810,7 +5810,7 @@ async function runIdentityExport(pass) {
   for (const entry of entries) {
     keys[entry.split("/").pop()] = bytesToBase64(await core.transport.readCoreFile(entry));
   }
-  if (!Object.keys(keys).length) throw new Error("The core produced no key files — nothing to back up");
+  if (!Object.keys(keys).length) throw new Error(t("The core produced no key files — nothing to back up"));
   const wrapped = await wrapIdentityBundle(buildIdentityBundle({ addr, mail_pw: mailPw, keys }), pass);
   downloadBytes(wrapped, `velta-identity-${String(addr).replace(/[^a-z0-9._-]/gi, "_")}.velta-identity`);
   return addr;
@@ -6556,10 +6556,10 @@ async function editProfileFlow() {
 function inviteQrProvider(chatId) {
   const epoch = core.accountEpoch;
   return async () => {
-    if (!accountIsCurrent(epoch)) throw new Error("Account changed; reopen the invite");
+    if (!accountIsCurrent(epoch)) throw new Error(t("Account changed; reopen the invite"));
     if (!core.getInviteQr) throw new Error("invites need the real core — not available in demo mode");
     const { svg, text } = await core.getInviteQr(chatId);
-    if (!accountIsCurrent(epoch)) throw new Error("Account changed; reopen the invite");
+    if (!accountIsCurrent(epoch)) throw new Error(t("Account changed; reopen the invite"));
     return { svg, link: text };
   };
 }

@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 // QR Code encoder with optimal mode segmentation.
 //
 // Port of Project Nayuki's QR Code generator (MIT, nayuki.io/page/qr-code-generator-library),
@@ -286,7 +287,7 @@ export function encodeQr(text, { ecl = Ecc.MEDIUM, optimal = true, mask = -1, bo
     used = totalBits(segs, ver);
     if (used <= dataCodewords(ver, ecl) * 8) break;
   }
-  if (ver > 40) throw new RangeError("Data too long for a QR code");
+  if (ver > 40) throw new RangeError(t("Data too long for a QR code"));
   if (boostEcl) for (const e of [Ecc.MEDIUM, Ecc.QUARTILE, Ecc.HIGH]) if (used <= dataCodewords(ver, e) * 8) ecl = e;
   const bits = [];
   for (const s of segs) { push(bits, s.mode.bits, 4); push(bits, s.numChars, ccBits(s.mode, ver)); bits.push(...s.data); }
