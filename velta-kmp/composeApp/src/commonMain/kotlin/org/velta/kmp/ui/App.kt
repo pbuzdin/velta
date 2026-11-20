@@ -3036,7 +3036,6 @@ private fun SettingsRadios(options: List<Pair<String, String>>, selected: String
     }
 }
 
-@Composable
 /** Stable drawer <details class="drawer-details"> (main.css:1924): one
  *  collapsed row "Label: state" with a chevron; content expands in place.
  *  state=null renders the bare label (stable groups whose options carry
@@ -3097,6 +3096,7 @@ private fun SettingsToggleRow(label: String, checked: Boolean, onSet: (Boolean) 
     }
 }
 
+@Composable
 private fun SettingsHint(text: String) {
     Text(
         text,
