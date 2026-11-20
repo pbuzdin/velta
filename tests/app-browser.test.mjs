@@ -11,7 +11,7 @@ globalThis.localStorage = {
 const {
   bytesFromBase64, normalizeMirror, mirrorList, addMirror, removeMirror, rememberMirror,
   recordApp, recentApps, parseCatalog, loadCatalog,
-  DEFAULT_MIRROR, APPS_KEY, MIRRORS_KEY, MIRROR_OK_KEY, MAX_MIRRORS,
+  DEFAULT_MIRROR, DEFAULT_MIRRORS, APPS_KEY, MIRRORS_KEY, MIRROR_OK_KEY, MAX_MIRRORS,
 } = await import("../app/js/app-browser.js");
 
 test("bytesFromBase64 accepts standard base64 without padding", () => {
@@ -48,13 +48,17 @@ test("mirrors: normalize, default stays, extras cap, last success goes first", (
   assert.equal(normalizeMirror("ftp://x"), null);
   assert.equal(normalizeMirror("https://user:pw@host"), null);
   assert.equal(normalizeMirror("not a url"), null);
-  assert.deepEqual(mirrorList(), [DEFAULT_MIRROR]);
+  assert.deepEqual(mirrorList(), DEFAULT_MIRRORS);
+  assert.equal(addMirror(DEFAULT_MIRROR), DEFAULT_MIRROR);
+  assert.equal(addMirror(DEFAULT_MIRRORS[1]), DEFAULT_MIRRORS[1]);
+  assert.deepEqual(mirrorList(), DEFAULT_MIRRORS, "built-ins are never stored as extras");
+  removeMirror(DEFAULT_MIRRORS[1]);
+  assert.ok(mirrorList().includes(DEFAULT_MIRRORS[1]));
   assert.equal(addMirror("https://m2.example/"), "https://m2.example");
   assert.equal(addMirror("https://m1.example"), "https://m1.example");
-  assert.equal(addMirror(DEFAULT_MIRROR), DEFAULT_MIRROR);
-  assert.deepEqual(mirrorList(), [DEFAULT_MIRROR, "https://m2.example", "https://m1.example"]);
+  assert.deepEqual(mirrorList(), [...DEFAULT_MIRRORS, "https://m2.example", "https://m1.example"]);
   rememberMirror("https://m1.example/");
-  assert.deepEqual(mirrorList(), ["https://m1.example", DEFAULT_MIRROR, "https://m2.example"]);
+  assert.deepEqual(mirrorList(), ["https://m1.example", ...DEFAULT_MIRRORS, "https://m2.example"]);
   for (let i = 0; i < MAX_MIRRORS; i++) addMirror("https://full" + i + ".example");
   assert.equal(addMirror("https://overflow.example"), null);
   assert.equal(JSON.parse(mem.get(MIRRORS_KEY)).length, MAX_MIRRORS);
