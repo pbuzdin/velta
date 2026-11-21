@@ -1711,5 +1711,9 @@
   "Authentication failed: {reason}": "Échec de l'authentification : {reason}",
   "Confirm to continue": "Confirmez pour continuer",
   "Background sync": "Synchronisation en arrière-plan",
-  "Keeping your messages up to date": "Vos messages restent à jour"
+  "Keeping your messages up to date": "Vos messages restent à jour",
+  "The browser writes an unencrypted backup. Use the desktop or Android app if you need a passphrase.": "Le navigateur enregistre une sauvegarde non chiffrée. Utilisez l'application bureau ou Android si vous avez besoin d'une phrase secrète.",
+  "The browser can only restore an unencrypted backup. Use the desktop or Android app for a passphrase-protected file.": "Le navigateur ne peut restaurer qu'une sauvegarde non chiffrée. Utilisez l'application bureau ou Android pour un fichier protégé par une phrase secrète.",
+  "Passphrase-protected backups are not supported in the browser. Export without a passphrase, or use the desktop or Android app.": "Les sauvegardes protégées par une phrase secrète ne sont pas prises en charge dans le navigateur. Exportez sans phrase secrète, ou utilisez l'application bureau ou Android.",
+  "This backup is encrypted and cannot be imported in the browser. Restore it in the desktop or Android app, or export an unencrypted backup.": "Cette sauvegarde est chiffrée et ne peut pas être importée dans le navigateur. Restaurez-la dans l'application bureau ou Android, ou exportez une sauvegarde non chiffrée."
 }

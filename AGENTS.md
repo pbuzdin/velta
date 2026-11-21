@@ -2133,11 +2133,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   downloads it — gzip-compressed via `gzipBytes` as
   `velta-backup-<addr>-<date>.tar.gz` (plain byte-identical `.tar` where
   CompressionStream is missing — detect by identity, the `.gz` suffix
-  follows the bytes, #104). The core imports plain tars only: both shells
-  route a picked backup through the `prep_backup` command (sniffs the
-  `1f 8b` magic, gunzips to a temp file, else passthrough); Android's
-  `resolve_content_uri_blocking` tail runs the same helper. No zip
-  wrapper — restore imports the decompressed `.tar` directly), Delete profile
+  follows the bytes, #104). The wasm core has no `sqlcipher_export`
+  (#331): unencrypted export uses `VACUUM INTO` and copies the snapshot
+  from sqlite-wasm-rs's MemVfs into tokio memfs before the tar is packed;
+  a passphrase fails with a clear error. PWA Import backup (and the splash
+  restore action) picks a `.tar` / `.tar.gz`, gunzips in the browser if
+  needed, writes it to `/backup/import` and calls `beginBackupImport` /
+  `importBackup`. Encrypted or passphrase-protected files are refused —
+  restore those in the desktop or Android app. The core imports plain tars
+  only: both shells route a picked backup through the `prep_backup`
+  command (sniffs the `1f 8b` magic, gunzips to a temp file, else
+  passthrough); Android's `resolve_content_uri_blocking` tail runs the
+  same helper. No zip wrapper — restore imports the decompressed `.tar`
+  directly), Delete profile
   (danger tab: typed-address confirm, last-profile refusal, transition
   guards; `rpc-core deleteAccount()` wraps `remove_account` with
   switchAccount's epoch boundaries and follows the core's reconciled

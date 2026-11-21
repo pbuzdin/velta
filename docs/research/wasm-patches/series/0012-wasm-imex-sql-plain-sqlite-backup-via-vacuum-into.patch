@@ -1,0 +1,329 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pavel <pbuzdin@gmail.com>
+Date: Sat, 21 Nov 2026 09:47:28 +0300
+Subject: [PATCH] wasm(imex,sql): VACUUM INTO / MemVfs backup path on wasm32
+
+sqlite-wasm-rs is plain SQLite, so export_database and Sql::import
+cannot call sqlcipher_export (#331). Without a passphrase, export uses
+VACUUM INTO, copies the snapshot from MemVfs into tokio memfs for the
+tar packer, and import loads a plaintext SQLite file back with
+import_db. A passphrase or a SQLCipher-format file fails with a clear
+error. Native path unchanged.
+
+WASM-CORE: imex,sql.
+Native impact: none (cfg(target_arch = "wasm32") only).
+---
+ Cargo.toml   |   3 +
+ src/imex.rs  |  67 ++++++++++++++++++-----
+ src/sql.rs   | 152 +++++++++++++++++++++++++++++++++++++--------------
+ src/tools.rs |   9 ++-
+ 4 files changed, 174 insertions(+), 57 deletions(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index ffa9605..e834699 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -137,6 +137,9 @@ wasm-bindgen-futures = "0.4"
+ web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "Headers", "RequestInit", "RequestRedirect", "Response", "WorkerGlobalScope"] }
+ ws_stream_wasm = "0.7"
+ serde_urlencoded = "0.7.1"
++# #331: copy a VACUUM INTO snapshot out of sqlite-wasm-rs MemVfs into
++# tokio memfs (and the reverse on import). Same version as velta-wasm.
++sqlite-wasm-rs = "=0.5.5"
+ 
+ [dev-dependencies]
+ anyhow = { workspace = true, features = ["backtrace"] } # Enable `backtrace` feature in tests.
+diff --git a/src/imex.rs b/src/imex.rs
+index c7867d2..5346a75 100644
+--- a/src/imex.rs
++++ b/src/imex.rs
+@@ -456,6 +456,11 @@ async fn export_backup(context: &Context, dir: &Path, passphrase: String) -> Res
+     // get a fine backup file name (the name includes the date so that multiple backup instances are possible)
+     let now = time();
+     let fingerprint = self_fingerprint(context).await?;
++    // On wasm the backup dir lives in tokio memfs; Path::exists / std::fs
++    // cannot see it, so create it here before writing the tar.
++    #[cfg(target_arch = "wasm32")]
++    tokio::fs::create_dir_all(dir).await.ok();
++
+     let (temp_db_path, temp_path, dest_path) = get_next_backup_path(dir, fingerprint, now)?;
+     let temp_db_path = TempPathGuard::new(temp_db_path);
+     let temp_path = TempPathGuard::new(temp_path);
+@@ -475,7 +480,14 @@ async fn export_backup(context: &Context, dir: &Path, passphrase: String) -> Res
+     let blobdir = BlobDirContents::new(context).await?;
+ 
+     let mut file_size = 0;
+-    file_size += temp_db_path.metadata()?.len();
++    #[cfg(target_arch = "wasm32")]
++    {
++        file_size += tokio::fs::metadata(&temp_db_path).await?.len();
++    }
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        file_size += temp_db_path.metadata()?.len();
++    }
+     for blob in blobdir.iter() {
+         file_size += blob.plaintext_len(context)?
+     }
+@@ -775,20 +787,45 @@ async fn export_database(context: &Context, dest: &Path, passphrase: String) ->
+             conn.execute("VACUUM;", ())
+                 .map_err(|err| warn!(context, "Vacuum failed, exporting anyway {err}"))
+                 .ok();
+-            conn.execute("ATTACH DATABASE ? AS backup KEY ?", (dest, passphrase))
+-                .context("failed to attach backup database")?;
+-            let res = conn
+-                .query_row("SELECT sqlcipher_export('backup')", [], |_row| Ok(()))
+-                .context("failed to export to attached backup database");
+-            conn.execute(
+-                "UPDATE backup.config SET value='0' WHERE keyname='verified_one_on_one_chats';",
+-                [],
+-            )
+-            .ok(); // Deprecated 2025-07. If verified_one_on_one_chats was not set, this errors, which we ignore
+-            conn.execute("DETACH DATABASE backup", [])
+-                .context("failed to detach backup database")?;
+-            res?;
+-            Ok(())
++            #[cfg(target_arch = "wasm32")]
++            {
++                // sqlite-wasm-rs is plain SQLite — no sqlcipher_export (#331).
++                if !passphrase.is_empty() {
++                    bail!(
++                        "Passphrase-protected backups are not supported in the browser. Export without a passphrase, or use the desktop or Android app."
++                    );
++                }
++                conn.execute("VACUUM INTO ?", (dest,))
++                    .context("failed to vacuum into backup database")?;
++                conn.execute("ATTACH DATABASE ? AS backup", (dest,))
++                    .context("failed to attach backup database")?;
++                conn.execute(
++                    "UPDATE backup.config SET value='0' WHERE keyname='verified_one_on_one_chats';",
++                    [],
++                )
++                .ok(); // Deprecated 2025-07. If verified_one_on_one_chats was not set, this errors, which we ignore
++                conn.execute("DETACH DATABASE backup", [])
++                    .context("failed to detach backup database")?;
++                sql::wasm_sqlite_export_to_memfs(dest)?;
++                return Ok(());
++            }
++            #[cfg(not(target_arch = "wasm32"))]
++            {
++                conn.execute("ATTACH DATABASE ? AS backup KEY ?", (dest, passphrase))
++                    .context("failed to attach backup database")?;
++                let res = conn
++                    .query_row("SELECT sqlcipher_export('backup')", [], |_row| Ok(()))
++                    .context("failed to export to attached backup database");
++                conn.execute(
++                    "UPDATE backup.config SET value='0' WHERE keyname='verified_one_on_one_chats';",
++                    [],
++                )
++                .ok(); // Deprecated 2025-07. If verified_one_on_one_chats was not set, this errors, which we ignore
++                conn.execute("DETACH DATABASE backup", [])
++                    .context("failed to detach backup database")?;
++                res?;
++                Ok(())
++            }
+         })
+         .await
+ }
+diff --git a/src/sql.rs b/src/sql.rs
+index 9a29607..da78b03 100644
+--- a/src/sql.rs
++++ b/src/sql.rs
+@@ -88,6 +88,51 @@ fn note_slow_sql(query_only: bool, wait_ms: u128, hold_ms: u128) {
+     }
+ }
+ 
++/// Magic bytes of an unencrypted SQLite database (16 bytes including NUL).
++#[cfg(target_arch = "wasm32")]
++const SQLITE_PLAIN_HEADER: &[u8] = b"SQLite format 3\0";
++
++#[cfg(target_arch = "wasm32")]
++type WasmMemVfs = sqlite_wasm_rs::MemVfsUtil<sqlite_wasm_rs::WasmOsCallback>;
++
++/// Copy a database from sqlite-wasm-rs's memory VFS into tokio memfs, then
++/// drop the VFS copy. `VACUUM INTO` and `ATTACH` write only to the SQLite
++/// VFS; the backup tar packer reads tokio memfs.
++#[cfg(target_arch = "wasm32")]
++pub(crate) fn wasm_sqlite_export_to_memfs(dest: &str) -> Result<()> {
++    let util = WasmMemVfs::new();
++    let bytes = util
++        .export_db(dest)
++        .map_err(|e| anyhow::anyhow!("failed to export backup database from sqlite vfs: {e}"))?;
++    util.delete_db(dest);
++    if let Some(parent) = Path::new(dest).parent() {
++        tokio::fs::sync_create_dir_all(parent)
++            .with_context(|| format!("failed to create backup directory {}", parent.display()))?;
++    }
++    tokio::fs::sync_write(dest, &bytes)
++        .with_context(|| format!("failed to write backup database to {dest}"))?;
++    Ok(())
++}
++
++/// Replace the live account database in sqlite-wasm-rs's memory VFS.
++/// The connection pool must already be closed.
++#[cfg(target_arch = "wasm32")]
++pub(crate) fn wasm_sqlite_replace_db(name: &str, data: &[u8]) -> Result<()> {
++    if !data.starts_with(SQLITE_PLAIN_HEADER) {
++        bail!(
++            "This backup is encrypted and cannot be imported in the browser. Restore it in the desktop or Android app, or export an unencrypted backup."
++        );
++    }
++    let util = WasmMemVfs::new();
++    util.delete_db(name);
++    util.delete_db(&format!("{name}-wal"));
++    util.delete_db(&format!("{name}-shm"));
++    util.delete_db(&format!("{name}-journal"));
++    util.import_db(name, data)
++        .map_err(|e| anyhow::anyhow!("failed to import backup database into sqlite vfs: {e}"))?;
++    Ok(())
++}
++
+ impl Sql {
+     /// Creates new SQL database.
+     pub fn new(dbfile: PathBuf) -> Sql {
+@@ -150,11 +195,6 @@ pub(crate) async fn close(&self) {
+ 
+     /// Imports the database from a separate file with the given passphrase.
+     pub(crate) async fn import(&self, path: &Path, passphrase: String) -> Result<()> {
+-        let path_str = path
+-            .to_str()
+-            .with_context(|| format!("path {path:?} is not valid unicode"))?
+-            .to_string();
+-
+         // Keep `config_cache` locked all the time the db is imported so that nobody can use invalid
+         // values from there. And clear it immediately so as not to forget in case of errors.
+         let mut config_cache = self.config_cache.write().await;
+@@ -163,44 +203,74 @@ pub(crate) async fn import(&self, path: &Path, passphrase: String) -> Result<()>
+         self.config_gen
+             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+ 
+-        let query_only = false;
+-        self.call(query_only, move |conn| {
+-            // Check that backup passphrase is correct before resetting our database.
+-            conn.execute("ATTACH DATABASE ? AS backup KEY ?", (path_str, passphrase))
+-                .context("failed to attach backup database")?;
+-            let res = conn
+-                .query_row("SELECT count(*) FROM sqlite_master", [], |_row| Ok(()))
+-                .context("backup passphrase is not correct");
+-
+-            // Reset the database without reopening it. We don't want to reopen the database because we
+-            // don't have main database passphrase at this point.
+-            // See <https://sqlite.org/c3ref/c_dbconfig_enable_fkey.html> for documentation.
+-            // Without resetting import may fail due to existing tables.
+-            res.and_then(|_| {
+-                conn.set_db_config(DbConfig::SQLITE_DBCONFIG_RESET_DATABASE, true)
+-                    .context("failed to set SQLITE_DBCONFIG_RESET_DATABASE")
+-            })
+-            .and_then(|_| {
+-                conn.execute("VACUUM", [])
+-                    .context("failed to vacuum the database")
+-            })
+-            .and(
+-                conn.set_db_config(DbConfig::SQLITE_DBCONFIG_RESET_DATABASE, false)
+-                    .context("failed to unset SQLITE_DBCONFIG_RESET_DATABASE"),
+-            )
+-            .and_then(|_| {
+-                conn.query_row("SELECT sqlcipher_export('main', 'backup')", [], |_row| {
+-                    Ok(())
++        #[cfg(target_arch = "wasm32")]
++        {
++            if !passphrase.is_empty() {
++                bail!(
++                    "Passphrase-protected backups are not supported in the browser. Export without a passphrase, or use the desktop or Android app."
++                );
++            }
++            let bytes = tokio::fs::read(path)
++                .await
++                .with_context(|| format!("failed to read backup database {path:?}"))?;
++            let dbfile = self
++                .dbfile
++                .to_str()
++                .with_context(|| format!("database path {:?} is not valid unicode", self.dbfile))?
++                .to_string();
++            // Close every connection so MemVfs can replace the file.
++            self.close().await;
++            wasm_sqlite_replace_db(&dbfile, &bytes)?;
++            *self.pool.write().await = Some(Self::new_pool(&self.dbfile, String::new())?);
++            *self.is_encrypted.write().await = Some(false);
++            return Ok(());
++        }
++
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            let path_str = path
++                .to_str()
++                .with_context(|| format!("path {path:?} is not valid unicode"))?
++                .to_string();
++            let query_only = false;
++            self.call(query_only, move |conn| {
++                // Check that backup passphrase is correct before resetting our database.
++                conn.execute("ATTACH DATABASE ? AS backup KEY ?", (path_str, passphrase))
++                    .context("failed to attach backup database")?;
++                let res = conn
++                    .query_row("SELECT count(*) FROM sqlite_master", [], |_row| Ok(()))
++                    .context("backup passphrase is not correct");
++
++                // Reset the database without reopening it. We don't want to reopen the database because we
++                // don't have main database passphrase at this point.
++                // See <https://sqlite.org/c3ref/c_dbconfig_enable_fkey.html> for documentation.
++                // Without resetting import may fail due to existing tables.
++                res.and_then(|_| {
++                    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_RESET_DATABASE, true)
++                        .context("failed to set SQLITE_DBCONFIG_RESET_DATABASE")
++                })
++                .and_then(|_| {
++                    conn.execute("VACUUM", [])
++                        .context("failed to vacuum the database")
++                })
++                .and(
++                    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_RESET_DATABASE, false)
++                        .context("failed to unset SQLITE_DBCONFIG_RESET_DATABASE"),
++                )
++                .and_then(|_| {
++                    conn.query_row("SELECT sqlcipher_export('main', 'backup')", [], |_row| {
++                        Ok(())
++                    })
++                    .context("failed to import from attached backup database")
+                 })
+-                .context("failed to import from attached backup database")
++                .and(
++                    conn.execute("DETACH DATABASE backup", [])
++                        .context("failed to detach backup database"),
++                )?;
++                Ok(())
+             })
+-            .and(
+-                conn.execute("DETACH DATABASE backup", [])
+-                    .context("failed to detach backup database"),
+-            )?;
+-            Ok(())
+-        })
+-        .await
++            .await
++        }
+     }
+ 
+     const N_DB_CONNECTIONS: usize = 3;
+diff --git a/src/tools.rs b/src/tools.rs
+index e28c3f0..fc212e9 100644
+--- a/src/tools.rs
++++ b/src/tools.rs
+@@ -441,7 +441,14 @@ pub(crate) fn new(path: PathBuf) -> Self {
+ impl Drop for TempPathGuard {
+     fn drop(&mut self) {
+         let path = self.path.clone();
+-        std::fs::remove_file(path).ok();
++        #[cfg(target_arch = "wasm32")]
++        {
++            tokio::fs::sync_remove(&path).ok();
++        }
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            std::fs::remove_file(path).ok();
++        }
+     }
+ }
+ 
+-- 
+2.47.3
+

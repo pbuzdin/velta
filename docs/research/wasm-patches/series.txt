@@ -20,3 +20,7 @@
 # the old File-based call sites no longer exist. 0007's old blob.rs hunks
 # were dropped; the blob port lives in 0011 (sync_fs facade + open_blob
 # memfs routing), so file_hash/check_or_recode/image_metadata need no hunks.
+0012-wasm-imex-sql-plain-sqlite-backup-via-vacuum-into.patch
+# 0012 (#331): wasm has no sqlcipher_export. Empty-passphrase export uses
+# VACUUM INTO + MemVfs→memfs copy; import uses import_db. Passphrase and
+# SQLCipher-format files fail with a clear error. Native path unchanged.

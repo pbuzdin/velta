@@ -22,6 +22,7 @@ on:
       - 'scripts/verify-pwa-dist.mjs'
       - 'scripts/e2e-velta-wasm-network.mjs'
       - 'scripts/e2e-velta-wasm-identity.mjs'
+      - 'scripts/e2e-velta-wasm-backup.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
   pull_request:
     paths:
@@ -33,6 +34,7 @@ on:
       - 'scripts/verify-pwa-dist.mjs'
       - 'scripts/e2e-velta-wasm-network.mjs'
       - 'scripts/e2e-velta-wasm-identity.mjs'
+      - 'scripts/e2e-velta-wasm-backup.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
 
 concurrency:
@@ -154,6 +156,12 @@ jobs:
           npm install --no-fund --no-audit playwright@1.56.0
           npx playwright install --with-deps chromium
           node smoke-velta-wasm.mjs
+
+      - name: Browser backup import/export (#331)
+        env:
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm
+        working-directory: ${{ github.workspace }}/scripts
+        run: node e2e-velta-wasm-backup.mjs
 
       # Size step (Day 8): binaryen pinned to version_120 (matches local
       # measurement 29.9 MB → 18.5 MB). Informational; smoke re-runs on the
