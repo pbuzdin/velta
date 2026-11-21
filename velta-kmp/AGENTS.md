@@ -702,9 +702,8 @@ never run Gradle on the Windows side.
   first, quilt #11), `get_server_metadata` → map addr→metadata (quilt #15),
   `delete_transport(addr)`. ⚠️ `set_transport_enabled` does NOT exist yet
   (quilt #24, issue #189).
-- Push: **`velta_set_push_device_token` is a SHIM-ONLY RPC** —
-  `Accounts::set_push_device_token` is not on the JSON-RPC surface; the
-  shim intercepts it before yerpc dispatch (desktop sidecar rejects it).
+- Push: `set_push_device_token` is on the JSON-RPC surface (#225 — the
+  pre-dispatch shim intercept is gone, the desktop sidecar answers it too).
   Token = `webpush:<url>|<pubKey>|<auth>`; `background_fetch(timeout_s)`
   IS on JSON-RPC. End-to-end push still needs the relay side
   (PLAN-UNIFIEDPUSH.MD items 1–3).

@@ -14,8 +14,8 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * P4 push plumbing: a UnifiedPush endpoint registers through the shim-only
- * `velta_set_push_device_token` method, and a push message wakes a fetch
+ * P4 push plumbing: a UnifiedPush endpoint registers through the JSON-RPC
+ * `set_push_device_token` method, and a push message wakes a fetch
  * (start_io + background_fetch). The token is the webpush serialization the
  * Tauri shell uses; the core treats it as opaque.
  */
@@ -24,7 +24,7 @@ class PushTest {
     private fun testScope() = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Test
-    fun endpointRegistersThroughShimMethod() = runBlocking {
+    fun endpointRegistersThroughTheJsonRpcSurface() = runBlocking {
         val transport = ScriptedRpcTransport(
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
@@ -34,7 +34,7 @@ class PushTest {
                 "select_account" to "null",
                 "start_io_for_all_accounts" to "null",
                 "get_chatlist_entries" to "[]",
-                "velta_set_push_device_token" to "null",
+                "set_push_device_token" to "null",
             ),
         )
         val platform = object : CorePlatform {
@@ -52,10 +52,10 @@ class PushTest {
             val token = "webpush:https://ntfy.example/topic|PUBKEY|AUTH"
             model.onPushEndpoint(token)
             withTimeout(10_000) {
-                while (transport.requests.none { "\"velta_set_push_device_token\"" in it }) yield()
+                while (transport.requests.none { "\"set_push_device_token\"" in it }) yield()
             }
 
-            val line = transport.requests.first { "\"velta_set_push_device_token\"" in it }
+            val line = transport.requests.first { "\"set_push_device_token\"" in it }
             assertTrue(line.contains(token), "token must ride the shim method: $line")
         } finally {
             scope.cancel()

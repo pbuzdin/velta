@@ -5,8 +5,8 @@
 //! listening port — other apps cannot open the core. The session ends with
 //! `RpcShim.onNativeExit`.
 //!
-//! `velta_set_push_device_token` is answered here, before yerpc: it is not
-//! on the JSON-RPC surface and the shim holds the accounts manager.
+//! `velta_set_push_device_token` used to be answered here, before yerpc;
+//! it is on the JSON-RPC surface since #225 and dispatches normally.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -93,12 +93,6 @@ async fn run_session(
             _ = stop.notified() => break,
             incoming = incoming.recv() => match incoming {
                 Some(line) => {
-                    if let Some(response) = push_token_intercept(&accounts, &line).await {
-                        if outgoing.send(response).await.is_err() {
-                            break;
-                        }
-                        continue;
-                    }
                     let session = session.clone();
                     let handle = tokio::spawn(async move {
                         session.handle_incoming(&line).await;
@@ -124,37 +118,6 @@ async fn run_session(
     for handle in tasks {
         handle.abort();
     }
-}
-
-/// Answers `velta_set_push_device_token` directly and returns the JSON line,
-/// or None when the line is anything else (normal RPC dispatch).
-async fn push_token_intercept(accounts: &Arc<RwLock<Accounts>>, line: &str) -> Option<String> {
-    let obj: serde_json::Value = serde_json::from_str(line).ok()?;
-    let method = obj.get("method")?.as_str()?;
-    if method != "velta_set_push_device_token" {
-        return None;
-    }
-    let id = obj.get("id").cloned().unwrap_or(serde_json::Value::Null);
-    let token = obj
-        .get("params")
-        .and_then(|p| p.get(0))
-        .and_then(|t| t.as_str())
-        .map(|s| s.to_string());
-
-    let response = match token {
-        Some(token) => match accounts.read().await.set_push_device_token(&token) {
-            Ok(()) => serde_json::json!({"jsonrpc": "2.0", "id": id, "result": null}),
-            Err(e) => serde_json::json!({
-                "jsonrpc": "2.0", "id": id,
-                "error": {"code": -1, "message": format!("push token failed: {e:#}")},
-            }),
-        },
-        None => serde_json::json!({
-            "jsonrpc": "2.0", "id": id,
-            "error": {"code": -1, "message": "missing token param"},
-        }),
-    };
-    Some(serde_json::to_string(&response).unwrap_or_default())
 }
 
 fn worker_main(
@@ -460,28 +423,39 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_sendLine(
 mod tests {
     use super::*;
 
+    /// #225: the push token registers through the standard surface — no
+    /// pre-dispatch intercept anymore.
     #[tokio::test]
-    async fn push_token_intercept_answers_and_stores() {
-        let dir = std::env::temp_dir().join("velta-shim-intercept-test");
-        let accounts = Arc::new(RwLock::new(
-            Accounts::new(dir, true).await.expect("accounts"),
+    async fn push_token_answers_through_the_session() {
+        let dir = std::env::temp_dir().join(format!(
+            "velta-shim-push-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
         ));
-
-        let push_line = r#"{"jsonrpc":"2.0","id":7,"method":"velta_set_push_device_token","params":["webpush:x|key|auth"]}"#;
-        let response = push_token_intercept(&accounts, push_line)
-            .await
-            .expect("push line must be intercepted");
-        assert!(response.contains("\"result\":null"), "response: {response}");
-
-        assert!(
-            push_token_intercept(
-                &accounts,
-                r#"{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}"#
+        let _ = std::fs::remove_dir_all(&dir);
+        let accounts = Arc::new(RwLock::new(
+            Accounts::new(dir.clone(), true).await.expect("accounts"),
+        ));
+        let state = CommandApi::from_arc(accounts.clone()).await;
+        let (in_tx, in_rx) = mpsc::unbounded_channel();
+        let (out_tx, mut out_rx) = mpsc::channel(8);
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let task = tokio::spawn(run_session(state, accounts, in_rx, out_tx, stop));
+        in_tx
+            .send(
+                r#"{"jsonrpc":"2.0","id":7,"method":"set_push_device_token","params":["webpush:x|key|auth"]}"#.into(),
             )
+            .expect("send");
+        let line = tokio::time::timeout(Duration::from_secs(10), out_rx.recv())
             .await
-            .is_none(),
-            "regular RPC lines pass through"
-        );
+            .expect("timed out")
+            .expect("session closed");
+        assert!(line.contains("\"result\":null"), "reply: {line}");
+        drop(in_tx);
+        let _ = task.await;
     }
 
     /// #357: the session is a channel. Nothing in this test binds a port,
