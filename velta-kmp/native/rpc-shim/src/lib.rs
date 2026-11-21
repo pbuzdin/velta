@@ -22,6 +22,7 @@ use tokio::task::JoinHandle;
 use yerpc::{RpcClient, RpcSession};
 
 pub mod p2p;
+mod db_key;
 mod loop_host;
 
 /// Engine log line. `p2p.rs` calls this; it is not the core session log.
@@ -180,7 +181,20 @@ fn start_core(accounts_dir: String, db_key: String) -> i32 {
         let _ = prev.join();
     }
     if !db_key.is_empty() {
-        std::env::set_var("VELTA_DB_KEY", &db_key);
+        // #259 step 2: convert pre-#20 plaintext databases first (patch #20
+        // never falls back — an unmigrated profile would stay closed). When
+        // a migration fails with nothing already encrypted, the key stays
+        // off this start and the retry happens next boot.
+        let prep = db_key::prepare(std::path::Path::new(&accounts_dir), Some(&db_key));
+        crate::log(&format!(
+            "db-key prepare: migrated {} already {} locked {}",
+            prep.migrated, prep.already, prep.locked
+        ));
+        if prep.use_key {
+            std::env::set_var("VELTA_DB_KEY", &db_key);
+        } else {
+            crate::log("running keyless this start; retrying migration next boot");
+        }
     }
     let stop = Arc::new(tokio::sync::Notify::new());
     *STOP.write().expect("stop lock") = Some(stop.clone());
@@ -422,6 +436,102 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_sendLine(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #259 step 2: a plaintext account database migrates to SQLCipher, the
+    /// encrypted copy verifies, the backup drops on the confirming second
+    /// run, and the key is allowed this session.
+    #[test]
+    fn plaintext_db_migrates_and_verifies() {
+        let root = std::env::temp_dir().join(format!(
+            "velta-shim-dbkey-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let account = root.join("1");
+        std::fs::create_dir_all(&account).expect("mkdir");
+        let db = account.join("dc.db");
+        {
+            let conn = rusqlite::Connection::open(&db).expect("plain open");
+            conn.execute_batch(
+                "CREATE TABLE msgs (id INTEGER PRIMARY KEY, txt TEXT);
+                 CREATE TABLE chats (id INTEGER PRIMARY KEY);
+                 CREATE TABLE contacts (id INTEGER PRIMARY KEY);
+                 CREATE TABLE config (keyname TEXT PRIMARY KEY, value TEXT);
+                 CREATE TABLE keypairs (id INTEGER PRIMARY KEY);
+                 INSERT INTO msgs (txt) VALUES ('hello'), ('loop');
+                 INSERT INTO config (keyname, value) VALUES ('addr', 'a@example.org');",
+            )
+            .expect("schema");
+        }
+        let key = "a".repeat(64);
+
+        let first = db_key::prepare(&root, Some(&key));
+        assert_eq!(first.migrated, 1, "one plaintext db converted");
+        assert!(first.use_key, "key allowed after a clean migration");
+
+        // The live db is encrypted now and still holds the data.
+        let conn = rusqlite::Connection::open(&db).expect("open enc");
+        conn.pragma_update(None, "key", format!("x'{key}'")).expect("key");
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM msgs", [], |r| r.get(0))
+            .expect("count");
+        assert_eq!(n, 2, "rows survived the export");
+        let addr: String = conn
+            .query_row("SELECT value FROM config WHERE keyname='addr'", [], |r| r.get(0))
+            .expect("addr");
+        assert_eq!(addr, "a@example.org", "identity survived");
+        drop(conn);
+
+        // Second run: already ours, and the backup is proven stale and dropped.
+        let second = db_key::prepare(&root, Some(&key));
+        assert_eq!(second.already, 1);
+        assert!(!account.join("dc.db.plain.bak").exists(), "backup dropped");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A migration failure with nothing already encrypted must NOT hand the
+    /// core a key: opening the plaintext tree with a key would close it.
+    /// A schema missing the count tables fails the export verification.
+    #[test]
+    fn failed_migration_keeps_the_session_keyless() {
+        let root = std::env::temp_dir().join(format!(
+            "velta-shim-dbkey-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let account = root.join("1");
+        std::fs::create_dir_all(&account).expect("mkdir");
+        {
+            let conn = rusqlite::Connection::open(account.join("dc.db")).expect("plain open");
+            conn.execute_batch("CREATE TABLE other (x TEXT); INSERT INTO other VALUES ('x');")
+                .expect("schema");
+        }
+
+        let prep = db_key::prepare(&root, Some(&"b".repeat(64)));
+        assert_eq!(prep.migrated, 0, "the export verification failed");
+        assert!(!prep.use_key, "no key when the migration failed");
+        assert!(
+            opens_plain(&account.join("dc.db")),
+            "the plaintext db is untouched"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn opens_plain(path: &std::path::Path) -> bool {
+        let Ok(conn) = rusqlite::Connection::open(path) else {
+            return false;
+        };
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+            .is_ok()
+    }
 
     /// #225: the push token registers through the standard surface — no
     /// pre-dispatch intercept anymore.
