@@ -34,7 +34,7 @@ class EventBatchTest {
         val core = VeltaCore(RpcClient(transport))
         val kinds = CopyOnWriteArrayList<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        core.startEventLoop(scope) { kinds += it.kind ?: "?" }
+        core.startEventLoop(scope, onEvent = { kinds += it.kind ?: "?" })
         try {
             withTimeout(5_000) { while (kinds.size < 2) yield() }
             assertEquals(listOf("IncomingMsg", "MsgRead"), kinds.take(2))
@@ -51,7 +51,7 @@ class EventBatchTest {
         val core = VeltaCore(RpcClient(transport))
         val kinds = CopyOnWriteArrayList<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val job = core.startEventLoop(scope) { kinds += it.kind ?: "?" }
+        val job = core.startEventLoop(scope, onEvent = { kinds += it.kind ?: "?" })
         try {
             withTimeout(5_000) { while (transport.requests.size < 2) yield() }
             assertTrue(kinds.isEmpty())

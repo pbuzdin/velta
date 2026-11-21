@@ -154,8 +154,10 @@ object VeltaKeystore {
                 Log.e(TAG, "dbkey.bio rename failed")
                 return false
             }
-            File(context.noBackupFilesDir, WRAP_FILE).delete()
+            // The wrap file is the gate from here (#259 step 3) — flip the
+            // pref mirror BEFORE removing the plain wrap.
             VeltaLock.setOn(context, true)
+            File(context.noBackupFilesDir, WRAP_FILE).delete()
             Log.i(TAG, "app lock enabled")
             true
         } catch (e: Exception) {

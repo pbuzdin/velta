@@ -55,8 +55,10 @@ class RpcClient(
     private var nextId = 1
 
     /** In-flight call: the method name travels with the deferred so errors
-     * and timeouts report WHAT failed, not just `id=N`. */
-    private val pending = HashMap<Int, PendingCall>()
+     * and timeouts report WHAT failed, not just `id=N`. Concurrent: [failAll]
+     * snapshots it from [close] while the reader coroutine completes entries
+     * (the plain-HashMap race the #259 audit caught). */
+    private val pending = java.util.concurrent.ConcurrentHashMap<Int, PendingCall>()
 
     private class PendingCall(val method: String, val deferred: CompletableDeferred<JsonElement>)
 

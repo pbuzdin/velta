@@ -22,6 +22,13 @@ import kotlinx.serialization.json.put
  */
 class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
 
+    /** #259 step 7: a wedged core must not hang the event loop forever.
+     * The healthy poll returns immediately (empty batch when idle); 30 s is
+     * ~120 idle cycles, and a timeout counts as one of the 5 failures. */
+    private companion object {
+        const val EVENT_BATCH_BUDGET_MS = 30_000L
+    }
+
     val raw: RpcClient get() = client
 
     suspend fun systemInfo(): JsonObject =
@@ -847,9 +854,12 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
      * One parked `get_next_event_batch` (#357). The core returns every event
      * already queued, oldest first. Empty is not an error: a closed channel
      * comes back with nothing, and polling again immediately would spin.
+     * The call carries a budget (#259 step 7): a wedged core that keeps the
+     * socket open must not hang the loop forever — a timeout counts as a
+     * failure like any other throw.
      */
     private suspend fun nextEvents(): List<CoreEvent> {
-        val result = client.call("get_next_event_batch", timeoutMs = null)
+        val result = client.call("get_next_event_batch", timeoutMs = EVENT_BATCH_BUDGET_MS)
         val arr = result as? JsonArray ?: return emptyList()
         return arr.map { el ->
             client.json.decodeFromString(CoreEvent.serializer(), el.toString())
@@ -863,9 +873,14 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
      * Consecutive failures end the loop: once the client is dead its calls
      * throw instantly, and retrying forever would just hot-spin a CPU core.
      * A live-but-flaky core recovers — a batch, even an empty one, resets
-     * the counter.
+     * the counter. [onStopped] runs when the loop gives up so the app can
+     * self-heal (the RPC reader's onDead cannot see a wedged-but-open core).
      */
-    fun startEventLoop(scope: CoroutineScope, onEvent: suspend (CoreEvent) -> Unit): Job =
+    fun startEventLoop(
+        scope: CoroutineScope,
+        onEvent: suspend (CoreEvent) -> Unit,
+        onStopped: () -> Unit = {},
+    ): Job =
         scope.launch {
             var failures = 0
             while (isActive) {
@@ -877,6 +892,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
                     failures++
                     if (failures >= 5) {
                         println("velta-kmp: event loop stopping after $failures consecutive failures: $t")
+                        onStopped()
                         break
                     }
                     continue
