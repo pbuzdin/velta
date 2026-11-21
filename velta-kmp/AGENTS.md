@@ -98,7 +98,7 @@ composeApp/src/
   ui/Markdown.kt markdown subset + parseInviteLink (canonical i.delta.chat
                  link; 40-hex on BOTH forms; safe percent-decode).
   ui/InviteSurface.kt extra hosts (`velta-invite-hosts`), invite card
-                 labels, deltachat.id short links. Relay chips stay out.
+                 labels, deltachat.id short links.
   ui/InviteCards.kt  strict message cards: `https://host/i/<token>` and
                  `velta://proxy` only. `velta://ws` stays plain text.
   ui/ChatAppearance.kt  text size, bubble corners, hyphenation,
@@ -106,8 +106,28 @@ composeApp/src/
   ui/ThreadRules.kt reply counts, thread rows, send re-lock.
   ui/HtmlScreen.kt  full-HTML viewer. Android actual is a WebView with
                  JavaScript off. Desktop actual is a notice.
+  ui/LoopRules.kt + ui/LoopScreen.kt
+                 Velta Loop (#332): p2p:/p2pg: chat ids, LoopPeer/Group/
+                 Row/Message, the typing.js port (SHOW_TTL 6000, sender
+                 REPEAT 3000 / IDLE 5000 — `typingOnKey`/`typingOnIdle`
+                 feed `loop.typingPeer`), pairing tickets, and the
+                 Loop screen (enable switch `velta-p2p`, typing pref
+                 `velta-p2p-typing`, peers, groups). AppModel merges the
+                 rows into the chat list and runs the second channel's
+                 event loop; `LoopPairDialog` / `LoopNewGroupDialog`
+                 cover pairing approval and `p2p_group_create`
+                 (GROUP_MAX_OTHERS 4, name ≤64).
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
+  native/rpc-shim/src/p2p.rs + p2p/ + loop_host.rs
+                 the Velta Loop engine (iroh 0.35, LAN discovery, no
+                 relay — lifted from velta-app/src-tauri/src/p2p.rs,
+                 Tauri stripped) behind `loop_host`: a SECOND JNI
+                 channel beside the core session — Kotlin `startLoop`
+                 (binds LAN only after start; the pref gate lives in
+                 Kotlin) / `sendLoopLine`, events via `RpcShim.onLoopLine`
+                 (one `p2p-event` JSON-Lines stream). No listening port;
+                 the core's RPC socket is untouched (#332 m2).
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
 composeApp/keystore.properties — release signing (gitignored; absent → debug-key fallback)
 ```
