@@ -117,6 +117,7 @@ class AndroidIncomingNotifier(private val context: Context) : AppModel.IncomingN
             .setContentIntent(openChat(notice.accountId, notice.chatId, key))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setGroup("velta-msg.${notice.accountId}")
             .setWhen(notice.timestampMs)
             .setShowWhen(true)
         decode(notice.chatAvatar)?.let {
