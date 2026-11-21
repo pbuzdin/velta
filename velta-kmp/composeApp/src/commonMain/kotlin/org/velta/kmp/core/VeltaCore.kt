@@ -405,10 +405,6 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         client.call("add_transport", RpcClient.params(RpcClient.param(accountId), param), timeoutMs = null)
     }
 
-    suspend fun configure(accountId: Long) {
-        client.call("configure", RpcClient.params(RpcClient.param(accountId)), timeoutMs = null)
-    }
-
     suspend fun startIoForAllAccounts() {
         client.call("start_io_for_all_accounts")
     }

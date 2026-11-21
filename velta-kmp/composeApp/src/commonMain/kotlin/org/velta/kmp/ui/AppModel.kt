@@ -2660,9 +2660,13 @@ class AppModel(
                 accountId = id
                 unconfiguredAccountId = null
                 syncPerAccountPrefs(veltaCore, id)
-                veltaCore.addTransport(id, addr.trim(), password)
+                // rpc-core configureWithCredentials: device-label prep, then
+                // add_transport — which runs the configuration itself. A bare
+                // configure() after it fails (#227); the create/relay-claim
+                // flows already use exactly this shape.
+                prepareFirstConfigure(veltaCore, id)
                 status = "configuring"
-                veltaCore.configure(id)
+                veltaCore.addTransport(id, addr.trim(), password)
                 startMailIo(veltaCore, id)
                 accountAddr = veltaCore.accountInfo(id).addr
                 loadChats()
