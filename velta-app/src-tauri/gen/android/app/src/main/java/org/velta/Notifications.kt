@@ -94,6 +94,11 @@ object Notifications {
             .setSmallIcon(context.applicationInfo.icon)
             .setStyle(style)
             .setAutoCancel(true)
+        // Message notifications share a per-account group (Delta Chat
+        // parity: NotificationCenter.setGroup(GRP_MSG + accountId)) so the
+        // shade bundles them apart from the ungrouped background-sync card.
+        builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        builder.setGroup("velta-msg." + chatKey.substringBefore(":"))
         val chatBitmap = decode(chatAvatarPath)
         if (chatBitmap != null) builder.setLargeIcon(chatBitmap)
         // Tap opens the chat (issue #20): an explicit VIEW intent carrying
