@@ -49,6 +49,23 @@ class MarkdownTest {
     }
 
     @Test
+    fun quoteLineIsBarPlusDimInk() {
+        // Web .msg-text blockquote: 3px accent bar, dim ink, no italic. The
+        // caller picks the colors per side (in: accent+dim, out: lighter bar,
+        // out-link ink); defaults fall back to accent/textColor.
+        val s = markdownAnnotated("> quoted note", accent, bg, ink, quoteBar = accent, quoteInk = Color(0xFF8B8B96))
+        assertEquals("▎quoted note", s.text)
+        val bar = s.spanStyles.first { s.text.substring(it.start, it.end) == "▎" }
+        assertEquals(accent, bar.item.color)
+        val body = s.spanStyles.filter { s.text.substring(it.start, it.end) == "quoted note" }
+        assertTrue(body.any { it.item.color == Color(0xFF8B8B96) }, "quote ink is the passed quoteInk")
+        assertTrue(body.none { it.item.fontStyle == androidx.compose.ui.text.font.FontStyle.Italic }, "no italic")
+        val o = markdownAnnotated("> quoted note", accent, bg, ink, quoteBar = Color(0xFFD9E9FA), quoteInk = Color(0xFFDFEAF6))
+        val obar = o.spanStyles.first { o.text.substring(it.start, it.end) == "▎" }
+        assertEquals(Color(0xFFD9E9FA), obar.item.color)
+    }
+
+    @Test
     fun hashtagsGetAccent() {
         val s = markdownAnnotated("look #Velta now", accent, bg, ink)
         assertEquals("look #Velta now", s.text)
@@ -188,7 +205,7 @@ class MarkdownTest {
     fun quoteBlocksPlusBulletsAndNestedEmphasis() {
         val members = listOf(org.velta.kmp.ui.MentionMember(7, "Pavel", "A1B2"))
         val s = markdownAnnotated("> hi\n+ item\n**@Pavel** *`code`*", accent, bg, ink, members)
-        assertTrue(s.text.startsWith("│ hi\n•  item\n"))
+        assertTrue(s.text.startsWith("▎hi\n•  item\n"))
         assertTrue(s.getStringAnnotations("MENTION", 0, s.length).any { it.item == "7" })
         assertTrue(s.getStringAnnotations("CODE", 0, s.length).any { it.item == "code" })
         assertTrue(s.spanStyles.any { it.item.fontWeight == FontWeight.Bold && s.text.substring(it.start, it.end).contains("@Pavel") })

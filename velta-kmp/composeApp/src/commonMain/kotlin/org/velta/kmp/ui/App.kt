@@ -5379,6 +5379,8 @@ private fun MessageBubble(
                             codeBackground = quoteBg,
                             textColor = tokens.text,
                             members = members,
+                            quoteBar = if (outgoing) tokens.quoteNameOut else tokens.accent,
+                            quoteInk = if (outgoing) tokens.outLink else tokens.textDim,
                         )
                         var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                         var expanded by remember(message.id, message.text) { mutableStateOf(false) }
