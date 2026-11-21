@@ -1,8 +1,5 @@
 package org.velta.kmp
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -19,8 +16,6 @@ import kotlin.test.assertTrue
  * account (core-side), text payload {text}, like the web's addDeviceMessage.
  */
 class DeviceMessageTest {
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Test
     fun transferNoteRidesAddDeviceMessageWithTextPayload() = runBlocking {
@@ -40,7 +35,6 @@ class DeviceMessageTest {
             assertEquals(1, transport.requests.count { "\"add_device_message\"" in it }, "exactly one call")
         } finally {
             core.close()
-            scope.cancel()
         }
     }
 }
