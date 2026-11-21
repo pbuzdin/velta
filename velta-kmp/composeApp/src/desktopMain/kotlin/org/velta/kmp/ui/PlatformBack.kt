@@ -20,4 +20,8 @@ actual fun PlatformPredictiveBackHandler(
 }
 
 @Composable
+actual fun PlatformRootBackHandler(enabled: Boolean) {
+}
+
+@Composable
 actual fun rememberReducedMotion(): Boolean = false

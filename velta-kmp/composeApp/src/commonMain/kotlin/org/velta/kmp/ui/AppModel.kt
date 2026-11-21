@@ -2595,6 +2595,11 @@ class AppModel(
                 addStep(L.t("Profile received — signing in"))
                 finishSteps(true)
                 accountAddr = veltaCore.accountInfo(id).addr
+                // #442: the received profile starts with an empty device chat —
+                // note where it came from (core adds the label once per account).
+                runCatching {
+                    veltaCore.addDeviceMessage(id, "velta-transfer", L.t("Profile transferred from another Velta device"))
+                }
                 welcomeDone()
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t

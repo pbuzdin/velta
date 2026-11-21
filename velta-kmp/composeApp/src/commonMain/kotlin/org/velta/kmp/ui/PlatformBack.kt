@@ -27,6 +27,11 @@ expect fun PlatformPredictiveBackHandler(
     onBack: (fromLeftEdge: Boolean?) -> Unit,
 )
 
+/** #443: back on the root screen (plain chat list) backgrounds the app
+ *  instead of finishing it. Desktop: no-op. */
+@Composable
+expect fun PlatformRootBackHandler(enabled: Boolean = true)
+
 /** System "remove animations" (animator duration scale 0): gestures still
  *  work but follow the finger flat — no springs, pops, parallax or dim. */
 @Composable

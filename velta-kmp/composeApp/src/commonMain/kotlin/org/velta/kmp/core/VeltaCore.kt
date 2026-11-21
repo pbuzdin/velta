@@ -400,6 +400,15 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         )
     }
 
+    /** Device-chat note under a unique label (web addDeviceMessage: core adds
+     * a label once per account; the payload is {text}). */
+    suspend fun addDeviceMessage(accountId: Long, label: String, text: String) {
+        client.call(
+            "add_device_message",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(label), buildJsonObject { put("text", text) }),
+        )
+    }
+
     suspend fun isConfigured(accountId: Long): Boolean =
         client.call("is_configured", RpcClient.params(RpcClient.param(accountId))).toString() == "true"
 

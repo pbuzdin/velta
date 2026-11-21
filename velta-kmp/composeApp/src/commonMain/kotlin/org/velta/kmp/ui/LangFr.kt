@@ -403,6 +403,7 @@ internal object LangFr {
         "Profile key" to "Clé du profil",
         "Profile management…" to "Gestion du profil…",
         "Profile received — signing in" to "Profil reçu — connexion",
+        "Profile transferred from another Velta device" to "Profil transféré depuis un autre appareil Velta",
         "Profile restored — restarting" to "Profil restauré — redémarrage",
         "Profile transferred to the second device" to "Profil transféré vers le second appareil",
         "Profile updated" to "Profil mis à jour",
