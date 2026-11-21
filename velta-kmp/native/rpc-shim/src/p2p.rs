@@ -6661,7 +6661,8 @@ mod tests {
         t.a.group_send(&t.gid, "after", None, None).unwrap();
         let ev = wait_for(&t.b_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "after");
         assert_eq!(ev["seq"], 1);
-    
+    }
+
     /// #450 (desktop twin: #448): a byte-exact copy of a VLTA source ships
     /// ciphertext the receiving side cannot unwrap with its own key.
     /// copy_plain decrypts VLTA sources to plaintext, passes non-VLTA sources
