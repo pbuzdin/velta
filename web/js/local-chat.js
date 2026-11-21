@@ -500,7 +500,7 @@ async function engineGroups() {
 // ---- group management (engine commands; store follows the result) ----
 
 async function groupCmd(cmd, args) {
-  if (!isTauri()) throw new Error("Local groups need the Velta app shell");
+  if (!isTauri()) throw new Error(t("Local groups need the Velta app shell"));
   const info = await invoke()(cmd, args).catch(err => { throw new Error(String(err?.message || err)); });
   const g = applyGroup(info);
   if (g) { emitChanged(); chatUpdated(g.id); }
@@ -1400,9 +1400,9 @@ export async function lcRetryGroupFile(chatId, msgId, memberId = null) {
 async function sendGroupMessage(gid, { text = "", viewtype = "text", file = null, filename = null, quoteId = null, quoteText = null } = {}) {
   const g = store.groups.get(gid);
   if (!g) throw new Error("Unknown local group");
-  if (viewtype === "voice") throw new Error("Voice messages aren't available in local groups");
-  if (g.removed) throw new Error(g.closed ? "This group was disbanded" : "You are not in this group any more");
-  if (!isTauri()) throw new Error("Local groups need the Velta app shell");
+  if (viewtype === "voice") throw new Error(t("Voice messages aren't available in local groups"));
+  if (g.removed) throw new Error(g.closed ? t("This group was disbanded") : t("You are not in this group any more"));
+  if (!isTauri()) throw new Error(t("Local groups need the Velta app shell"));
   if (file) return sendGroupFile(g, { text, file, filename });
   // The composer quotes by the adapter's numeric id; the wire carries the
   // engine id of the quoted message.

@@ -16,7 +16,7 @@ function hslToRgb(h, s, l) {
   const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
   return [0, 8, 4].map(n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)))));
 }
-function rgbToHsl([r, g, b]) {
+export function rgbToHsl([r, g, b]) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
   if (!d) return [0, 0, l * 100];

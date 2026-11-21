@@ -2,7 +2,7 @@
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
-import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe } from "./components.js";
+import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe, hapticTick } from "./components.js";
 import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand, recentCommands } from "./recent-commands.js";
@@ -33,11 +33,30 @@ if (!/CriOS|FxiOS|EdgiOS/.test(ua) && /Chrome\/|Chromium\/|Edg\//.test(ua)) {
 function composerFieldSized() {
   return typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 }
+// Expanding-composer state on #main-composer: `expanded` = field spans the
+// composer with the buttons on a row below (typing anywhere, or focus on
+// touch); `has-text` = the sticker trigger is gone, a sticker send is a
+// message of its own and never rides alongside text.
+function syncComposerState(input) {
+  const bar = input?.closest?.(".composer");
+  if (!bar) return;
+  const hasText = input.value.trim().length > 0;
+  bar.classList.toggle("has-text", hasText);
+  // DOM-mock test environments have neither matchMedia nor layout state.
+  const touch = globalThis.matchMedia?.("(pointer: coarse)")?.matches === true;
+  bar.classList.toggle("expanded",
+    hasText || (touch && document.activeElement === input));
+}
 function sizeComposer(input) {
   if (!input) return;
+  syncComposerState(input);
   if (composerFieldSized()) { input.style.height = ""; return; }
+  // Cap at three text lines (the CSS max-height on #composer-input);
+  // 26px = the field's vertical padding.
+  const line = typeof getComputedStyle === "function" ? parseFloat(getComputedStyle(input).lineHeight) || 20 : 20;
+  const cap = 3 * line + 26;
   input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px";
+  input.style.height = Math.min(input.scrollHeight, cap) + "px";
 }
 
 // Decoded-dimension memory for media the core had no dimensions for: those
@@ -148,7 +167,7 @@ function attachmentName(msg) {
 
 function asBytes(raw) {
   if (raw instanceof Uint8Array) return raw;
-  if (raw == null) throw new Error("This attachment is empty");
+  if (raw == null) throw new Error(t("This attachment is empty"));
   return new Uint8Array(raw);
 }
 
@@ -162,7 +181,7 @@ async function attachmentBytes(core, path) {
     if (raw) return asBytes(raw);
   }
   const res = await fetch(fileUrl(path) || path);
-  if (!res.ok) throw new Error("Couldn't read the file");
+  if (!res.ok) throw new Error(t("Couldn't read the file"));
   return new Uint8Array(await res.arrayBuffer());
 }
 
@@ -181,7 +200,7 @@ function triggerBrowserDownload(bytes, name) {
 // as a browser download. Resolves true when saved, false when cancelled.
 // Shared by the bubble menu and the chat info Files section.
 export async function saveAttachmentFile(core, msg) {
-  if (!msg?.filePath) throw new Error("This attachment isn't available yet");
+  if (!msg?.filePath) throw new Error(t("This attachment isn't available yet"));
   const name = attachmentName(msg);
   const invoke = tauriInvoke();
   if (isAndroid() && invoke) {
@@ -369,6 +388,10 @@ export const THREAD_BUTTON_MIN_REPLIES = 1;
 
 // #278: drawer → Chat appearance. "1" = Attach → Stickers, no composer button.
 export const stickersInAttach = () => { try { return localStorage.getItem("velta-stickers-in-attach") === "1"; } catch { return false; } };
+
+// Drawer "Chat appearance" toggles write these keys; absence = enabled.
+const sendLaterEnabled = () => localStorage.getItem("velta-send-later") !== "0";
+const commandsButtonEnabled = () => localStorage.getItem("velta-cmds-button") !== "0";
 
 const ICO = {
   sticker: ICON.sticker,
@@ -1179,6 +1202,12 @@ export class ChatView {
   _applyGroupComposer(chat) {
     const b = document.getElementById("btn-sticker");
     if (b) b.hidden = !!chat?.isP2pGroup || stickersInAttach();
+    const cmds = document.getElementById("btn-commands");
+    if (cmds) cmds.hidden = !commandsButtonEnabled();
+    // Same gates as the attach-menu rows: local chats don't schedule
+    // (this.scheduled is instance-wide, set once by app.js).
+    const sl = document.getElementById("btn-send-later");
+    if (sl) sl.hidden = !!chat?.isP2p || !sendLaterEnabled();
   }
 
   // One TypingSender per open local chat; switching chats stops the old one.
@@ -1620,7 +1649,7 @@ export class ChatView {
   async _deleteFailed(m) {
     const session = this._session;
     if (!this._isCurrent(session)) return;
-    if (!(await confirmModal("Remove message", t("Delete this message for everyone?")))) return;
+    if (!(await confirmModal(t("Remove message"), t("Delete this message for everyone?")))) return;
     if (!this._isCurrent(session)) return;
     this._holdDelete(session, [m.id], true);
   }
@@ -2929,7 +2958,7 @@ export class ChatView {
         // Ask first: the modal layer sits below the lightbox, so a modal
         // opened after it would render underneath.
         if (m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
-          confirmModal("Add sticker", t("Add this sticker to your sticker collection?"), t("Add"), false)
+          confirmModal(t("Add sticker"), t("Add this sticker to your sticker collection?"), t("Add"), false)
             .then(ok => {
               if (ok) {
                 this.core.saveSticker(m.id).then(() => toast(t("Sticker saved to your collection")))
@@ -3073,7 +3102,7 @@ export class ChatView {
       const bubble = e.target.closest?.(".bubble");
       if (!bubble || gestureSkipTarget(e.target)) return;
       const t = e.touches[0];
-      swipe = { x: t.clientX, y: t.clientY, bubble, dx: 0, on: false };
+      swipe = { x: t.clientX, y: t.clientY, bubble, dx: 0, on: false, haptic: false };
     };
     ev.touchmove = e => {
       clearTimeout(pressTimer);
@@ -3098,6 +3127,13 @@ export class ChatView {
       }
       swipe.dx = Math.max(0, Math.min(dx, 64));
       swipe.bubble.style.transform = swipe.dx ? `translateX(${swipe.dx}px)` : "";
+      // Tick once when the drag crosses the reply-commit threshold (48px);
+      // re-armed if the finger retreats below it.
+      if (swipe.dx >= 48) {
+        if (!swipe.haptic) { swipe.haptic = true; hapticTick(); }
+      } else {
+        swipe.haptic = false;
+      }
       if (e.cancelable) e.preventDefault();
     };
     ev.touchend = () => endReplySwipe(true);
@@ -3746,6 +3782,7 @@ export class ChatView {
       <div class="info-row"><span class="k">${escapeHtml(t("From"))}</span><span class="v">${escapeHtml(m.fromContact?.name || "")}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("Sent"))}</span><span class="v">${escapeHtml(formatDateTime(m.sentTs || m.ts))}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("Received"))}</span><span class="v">${escapeHtml(m.receivedTs ? formatDateTime(m.receivedTs) : "—")}</span></div>
+      ${m.viewtype === "webxdc" ? `<div class="info-row"><span class="k">${escapeHtml(t("Last app update"))}</span><span class="v">${escapeHtml(m.receivedTs ? formatDateTime(m.receivedTs) : "—")}</span></div>` : ""}
       <div class="info-row"><span class="k">${escapeHtml(t("State"))}</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
@@ -4076,7 +4113,7 @@ export class ChatView {
       else if (act === "copy") {
         const texts = ids.map(id => this.msgIndex.get(id)?.msg.text).filter(Boolean);
         navigator.clipboard?.writeText(texts.join("\n"));
-        toast("Copied " + texts.length + " messages");
+        toast(t("Copied {n} messages", { n: texts.length }));
         this.exitSelection();
       } else if (act === "star") {
         try {
@@ -4221,6 +4258,10 @@ export class ChatView {
     input.autocomplete = "off";
     input.enterKeyHint = localStorage?.getItem("velta-send-enter") !== "0" ? "send" : "enter";
     input.addEventListener("input", () => { grow(); this._scheduleLinkPreview(); });
+    // Focus/blur drive the touch-only half of `expanded` (typing is covered
+    // by the input listener via sizeComposer -> syncComposerState).
+    input.addEventListener("focus", () => syncComposerState(input));
+    input.addEventListener("blur", () => syncComposerState(input));
     // Typing hint (local chats only; core.sendTyping is a no-op when the
     // setting is off). Empty box = stopped.
     input.addEventListener("input", () => {
@@ -4303,6 +4344,48 @@ export class ChatView {
     }
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
     window.addEventListener("velta-stickers-pref", () => this._applyGroupComposer(this.chat));
+    window.addEventListener("velta-composer-pref", () => this._applyGroupComposer(this.chat));
+    // Desktop quick tools (≥600px): the attach-menu rows people reach for
+    // most, one tap away — Apps/Commands beside Attach, Send later beside
+    // Send. Phones keep everything in the attach menu (no room at 390px).
+    const popAbove = (btn, menu) => {
+      const r = btn.getBoundingClientRect();
+      const x = Math.min(r.left, window.innerWidth - 220);
+      menu.style.top = "auto";
+      menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
+      menu.style.left = x / uiZoom() + "px";
+    };
+    document.getElementById("btn-apps").addEventListener("click", () => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
+      const items = recentApps(this.core.accountId).map(a => ({ label: a.name, icon: ICO.webxdc, onClick: () => this._resendStoredApp(session, a) }));
+      if (items.length) items.push("-");
+      items.push({
+        label: "Browse apps…",
+        onClick: () => openAppBrowser({
+          showModal, toast,
+          alive: () => this._isCurrent(session) && !!this.chat,
+          getBytes: (url, ms) => this.core.getHttpResponse(url, ms).then(r => r.bytes),
+          sendApp: (app, bytes) => this._sendCatalogApp(session, app, bytes),
+        }),
+      });
+      popAbove(document.getElementById("btn-apps"), showContextMenu(items, 8, 8));
+    });
+    document.getElementById("btn-commands").addEventListener("click", () => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
+      const input = document.getElementById("composer-input");
+      const cmds = recentCommands(this.core.accountId, session.chatId);
+      if (!cmds.length) { toast(t("No commands yet")); return; }
+      const menu = showContextMenu(cmds.map(c => ({ label: c, onClick: () => {
+        input.value = c + " ";
+        try { input.selectionStart = input.selectionEnd = input.value.length; } catch {}
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+      } })), 8, 8);
+      popAbove(document.getElementById("btn-commands"), menu);
+    });
+    document.getElementById("btn-send-later").addEventListener("click", () => this._sendLater());
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
       const pm = this.pendingMedia;
@@ -4360,7 +4443,7 @@ export class ChatView {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
       }
       // Scheduled messages: the keyboard/screen-reader route to "Send later".
-      if (!this.chat?.isP2p && this.scheduled) {
+      if (!this.chat?.isP2p && this.scheduled && sendLaterEnabled()) {
         attachItems.push({ label: "Send later", icon: ICO.clock, onClick: () => this._sendLater() });
       }
       const menu = showContextMenu(attachItems.map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
@@ -4387,13 +4470,10 @@ export class ChatView {
       menu.style.top = "auto";
       menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
       menu.style.left = x / uiZoom() + "px";
-      requestAnimationFrame(() => {
-        if (!this._isCurrent(session)) return;
-        if (menu.getBoundingClientRect().top < 8) {
-          menu.style.bottom = "auto";
-          menu.style.top = "8px";
-        }
-      });
+      // The menu grows upward from the attach button: cap it at the space
+      // that actually exists above, so details toggles scroll inside the
+      // popup instead of clipping at the viewport top.
+      menu.style.maxHeight = Math.max(180, r.top - 12) / uiZoom() + "px";
       return menu;
     });
   }
@@ -4481,7 +4561,7 @@ export class ChatView {
       return filePath;
     }
     const write = this.core?.transport?.writeCoreFile;
-    if (typeof write !== "function") throw new Error("Sending that file needs the Velta app");
+    if (typeof write !== "function") throw new Error(t("Sending that file needs the Velta app"));
     const safe = String(filename).replace(/[\\/]/g, "_");
     const path = `/uploads/${safe}`;
     await write.call(this.core.transport, path, bytes);
@@ -4516,7 +4596,7 @@ export class ChatView {
       if (filePath) {
         filename = filePath.replace(/\\/g, "/").split("/").pop();
       } else {
-        if (!sendBlob) throw new Error("Nothing to send");
+        if (!sendBlob) throw new Error(t("Nothing to send"));
         const t = sendBlob.type;
         const fromName = String(pm.name || "").split(".").pop();
         const ext = t === "image/jpeg" ? "jpg" : t === "image/webp" ? "webp" : t === "image/gif" ? "gif" : t?.startsWith("video/") ? "mp4" : (fromName || "png");
@@ -4635,7 +4715,7 @@ export class ChatView {
 
   // Text only for now: attachments, voice and edits keep the normal path.
   async _sendLater() {
-    if (this._sendLaterOpen) return;
+    if (this._sendLaterOpen || !sendLaterEnabled()) return;
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat || !this.scheduled) return;
     if (this.chat.isP2p) { toast(t("Local chats can't schedule messages")); return; }
@@ -4935,10 +5015,10 @@ export class ChatView {
   }
 
   async _sendCatalogApp(session, app, bytes) {
-    if (!this._isCurrent(session) || !this.chat) throw new Error("Chat closed");
+    if (!this._isCurrent(session) || !this.chat) throw new Error(t("Chat closed"));
     const filename = app.filename || "app.xdc";
     const path = await this._writeBlobForSend(filename, bytes);
-    if (!this._isCurrent(session)) throw new Error("Chat closed");
+    if (!this._isCurrent(session)) throw new Error(t("Chat closed"));
     const msg = await this._sendArchivedAware(session.chatId, {
       viewtype: "webxdc", file: path, filename, ...this._quoteFields(),
     });
@@ -5089,7 +5169,12 @@ export class ChatView {
     }
 
     try {
-      let picked = await invoke("plugin:dialog|open", { options: { multiple: kind === "image", filters } });
+      // pickerMode asks Android for plain image/* or video/* (every gallery
+      // handles that) instead of */* + EXTRA_MIME_TYPES; desktop ignores it.
+      const pickerMode = kind === "image" ? "image" : kind === "video" ? "video" : undefined;
+      diagnosticsSink.append("info", `picker open kind=${kind}`);
+      const pickStart = Date.now();
+      let picked = await invoke("plugin:dialog|open", { options: { multiple: kind === "image", filters, pickerMode } });
       if (!this._isCurrent(session)) return;
       const paths = (Array.isArray(picked) ? picked : picked ? [picked] : []).filter(Boolean);
       if (kind === "image" && paths.length > 1) {
@@ -5097,7 +5182,19 @@ export class ChatView {
         return;
       }
       picked = paths[0];
-      if (!picked) return;
+      if (!picked) {
+        // The dialog plugin turns every Android failure into "nothing
+        // picked" and drops the reason, so log it; an empty result this
+        // fast means the picker never showed, not that the user cancelled.
+        const ms = Date.now() - pickStart;
+        diagnosticsSink.append("warning", `picker returned nothing after ${ms} ms (kind=${kind})`);
+        if (ms < 1000) {
+          toast(kind === "image" ? t("Couldn't open the photo picker")
+            : kind === "video" ? t("Couldn't open the video picker")
+            : t("Couldn't open the file picker"), 4000, { danger: true });
+        }
+        return;
+      }
       // V-07/#65: fs reads are scope-gated — the user's pick itself is the
       // consent; add exactly that path to the fs runtime scope.
       if (!/^content:\/\//.test(picked)) {
@@ -5170,12 +5267,12 @@ export class ChatView {
       if (!this._isCurrent(session)) return null;
       if (can) this.readOnly = false;
     }
-    if (this.readOnly) throw new Error("You can't write in this chat");
+    if (this.readOnly) throw new Error(t("You can't write in this chat"));
     const resolved = [];
     for (const file of files) {
       let path = file;
       if (/^content:\/\//i.test(file)) {
-        if (!invoke) throw new Error("Sending that file needs the Velta app");
+        if (!invoke) throw new Error(t("Sending that file needs the Velta app"));
         path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()), encrypt: true });
       } else if (invoke) {
         // Send to / Open with: the user's own pick is the consent, as with
@@ -5478,7 +5575,7 @@ export class ChatView {
       if (!this._mobileGestures() || this._textSelect || this._replySwipe || e.touches.length !== 1) return;
       if (gestureSkipTarget(e.target)) return;
       const t = e.touches[0];
-      g = { x: t.clientX, y: t.clientY, dx: 0, on: false, settled: false };
+        g = { x: t.clientX, y: t.clientY, dx: 0, on: false, settled: false, haptic: false };
     }, { passive: true });
     scroller.addEventListener("touchmove", e => {
       if (!g || g.settled || this._replySwipe || e.touches.length !== 1) {
@@ -5502,6 +5599,13 @@ export class ChatView {
       const width = main.clientWidth || main.getBoundingClientRect?.().width || 320;
       g.dx = Math.min(0, Math.max(dx, -width));
       main.style.transform = `translateX(${g.dx}px)`;
+      // Tick once when the drag crosses the back-commit threshold; re-armed
+      // if the finger retreats.
+      if (g.dx <= -Math.min(72, width * 0.28)) {
+        if (!g.haptic) { g.haptic = true; hapticTick(); }
+      } else {
+        g.haptic = false;
+      }
       if (e.cancelable) e.preventDefault();
     }, { passive: false });
     const end = (commit) => {
@@ -6007,12 +6111,11 @@ export class ChatView {
     this.core.addEventListener("pinned-changed", e => {
       if (e.detail.chatId === this._session?.chatId) this._refreshPinnedBar();
     });
-    // #69: a deleted pin never fires pinned-changed — the core's tombstone
-    // REPLACE silently wipes the pinned column (no MessageUnpinned event),
-    // so the tray kept showing the deleted message. Any change to the open
-    // chat (msgs-changed), a deletion (msgs-deleted, local or remote/ephemeral
-    // via rpc-core's MsgDeleted mapping) or a global sweep re-checks the
-    // pins; debounced to one refresh per 400 ms burst.
+    // #69 backstop: the core's PinnedMessagesChanged event (now wired in
+    // rpc-core, and it fires for pin, unpin AND pin deletion) keeps the
+    // tray fresh; these debounced re-checks on any change to the open chat
+    // (msgs-changed), a deletion (msgs-deleted) or a global sweep stay as
+    // defense in depth against a dropped event. One refresh per 400 ms burst.
     this._pinRefreshTimer = null;
     const queuePinRefresh = () => {
       clearTimeout(this._pinRefreshTimer);

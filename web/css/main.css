@@ -220,6 +220,10 @@ svg { width: 24px; height: 24px; display: block; }
 @media (hover: hover) and (pointer: fine) {
   .chat-cats button:hover:not(.active) { color: var(--text); }
 }
+/* #294: the picker variant is narrower than the main list — keep the labels
+   whole and scroll instead of ellipsizing ("Peo…", "Grou…"). */
+.modal-cats { overflow-x: auto; padding: 0 0 6px; }
+.modal-cats button { flex: 0 0 auto; padding: 5px 10px; }
 /* Relay status line — thin strip just below the sidebar header. The color
    lives on `color` so the sending-dash gradient can reuse it as currentColor. */
 /* Relay status strip: one equal-width segment per configured relay
@@ -1480,6 +1484,11 @@ velta-video { display: block; height: 100%; }
 .vp { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 4px; box-sizing: border-box; border-radius: 20px; background: rgba(0,0,0,.18); }
 .vp-play { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
 .vp-play svg { width: 20px; height: 20px; }
+.vp-speed {
+  flex: none; height: 24px; min-width: 36px; padding: 0 8px; border: 0; cursor: pointer; border-radius: 12px;
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--accent); background: rgba(127, 127, 127, .22);
+}
 .vp-seek { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent); }
 .vp-time { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
 .msg-file {
@@ -1576,9 +1585,113 @@ button.reaction-chip { font: inherit; color: inherit; }
 
 /* ---------- Composer ---------- */
 .composer {
-  display: flex; align-items: flex-end; gap: 4px;
+  display: flex; align-items: flex-end; gap: 8px;
   padding: 6px 14px calc(10px + env(safe-area-inset-bottom));
   width: 100%;
+}
+/* Expanded composer (both skins): the field spans the full row and the
+   tools drop to their own row below — attach cluster left, send cluster
+   right, empty `mid` between. Sticker stays tucked in the field's edge and
+   only exists while the field is empty. */
+.composer.expanded {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto auto;
+  grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
+}
+.composer.expanded .composer-input-wrap { grid-area: wrap; }
+.composer.expanded #btn-attach { grid-area: attach; }
+.composer.expanded #btn-apps { grid-area: apps; }
+.composer.expanded #btn-commands { grid-area: cmds; }
+.composer.expanded #btn-send-later { grid-area: slater; }
+.composer.expanded #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
+/* Desktop-only quick tools (Apps/Commands/Send later): phones keep them in
+   the attach menu — the rest row has no room for six buttons. Captioned
+   pills must out-rank `#main-composer .icon-btn`'s fixed 48px box. */
+.desktop-tool { display: none; }
+.desktop-tool[hidden] { display: none; }
+#main-composer .icon-btn.desktop-tool[hidden] { display: none; }
+@media (min-width: 600px) {
+  #main-composer .icon-btn.desktop-tool {
+    display: grid;
+    width: auto;
+    height: 48px;
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 7px;
+    padding: 0 14px 0 10px;
+    border-radius: 24px;
+  }
+}
+#main-composer .icon-btn.desktop-tool .tool-caption {
+  font-size: 13px; line-height: 1; white-space: nowrap; color: inherit;
+}
+/* The drop only animates where the buttons actually move (under the desktop
+   width). On desktop the grid below is permanent, so nothing ever moves. */
+@media (max-width: 599.98px) {
+  .composer.expanded > .icon-btn { animation: composer-drop .18s ease-out; }
+}
+@keyframes composer-drop {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+/* Desktop: always expanded — send lives in one spot, typing never reflows
+   the tools. Mirrors .composer.expanded above; keep the two in sync. */
+@media (min-width: 600px) {
+  #main-composer.composer {
+    display: grid;
+    grid-template-columns: auto auto auto 1fr auto auto;
+    grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
+  }
+  #main-composer .composer-input-wrap { grid-area: wrap; }
+  #main-composer #btn-attach { grid-area: attach; }
+  #main-composer #btn-apps { grid-area: apps; }
+  #main-composer #btn-commands { grid-area: cmds; }
+  #main-composer #btn-send-later { grid-area: slater; }
+  #main-composer #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
+}
+/* Lens plate. The list scrolls underneath; at rest the last row sits
+   above it (padding), and a drag carries bubbles through the curve.
+   Skipped while a strip sits between the list and the field, and while
+   the thread sheet is open — those already fill the backdrop. */
+#chat-view:not(:has(#reply-preview:not([hidden]))):not(:has(#media-preview:not([hidden]))):not(:has(#link-preview-draft:not([hidden]))):not(:has(#voice-rec:not([hidden]))):not(:has(#thread-panel:not([hidden]))) #main-composer.glass-on:not([hidden]) {
+  margin-top: calc(var(--composer-glass, 0px) * -1);
+}
+#chat-view:not(:has(#reply-preview:not([hidden]))):not(:has(#media-preview:not([hidden]))):not(:has(#link-preview-draft:not([hidden]))):not(:has(#voice-rec:not([hidden]))):not(:has(#thread-panel:not([hidden]))):has(#main-composer.glass-on:not([hidden])) #history-scroll {
+  padding-bottom: var(--composer-glass, 0px);
+}
+#chat-view:not(:has(#reply-preview:not([hidden]))):not(:has(#media-preview:not([hidden]))):not(:has(#link-preview-draft:not([hidden]))):not(:has(#voice-rec:not([hidden]))):not(:has(#thread-panel:not([hidden]))):has(#main-composer.glass-on:not([hidden])) #btn-go-down {
+  bottom: calc(var(--composer-glass, 0px) + 12px);
+}
+#main-composer.glass-on {
+  z-index: 4;
+  background: none;
+  /* The thumb lives in the right margin, so the plate sits one thumb further in on that side. */
+  --glass-gap: 14px;
+  --glass-thumb: 8px;
+  padding-left: calc(var(--glass-gap) + 6px);
+  padding-right: calc(var(--glass-gap) + var(--glass-thumb) + 6px);
+}
+/* Touch has no scrollbar thumb to clear: the plate sits symmetric. */
+@media (pointer: coarse) {
+  #main-composer.glass-on { --glass-thumb: 0px; }
+}
+#main-composer.glass-on::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 4px calc(var(--glass-gap) + var(--glass-thumb)) calc(4px + env(safe-area-inset-bottom)) var(--glass-gap);
+  border-radius: 22px;
+  pointer-events: none;
+  backdrop-filter: url("#velta-glass");
+  -webkit-backdrop-filter: url("#velta-glass");
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .55),
+    inset 0 -8px 12px rgba(255, 255, 255, .05),
+    inset 0 0 0 1px rgba(255, 255, 255, .22);
+}
+#main-composer.glass-on > * { position: relative; z-index: 1; }
+#main-composer.glass-on .composer-input-wrap {
+  background: transparent;
+  border-color: transparent;
 }
 /* Pending attachment strip (official-client pattern): sits above the
    composer row, caption = the composer input itself. */
@@ -1620,8 +1733,10 @@ button.reaction-chip { font: inherit; color: inherit; }
 }
 #composer-input {
   flex: 1; border: 0; outline: 0; resize: none;
-  background: none; padding: 13px 6px 13px 16px;
-  max-height: calc(var(--dvh) * .40); font-size: 15.5px; line-height: 1.3;
+  background: none; padding: 13px 12px;
+  /* Cap at three text lines (sizeComposer mirrors this for the
+     no-field-sizing fallback; 3.9em = 3 × the 1.3 line-height). */
+  max-height: calc(3.9em + 26px); font-size: 15.5px; line-height: 1.3;
   min-width: 0; overflow-wrap: anywhere; /* break long URLs instead of growing (field-sizing: content) */
 }
 #composer-input::placeholder { color: var(--text-dim); }
@@ -1633,8 +1748,17 @@ button.reaction-chip { font: inherit; color: inherit; }
    official clients' emoji/sticker button — not a separate composer column. */
 #btn-sticker {
   flex: none; align-self: center; width: 34px; height: 34px;
-  margin-right: 5px; padding: 0; border: 0; border-radius: 50%;
-  background: none; color: var(--text-dim); cursor: pointer;
+  margin-right: 8px; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--text-dim); cursor: pointer; overflow: hidden;
+  transition: width .18s ease-out, margin .18s ease-out, opacity .18s ease-out, transform .18s ease-out;
+}
+/* Typing hides the sticker trigger: a sticker send is a message of its own,
+   never an accompaniment to drafted text. */
+.composer.has-text #btn-sticker {
+  width: 0; margin-right: 0; opacity: 0; transform: scale(.7); pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  #btn-sticker, .composer.expanded > .icon-btn { transition: none; animation: none; }
 }
 #btn-sticker svg { width: var(--ico-4); height: var(--ico-4); }
 #btn-sticker:active { color: var(--accent); }
@@ -1649,7 +1773,7 @@ button.reaction-chip { font: inherit; color: inherit; }
   background: var(--bg-sidebar); border: 1px solid var(--border);
   border-radius: 14px; box-shadow: var(--shadow); padding: 10px;
 }
-.sticker-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.sticker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .sticker-coll { grid-column: 1 / -1; font-size: 12px; color: var(--text-dim); margin: 6px 2px 0; }
 .sticker-coll:first-child { margin-top: 0; }
 .sticker-tile {
@@ -1667,6 +1791,12 @@ button.reaction-chip { font: inherit; color: inherit; }
 .sticker-emoji { font-size: 96px; line-height: 1; padding: 6px 10px; }
 .send-btn { color: var(--accent-text); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
+/* Armed send: accent fill while there's text to send — the same
+   accent/--on-accent pairing as the primary buttons, AA on every theme. */
+#main-composer.has-text .send-btn:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 /* Composer buttons sized to the input line (bottom-aligned like the input,
    no extra offset — a 48px button centers its icon on the text line), with
    icons a notch larger than the generic 24px. */
@@ -2040,6 +2170,13 @@ html[data-theme="light"] .msg-actions .ctx-item { background: #fff; box-shadow: 
 #lc-queue-pop[popover] {
   margin: 0; top: auto; left: auto; height: auto;
   background: var(--bg-sidebar); color: var(--text);
+}
+/* Narrow window or phone: tray spans the full width so stickers wrap with a
+   single (vertical) scroll axis — no horizontal pan. Shared by the PWA and
+   all Tauri apps via this stylesheet; must sit after the [popover] rule so
+   left:10px wins over its left:auto. */
+@media (max-width: 600px) {
+  .sticker-pop, .sticker-pop[popover] { left: 10px; width: auto; }
 }
 .toasts[popover] {
   margin: 0; border: none; background: transparent; color: inherit;
@@ -2432,8 +2569,14 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 @media (prefers-reduced-motion: reduce) { #bar-menu.update { animation: none; } }
 
 /* attach pop reuses ctx-menu; Apps / Commands disclosures (#137) */
-.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); overflow: auto; }
-.attach-sub { max-height: 220px; overflow: auto; }
+/* The [popover] base sets overflow: visible at (0,2,0), which beat this
+   class — details content spilled past the height cap with no scrollbar.
+   Re-own scrolling at popover specificity; one scrollbar on the menu, the
+   details sub-lists flow into it. scrollbar-gutter keeps rows from jumping
+   sideways when the bar appears. */
+.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); }
+.ctx-menu.attach-pop[popover] { overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+.attach-sub { min-width: 0; }
 .attach-sub .ctx-item { min-width: 0; }
 .attach-sub .ctx-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attach-empty { padding: 2px 12px 8px; color: var(--text-dim); font-size: 13px; }
@@ -2447,8 +2590,19 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .app-row small { display: block; color: var(--text-dim); font-size: 13px; margin-top: 2px; }
 .mirror-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .mirror-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-.mirror-add { display: flex; gap: 8px; align-items: center; }
+/* Inline field+button row: the button stretches to the field's height and
+   centers its label — first such pairing in the app, so the row sets the
+   pattern (each component keeps its own token radius). */
+.mirror-add { display: flex; gap: 8px; align-items: stretch; }
 .mirror-add .text-field { flex: 1; }
+.mirror-add .btn-text { display: grid; place-items: center; }
+/* Catalog-mirrors section: the details content carries no inset of its own —
+   align hint, rows and the add form with the summary row and let them breathe. */
+.app-browser .drawer-details[open] { padding-bottom: 6px; }
+.app-browser .drawer-details .pm-hint { margin: 4px 12px 10px; font-size: 13px; line-height: 1.45; }
+.app-browser .drawer-details .mirror-row { padding: 4px 12px; }
+.app-browser .drawer-details .mirror-row + .mirror-row { border-top: 1px solid var(--border); }
+.app-browser .drawer-details .mirror-add { margin: 10px 12px 2px; }
 
 /* toasts — bar anchored above the composer / bottom action bar
    (same edge the modals respect); z-index 80 keeps it visible over
@@ -3543,6 +3697,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-row-audio .media-audio { margin-top: 2px; }
 .media-audio .vp { height: 30px; background: none; padding: 0; }
 .media-audio .vp-play { width: 26px; height: 26px; }
+.media-audio .vp-speed { height: 20px; min-width: 32px; font-size: 11px; }
 /* Text-only mode (#300): covered gallery items show no media, only a reveal
    button (same in-memory exception as the chat bubble). */
 .media-tile .media-textonly-cover { display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev); }

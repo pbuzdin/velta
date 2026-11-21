@@ -6,7 +6,7 @@ import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
 import { createTransferTracker } from "./transfer-progress.js";
-import { escapeHtml, escapeAttr } from "./components.js";
+import { escapeHtml, escapeAttr, buildCategoryChips } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
 import { createLastGood, loadErrorBanner, withTimeout } from "./load-retry.js";
 import { probeLock, unlockInteractive, prfSupported } from "./db-lock.js";
@@ -28,6 +28,7 @@ import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomains
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, notifyThrottled, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
+import { installGlassComposer } from "./glass-composer.js";
 import { createNotifyQueue } from "./notify-queue.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
@@ -625,18 +626,18 @@ if (window.__TAURI__) {
         const el = document.createElement("div");
         el.id = "db-locked";
         const lead = hello && pin
-          ? "Unlock with Windows Hello, or enter your app-lock PIN. Nothing was reset."
+          ? t("Unlock with Windows Hello, or enter your app-lock PIN. Nothing was reset.")
           : hello
-            ? "Unlock with Windows Hello to open this device's profiles. Nothing was reset."
-            : "Enter your app-lock PIN to unlock this device's profiles. Nothing was reset.";
+            ? t("Unlock with Windows Hello to open this device's profiles. Nothing was reset.")
+            : t("Enter your app-lock PIN to unlock this device's profiles. Nothing was reset.");
         el.innerHTML = `
           <div class="db-locked-card">
-            <h2>Velta is locked</h2>
+            <h2>${t("Velta is locked")}</h2>
             <p>${lead}</p>
-            ${hello ? `<button class="btn-primary db-hello-go" type="button">Unlock with Windows Hello</button>` : ""}
+            ${hello ? `<button class="btn-primary db-hello-go" type="button">${t("Unlock with Windows Hello")}</button>` : ""}
             ${pin ? `<form class="db-pin-form">
               <input class="text-field db-pin-input" type="password" required autocomplete="current-password" placeholder="PIN">
-              <button class="btn-primary db-pin-go" type="submit">Unlock</button>
+              <button class="btn-primary db-pin-go" type="submit">${t("Unlock")}</button>
             </form>` : ""}
             <p class="db-locked-hint db-pin-status" hidden></p>
           </div>`;
@@ -652,10 +653,10 @@ if (window.__TAURI__) {
             } catch (err) {
               const msg = String(err?.message || err || "");
               status.textContent = msg.includes("cancelled")
-                ? "Windows Hello was cancelled."
+                ? t("Windows Hello was cancelled.")
                 : msg.includes("hello-unavailable")
-                  ? "Windows Hello is not set up. Use your PIN, or set it up in Windows settings."
-                  : `Couldn't unlock: ${msg}`;
+                  ? t("Windows Hello is not set up. Use your PIN, or set it up in Windows settings.")
+                  : t("Couldn't unlock: {error}", { error: msg });
               status.hidden = false;
               helloGo.disabled = false;
             }
@@ -682,8 +683,8 @@ if (window.__TAURI__) {
             if (wait > 0) tick(wait);
             else {
               status.textContent = msg.includes("corrupt")
-                ? "The PIN file is unreadable — restore your data via Profile management → Import backup."
-                : `Couldn't unlock: ${msg}`;
+                ? t("The PIN file is unreadable — restore your data via Profile management → Import backup.")
+                : t("Couldn't unlock: {error}", { error: msg });
               status.hidden = false;
               go.disabled = false;
             }
@@ -1565,6 +1566,8 @@ function refreshAfterSettingsApply(keys) {
   if (has("language")) { location.reload(); return; }
   if (has("theme") || has("amoled")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
   if (has("stickers-in-attach")) window.dispatchEvent(new Event("velta-stickers-pref"));
+  if (has("send-later") || has("commands-button")) window.dispatchEvent(new Event("velta-composer-pref"));
+  if (has("glass-composer")) window.dispatchEvent(new Event("velta-glass-pref"));
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
     globalThis.VeltaChatAppearance?.apply();
@@ -1689,6 +1692,10 @@ function scheduleDiagnosticsRowUpdate() {
 // it consumed never reached the frontend, so becoming visible refetches.
 function refreshAfterBackground() {
   if (!core) return;
+  // Events the Android background poller consumed while hidden never
+  // invalidated the per-chat id lists — drop them so the refetches below
+  // (and every chat opened next) see what arrived (#411).
+  core.invalidateAllChats?.();
   scheduleChatListRefresh();
   // Delivery events the background poller consumed while hidden never
   // reached the JS side — reconcile the sending-dash bookkeeping too.
@@ -2581,6 +2588,8 @@ function openContactProfile(contact) {
     name: contact.name,
     kind: "single",
     encrypted: true,
+    // Set when opened from a relay group's member list: enables "Remove from group".
+    memberOf: contact.memberOf || null,
   });
 }
 
@@ -2874,7 +2883,7 @@ async function openChat(chatId) {
   step("get_chat", stepStarted);
   if (!current() || !chat) return;
   if (chat.kind === "deaddrop") {
-    const ok = await confirmModal("Contact request", t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.", { name: chat.name }), t("Accept"), false);
+    const ok = await confirmModal(t("Contact request"), t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.", { name: chat.name }), t("Accept"), false);
     if (ok && current()) {
       await core.acceptChat(chatId);
       if (!current()) return;
@@ -3193,6 +3202,23 @@ async function copyContactAddr(addr) {
   catch { errToast(t("Couldn't copy")); }
 }
 
+// Confirm + remove a member from a relay group, then land back on the group
+// sheet with a fresh roster. Shared by the profile-sheet action and the
+// member-row context menu — kicking is never a one-click list-level action.
+async function removeGroupMemberFlow(chat, m, epoch) {
+  const ok = await confirmModal(t("Remove member"),
+    t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name: m.name || "?", chat: chat.name }), t("Remove"), true);
+  if (!ok || !accountIsCurrent(epoch)) return;
+  try {
+    await core.removeChatMember(chat.id, m.id);
+    if (!accountIsCurrent(epoch)) return;
+    toast(t("Member removed"));
+    refreshChatList();
+    await modalHistorySettled();
+    showChatInfo(chat);
+  } catch (err) { errToast(t("Couldn't remove: ") + (err?.message || err)); }
+}
+
 async function showChatInfo(chat) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
@@ -3224,6 +3250,10 @@ async function showChatInfo(chat) {
   const isGroup = chat.kind === "group" || chat.kind === "channel";
   const isSelf = chat.contactId === 1;
   const isContactProfile = !isGroup && chat.contactId && !isSelf;
+  // "Remove from group" — the profile was opened from a relay group's member
+  // list and this account may remove that member there.
+  const memberOfGroup = isContactProfile && chat.memberOf && core.removeChatMember
+    && !chat.memberOf.isP2pGroup && canRemoveMember(chat.memberOf, { id: chat.contactId }) ? chat.memberOf : null;
 
   // Relay rows. For 1:1 profiles: the contact's relay, derived from their
   // address (🐴 the core exposes no per-contact relay list — a multi-relay
@@ -3270,6 +3300,7 @@ async function showChatInfo(chat) {
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button type="button" class="btn-text" data-pa="send">${escapeHtml(t("Send message"))}</button>
       <button type="button" class="btn-text" data-pa="rename">${escapeHtml(t("Edit name"))}</button>
+      ${memberOfGroup ? `<button type="button" class="btn-text" data-pa="remove-group" style="color:var(--danger)">${escapeHtml(t("Remove from group"))}</button>` : ""}
       <button type="button" class="btn-text" data-pa="block" style="color:var(--danger)">${escapeHtml(t("Block"))}</button>
     </div>` : ""}
     ${isGroup ? `<details class="info-details" data-members-details${chat.isP2pGroup ? " open" : ""}>
@@ -3615,7 +3646,10 @@ async function showChatInfo(chat) {
         toast(blockedNow ? t("Contact unblocked") : t("Contact blocked"));
         blockBtn.textContent = blockedNow ? t("Block") : t("Unblock");
         blockBtn.dataset.blocked = blockedNow ? "0" : "1";
-      } catch (err) { errToast("Failed: " + (err.message || err)); }
+      } catch (err) { errToast(t("Failed: {err}", { err: err.message || err })); }
+    });
+    actBtn("remove-group")?.addEventListener("click", async () => {
+      await removeGroupMemberFlow(chat.memberOf, { id: contactId, name: chat.name }, epoch);
     });
   }
 
@@ -3734,7 +3768,7 @@ async function showChatInfo(chat) {
       e.preventDefault();
       const id = btn.dataset.pgRemove;
       const name = btn.getAttribute("aria-label")?.replace(/^Remove /, "") || "this member";
-      const ok = await confirmModal("Remove member",
+      const ok = await confirmModal(t("Remove member"),
         t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
       if (ok && accountIsCurrent(epoch)) {
         try { await groupRemoveMember(gid, id); toast(t("Member removed")); refreshChatList(); }
@@ -3744,27 +3778,8 @@ async function showChatInfo(chat) {
     });
   }
 
-  // #177: the admin removes a member (relay admin groups only).
-  if (caps.canRemoveOthers && core.removeChatMember) {
-    body.addEventListener("click", async e => {
-      const btn = e.target.closest?.("[data-admin-remove]");
-      if (!btn) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const name = btn.dataset.name || "?";
-      const ok = await confirmModal("Remove member",
-        t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
-      if (!ok || !accountIsCurrent(epoch)) return;
-      try {
-        await core.removeChatMember(chat.id, Number(btn.dataset.adminRemove));
-        if (!accountIsCurrent(epoch)) return;
-        toast(t("Member removed"));
-        refreshChatList();
-        await modalHistorySettled();
-        showChatInfo(chat);
-      } catch (err) { errToast(t("Couldn't remove: ") + (err?.message || err)); }
-    }, true);
-  }
+  // #177: the admin removes a member from the profile sheet or the member-row
+  // context menu (removeGroupMemberFlow) — no inline row button anymore.
 
   if (isGroup && core.getChatMembers) {
     core.getChatMembers(chat.id).then(members => {
@@ -3788,11 +3803,10 @@ async function showChatInfo(chat) {
         mountMemberList(list, members.map(m => ({ ...m, self: m.self || m.id === 1, avatarUrl: m.avatar ? fileUrl(m.avatar) : null })), {
           rowOptions: m => {
             if (!chat.isP2pGroup) {
-              // #177: admin badge; the admin gets Remove on everyone else.
+              // #177: admin badge only. Removal lives on the member's profile
+              // sheet and the desktop context menu — never a list-level click.
               const badge = caps.isAdminGroup && m.id === chat.groupAdminId ? adminBadgeHtml() : "";
-              const remove = canRemoveMember(chat, m)
-                ? `<button type="button" class="btn-text" data-admin-remove="${escapeAttr(m.id)}" data-name="${escapeAttr(m.name || "?")}" aria-label="${escapeAttr(t("Remove {name}", { name: m.name }))}">${escapeHtml(t("Remove"))}</button>` : "";
-              return badge || remove ? { actionsHtml: badge + remove } : {};
+              return badge ? { actionsHtml: badge } : {};
             }
             const subtitle = (m.self ? t("you") : (m.online ? t("online") : t("offline")) + (m.introduced ? t(" · not paired") : "")) + (m.isCreator ? t(" · admin") : "");
             const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
@@ -3801,7 +3815,11 @@ async function showChatInfo(chat) {
           // showModal replaces this sheet (and reuses its history entry).
           onOpen: chat.isP2pGroup ? null : m => {
             if (m.self) openSelfProfile();
-            else openContactProfile({ contactId: m.id, name: m.name });
+            else openContactProfile({ contactId: m.id, name: m.name, memberOf: chat });
+          },
+          onContextMenu: chat.isP2pGroup ? null : (m, x, y) => {
+            if (!canRemoveMember(chat, m)) return;
+            showContextMenu([{ label: t("Remove from group"), danger: true, onClick: () => removeGroupMemberFlow(chat, m, epoch) }], x, y);
           },
         });
       }
@@ -3922,7 +3940,7 @@ function bindChatHeadMenu() {
       ...(chat.isP2pGroup ? [] : [
       "-",
       { label: "Clear history", danger: true, onClick: async () => {
-        if (await confirmModal("Clear history", t("Delete all messages in this chat?"))) {
+        if (await confirmModal(t("Clear history"), t("Delete all messages in this chat?"))) {
           if (!accountIsCurrent(epoch)) return;
           // Ids only (#47): loading every full message just to map ids
           // made clearing a large chat pay for all of them.
@@ -4294,7 +4312,8 @@ function askGroupName() {
 function openProfileManagement() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
-  const canImport = !!tauriInvoke();
+  const pwaBackup = core.backend?.kind === "worker-wasm" && !!core.transport?.writeCoreFile;
+  const canImport = !!tauriInvoke() || pwaBackup;
   // #178: snapshot encryption is a PWA-only feature (worker-wasm backend).
   const pwaEnc = core.backend?.kind === "worker-wasm" && !!core.transport?.setEncryption;
   const body = document.createElement("div");
@@ -4714,6 +4733,11 @@ function openProfileManagement() {
       t("Writes this profile — messages, contacts and keys — into a backup archive and downloads it. The profile stays signed in.");
     destInput.value = "/backup/export";
     exportBtn.disabled = false;
+    passInput.hidden = true;
+    const passHint = document.createElement("p");
+    passHint.className = "pm-hint";
+    passHint.textContent = t("The browser writes an unencrypted backup. Use the desktop or Android app if you need a passphrase.");
+    passInput.after(passHint);
   } else if (onAndroid) {
     // The old fixed folder was app-private (/data/user/0/…/exports) — the
     // file existed and the user could not open it. The save dialog asks
@@ -4818,14 +4842,18 @@ function openProfileManagement() {
   const importPass = panes.import.querySelector("[data-pass]");
   const importBtn = panes.import.querySelector("[data-import]");
   const importHint = panes.import.querySelector(".pm-hint");
-  if (!tauriInvoke() || !core.beginBackupImport) {
+  const pwaImport = core.backend?.kind === "worker-wasm" && !!core.transport?.writeCoreFile;
+  if (pwaImport) {
+    importPass.hidden = true;
+    importHint.textContent = t("Read a backup file — messages, contacts and keys — into a new profile. The profile you are using now stays signed in.") + " " + t("The browser can only restore an unencrypted backup. Use the desktop or Android app for a passphrase-protected file.");
+  } else if (!tauriInvoke() || !core.beginBackupImport) {
     importBtn.disabled = true;
     importHint.textContent = t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead");
   }
   importBtn.addEventListener("click", async () => {
-    if (importPass.value && !importPass.reportValidity()) return;
+    if (!pwaImport && importPass.value && !importPass.reportValidity()) return;
     const invoke = tauriInvoke();
-    if (!invoke || !core.beginBackupImport) {
+    if (!pwaImport && (!invoke || !core.beginBackupImport)) {
       toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead"));
       return;
     }
@@ -5407,7 +5435,7 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     // A deep link can come from any web page or app: never import a profile
     // (and switch to it) without the user confirming first.
     const epoch = core.accountEpoch;
-    const ok = await confirmModal("Receive a profile",
+    const ok = await confirmModal(t("Receive a profile"),
       t("A second-device code was opened. Receive that profile on this device and switch to it? Only continue if you started the transfer on your other device."),
       t("Receive"), false);
     if (ok && accountIsCurrent(epoch)) receiveSecondDeviceProfile(epoch, null, backupLink);
@@ -5526,6 +5554,7 @@ function pickShareChat(chats) {
       chats,
       accounts: state.accounts || [],
       currentAccountId: core.accountId,
+      isBot: chatIsBot,
       makeItem: chat => {
         const item = document.createElement("velta-chat-item");
         item.setData(chat);
@@ -5533,6 +5562,8 @@ function pickShareChat(chats) {
       },
       onPick: value => { done(value); close(); },
     });
+    // Bot flags for the People/Bots chips, same as the forward modal.
+    ensureContactBots().then(() => picker.render());
     const { close } = showModal({ title: "Share to…", body: picker.el, onClose: () => done(null) });
     // Phones: no keyboard over the list until the user taps the field.
     if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) picker.search.focus?.();
@@ -5613,13 +5644,21 @@ async function forwardFlow(msgIds) {
   search.autocomplete = "off";
   search.setAttribute("aria-label", t("Search chats"));
   search.style.marginBottom = "8px";
+  // #294: category chips — same buckets as the main list's #57 bar, picker
+  // subset (no Unread/System). Bot flags arrive async: refetch + re-filter.
+  let cat = "all";
+  const cats = buildCategoryChips({ onChange: picked => {
+    cat = picked;
+    if (cat === "people" || cat === "bots") ensureContactBots().then(applyFilter);
+    applyFilter();
+  } });
   const list = document.createElement("div");
   list.className = "modal-list";
   const empty = document.createElement("div");
   empty.className = "p2p-hint"; empty.style.opacity = ".6";
   empty.textContent = t("No chats match.");
   empty.hidden = true;
-  wrap.append(knownContactsToggleRow(applyFilter), search, list, empty);
+  wrap.append(knownContactsToggleRow(applyFilter), search, cats.el, list, empty);
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.isP2pGroup);
   const items = [];
   for (const chat of targets) {
@@ -5637,12 +5676,15 @@ async function forwardFlow(msgIds) {
     list.appendChild(item);
     items.push([chat, item]);
   }
-  // #158 search × #169 known-contacts: one filter, both conditions.
+  // #158 search × #169 known-contacts × #294 categories: one filter.
   function applyFilter() {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
     for (const [chat, item] of items) {
-      const hit = (!knownContactsOnly() || chat.kind === "single")
+      const inCat = cat === "all"
+        || (cat === "saved" ? chat.kind === "saved" : chatCategoryOf(chat, chatIsBot) === cat);
+      const hit = inCat
+        && (!knownContactsOnly() || chat.kind === "single")
         && (!q || (chat.name || "").toLowerCase().includes(q));
       item.hidden = !hit;
       shown += hit;
@@ -5651,6 +5693,9 @@ async function forwardFlow(msgIds) {
   }
   applyFilter();
   search.addEventListener("input", applyFilter);
+  // Bot flags may not be loaded yet — refresh the People/Bots split when the
+  // one-shot fetch lands (main-bar semantics, no retry banner in the modal).
+  ensureContactBots().then(applyFilter);
   const { close } = showModal({ title: "Forward to…", body: wrap });
   // Phones: no keyboard over the list until the user taps the field.
   if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) search.focus();
@@ -5727,7 +5772,7 @@ async function runBackupExport(pass) {
   const dir = "/backup/export";
   await core.exportBackup(dir, pass || null);
   const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
-  if (!entries.length) throw new Error("The core produced no backup file");
+  if (!entries.length) throw new Error(t("The core produced no backup file"));
   const name = entries[entries.length - 1];
   const bytes = await core.transport.readCoreFile(name);
   const gz = await gzipBytes(bytes);
@@ -5760,14 +5805,14 @@ async function mailLoginForBackup() {
 }
 
 async function runIdentityExport(pass) {
-  if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
+  if (!pass || pass.length < 8) throw new Error(t("Use a passphrase of at least 8 characters — this file IS your account"));
   const { bytesToBase64, wrapIdentityBundle, buildIdentityBundle } = await loadIdentityBackup();
   // core 2.63.0 removed the legacy addr/mail_pw configs. The login is the
   // transport (flat password or the db's imap.password). Prefer the sending address.
   const login = await mailLoginForBackup();
   const addr = login?.addr;
   const mailPw = login?.mailPw;
-  if (!addr || !mailPw) throw new Error("This profile is not configured yet — nothing to back up");
+  if (!addr || !mailPw) throw new Error(t("This profile is not configured yet — nothing to back up"));
   const dir = "/identity/export";
   await core.exportSelfKeys(core.accountId, dir, pass);
   const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
@@ -5775,7 +5820,7 @@ async function runIdentityExport(pass) {
   for (const entry of entries) {
     keys[entry.split("/").pop()] = bytesToBase64(await core.transport.readCoreFile(entry));
   }
-  if (!Object.keys(keys).length) throw new Error("The core produced no key files — nothing to back up");
+  if (!Object.keys(keys).length) throw new Error(t("The core produced no key files — nothing to back up"));
   const wrapped = await wrapIdentityBundle(buildIdentityBundle({ addr, mail_pw: mailPw, keys }), pass);
   downloadBytes(wrapped, `velta-identity-${String(addr).replace(/[^a-z0-9._-]/gi, "_")}.velta-identity`);
   return addr;
@@ -5957,7 +6002,7 @@ async function setMultiDevice(on, { quick = false } = {}) {
   if (!core?.setConfig) return false;
   const accountId = core.accountId;
   if (!on && !quick) {
-    const sure = await confirmModal("Turn off multi-device?", mdOffConfirmText(multiDeviceReenabled), "Turn off", true);
+    const sure = await confirmModal(t("Turn off multi-device?"), mdOffConfirmText(multiDeviceReenabled), t("Turn off"), true);
     if (!sure || core.accountId !== accountId) {
       paintMultiDevice();
       return false;
@@ -6112,7 +6157,7 @@ function rebuildDrawer() {
     onSetTheme: (mode) => { state.theme = mode; applyTheme(); },
     onProfileManagement: () => openProfileManagement(),
     onPrivacySecurity: window.__TAURI__ && tauriInvoke() ? () => openPrivacySecurity() : null,
-    onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
+    onInvite: () => showInvite(inviteQrProvider(null)),
     onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
@@ -6521,10 +6566,10 @@ async function editProfileFlow() {
 function inviteQrProvider(chatId) {
   const epoch = core.accountEpoch;
   return async () => {
-    if (!accountIsCurrent(epoch)) throw new Error("Account changed; reopen the invite");
+    if (!accountIsCurrent(epoch)) throw new Error(t("Account changed; reopen the invite"));
     if (!core.getInviteQr) throw new Error("invites need the real core — not available in demo mode");
     const { svg, text } = await core.getInviteQr(chatId);
-    if (!accountIsCurrent(epoch)) throw new Error("Account changed; reopen the invite");
+    if (!accountIsCurrent(epoch)) throw new Error(t("Account changed; reopen the invite"));
     return { svg, link: text };
   };
 }
@@ -6572,16 +6617,16 @@ async function joinFromInvite(link) {
   await modalHistorySettled();
   let ok;
   if (label?.kind === "group") {
-    ok = await confirmModal("Join group",
+    ok = await confirmModal(t("Join group"),
       t("{actor} invited you to join the group \"{group}\".", { actor: label.actor, group: label.group }), t("Join group"), false);
   } else if (label?.kind === "channel") {
-    ok = await confirmModal("Subscribe to channel",
+    ok = await confirmModal(t("Subscribe to channel"),
       t("Subscribe to the channel \"{group}\"?", { group: label.group }), t("Subscribe"), false);
   } else if (label?.kind === "person") {
-    ok = await confirmModal("Start chat",
+    ok = await confirmModal(t("Start chat"),
       t("Start a chat with {name}?", { name: label.addr ? `${label.actor} (${label.addr})` : label.actor }), t("Start chat"), false);
   } else {
-    ok = await confirmModal("Join chat", t("Open this invite and start the SecureJoin handshake?"), t("Join"), false);
+    ok = await confirmModal(t("Join chat"), t("Open this invite and start the SecureJoin handshake?"), t("Join"), false);
   }
   if (!ok || !accountIsCurrent(epoch)) return;
   const { update, close } = showProgressModal(t("Joining chat"), t("Starting SecureJoin handshake…"));
@@ -6624,8 +6669,32 @@ function joinFlow() {
 /* ---------------- onboarding (real core only) ---------------- */
 // Shared by the welcome splash and Profile management → Import backup.
 // Android content URIs are copied to a real path; a gzip PWA download is
-// unpacked by the shell. Null when the picker is cancelled.
+// unpacked by the shell on desktop, or gunzipped in the browser for the PWA.
+// Null when the picker is cancelled.
+async function pickBackupTarPwa() {
+  const file = await new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".tar,.gz,.tar.gz,application/gzip,application/x-tar,application/x-gzip";
+    let done = false;
+    const finish = (f) => { if (done) return; done = true; resolve(f || null); };
+    input.addEventListener("change", () => finish(input.files?.[0] || null));
+    input.addEventListener("cancel", () => finish(null));
+    input.click();
+  });
+  if (!file) return null;
+  let bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const { gunzipBytes } = await loadIdentityBackup();
+    bytes = await gunzipBytes(bytes);
+  }
+  const path = `/backup/import/restore-${Date.now()}.tar`;
+  await core.transport.writeCoreFile(path, bytes);
+  return path;
+}
+
 async function pickBackupTar(invoke) {
+  if (!invoke) return pickBackupTarPwa();
   let picked = await invoke("plugin:dialog|open", { options: {
     multiple: false,
     filters: [{ name: t("Velta backup"), extensions: ["tar", "gz"] }],
@@ -6675,7 +6744,7 @@ function showSplash() {
       <div class="splash-actions" data-actions>
         <button class="btn-primary splash-btn" data-create type="button">${escapeHtml(t("Create an account"))}</button>
         <button class="btn-text splash-btn" data-second type="button">${escapeHtml(t("Add as a second device…"))}</button>
-        ${tauriInvoke() ? `<button class="btn-text splash-btn" data-restore type="button">${escapeHtml(t("Restore from a backup…"))}</button>` : ""}
+        ${tauriInvoke() || (!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-restore type="button">${escapeHtml(t("Restore from a backup…"))}</button>` : ""}
         ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">${escapeHtml(t("Restore an identity backup…"))}</button>` : ""}
         ${tauriInvoke() ? `<button class="btn-text splash-btn" data-local type="button">${escapeHtml(t("Enter local chat…"))}</button>` : ""}
         ${(!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-ws-relays type="button">${escapeHtml(t("WebSocket relays"))}</button>` : ""}
@@ -6791,9 +6860,10 @@ function showSplash() {
 
   // --- restore from a backup ---
   el.querySelector("[data-restore]")?.addEventListener("click", async () => {
-    if (!core.importBackup) { toast(t("Restore is not available on this backend")); return; }
+    if (!core.importBackup && !core.beginBackupImport) { toast(t("Restore is not available on this backend")); return; }
     const invoke = tauriInvoke();
-    if (!invoke) { toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead")); return; }
+    const pwaImport = core.backend?.kind === "worker-wasm" && !!core.transport?.writeCoreFile;
+    if (!invoke && !pwaImport) { toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead")); return; }
     let picked;
     try { picked = await pickBackupTar(invoke); }
     catch (err) { errToast(t("Couldn't read the backup file: ") + (err?.message || err)); return; }
@@ -7526,7 +7596,7 @@ async function startCallIfMicOk(chat, { video = false } = {}) {
     if (navigator.permissions?.query) {
       const st = await navigator.permissions.query({ name: "microphone" });
       if (st?.state === "denied") {
-        await confirmModal("Microphone blocked", t("Velta can't place calls because microphone access is denied. Enable it in system settings (Windows: Settings → Privacy → Microphone; macOS: System Settings → Privacy → Microphone; Android: App settings → Permissions), then call again."));
+        await confirmModal(t("Microphone blocked"), t("Velta can't place calls because microphone access is denied. Enable it in system settings (Windows: Settings → Privacy → Microphone; macOS: System Settings → Privacy → Microphone; Android: App settings → Permissions), then call again."));
         return;
       }
     }
@@ -8002,5 +8072,6 @@ async function openAllScheduled() {
 
 globalThis.__veltaAppEvaluating = false;
 if (chatListRenderDeferred) { chatListRenderDeferred = false; renderChatList(); }
+installGlassComposer();
 boot();
 

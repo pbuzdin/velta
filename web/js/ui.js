@@ -10,10 +10,12 @@ import { formatSplashVersion } from "./format.js";
 import { searchEmoji } from "./emoji.js";
 import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
 import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
+import { parseColor, rgbToHsl, nameColor } from "./name-color.js";
 import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
+import { glassComposerAvailable } from "./glass-composer.js";
 import { markLangCardDone } from "./lang-cards.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { mountInviteDomains } from "./invite-domains.js";
@@ -956,7 +958,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 // Fallback only: the live core version is fetched via get_system_info in
 // app.js boot and pushed here with setCoreVersionDisplay (the running
 // sidecar/in-process core is the source of truth, not this constant).
-let CORE_VERSION = "2.68.0";
+let CORE_VERSION = "2.69.0";
 
 export function setCoreVersionDisplay(v) {
   if (!v) return;
@@ -1275,6 +1277,9 @@ export function chatAppearanceHtml() {
           <div class="bar-opts-hint" data-ca-accent-hint>${escapeHtml(t("Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors."))}</div>
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-stickers-in-attach${localStorage.getItem("velta-stickers-in-attach") === "1" ? " checked" : ""}><span>${escapeHtml(t("Stickers in attachments menu"))}</span></label>
+          ${glassComposerAvailable() ? `<label class="scale-opt"><input type="checkbox" role="switch" data-glass-composer${localStorage.getItem("velta-glass-composer") === "1" ? " checked" : ""}><span>${escapeHtml(t("Liquid glass composer"))}</span></label>` : ""}
+          <label class="scale-opt"><input type="checkbox" role="switch" data-send-later${localStorage.getItem("velta-send-later") === "0" ? "" : " checked"}><span>${escapeHtml(t("Send later"))}</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-commands-button${localStorage.getItem("velta-cmds-button") === "0" ? "" : " checked"}><span>${escapeHtml(t("Commands button"))}</span></label>
           <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
@@ -1340,6 +1345,19 @@ export function wireChatAppearance(root, { onChange } = {}) {
     try { localStorage.setItem("velta-stickers-in-attach", e.target.checked ? "1" : "0"); } catch {}
     window.dispatchEvent(new Event("velta-stickers-pref"));
   });
+  sec.querySelector("[data-glass-composer]")?.addEventListener("change", e => {
+    try { localStorage.setItem("velta-glass-composer", e.target.checked ? "1" : "0"); } catch {}
+    window.dispatchEvent(new Event("velta-glass-pref"));
+  });
+  // Send later feature + Commands quick button: chat-view listens for this.
+  sec.querySelector("[data-send-later]")?.addEventListener("change", e => {
+    try { if (e.target.checked) localStorage.removeItem("velta-send-later"); else localStorage.setItem("velta-send-later", "0"); } catch {}
+    window.dispatchEvent(new Event("velta-composer-pref"));
+  });
+  sec.querySelector("[data-commands-button]")?.addEventListener("change", e => {
+    try { if (e.target.checked) localStorage.removeItem("velta-cmds-button"); else localStorage.setItem("velta-cmds-button", "0"); } catch {}
+    window.dispatchEvent(new Event("velta-composer-pref"));
+  });
   sec.querySelector("[data-ca-reset]").addEventListener("click", () => {
     const st = A.apply(A.reset());
     sync(st);
@@ -1374,8 +1392,8 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         <div class="drawer-links">
           <button type="button" data-act="edit-profile">${t("Edit profile")}</button>
           <details class="acct-switch" data-acct-switch>
-            <summary data-act="switch-account">Accounts${ICON.chevronDown}</summary>
-            <div class="acct-pop" role="group" aria-label="Accounts" data-i18n-aria="Accounts">
+            <summary data-act="switch-account">Profiles${ICON.chevronDown}</summary>
+            <div class="acct-pop" role="group" aria-label="Profiles" data-i18n-aria="Profiles">
             ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"${a.id === currentAccountId ? ' aria-current="true"' : ""}>${svg(P.profile + (a.id === currentAccountId ? P.checkInner : ""))}<span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
             <div class="ctx-sep"></div>
             <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
@@ -1522,9 +1540,19 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       ${inTauri ? `<div class="drawer-ver"><span>Tauri</span><span data-v="tauri">…</span></div>` : ""}
       ${inTauri ? "" : `<div class="drawer-ver"><span>${t("Service worker")}</span><span data-v="sw">…</span></div>`}
     </div>`;
+  // Fingerprint header: rotate the classic header gradient to the active
+  // profile's hue pair (from its color, else the name fingerprint).
+  // Lightness pinned at 30%/33% — the worst hue keeps the #f4f4f4 ink at
+  // 4.79:1 (swept 0..360; the old static pins would have dipped to 4.22).
+  const head = drawer.querySelector(".drawer-head");
+  if (head) {
+    const rgb = parseColor(account.color) || parseColor(nameColor(account.displayName));
+    const [h] = rgb ? rgbToHsl(rgb) : [215];
+    head.style.background = `linear-gradient(135deg, hsl(${Math.round(h)} 45% 30%), hsl(${Math.round((h + 40) % 360)} 30% 33%))`;
+  }
   translateTree(drawer);
   const acctLabel = drawer.querySelector("[data-act=switch-account]");
-  if (acctLabel?.firstChild?.nodeType === 3) acctLabel.firstChild.nodeValue = t("Accounts");
+  if (acctLabel?.firstChild?.nodeType === 3) acctLabel.firstChild.nodeValue = t("Profiles");
   document.body.appendChild(drawer);
   // #140: Android push section fills itself on open (push-settings.js).
   const pushSec = drawer.querySelector("[data-push-section]");
@@ -1987,7 +2015,7 @@ export async function shareInviteLink(link, text) {
   } catch (err) { toast(t("Couldn't share the link: ") + (err?.message || err), 4000, { danger: true }); }
 }
 
-export function showInvite(provider, { title = t("Invite to Velta"), group = false, account = null } = {}) {
+export function showInvite(provider, { title = t("Invite to Velta"), group = false } = {}) {
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">${group
@@ -2012,19 +2040,11 @@ export function showInvite(provider, { title = t("Invite to Velta"), group = fal
     .then(({ svg, link }) => {
       const box = body.querySelector(".qr-box");
       const sb = body.querySelector("[data-share]"); if (sb) sb.disabled = !link;
-      // Domain pills (invite-domains.js): i.delta.chat keeps the core card,
-      // velta.cc/join/? (the default) and mirrors get a plain QR that already
-      // carries the Velta logo.
-      mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l, isDefault) => {
+      // Domain pills (invite-domains.js): every tab draws the same branded
+      // square; the copied/shared link still follows the chosen domain.
+      mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l) => {
         box.innerHTML = qr || "<div class='qr-loading'>QR unavailable</div>";
         body.querySelector(".invite-link").textContent = l;
-        // Overlay the Velta logo on the clear circle the core leaves in the
-        // QR center (design space 515x630, circle center at 50% / 43.65% of
-        // the rendered svg).
-        if (account && qr && isDefault) {
-          box.insertAdjacentHTML("beforeend",
-            `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
-        }
       });
     })
     .catch(err => {

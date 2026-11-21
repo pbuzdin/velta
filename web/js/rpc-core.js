@@ -194,6 +194,14 @@ export class JsonRpcCore extends EventTarget {
     this._sendingBackstopTimer?.unref?.();
   }
 
+  // The Android background poller consumes core events while the page is
+  // hidden (AGENTS §9.2), and those events carry the per-chat id-list
+  // invalidations — resume refetches must not trust the cache (#411).
+  invalidateAllChats() {
+    this._msgIdGen++; // in-flight id fetches must not cache a pre-clear list
+    this.msgIdCache.clear();
+  }
+
   async reconcileSending() {
     if (!this._sendingIds.size || this._accountTransitionBusy) return;
     const accountId = this.accountId;
@@ -727,8 +735,9 @@ export class JsonRpcCore extends EventTarget {
         // device that made the change too, not only on synced devices.
         this._emitAccount("transports-modified", {}, accountEpoch);
         break;
-      case "MessagePinned":
-      case "MessageUnpinned":
+      case "PinnedMessagesChanged":
+        // Fires on pin, unpin AND pin deletion (events.rs: "pinned message
+        // is unpinned or deleted"); carries { chatId }.
         this._emitAccount("pinned-changed", { chatId }, accountEpoch);
         break;
       case "IncomingCall":
@@ -826,10 +835,11 @@ export class JsonRpcCore extends EventTarget {
     const kind = this._chatKind(c);
     const lastType = c.lastMessageType;
     let lastMsg = [c.summaryText1, c.summaryText2].filter(Boolean).join(": ");
-    if (lastType === "Image" || lastType === "Gif") lastMsg = "📷 " + (c.summaryText2 || "Photo");
-    else if (lastType === "Voice" || lastType === "Audio") lastMsg = "🎤 " + (c.summaryText2 || "Voice message");
-    else if (lastType === "Video") lastMsg = "🎬 " + (c.summaryText2 || "Video");
-    else if (lastType === "File") lastMsg = "📎 " + (c.summaryText2 || "File");
+    // core's summaryText2 already embeds the media emoji ("📷 Photo", "📎 name – …") — don't prepend another
+    if (lastType === "Image" || lastType === "Gif") lastMsg = c.summaryText2 || "📷 Photo";
+    else if (lastType === "Voice" || lastType === "Audio") lastMsg = c.summaryText2 || "🎤 Voice message";
+    else if (lastType === "Video") lastMsg = c.summaryText2 || "🎬 Video";
+    else if (lastType === "File") lastMsg = c.summaryText2 || "📎 File";
     else if (lastType === "Sticker") lastMsg = c.summaryText2 || "Sticker";
     const outgoing = c.summaryStatus >= 18 && c.summaryStatus <= 28;
     return {

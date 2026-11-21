@@ -42,10 +42,14 @@ export function adminCaps(chat) {
   };
 }
 
-/** May this account remove the member `m` (row action)? */
+/** May this account remove the member `m` from a relay group? */
 export function canRemoveMember(chat, m) {
   const id = m?.id;
-  return selfIsAdmin(chat) && id !== SELF_ID && !m?.self && id !== chat.groupAdminId;
+  if (!Number.isInteger(id) || id === SELF_ID || m?.self) return false;
+  if (isAdminGroup(chat)) return selfIsAdmin(chat) && id !== chat.groupAdminId;
+  // Regular relay groups keep the stock Delta Chat rules: removal is a
+  // message every receiving core accepts, so any member may remove another.
+  return !chat?.isP2pGroup;
 }
 
 /** Badge shown next to the admin's name in member lists. */

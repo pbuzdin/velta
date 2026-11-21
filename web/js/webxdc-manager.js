@@ -301,7 +301,7 @@ async function sendToChat({ file, name, text }) {
   const msg = await core.getMessage(msgId).catch(() => null);
   if (!msg?.chatId) throw new Error("sendToChat: owning chat not found");
   const filename = name || file?.name || "file";
-  const ok = await confirmModal("Send to chat", file ? t("Send \"{filename}\" to this chat?", { filename }) : t("Send this text to this chat?"), t("Send"), false);
+  const ok = await confirmModal(t("Send to chat"), file ? t("Send \"{filename}\" to this chat?", { filename }) : t("Send this text to this chat?"), t("Send"), false);
   if (!ok) return { ok: false, cancelled: true };
   let dest = null;
   let temp = false;
@@ -324,7 +324,7 @@ async function sendToChat({ file, name, text }) {
   } finally {
     if (temp) core.transport.removeCoreFile?.(dest)?.catch?.(() => {});
   }
-  toast(`Sent ${filename}`, 2200);
+  toast(t("Sent {filename}", { filename }), 2200);
   return { ok: true };
 }
 

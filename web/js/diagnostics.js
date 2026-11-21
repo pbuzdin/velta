@@ -1,6 +1,7 @@
 // diagnostics.js — local-only startup/core log presented as a device chat.
 import { tauriInvoke } from "./tauri.js";
 import { ICON } from "./icons.js";
+import { t } from "./i18n.js";
 export const DIAGNOSTICS_CHAT_ID = -9007199254740991;
 
 // Verbose tracing (poll ticks, scroller calls, media URLs, event dumps).
@@ -200,7 +201,7 @@ export function diagnosticRow(message) {
   const copy = document.createElement("button");
   copy.type = "button";
   copy.className = "diag-copy";
-  copy.title = "Copy to clipboard";
+  copy.title = t("Copy to clipboard");
   copy.setAttribute("aria-label", "Copy to clipboard");
   copy.innerHTML = COPY_SVG;
   copy.addEventListener("click", async e => {
