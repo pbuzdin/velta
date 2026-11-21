@@ -1102,6 +1102,7 @@ dependencies = [
  "sha2",
  "shadowsocks",
  "smallvec",
+ "sqlite-wasm-rs",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "tagger",

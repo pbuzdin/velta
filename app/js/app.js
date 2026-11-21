@@ -4312,7 +4312,8 @@ function askGroupName() {
 function openProfileManagement() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
-  const canImport = !!tauriInvoke();
+  const pwaBackup = core.backend?.kind === "worker-wasm" && !!core.transport?.writeCoreFile;
+  const canImport = !!tauriInvoke() || pwaBackup;
   // #178: snapshot encryption is a PWA-only feature (worker-wasm backend).
   const pwaEnc = core.backend?.kind === "worker-wasm" && !!core.transport?.setEncryption;
   const body = document.createElement("div");
@@ -4732,6 +4733,11 @@ function openProfileManagement() {
       t("Writes this profile — messages, contacts and keys — into a backup archive and downloads it. The profile stays signed in.");
     destInput.value = "/backup/export";
     exportBtn.disabled = false;
+    passInput.hidden = true;
+    const passHint = document.createElement("p");
+    passHint.className = "pm-hint";
+    passHint.textContent = t("The browser writes an unencrypted backup. Use the desktop or Android app if you need a passphrase.");
+    passInput.after(passHint);
   } else if (onAndroid) {
     // The old fixed folder was app-private (/data/user/0/…/exports) — the
     // file existed and the user could not open it. The save dialog asks
@@ -4836,14 +4842,18 @@ function openProfileManagement() {
   const importPass = panes.import.querySelector("[data-pass]");
   const importBtn = panes.import.querySelector("[data-import]");
   const importHint = panes.import.querySelector(".pm-hint");
-  if (!tauriInvoke() || !core.beginBackupImport) {
+  const pwaImport = core.backend?.kind === "worker-wasm" && !!core.transport?.writeCoreFile;
+  if (pwaImport) {
+    importPass.hidden = true;
+    importHint.textContent = t("Read a backup file — messages, contacts and keys — into a new profile. The profile you are using now stays signed in.") + " " + t("The browser can only restore an unencrypted backup. Use the desktop or Android app for a passphrase-protected file.");
+  } else if (!tauriInvoke() || !core.beginBackupImport) {
     importBtn.disabled = true;
     importHint.textContent = t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead");
   }
   importBtn.addEventListener("click", async () => {
-    if (importPass.value && !importPass.reportValidity()) return;
+    if (!pwaImport && importPass.value && !importPass.reportValidity()) return;
     const invoke = tauriInvoke();
-    if (!invoke || !core.beginBackupImport) {
+    if (!pwaImport && (!invoke || !core.beginBackupImport)) {
       toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead"));
       return;
     }
@@ -6659,8 +6669,32 @@ function joinFlow() {
 /* ---------------- onboarding (real core only) ---------------- */
 // Shared by the welcome splash and Profile management → Import backup.
 // Android content URIs are copied to a real path; a gzip PWA download is
-// unpacked by the shell. Null when the picker is cancelled.
+// unpacked by the shell on desktop, or gunzipped in the browser for the PWA.
+// Null when the picker is cancelled.
+async function pickBackupTarPwa() {
+  const file = await new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".tar,.gz,.tar.gz,application/gzip,application/x-tar,application/x-gzip";
+    let done = false;
+    const finish = (f) => { if (done) return; done = true; resolve(f || null); };
+    input.addEventListener("change", () => finish(input.files?.[0] || null));
+    input.addEventListener("cancel", () => finish(null));
+    input.click();
+  });
+  if (!file) return null;
+  let bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const { gunzipBytes } = await loadIdentityBackup();
+    bytes = await gunzipBytes(bytes);
+  }
+  const path = `/backup/import/restore-${Date.now()}.tar`;
+  await core.transport.writeCoreFile(path, bytes);
+  return path;
+}
+
 async function pickBackupTar(invoke) {
+  if (!invoke) return pickBackupTarPwa();
   let picked = await invoke("plugin:dialog|open", { options: {
     multiple: false,
     filters: [{ name: t("Velta backup"), extensions: ["tar", "gz"] }],
@@ -6710,7 +6744,7 @@ function showSplash() {
       <div class="splash-actions" data-actions>
         <button class="btn-primary splash-btn" data-create type="button">${escapeHtml(t("Create an account"))}</button>
         <button class="btn-text splash-btn" data-second type="button">${escapeHtml(t("Add as a second device…"))}</button>
-        ${tauriInvoke() ? `<button class="btn-text splash-btn" data-restore type="button">${escapeHtml(t("Restore from a backup…"))}</button>` : ""}
+        ${tauriInvoke() || (!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-restore type="button">${escapeHtml(t("Restore from a backup…"))}</button>` : ""}
         ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">${escapeHtml(t("Restore an identity backup…"))}</button>` : ""}
         ${tauriInvoke() ? `<button class="btn-text splash-btn" data-local type="button">${escapeHtml(t("Enter local chat…"))}</button>` : ""}
         ${(!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-ws-relays type="button">${escapeHtml(t("WebSocket relays"))}</button>` : ""}
@@ -6826,9 +6860,10 @@ function showSplash() {
 
   // --- restore from a backup ---
   el.querySelector("[data-restore]")?.addEventListener("click", async () => {
-    if (!core.importBackup) { toast(t("Restore is not available on this backend")); return; }
+    if (!core.importBackup && !core.beginBackupImport) { toast(t("Restore is not available on this backend")); return; }
     const invoke = tauriInvoke();
-    if (!invoke) { toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead")); return; }
+    const pwaImport = core.backend?.kind === "worker-wasm" && !!core.transport?.writeCoreFile;
+    if (!invoke && !pwaImport) { toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead")); return; }
     let picked;
     try { picked = await pickBackupTar(invoke); }
     catch (err) { errToast(t("Couldn't read the backup file: ") + (err?.message || err)); return; }

@@ -54,3 +54,21 @@ test("generated sw.js knows how to decompress nothing but must route notificatio
   assert.ok(swGen.includes("velta-notification-click"), "tap handover message type");
   assert.ok(swGen.includes("velta-pending-notification"), "cold-start stash round-trip");
 });
+
+test("import pane: PWA shows the tab and writes the picked tar into memfs", () => {
+  assert.ok(stripped.includes("const canImport = !!tauriInvoke() || pwaBackup"), "import tab is not Tauri-only");
+  assert.ok(stripped.includes("core.backend?.kind === \"worker-wasm\" && !!core.transport?.writeCoreFile"), "pwa import/export gate on writeCoreFile");
+  assert.ok(stripped.includes("async function pickBackupTarPwa("), "PWA picker exists");
+  assert.ok(stripped.includes("if (!invoke) return pickBackupTarPwa()"), "desktop picker still used when a shell is present");
+  assert.ok(stripped.includes("await core.transport.writeCoreFile(path, bytes)"), "picked file lands in memfs");
+  assert.ok(stripped.includes("await gunzipBytes(bytes)"), "gzip PWA downloads are unpacked before import");
+  assert.ok(stripped.includes("The browser can only restore an unencrypted backup"), "PWA import explains the passphrase limit");
+  assert.ok(stripped.includes("The browser writes an unencrypted backup"), "PWA export explains the passphrase limit");
+  assert.ok(stripped.includes("core.beginBackupImport(picked, importPass.value || null)"), "import still lands in a fresh profile");
+});
+
+test("splash restore is offered in the PWA, not only in the desktop app", () => {
+  assert.ok(stripped.includes("data-restore"), "splash has a restore action");
+  assert.ok(stripped.includes("VELTA_PWA?.wasmCore") && stripped.includes("data-restore"), "wasm PWA can show restore");
+  assert.ok(stripped.includes("if (!invoke && !pwaImport)"), "splash restore no longer dead-ends in the PWA");
+});

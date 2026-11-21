@@ -24,6 +24,7 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | `tools/apply-wasm-core-patches.py` | **Opt-in** applicator — **apply-on-copy only** by default |
 | `packages/velta-wasm/` (MPL) | Minimal JSON-RPC wasm wrapper; copied into apply-on-copy dest |
 | `scripts/smoke-velta-wasm.mjs` | Headless `get_system_info` smoke (`PACKAGE_ROOT` supported) |
+| `scripts/e2e-velta-wasm-backup.mjs` | #331: passphrase / encrypted import rejected clearly; plaintext tar does not hit `sqlcipher_export` (`PACKAGE_ROOT`) |
 | `scripts/e2e-velta-wasm-network.mjs` | alice→bob e2e over a local `ws-tcp-proxy` → public chatmail (`PACKAGE_ROOT`, `WS_TCP_PROXY`) |
 | [`../wasm-core-landing-checklist.md`](../wasm-core-landing-checklist.md) | What must be green before **any** merge into production `core/` |
 
@@ -106,7 +107,7 @@ CC=clang wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist 
 Bare `apply` is refused. Applying onto master `core/` requires an explicit
 dangerous flag (not for CI). Default dest `.wasm-core-apply/` is gitignored.
 
-**Current series:** 10 patches — 0001–0008, 0010, and 0011. The 0009 gap is
+**Current series:** 11 patches — 0001–0008, 0010, 0011, and 0012. The 0009 gap is
 intentional: that test-only patch was retired at 2.66.0, while 0011 carries
 the current memfs/open_blob port. Historical validation includes 9/9 at Day 6
 and 10/10 on the 2.63 baseline in #112 (apply/verify, wasm32 check, wasm-pack,
@@ -163,6 +164,7 @@ See [`series.txt`](series.txt). Rough mapping to inventory WASM-CORE ids:
 | 0007–0008 `wasm(net,blob,time)`, `wasm(fs,net,tls)` | ws_tcp, clocks, blob sync_fs, fetch, path_exists, connect_tcp, JsClock |
 | 0010 `wasm(scheduler)` | `stop()` without `tokio_util::TaskTracker` on wasm32 |
 | 0011 `wasm(blob)` | 2.66 attachment-compatible sync_fs facade and memfs `open_blob` routing; 0009 was retired |
+| 0012 `wasm(imex,sql)` | #331: `VACUUM INTO` + MemVfs↔memfs copy for unencrypted backup export/import; clear error for passphrase / SQLCipher files |
 
 Day 10 hygiene: subjects carry WASM-CORE ids + a "Native impact" line;
 0 warnings (wasm + native), no new rustfmt diffs. Gating audit and the
