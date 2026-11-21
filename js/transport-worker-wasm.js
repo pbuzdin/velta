@@ -1,0 +1,194 @@
+// C2 transport: satisfies the JsonRpcCore transport contract
+// { name, send(line), setReceiver(fn) } by hosting the wasm core in a
+// module worker (worker-wasm.js). Feature-detect at the boot site decides
+// between this and the Tauri/WS transports (no __TAURI__ + PWA + wasm flag).
+// A reload starts the new page while the previous document still holds
+// velta-wasm-core. ifAvailable would fail that race and the app would boot
+// the empty demo instead of the saved account. A real second tab still
+// holds the lock after the grace period.
+import { reportCheckpoint } from "./diagnostics.js";
+
+export async function acquireWasmLock(request, onHeld, waitMs = 1500) {
+  if (typeof request !== "function") return true;
+  const once = () => new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => { if (!settled) { settled = true; resolve(!!ok); } };
+    request("velta-wasm-core", { ifAvailable: true }, (lock) => {
+      finish(!!lock);
+      if (!lock) return;
+      return new Promise((release) => { onHeld(release); });
+    }).catch(() => finish(false));
+  });
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    if (await once()) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+export class WorkerWasmTransport {
+  constructor({
+    workerUrl = new URL("./worker-wasm.js", import.meta.url).href,
+    glueUrl,
+    wsProxyUrl = null,
+    wsProxyToken = "",
+    wsProxyDevice = "",
+    dbKey = null,
+    unlockSrc = null,
+  } = {}) {
+    this.name = "worker-wasm";
+    this._workerUrl = workerUrl;
+    this._glueUrl = glueUrl;
+    this._wsProxyUrl = wsProxyUrl;
+    this._wsProxyToken = wsProxyToken;
+    // #178: KEK bytes for the encrypted snapshot (page-derived, page keeps
+    // no copy); null boots the plaintext/opt-out path. `unlockSrc` names the
+    // wrap the KEK opens when the user unlocked via PIN/recovery code.
+    this._dbKey = dbKey;
+    this._unlockSrc = unlockSrc;
+    this._wsProxyDevice = wsProxyDevice;
+    this._receiver = null;
+    this._worker = null;
+    this._fileSeq = 0;
+  }
+
+  async setReceiver(fn) {
+    this._receiver = fn;
+    if (!this._worker) await this._boot();
+  }
+
+  send(line) {
+    this._worker?.postMessage({ type: "line", line });
+  }
+
+  // Generic memfs passthrough (V2.5 identity backup: grab the self-keys tar
+  // the core wrote, or place one for import). Resolves Uint8Array / undefined.
+  readCoreFile(path) {
+    return this._fileRequest({ type: "read-file", path }, "file");
+  }
+
+  readCoreFileList(path) {
+    return this._fileRequest({ type: "list-dir", path }, "dir");
+  }
+
+  writeCoreFile(path, bytes) {
+    return this._fileRequest({ type: "write-file", path, bytes }, "written");
+  }
+
+  // Drop a temp upload once the core has copied it (worker allows only
+  // /uploads/<name>).
+  removeCoreFile(path) {
+    return this._fileRequest({ type: "remove-file", path }, "removed");
+  }
+
+  // Web Push device token → core (all accounts). Rejects on a wasm without
+  // the binding so the UI can say so.
+  setPushDeviceToken(token) {
+    return this._fileRequest({ type: "set-push-token", token }, "push-token-set");
+  }
+
+  _fileRequest(msg, okType) {
+    if (!this._worker) return Promise.reject(new Error("worker not booted"));
+    const id = ++this._fileSeq;
+    return new Promise((resolve, reject) => {
+      const onMsg = (e) => {
+        const d = e.data;
+        if (d.id !== id) return;
+        this._worker.removeEventListener("message", onMsg);
+        if (d.type === okType) resolve(d.bytes ?? d.entries);
+        else reject(new Error(d.error));
+      };
+      this._worker.addEventListener("message", onMsg);
+      this._worker.postMessage({ ...msg, id });
+    });
+  }
+
+  // Copy memfs → OPFS and resolve when that rewrite has finished.
+  // Each checkpoint writes a new snapshot generation and flips `current`
+  // last, so a worker killed mid-write keeps the previous one (#123).
+  checkpoint() {
+    if (!this._worker) return Promise.resolve();
+    const id = ++this._fileSeq;
+    return new Promise((resolve, reject) => {
+      const onMsg = (e) => {
+        const d = e.data;
+        if (d.id !== id) return;
+        if (d.type !== "checkpoint-done" && d.type !== "checkpoint-error") return;
+        this._worker.removeEventListener("message", onMsg);
+        if (d.type === "checkpoint-error") reject(new Error(d.error || "checkpoint failed"));
+        else resolve();
+      };
+      this._worker.addEventListener("message", onMsg);
+      this._worker.postMessage({ type: "checkpoint", id });
+    });
+  }
+
+  // #178: switch the snapshot to encrypted writes (KEK + non-secret meta:
+  // mode, KDF salt, prf credential id). Resolves after the wrap is stored;
+  // the next checkpoint rewrites the generation encrypted.
+  setEncryption({ kek, meta }) {
+    return this._fileRequest({ type: "set-encryption", kek, meta }, "encryption-on");
+  }
+
+  // Rewrite the snapshot plaintext and drop the wrap (worker awaits the
+  // checkpoint before confirming).
+  disableEncryption() {
+    return this._fileRequest({ type: "disable-encryption" }, "encryption-off");
+  }
+
+  // #178 phase 4: wrap the current DEK under a PIN / recovery-code KEK, or
+  // drop that wrap again (kind: "pin" | "recovery").
+  setUnlockWrap({ kind, kek, meta }) {
+    return this._fileRequest({ type: "set-unlock-wrap", kind, kek, meta }, "unlock-wrap-done");
+  }
+
+  removeUnlockWrap(kind) {
+    return this._fileRequest({ type: "remove-unlock-wrap", kind }, "unlock-wrap-done");
+  }
+
+  async _boot() {
+    // Single-tab gate: two live cores would race the OPFS snapshot. Hold the
+    // lock for the worker's lifetime; a second tab gets a clear error.
+    const acquired = await acquireWasmLock(
+      navigator.locks?.request?.bind(navigator.locks),
+      (release) => { this._releaseLock = release; },
+    );
+    if (!acquired) throw new Error("wasm core is already open in another tab");
+    return new Promise((resolve, reject) => {
+      let booted = false;
+      const w = new Worker(this._workerUrl, { type: "module" });
+      w.onmessage = (e) => {
+        const d = e.data;
+        if (d.type === "line") this._receiver?.(d.line);
+        else if (d.type === "ready") { booted = true; resolve(); }
+        else if (d.type === "boot-error") {
+          this._releaseLock?.();
+          reject(new Error(d.error));
+        }
+        // Interval-checkpoint results (no request id): surface failures —
+        // a stopped checkpoint means nothing is being saved.
+        else if (d.type === "checkpoint-failed") reportCheckpoint(false, new Error(d.error));
+        else if (d.type === "checkpoint-ok") reportCheckpoint(true);
+      };
+      w.onerror = (e) => {
+        this._releaseLock?.();
+        const why = `worker error: ${e.message ?? "unknown"}`;
+        // #240: a crash after boot is a dead core — tell the watchdog.
+        if (booted) globalThis.dispatchEvent?.(new CustomEvent("velta-core-dead", { detail: { reason: why } }));
+        else reject(new Error(why));
+      };
+      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken, wsProxyDevice: this._wsProxyDevice, dbKey: this._dbKey, unlockSrc: this._unlockSrc });
+      this._worker = w;
+      // Save when the page goes to the background (tab switch, app switch,
+      // the start of a reload). Safe now that a cut-off write is ignored.
+      globalThis.document?.addEventListener?.("visibilitychange", () => {
+        if (globalThis.document.visibilityState !== "hidden") return;
+        this.checkpoint().then(() => reportCheckpoint(true), (err) => reportCheckpoint(false, err));
+      });
+      // Best effort only: the page cannot wait for OPFS writes while it
+      // unloads. Anything the user just saved goes through
+      // JsonRpcCore._persist() instead, which awaits the checkpoint.
+    });
+  }
+}
