@@ -465,10 +465,11 @@ async function resolveAttachmentPath(originalPath, filename) {
     && normalized.toLowerCase().startsWith(window.veltaAccountsDir.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase() + "/");
   if (inAccounts) return originalPath; // already app-managed (content-uri copies)
 
+  let absDest = "";
   try {
     const destName = `${Date.now()}-${filename || "file"}`;
     // resolve_upload_path already puts everything under uploads/
-    const absDest = await invoke("resolve_upload_path", { filename: destName });
+    absDest = await invoke("resolve_upload_path", { filename: destName });
     rustLog(`resolveAttachmentPath original=${originalPath} dest=${absDest}`);
     if (!absDest) throw new Error("resolve_upload_path returned empty");
 
@@ -481,8 +482,13 @@ async function resolveAttachmentPath(originalPath, filename) {
     await invoke("encrypt_upload", { path: absDest });
     return absDest;
   } catch (e) {
-    rustLog(`resolveAttachmentPath failed: ${e}; falling back to original`);
-    return originalPath;
+    rustLog(`resolveAttachmentPath failed: ${e}`);
+    // #444: only the empty-dest case keeps the original-path salvage. A real
+    // read/write/encrypt failure must surface here — swallowed, the image
+    // branch dies later in read_media_bytes with a misleading "path outside
+    // the app data directory" scope error that hides the actual cause.
+    if (!absDest) return originalPath;
+    throw e;
   }
 }
 

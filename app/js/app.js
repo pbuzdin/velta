@@ -5612,7 +5612,14 @@ async function deliverShare(chat, items, epoch) {
     errToast(t("Couldn't open {name}", { name: chat.name }));
     return;
   }
-  const result = await chatView.receiveShare({ text, files });
+  // #444: resolveAttachmentPath now fails fast — a share-in copy failure must
+  // toast the real error, not escape as an unhandled rejection.
+  let result = null;
+  try {
+    result = await chatView.receiveShare({ text, files });
+  } catch (err) {
+    errToast(t("Could not send file: ") + (err?.message || err));
+  }
   if (result === "sent" && accountIsCurrent(epoch)) {
     toast(t("Sent to {name}", { name: chat.name }));
     refreshChatList();
