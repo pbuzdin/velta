@@ -15,7 +15,13 @@ lock. The composer has the web's @-mention picker (keys, avatars,
 loading row) and bubbles render mention chips, web-style quote
 blockquotes, and full markdown (#323–#328 all closed). Quote taps fetch
 history to jump beyond the loaded window. Push tokens register through
-the standard JSON-RPC surface (the shim intercept is gone). A long
+the standard JSON-RPC surface (the shim intercept is gone). Databases
+are encrypted at rest with a key the core never falls back from — a
+pre-encryption profile migrates automatically on first start (export,
+verify, swap, rollback backup kept) — and the accounts directory opts
+out of OS/cloud backups and device transfer. The event loop watches
+the core: a wedged process can no longer hang the app behind a live
+foreground service. A long
 message clamps at 12 lines (Read more / Show less). A
 message the core shortened offers Show Full Message… on Android.
 Desktop shows a notice for that page. A picture leaves 5dp above its
