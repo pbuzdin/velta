@@ -1715,5 +1715,6 @@
   "The browser writes an unencrypted backup. Use the desktop or Android app if you need a passphrase.": "В браузере копия сохраняется без пароля. Для копии с паролем используйте приложение на компьютере или Android.",
   "The browser can only restore an unencrypted backup. Use the desktop or Android app for a passphrase-protected file.": "В браузере можно восстановить только копию без пароля. Для файла с паролем используйте приложение на компьютере или Android.",
   "Passphrase-protected backups are not supported in the browser. Export without a passphrase, or use the desktop or Android app.": "Резервные копии с паролем в браузере не поддерживаются. Экспортируйте без пароля или используйте приложение на компьютере или Android.",
-  "This backup is encrypted and cannot be imported in the browser. Restore it in the desktop or Android app, or export an unencrypted backup.": "Эта копия зашифрована и не может быть импортирована в браузере. Восстановите её в приложении на компьютере или Android либо экспортируйте незашифрованную копию."
+  "This backup is encrypted and cannot be imported in the browser. Restore it in the desktop or Android app, or export an unencrypted backup.": "Эта копия зашифрована и не может быть импортирована в браузере. Восстановите её в приложении на компьютере или Android либо экспортируйте незашифрованную копию.",
+  "Profile transferred from another Velta device": "Профиль перенесён с другого устройства Velta"
 }
