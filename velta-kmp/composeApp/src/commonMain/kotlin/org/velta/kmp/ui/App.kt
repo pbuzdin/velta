@@ -907,6 +907,9 @@ private fun ChatListScreen(model: AppModel, peek: Boolean = false) {
     PlatformBackHandler(enabled = !peek && (menuOpen || model.listView != "chats")) {
         if (menuOpen) menuOpen = false else model.toggleListView("chats")
     }
+    // #443: nothing left to close — back backgrounds the app instead of
+    // finishing it. Dialogs/sheets compose later, so their handlers win.
+    PlatformRootBackHandler(enabled = !peek && !menuOpen && model.listView == "chats")
     GlassHost(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
         content = {

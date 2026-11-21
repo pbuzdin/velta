@@ -403,6 +403,7 @@ internal object LangRu {
         "Profile key" to "Ключ профиля",
         "Profile management…" to "Управление профилем…",
         "Profile received — signing in" to "Профиль получен — вход",
+        "Profile transferred from another Velta device" to "Профиль перенесён с другого устройства Velta",
         "Profile restored — restarting" to "Профиль восстановлен — перезапуск",
         "Profile transferred to the second device" to "Профиль перенесён на второе устройство",
         "Profile updated" to "Профиль обновлён",

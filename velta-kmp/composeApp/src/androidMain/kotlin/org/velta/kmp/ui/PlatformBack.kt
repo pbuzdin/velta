@@ -16,6 +16,14 @@ actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
     BackHandler(enabled = enabled, onBack = onBack)
 }
 
+@Composable
+actual fun PlatformRootBackHandler(enabled: Boolean) {
+    // #443: back at the root backgrounds the app instead of finishing it —
+    // the standard messenger pattern (per-layer handlers keep walking layers).
+    val activity = LocalContext.current as? android.app.Activity
+    BackHandler(enabled = enabled && activity != null) { activity?.moveTaskToBack(true) }
+}
+
 actual val touchGesturesEnabled: Boolean = true
 
 @Composable
