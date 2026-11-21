@@ -44,9 +44,16 @@
     </queries>
 
     <!-- VeltaApplication loads the core shim in every process (service,
-         push, job, boot), so each can start a headless core. -->
+         push, job, boot), so each can start a headless core.
+         allowBackup/fullBackupContent off (#259 step 4, Tauri shell parity):
+         the app data holds private keys and plaintext blobdir media; a
+         cloud/device-transfer backup without dbkey.wrap would restore
+         databases nobody can open. -->
     <application
         android:name=".VeltaApplication"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:label="Velta KMP"
         android:icon="@mipmap/ic_launcher"

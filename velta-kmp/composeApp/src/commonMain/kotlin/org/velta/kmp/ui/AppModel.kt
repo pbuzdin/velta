@@ -1427,9 +1427,13 @@ class AppModel(
                 connected = true
                 locked = false
 
-                veltaCore.startEventLoop(scope) { event ->
-                    handleEvent(event)
-                }
+                veltaCore.startEventLoop(
+                    scope,
+                    onEvent = { event ->
+                        handleEvent(event)
+                    },
+                    onStopped = { onCoreDead() },
+                )
 
                 resumeSession(veltaCore)
                 println("velta-kmp: connect ok — core $coreVersion, ${modelAccountsSummary()}")
