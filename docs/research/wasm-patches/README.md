@@ -59,6 +59,13 @@ baselines used 13 ops at 2.62, 21 at 2.63.0, 23 at 2.64.0, and 25 at 2.65.0.
 > (wasm-bindgen moved 0.2.129 -> 0.2.130; CI installs the matching
 > bindgen-cli from PROVENANCE, so the pin stays self-consistent).
 
+> **Re-vendored mail-builder 2.0.0 (#330, 2026-11-21).** Core 2.68
+> asks for mail-builder 2.0.0, so the 1.0.0 `[patch.crates-io]` was
+> unused (`[[patch.unused]]`) and `SystemTime::now()` panicked on
+> wasm send. Same two `web-time` hunks, now on stock 2.0.0; locks
+> re-pinned. Smoke still has no send step (needs a live relay;
+> `e2e-velta-wasm-network.mjs` covers that).
+
 > **Refreshed for 2.65.0 (2026-10-23).** 0002/0004/0006/0008 regenerated
 > (Cargo.toml context only: upstream webpki-roots 1.0.10 bump shifted the
 > hunks; no content change); others unchanged; locks re-pinned via
