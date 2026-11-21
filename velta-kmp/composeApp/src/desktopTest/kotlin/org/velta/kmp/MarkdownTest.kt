@@ -1,6 +1,7 @@
 package org.velta.kmp
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import org.velta.kmp.ui.READ_MORE_LINES
@@ -76,10 +77,37 @@ class MarkdownTest {
     fun mentionsResolveMembers() {
         val members = listOf(org.velta.kmp.ui.MentionMember(7, "Pavel", "A1B2"))
         val s = markdownAnnotated("hey @Pavel check @Pavel (A1B2)", accent, bg, ink, members)
-        assertEquals("hey @Pavel check @Pavel (A1B2)", s.text)
+        // Web chip: the parens are visually hidden, the code rides a space.
+        assertEquals("hey @Pavel check @Pavel A1B2", s.text)
         val anns = s.getStringAnnotations("MENTION", 0, s.length)
-        assertEquals(2, anns.size, "both forms resolve")
+        assertEquals(3, anns.size, "both forms resolve; the coded chip has chip + code spans")
         assertTrue(anns.all { it.item == "7" })
+    }
+
+    @Test
+    fun mentionChipHidesParensAndMarksSelf() {
+        val members = listOf(
+            org.velta.kmp.ui.MentionMember(1, "Pavel", "A1B2"),
+            org.velta.kmp.ui.MentionMember(7, "Ada", "C0FE"),
+        )
+        val s = markdownAnnotated("hi @Ada (C0FE) and @Pavel (A1B2)", accent, bg, ink, members)
+        assertEquals("hi @Ada C0FE and @Pavel A1B2", s.text)
+        val code = s.spanStyles.filter { s.text.substring(it.start, it.end).trim() == "C0FE" }
+        assertTrue(code.isNotEmpty(), "code span exists")
+        assertTrue(
+            code.all { it.item.fontFamily == FontFamily.Monospace && it.item.fontWeight == FontWeight.Normal },
+            "code is small mono, normal weight",
+        )
+        val self = s.spanStyles.filter { s.text.substring(it.start, it.end) == "@Pavel" }
+        assertTrue(
+            self.any { it.item.fontWeight == FontWeight.Bold && it.item.textDecoration == TextDecoration.Underline },
+            "self-mention is bold + underlined (mention-me)",
+        )
+        val other = s.spanStyles.filter { s.text.substring(it.start, it.end) == "@Ada" }
+        assertTrue(
+            other.any { it.item.fontWeight == FontWeight.Medium && it.item.textDecoration == null },
+            "others are medium, no underline",
+        )
     }
 
     @Test

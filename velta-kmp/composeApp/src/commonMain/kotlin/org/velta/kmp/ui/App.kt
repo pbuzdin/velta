@@ -100,6 +100,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -4543,7 +4544,12 @@ private fun Composer(model: AppModel) {
             if (mentionQ.query.isEmpty() && others > BARE_AT_MAX) emptyList()
             else filterMembers(mentionMembers, mentionQ.query)
         }
-        if (mentionPicks.isNotEmpty()) {
+        // Web picker state (attachMentionPicker): the active row resets and an
+        // Esc dismissal clears on every input — key the remembers on the text.
+        var mentionActive by remember(model.composerText) { mutableStateOf(0) }
+        var mentionHidden by remember(model.composerText) { mutableStateOf(false) }
+        val pickerOpen = mentionPicks.isNotEmpty() && !mentionHidden
+        if (pickerOpen) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -4551,20 +4557,45 @@ private fun Composer(model: AppModel) {
                     .background(Velta.tokens.bgSidebar, RoundedCornerShape(12.dp))
                     .border(1.dp, Velta.tokens.border, RoundedCornerShape(12.dp)),
             ) {
-                mentionPicks.forEach { member ->
+                mentionPicks.forEachIndexed { idx, member ->
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .background(
+                                if (idx == mentionActive.coerceAtMost(mentionPicks.lastIndex)) {
+                                    Velta.tokens.bgHover
+                                } else {
+                                    Color.Transparent
+                                },
+                            )
                             .clickable { model.insertMention(member) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        AvatarTile(member.name, member.color, "single", 28.dp, member.fingerprint, member.avatarPath)
+                        Spacer(Modifier.width(10.dp))
                         Text(member.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (member.code.isNotEmpty()) {
                             Text(member.code, color = Velta.tokens.textDim, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
+            }
+        } else if (mentionQ != null && mentionPicks.isEmpty() && model.chatMembersLoading) {
+            // Loading status row: muted, not an option (web .mention-loading).
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .background(Velta.tokens.bgSidebar, RoundedCornerShape(12.dp))
+                    .border(1.dp, Velta.tokens.border, RoundedCornerShape(12.dp)),
+            ) {
+                Text(
+                    L.t("Loading members…"),
+                    color = Velta.tokens.textDim,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                )
             }
         }
         // Velta stable composer (app/index.html footer.composer): 48dp icon
@@ -4629,6 +4660,29 @@ private fun Composer(model: AppModel) {
                     onValueChange = { model.composerText = it },
                     modifier = Modifier
                         .weight(1f)
+                        .onPreviewKeyEvent { e ->
+                            // Picker keys run before anything else (web
+                            // mentions.handleKey); Shift+Enter stays a newline.
+                            if (e.type != KeyEventType.KeyDown || !pickerOpen) return@onPreviewKeyEvent false
+                            val last = mentionPicks.lastIndex
+                            when (e.key) {
+                                Key.DirectionDown -> {
+                                    mentionActive = (mentionActive.coerceAtMost(last) + 1) % (last + 1); true
+                                }
+                                Key.DirectionUp -> {
+                                    val a = mentionActive.coerceAtMost(last)
+                                    mentionActive = if (a <= 0) last else a - 1; true
+                                }
+                                Key.Enter, Key.Tab -> {
+                                    if (e.isShiftPressed) return@onPreviewKeyEvent false
+                                    model.insertMention(mentionPicks[mentionActive.coerceAtMost(last)]); true
+                                }
+                                Key.Escape -> {
+                                    mentionHidden = true; true
+                                }
+                                else -> false
+                            }
+                        }
                         .padding(start = 16.dp, end = 6.dp, top = 13.dp, bottom = 13.dp),
                     textStyle = TextStyle(
                         fontSize = 15.5.sp,

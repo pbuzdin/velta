@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.em
 
 /**
  * Compose port of the web's markdown pipeline (app/js/markdown.js +
@@ -168,16 +169,41 @@ private fun collectPieces(
     for (gap in gaps(content.length, pieces)) {
         val seg = content.substring(gap.first, gap.last + 1)
         for (m in findMentions(seg, members)) {
-            val style = SpanStyle(
+            // Web chip (markdown.js mentionsOf): the canonical member name,
+            // the parens visually hidden, the code as a small mono span; a
+            // self-mention is bold + underlined. Compose has no
+            // visually-hidden span, so the parens are dropped and the code
+            // rides a leading space (bubble copy uses the raw message text).
+            val name = m.member.name.trim()
+            val code = m.code // Web shows the code span only when the text typed one (x.code); member.code feeds the title tooltip alone.
+            val chip = SpanStyle(
                 color = accent,
                 background = codeBackground,
                 fontWeight = if (m.me) FontWeight.Bold else FontWeight.Medium,
+                textDecoration = if (m.me) TextDecoration.Underline else null,
             )
+            val id = m.member.id.toString()
             pieces += Piece(
                 gap.first + m.start,
                 gap.first + m.end,
-                Hold(seg.substring(m.start, m.end), ANN_MENTION, m.member.id.toString(), style),
+                Hold("@$name", ANN_MENTION, id, chip),
             )
+            if (code.isNotEmpty()) {
+                pieces += Piece(
+                    gap.first + m.start,
+                    gap.first + m.end,
+                    Hold(
+                        " $code",
+                        ANN_MENTION,
+                        id,
+                        chip.copy(
+                            fontWeight = FontWeight.Normal,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 0.72.em,
+                        ),
+                    ),
+                )
+            }
         }
     }
     for (gap in gaps(content.length, pieces)) {
