@@ -13,7 +13,7 @@ work-in-progress experiment (#314). Phase plan in #192: N1 design port
 (Prism + identity matrix — shipped, see PrismIdentityTest), N2
 conversation notifications + RPC timeout/respawn (shipped), N3 AGSL glass
 on the composer and header (shipped), N4 release signing still open.
-Fidelity follow-ups live in #323–#328 (#329 closed 2026-11-14).
+Fidelity follow-ups #323–#328 closed 2026-11-21 (#329 closed 2026-11-14).
 #334 steps 1–10 are in. Step 11 is in: search in chat,
 image viewer and opening files, in-app video and voice, group
 rename/add/remove, second-device QR plus export backup, SOCKS5 via
@@ -50,7 +50,7 @@ A mail bubble clamps at 12 visual lines (`READ_MORE_LINES` in
 separate and only when `hasHtml`. A picture or video leaves 5dp under
 itself before the caption. Tapping a group or contact invite you already
 joined opens that chat (`secure_join` returns the existing id).
-`versionName` is 0.9.0. Slice ledger: docs/PHASES.md.
+`versionName` is 0.9.1. Slice ledger: docs/PHASES.md.
 
 ## Layout
 
@@ -391,14 +391,22 @@ never run Gradle on the Windows side.
   bubble as bgReply chips (accent border on the own reaction); isInfo
   messages render as .service-msg mono pills, day chips as .day-chip.
   Quote block = .msg-quote (2.5dp accent bar, single-line ellipsis, tap
-  scrolls when the quoted message is in the loaded window —
-  fetch-then-jump is #327); quote text inks are theme-keyed per web
-  main.css 907-912/3393 (light = #4d5a68 both sides, brutal out =
-  #3d3410 — LocalVeltaThemeMode exposes the resolved mode).
+  fetch-then-jumps beyond the loaded window — `jumpPlan` caps at 50×40
+  messages, toasts when gone or too far, #327); quote text inks are
+  theme-keyed per web main.css 907-912/3393 (light = #4d5a68 both sides,
+  brutal out = #3d3410 — LocalVeltaThemeMode exposes the resolved mode).
   Markdown = Markdown.kt + BareLinks.kt + Mentions.kt (invites →
   .invite-card → Join flow; a deltachat.id short link is fetched once
   and the first invite URL in the page becomes the card; code spans
-  click-to-copy). The history LazyColumn is `bgChat`: the shell Surface
+  click-to-copy). `> ` quote LINES render the web blockquote: ▎bar in
+  the accent (out rows `quoteNameOut`) + dim ink / `outLink` on out
+  rows, no italic — Compose spans cannot draw a border, so the glyph is
+  the bar (`markdownAnnotated(quoteBar, quoteInk)`; #429). Mentions:
+  the composer picker cycles with ↑/↓, inserts on Enter/Tab, hides on
+  Esc, shows avatars + a muted "Loading members…" row, and respects
+  BARE_AT_MAX; chips render the canonical name, drop the (CODE) parens
+  (Compose has no visually-hidden span), and a self-mention is bold +
+  underlined (#427). The history LazyColumn is `bgChat`: the shell Surface
   is `bgSidebar`, and a light incoming bubble is that same `#f4f4f4`.
 - **Chat screen gestures** (`touchGesturesEnabled` expect/actual in
   ui/PlatformBack.kt — Android on, desktop off, the web _mobileGestures
@@ -517,7 +525,13 @@ never run Gradle on the Windows side.
   Message notifications are MessagingStyle conversations
   (`IncomingNotifier.notifyMessage` / `IncomingNotice`): group title,
   sender person + avatar, chat avatar, follow-ups append (max 7) until
-  read, tapped or swiped. One fetch is bounded to 15 s (stable).
+  read, tapped or swiped; a muted chat stays quiet unless the text
+  @mentions us (`mentionsMe` + `mutedChatAllows`, the
+  `velta-notify-muted-mentions` switch). Notifications group per account
+  (`velta-msg.<accountId>`, #433) and the FGS notification is Delta
+  Chat parity: `setWhen(0)`/`setShowWhen(false)`, PRIORITY_MIN, title
+  via `loadLabel` (i18n; R.string is unreachable from Kotlin, #432).
+  One fetch is bounded to 15 s (stable).
   Rules: `ui/BackgroundRules.kt`.
 - **#334 step 11 (app layer).** Profile of a group: rename
   (`set_chat_name`; groups and channels only), members (36dp kind-single
