@@ -3601,7 +3601,7 @@ class AppModel(
 
     /**
      * A UnifiedPush endpoint arrived: ensure the core is up, then register
-     * the token (the shim's `velta_set_push_device_token`; the core encrypts
+     * the token (`set_push_device_token`; the core encrypts
      * it to the notifier key and registers via IMAP METADATA on next io).
      */
     fun onPushEndpoint(token: String) {

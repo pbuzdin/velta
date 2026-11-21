@@ -933,6 +933,26 @@ impl Context {
 """,
     ),
     dict(
+        id="#225 set_push_device_token (api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="async fn set_push_device_token(",
+        anchor=(
+            "    async fn add_account(&self) -> Result<u32> {\n"
+            "        self.accounts.write().await.add_account().await\n"
+            "    }\n"
+        ),
+        where="after",
+        text="""
+    /// Velta: register the push device token (the `webpush:<url>|<pubkey>|<auth>`
+    /// serialization) for every account; the core treats it as opaque, encrypts
+    /// it to the notifier key and registers it via IMAP METADATA when io runs.
+    /// Formerly a `velta_set_push_device_token` shim intercept (#225).
+    async fn set_push_device_token(&self, token: String) -> Result<()> {
+        self.accounts.read().await.set_push_device_token(&token)
+    }
+""",
+    ),
+    dict(
         id="#15 JsonrpcTransportServerMetadata import (api.rs)",
         file="core/deltachat-jsonrpc/src/api.rs",
         applied="use types::login_param::JsonrpcTransportServerMetadata;",

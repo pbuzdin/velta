@@ -332,10 +332,9 @@ fixed in `velta-app/.../VeltaKeystore.kt` (`pack()`, `setIsStrongBoxBacked`).
 **Slice 8 — UnifiedPush receiver (shipped):** `VeltaPushService : PushService`
 (connector `org.unifiedpush.android:connector:3.3.4-rc1`, PUSH_EVENT filter)
 mirrors the Tauri shell's contract: `onNewEndpoint` serializes the webpush
-token (`webpush:<url>|<pubkey>|<auth>`) → `velta_set_push_device_token` (a
-**shim-only RPC** — `Accounts::set_push_device_token` is not on the JSON-RPC
-surface, so the shim intercepts that one method before dispatch and calls
-the accounts manager directly; Rust test pins the interception),
+token (`webpush:<url>|<pubkey>|<auth>`) → `set_push_device_token` (on the
+JSON-RPC surface since #225 — the old pre-dispatch shim intercept is gone
+and the Rust test pins the surface call),
 `onMessage` → ensure-connected → `start_io_for_all_accounts` +
 `background_fetch(30)` (a JSON-RPC method — the fetch results surface
 through the event loop). Auto-registration follows the Tauri rules

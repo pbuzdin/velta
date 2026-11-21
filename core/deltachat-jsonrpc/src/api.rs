@@ -211,6 +211,14 @@ impl CommandApi {
         self.accounts.write().await.add_account().await
     }
 
+    /// Velta: register the push device token (the `webpush:<url>|<pubkey>|<auth>`
+    /// serialization) for every account; the core treats it as opaque, encrypts
+    /// it to the notifier key and registers it via IMAP METADATA when io runs.
+    /// Formerly a `velta_set_push_device_token` shim intercept (#225).
+    async fn set_push_device_token(&self, token: String) -> Result<()> {
+        self.accounts.read().await.set_push_device_token(&token)
+    }
+
     /// Imports/migrated an existing account from a database path into this account manager.
     /// Returns the ID of new account.
     async fn migrate_account(&self, path_to_db: String) -> Result<u32> {
