@@ -1195,10 +1195,27 @@ impl P2p {
                 proto: p.proto,
             })
             .collect();
-        std::fs::write(
-            self.dir.join("peers.json"),
-            serde_json::to_vec(&PeersFile { peers })?,
-        )?;
+        // Atomic swap: a beacon handler and the pairing flow can persist
+        // concurrently, and an in-place truncate+write tears the file —
+        // load_peers parses nothing then, and EVERY pairing looks gone.
+        // Unique tmp names keep two writers from clobbering each other's
+        // staging file; the rename is the commit point. Process death
+        // mid-write had the same failure mode.
+        let path = self.dir.join("peers.json");
+        static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let tmp = self.dir.join(format!(
+            "peers.json.tmp{}",
+            TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let write = || -> Result<()> {
+            std::fs::write(&tmp, serde_json::to_vec(&PeersFile { peers })?)?;
+            std::fs::rename(&tmp, &path)?;
+            Ok(())
+        };
+        if let Err(e) = write() {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
         Ok(())
     }
 
