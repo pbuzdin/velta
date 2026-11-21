@@ -2,12 +2,12 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 23:09:45 +0300
 Subject: [PATCH] wasm(fs,net,tls): path_exists/is_dir helpers, wasm
- connect_tcp, JsClock, mail-builder 1.0
+ connect_tcp, JsClock, mail-builder 2.0
 
 tools::path_exists/path_is_dir/path_is_file (std natively, memfs on wasm)
 replace Path::exists/is_dir/is_file call sites in accounts, context, imex
 and tools; wasm connect_tcp for autorelay; rustls time provider via JS
-clock; [patch.crates-io] mail-builder 1.0.0 (vendored, web-time).
+clock; [patch.crates-io] mail-builder 2.0.0 (vendored, web-time).
 
 Unblocks Accounts::new / blobdir / add_account and SystemTime panics in
 mail-builder during configure+send on wasm32.
@@ -15,8 +15,8 @@ mail-builder during configure+send on wasm32.
 2.66 refresh (#260/#261): message.rs save-file routes the memfs
 branch (no into_std on the facade; the sync blob reader copies through
 memory). WASM-CORE: prototype 0004/0006 leftovers (MPL ideas). Native impact:
-call-site refactors only; mail-builder version equals stock (1.0.0,
-#112 refresh).
+call-site refactors only; mail-builder version equals stock (2.0.0,
+#330 re-vendor after core 2.68).
 ---
  Cargo.toml      |  2 ++
  src/accounts.rs | 25 ++++++++++++++++++-------

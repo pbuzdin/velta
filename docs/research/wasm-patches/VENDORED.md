@@ -23,7 +23,7 @@ wasm-only.
 | **velta-tokio-wasm 0.1.0** (Velta-original) | `support/crates/velta-tokio-wasm` | none — written clean-room Day 12 (replaces imported `tokio-wasm-shim`) | **MPL-2.0**, authored by Velta: `LICENSE` (canonical MPL-2.0 text) + SPDX header in every source file | n/a (1.4 k lines, rustfmt-clean) | `pub use tokio::*` (feature `full`); wasm modules not compiled on native |
 | astral-tokio-tar **0.6.4** | `support/vendor-crates/astral-tokio-tar` | crates.io 0.6.4 / [astral-sh/tokio-tar](https://github.com/astral-sh/tokio-tar) | MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE kept) | 61 changed lines (header.rs, entry.rs, builder.rs) | `canonicalize` via `tokio::fs` (= `spawn_blocking(std::fs::canonicalize)`); rest gated |
 | async-imap 0.12.0 | `support/vendor-crates/async-imap` | crates.io 0.12.0 / [async-email/async-imap](https://github.com/async-email/async-imap) | MIT OR Apache-2.0 (kept) | 6 lines `extensions/idle.rs` + wasm-only `wasmtimer` dep; drops tokio `net` feature | none (all gated) |
-| mail-builder 1.0.0 | `support/vendor-crates/mail-builder` | crates.io 1.0.0 / [stalwartlabs/mail-builder](https://github.com/stalwartlabs/mail-builder) | Apache-2.0 OR MIT (`LICENSES/` kept) | ~17 lines (`headers/date.rs`, `mime.rs`) + wasm-only `web-time` dep | none (imports gated) |
+| mail-builder 2.0.0 | `support/vendor-crates/mail-builder` | crates.io 2.0.0 / [stalwartlabs/mail-builder](https://github.com/stalwartlabs/mail-builder) | Apache-2.0 OR MIT (`LICENSES/` kept) | ~17 lines (`headers/date.rs`, `mime.rs`) + wasm-only `web-time` dep | none (imports gated) |
 
 ### A1. velta-tokio-wasm — Velta-original replacement (Day 12) ✅
 
@@ -89,15 +89,21 @@ from `wasmtimer::tokio` on wasm32 (tokio timers panic on
 cfg'd import block survived 0.11→0.12 unchanged). Upstream candidate: a
 `wasmtimer` cfg in `idle.rs`.
 
-### A4. mail-builder 1.0.0
+### A4. mail-builder 2.0.0
 
 **Status: patched locally — re-apply on re-vendor.** `SystemTime`/`UNIX_EPOCH`
 from `web_time` on wasm32 (`std::time::SystemTime::now()` panics there).
-2.63 refresh (#112): rebased onto stock 1.0.0 — `date.rs` shrank to a
-one-line `use std::time::SystemTime;` import; vendored `Cargo.toml` keeps
-using the crate's original manifest (`.orig`) + the wasm32 `web-time`
-target table. Upstream candidate: `web-time` behind
-`cfg(target_arch = "wasm32")`.
+2.63 refresh (#112) had rebased onto stock 1.0.0. After core 2.68 moved
+to mail-builder 2.0.0, `[patch.crates-io]` for the 1.0.0 vendor was
+silently ignored (`[[patch.unused]]` in the pinned locks) and send
+panicked on wasm32 (#330). Re-vendored onto stock 2.0.0 with the same
+two cfg-gated import hunks; vendored `Cargo.toml` is the crate's
+original manifest (`.orig`) + the wasm32 `web-time` target table.
+`encodify` is the new 2.0.0 dep; `unix_nanos()` in `mime.rs` is the
+send-path call that was panicking. Upstream 2.0.1 (2026-11-02) landed
+the same `web-time` fix plus unrelated MIME bugfixes — not pulled in
+here so the wasm copy stays on the same 2.0.0 core asks for. Upstream
+candidate: drop the vendor once core bumps to ≥2.0.1.
 
 ### A5. Not vendored
 
@@ -123,7 +129,7 @@ wasm-pack + smoke + e2e (see checklist §7).
 | 0005 | net/accounts: `http_wasm`/`proxy_wasm` + cfg stubs | accounts, net, net/{http_wasm,proxy_wasm,session,tls}, qr | medium — `net/tls.rs` churns upstream | none (gated) |
 | 0006 | blob/cargo: `ReadDir` cfg for memfs, serde_urlencoded | Cargo.toml, blob.rs | low | none |
 | 0007 | net/blob/time: `ws_tcp`, wasm clocks, blob `sync_fs`, fetch | 18 files (blob, tools, net/*, imap, smtp, sql/migrations, ratelimit…) | **high** — `Time::now()`→`tools::time_now()` sweep touches many call sites; re-grep `Time::now()` after each bump | mechanical refactors; avatar golden unchanged |
-| 0008 | fs/net/tls: `path_exists`/`is_dir`, wasm `connect_tcp`, JsClock, mail-builder 1.0 | Cargo.toml, accounts, context, imex, net, tools | medium | wrappers = `Path::exists/is_dir` |
+| 0008 | fs/net/tls: `path_exists`/`is_dir`, wasm `connect_tcp`, JsClock, mail-builder 2.0 | Cargo.toml, accounts, context, imex, net, tools | medium | wrappers = `Path::exists/is_dir` |
 | 0011 | blob: sync_fs facade and memfs `open_blob` for the 2.66 attachment port | blob.rs | medium — re-anchor after #22 attachment changes; key-only paths stay on std::fs because wasm has no raw DEK | none — native re-exports std::fs and keeps `open_blob` unchanged |
 | 0010 | scheduler: `stop()` without `tokio_util::TaskTracker` on wasm32 | scheduler.rs | low — one function, cfg-split | none — native path byte-identical |
 

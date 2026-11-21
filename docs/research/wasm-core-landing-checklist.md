@@ -229,6 +229,9 @@ Native builds must not change behaviour because of the wasm patches.
   changed lines, async-imap **6**, mail-builder **17** (all
   listed in VENDORED.md §A). Human review still open. #112 re-vendored
   async-imap 0.12.0 + mail-builder 1.0.0 with the same deltas.
+  #330 re-vendored mail-builder 2.0.0 (core 2.68+) with the same
+  `web-time` import hunks; the 1.0.0 vendor was unused and send
+  panicked on wasm32.
 - ⬜ Line-by-line review of the series by someone other than the author
   (agent-written patches need human review), focusing on: TLS clock
   provider, `ws_tcp` DNS/connect path, `http_wasm` fetch, blob memfs.
