@@ -79,6 +79,28 @@ PRs #432/#433: the FGS notification drops the stale timestamp
 (`velta-msg.<accountId>`). v1.5.6 published; #226 (app-lock PIN)
 verified complete and closed. KMP `versionName` is 0.9.1.
 
+**Hardening — #259 closed 2026-11-21:** steps 1 (per-launch RPC auth
+token, `14672853`), 5 (`remoteMessaging` FGS), 6 (15-minute persisted
+JobScheduler fetch), 8 (strong biometric via `LockPolicy`) and 9
+(message notifications) were already in. PR #436: the `dbkey.bio` FILE
+is the app-lock gate (the pref mirror flips before the plain wrap is
+removed — no more crash window where the next boot minted a fresh DEK
+over locked databases); the accounts dir opts out of OS/cloud backup
+(`allowBackup=false` + the Tauri `dataExtractionRules`); the event
+loop is watched — the parked `get_next_event_batch` carries a 30 s
+budget and `onStopped` → `onCoreDead` self-heal, and `RpcClient.pending`
+is a `ConcurrentHashMap` (the audit's unlocked-`failAll` race). PR
+#437: the shell's plaintext → keyed DB migration lives in the shim
+(`db_key.rs`: classify → `sqlcipher_export` → integrity + row-count
+verify → swap with a rollback backup; a failed migration with nothing
+already encrypted runs keyless and retries next boot — patch #20 never
+falls back, so an unmigrated profile would have stayed closed). PR
+#438: `peers.json` persists atomically (unique tmp + rename) — the
+LAN beacon handler and the pairing flow can persist concurrently, and
+a torn write made every pairing look gone (the flaky
+`introduced_peer` shim test on CI; same process-death hazard in
+production).
+
 **#321 fidelity follow-ups (all closed 2026-11-21):**
 - #323 CLOSED (PR #427): the composer picker + chips + `mentionsMe`
   notify gate (`allowsMutedMention`, the `velta-notify-muted-mentions`

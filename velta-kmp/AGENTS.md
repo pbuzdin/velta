@@ -127,7 +127,16 @@ native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, 
                  (binds LAN only after start; the pref gate lives in
                  Kotlin) / `sendLoopLine`, events via `RpcShim.onLoopLine`
                  (one `p2p-event` JSON-Lines stream). No listening port;
-                 the core's RPC socket is untouched (#332 m2).
+                 the core's RPC socket is untouched (#332 m2). peers.json
+                 persists ATOMICALLY (unique tmp + rename): the beacon
+                 handler and the pairing flow can persist concurrently,
+                 and an in-place truncate+write tore the file — a torn
+                 parse reads as an empty book, i.e. every pairing gone
+                 (CI flake + process-death hazard, #438).
+  native/rpc-shim/src/db_key.rs
+                 plaintext → keyed DB migration (#259 step 2), run from
+                 `start_core` before `VELTA_DB_KEY` is set — see the
+                 encryption bullet below.
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
 composeApp/keystore.properties — release signing (gitignored; absent → debug-key fallback)
 ```
@@ -657,8 +666,11 @@ never run Gradle on the Windows side.
 - Responses carry `"jsonrpc":"2.0"`; errors are `{"id","error":{"code","message"}}`.
 - Events = **long-poll `get_next_event_batch`** (#357). One response is
   every event already queued, oldest first; each is forwarded in order.
-  An empty batch waits 250 ms and is not a failure. Five consecutive
-  errors stop the loop.
+  An empty batch waits 250 ms and is not a failure. The poll carries a
+  30 s budget (#259 step 7 — a wedged core that keeps the socket open
+  must not hang the loop behind a live FGS); five consecutive failures
+  stop the loop and fire `onStopped` → the model's `onCoreDead`
+  self-heal reconnect, the same path a dead transport takes.
 - Persistence = the accounts dir (`DC_ACCOUNTS_PATH`): `get_all_account_ids`,
   `get_account_info` kind `"Configured"` / `"Unconfigured"` (no `isConfigured`
   on the wire; that field is fixture-only). The core's selected account
@@ -669,11 +681,14 @@ never run Gradle on the Windows side.
   `add_account` auto-selects the new account.
 - `RpcClient.call` bounds ordinary RPCs at 30s by default
   (`RpcException(method, code -2)` names the METHOD, not `id=N`);
-  long-running calls opt out with `timeoutMs = null`: `get_next_event_batch`
-  (unbounded long-poll), `add_transport_from_qr`, `add_transport`,
-  `delete_transport`, `configure`, `secure_join`, `background_fetch`,
+  long-running calls opt out with `timeoutMs = null`:
+  `add_transport_from_qr`, `add_transport`, `secure_join`,
+  `background_fetch` (long-poll with its own timeout parameter),
   `provide_backup`, `get_backup_qr`, `get_backup`, `import_backup`,
-  `export_backup`.
+  `export_backup`. `delete_transport` uses the default budget.
+  `pending` is a `ConcurrentHashMap`: `failAll` snapshots it from
+  `close()` without the registration mutex (the audit's race), and a
+  call completing concurrently cannot corrupt the snapshot.
   The shim IS restartable in-process (`startCoreOnce`/`stopCoreOnce`):
   on a dead client the model drops to "core connection lost" and
   reconnects. A second `startCore` while the session is serving is
@@ -745,10 +760,13 @@ never run Gradle on the Windows side.
   ("text" for garbage, "account"+domain for `DCACCOUNT:`,
   "askVerifyContact/Group/Broadcast" for secure-join). The KMP scan flow
   hands the decoded payload straight to the model (no ActivityResult).
-- App lock (phase-4 port): lock ON → cold start refuses the core
-  (`getOrCreateDek` returns null); the DEK lives in an auth-window wrap
-  (`dbkey.bio`, 30 s Keystore validity after a prompt); unlock = prompt →
-  `unlockDek` inside the window → `spawnRpcServerWithKey(dir, dek)`.
+- App lock (phase-4 port): the gate is the `dbkey.bio` FILE itself —
+  `VeltaLock.on()` is `bioFile.exists()` (the pref flag is a mirror,
+  flipped before the plain wrap is removed; #259 step 3) → cold start
+  refuses the core (`getOrCreateDek` returns null); the DEK lives in an
+  auth-window wrap (`dbkey.bio`, 30 s Keystore validity after a prompt);
+  unlock = prompt → `unlockDek` inside the window →
+  `spawnRpcServerWithKey(dir, dek)`.
   Android also wraps that same running DEK under an app-lock PIN
   (`dbkey.pin.wrap`, `PinWrap`, the Tauri `db_key.rs` VLTDW file:
   Argon2id 64 MiB, t=3, p=1, then AES-256-GCM). Six or more characters.
@@ -772,6 +790,19 @@ never run Gradle on the Windows side.
   the draft, stops the core and clears list/message state. The sync
   service is `remoteMessaging` like stable's CoreService (dataSync has the
   Android 15 6 h/day cap); `onTimeout` stops it cleanly as a guard.
+- Database encryption + migration (#259 step 2): the DEK reaches the core
+  as `VELTA_DB_KEY` (patch #20 opens with it and never falls back). Before
+  that, `start_core` runs `db_key::prepare` — a port of the shell's
+  `db_key.rs`: each `<account>/dc.db` is classified (plain / ours /
+  foreign), plaintext ones convert (`wal_checkpoint` → `sqlcipher_export`
+  → integrity + user_version + row-count verify → swap, plaintext kept
+  as `dc.db.plain.bak` until the next start proves the encrypted copy),
+  interrupted swaps restore the backup, and a failed migration with
+  nothing already encrypted runs the session KEYLESS instead of
+  stranding the tree (retry next boot). No OS/cloud backup:
+  `allowBackup=false` + `fullBackupContent=false` +
+  `dataExtractionRules` (Tauri parity) — plaintext blobdir media must
+  not ride a backup, and a restored DB without its wrap would brick.
 - IncomingMsg events carry `chat_id`/`msg_id` (snake case on the wire —
   AppModel probes both casings); notifications post per chat
   (notification id = chatId.toInt()) on the `messages` channel, skipped
