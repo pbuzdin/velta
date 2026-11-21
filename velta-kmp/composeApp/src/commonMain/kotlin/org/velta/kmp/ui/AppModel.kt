@@ -5398,6 +5398,11 @@ class AppModel(
     var chatMembers by mutableStateOf<Map<Long, List<MentionMember>>>(emptyMap())
         private set
 
+    /** True while a member list is on its way: the picker shows a muted
+     * "Loading members…" row instead of nothing (web _mentionLoading). */
+    var chatMembersLoading by mutableStateOf(false)
+        private set
+
     /** Jump-to-message request (quote tap); consumed by the chat screen. */
     var pendingJumpToId by mutableStateOf<Long?>(null)
 
@@ -5688,6 +5693,7 @@ class AppModel(
         val veltaCore = core
         val id = accountId
         if (veltaCore == null || id == null) return
+        chatMembersLoading = true
         scope.launch {
             try {
                 val members = veltaCore.chatContactIds(id, chatId).mapNotNull { cid ->
@@ -5701,6 +5707,8 @@ class AppModel(
                 if (accountId == id) chatMembers = chatMembers + (chatId to members)
             } catch (t: Throwable) {
                 println("velta-kmp: chat members for $chatId failed: $t")
+            } finally {
+                if (accountId == id) chatMembersLoading = false
             }
         }
     }

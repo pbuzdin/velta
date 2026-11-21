@@ -292,6 +292,7 @@ internal object LangRu {
         "Light" to "Светлая",
         "Link previews" to "Предпросмотр ссылок",
         "Liquid glass composer" to "Поле ввода из жидкого стекла",
+        "Loading members…" to "Загрузка участников…",
         "Loading…" to "Загрузка…",
         "Local chat on the same network" to "Локальный чат в одной сети",
         "Local groups need the Velta app with local chat on" to "Для локальных групп нужно приложение Velta с включённым локальным чатом",

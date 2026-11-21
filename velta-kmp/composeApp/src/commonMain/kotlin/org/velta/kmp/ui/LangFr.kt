@@ -292,6 +292,7 @@ internal object LangFr {
         "Light" to "Clair",
         "Link previews" to "Aperçus de liens",
         "Liquid glass composer" to "Saisie en verre liquide",
+        "Loading members…" to "Chargement des membres…",
         "Loading…" to "Chargement…",
         "Local chat on the same network" to "Discussion locale sur le même réseau",
         "Local groups need the Velta app with local chat on" to "Les groupes locaux nécessitent l'application Velta avec la discussion locale activée",
