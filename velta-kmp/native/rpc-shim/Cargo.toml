@@ -45,4 +45,7 @@ socket2 = "0.5"
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 # Velta Loop (#332): LAN discovery only. The engine never dials a relay.
 iroh = { version = "0.35", default-features = false, features = ["discovery-local-network"] }
+# p2p media must ship plaintext: uploads copies are VLTA-encrypted with this
+# device key (same as the desktop fix, #448/#450).
+velta-attachment = { path = "../../../packages/attachment-crypto" }
 jni = "0.21"

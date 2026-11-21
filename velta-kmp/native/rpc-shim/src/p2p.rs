@@ -319,6 +319,40 @@ fn is_safe_transfer_id(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// #450 (desktop twin: #448): blob sources handed over by the UI may sit
+/// VLTA-encrypted (core encrypts blobdir copies with this device's key), so
+/// a byte-exact copy ships ciphertext the receiving side cannot unwrap with
+/// its own key ("attachment key authentication failed"). Transfers must ship
+/// plaintext: the wire is already E2E (iroh QUIC-TLS on node identity keys),
+/// and the receive path stores plaintext. Non-VLTA sources pass through
+/// byte-exact; a VLTA source with the key absent or wrong fails closed
+/// rather than shipping undecryptable bytes. The key rides in VELTA_DB_KEY
+/// (the same env the core reads).
+fn shim_attachment_key() -> Option<velta_attachment::AttachmentKey> {
+    let raw = std::env::var("VELTA_DB_KEY").ok()?;
+    velta_attachment::AttachmentKey::from_db_key(&raw)
+        .map_err(|err| {
+            eprintln!("[p2p] attachment key rejected: {err}");
+            err
+        })
+        .ok()
+        .flatten()
+}
+
+fn copy_plain(src: &std::path::Path, dest: &std::path::Path) -> anyhow::Result<()> {
+    if !velta_attachment::is_encrypted(src).unwrap_or(false) {
+        std::fs::copy(src, dest)?;
+        return Ok(());
+    }
+    let key = shim_attachment_key()
+        .ok_or_else(|| anyhow::anyhow!("attachment is encrypted but no device key is available"))?;
+    let mut reader = velta_attachment::AttachmentReader::open(src, Some(&key))?;
+    let mut out = std::fs::File::create(dest)?;
+    std::io::copy(&mut reader, &mut out)?;
+    out.sync_all()?;
+    Ok(())
+}
+
 /// Best-effort mime from extension (rendering is driven by the extension
 /// downstream, so unknown types degrade to a generic file card).
 fn mime_for(name: &str) -> String {
@@ -1001,7 +1035,7 @@ impl P2p {
         std::fs::create_dir_all(&dest_dir)?;
         let id = random_id();
         let dest = dest_dir.join(format!("{id}_{safe}"));
-        std::fs::copy(src, &dest).with_context(|| "copy into blobs dir".to_string())?;
+        copy_plain(std::path::Path::new(src), &dest).with_context(|| "copy into blobs dir".to_string())?;
         let size = std::fs::metadata(&dest)?.len();
 
         // Frames are built up-front; a mid-send session death loses the tail —
@@ -3446,7 +3480,7 @@ impl P2p {
         let dest_dir = self.blobs_dir.join(format!("g-{gid}"));
         std::fs::create_dir_all(&dest_dir)?;
         let dest = dest_dir.join(format!("out-{id}_{safe}"));
-        std::fs::copy(src, &dest).context("copy into blobs dir")?;
+        copy_plain(std::path::Path::new(src), &dest).context("copy into blobs dir")?;
         let size = std::fs::metadata(&dest)?.len();
         if size > MAX_GROUP_FILE_BYTES {
             let _ = std::fs::remove_file(&dest);
@@ -6627,5 +6661,40 @@ mod tests {
         t.a.group_send(&t.gid, "after", None, None).unwrap();
         let ev = wait_for(&t.b_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "after");
         assert_eq!(ev["seq"], 1);
+    
+    /// #450 (desktop twin: #448): a byte-exact copy of a VLTA source ships
+    /// ciphertext the receiving side cannot unwrap with its own key.
+    /// copy_plain decrypts VLTA sources to plaintext, passes non-VLTA sources
+    /// through byte-exact, and fails closed when the key is absent or wrong.
+    #[test]
+    fn copy_plain_decrypts_vlta_and_fails_closed() {
+        let dir = temp_dir("plain-copy");
+        let hex = "x'00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'";
+        std::env::set_var("VELTA_DB_KEY", hex);
+        let key = shim_attachment_key().unwrap();
+        let other_hex = "x'ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100'";
+
+        let plain_src = dir.join("plain.jpg");
+        std::fs::write(&plain_src, b"jpeg-bytes").unwrap();
+        let enc_src = dir.join("enc.jpg");
+        velta_attachment::encrypt_file(&key, &plain_src, &enc_src).unwrap();
+
+        let out = dir.join("out-passthrough.bin");
+        copy_plain(&plain_src, &out).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"jpeg-bytes", "non-VLTA source copies byte-exact");
+
+        let out = dir.join("out-decrypted.bin");
+        copy_plain(&enc_src, &out).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"jpeg-bytes", "VLTA source lands as plaintext");
+
+        // A wrong device key must fail closed, not ship undecryptable bytes.
+        std::env::set_var("VELTA_DB_KEY", other_hex);
+        let out = dir.join("out-wrongkey.bin");
+        assert!(copy_plain(&enc_src, &out).is_err(), "wrong key fails closed");
+        std::env::remove_var("VELTA_DB_KEY");
+        let out = dir.join("out-nokey.bin");
+        assert!(copy_plain(&enc_src, &out).is_err(), "absent key fails closed");
+        // Restore so the passthrough behavior stays observable.
+        std::env::set_var("VELTA_DB_KEY", hex);
     }
 }
