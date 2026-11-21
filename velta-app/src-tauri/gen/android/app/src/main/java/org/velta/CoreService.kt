@@ -96,10 +96,21 @@ class CoreService : Service() {
     private fun buildNotification(syncing: Boolean) =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationInfo.icon)
-            .setContentTitle("Velta")
+            // The package label, not a hardcoded name: side-by-side builds
+            // (org.velta.test) then self-identify in the shade. loadLabel,
+            // not the app_name resource — the i18n gate excludes that
+            // resource from Kotlin references on purpose.
+            .setContentTitle(applicationInfo.loadLabel(packageManager).toString())
             .setContentText(getString(if (syncing) R.string.bg_syncing else R.string.bg_not_syncing))
             .setContentIntent(openAppIntent())
             .setOngoing(true)
+            // Timestamp suppressed and MIN priority: a status card that grows
+            // an "1 hour ago" stamp reads as stale sync, and the shade
+            // bottom-sorts it like Delta Chat's KeepAliveService
+            // (setWhen(0) + PRIORITY_MIN) and the KMP client's FGS already do.
+            .setWhen(0)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
 
