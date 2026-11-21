@@ -43,7 +43,7 @@ connection" toggle, UnifiedPush distributor picker, maybe_network and
 MessagingStyle polish, swipe motion (SwipeRules), attachment preview +
 crop/draw editor, floating reply/edit/attachment card, swipe-back blink
 fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
-`versionName` is 0.9.0. Ledger entry below.
+`versionName` is 0.9.1. Ledger entry below.
 
 **2026-11-18:** strict relay and `velta://proxy` message cards
 (`velta://ws` stays text), sticker sends keep a reply quote
@@ -57,20 +57,49 @@ Groups and channels share that editor for the name, picture, and description (`s
 
 **2026-11-19:** a mail bubble clamps at 12 visual lines (Read more / Show less). Show Full Message… loads `get_message_html` when `hasHtml` (Android WebView, JavaScript off, no bridge; desktop shows a notice). `.html` files use that viewer. Pictures and videos leave 5dp under the media before a caption. Velta Loop is a menu switch (`velta-p2p` `"1"`); desktop does not start it. Delete profile types the address and refuses the last account. Sync only the active profile is `velta-sync-only-active`. A profile shows storage and, on a 1:1, chats in common. A group or contact invite you already accepted opens that chat.
 
-**#321 fidelity follow-ups (filed, open):**
-- #323 mention @-autocomplete picker + mentionsMe notify gate (picker +
-  `mentionsMe` landed in `496e3faf`; the issue is still open).
-- #324 invite surface: domains, short links, card copy/share, and
-  strict `https://host/i/<token>` plus `velta://proxy` message cards
-  are in. `velta://ws` stays plain text. QR relay chips are still out.
-- #325 markdown: `> ` quote blocks, hashtag rules, trimLinkEnd, nested
-  emphasis, `+` bullets, list grouping.
-- #326 sticker save, a quote on the sticker send (`send_msg` viewtype
-  `Sticker`), and the visibility switch are in. Default is the composer
-  button. `"1"` on `velta-stickers-in-attach` moves it into Attach.
-- #327 quote-tap fetch-then-jump beyond the loaded window.
-- #328 chat appearance: text size, bubble corners, hyphenation, the
-  liquid-glass composer switch, and the stickers-in-attach switch are in.
+**2026-11-21:** the #321 fidelity follow-ups closed (#323–#328 all shipped;
+details below). PR #427 ports the composer mention picker from
+`attachMentionPicker` — ↑/↓ cycle, Enter/Tab insert, Esc hides
+(Shift+Enter stays a newline), 28dp avatars, active-row highlight, a
+muted "Loading members…" row (`chatMembersLoading`), BARE_AT_MAX — and
+the chips: canonical member name, parens dropped (Compose has no
+visually-hidden span; the code rides a 0.72em mono span), self-mention
+bold + underlined, code span only when the text typed one. PR #429
+renders `> ` quote lines as the web blockquote (▎ accent bar / dim ink;
+out rows `quoteNameOut`/`outLink`; `markdownAnnotated(quoteBar,
+quoteInk)`). PR #430 fixes Sign in: `login()` is
+`prepareFirstConfigure` + `add_transport` — the bare `configure()`
+after it fails, and the dead `VeltaCore.configure()` wrapper is gone.
+PR #431 moves the push token onto the JSON-RPC surface:
+`CommandApi::set_push_device_token` (quilt op #225; 201 ops), the
+shim's pre-dispatch intercept deleted, the desktop sidecar answers it.
+PRs #432/#433: the FGS notification drops the stale timestamp
+(`setWhen(0)`/`setShowWhen(false)`, PRIORITY_MIN, i18n title via
+`loadLabel`) and message notifications group per account
+(`velta-msg.<accountId>`). v1.5.6 published; #226 (app-lock PIN)
+verified complete and closed. KMP `versionName` is 0.9.1.
+
+**#321 fidelity follow-ups (all closed 2026-11-21):**
+- #323 CLOSED (PR #427): the composer picker + chips + `mentionsMe`
+  notify gate (`allowsMutedMention`, the `velta-notify-muted-mentions`
+  switch) are all in.
+- #324 CLOSED: domains, short links, card copy/share, and strict
+  `https://host/i/<token>` plus `velta://proxy` message cards are in.
+  `velta://ws` stays plain text until the ws-transport slice (#414).
+- #325 CLOSED (PR #429 for the visual): quote blocks, hashtag rules,
+  trimLinkEnd, nested emphasis, `+` bullets. List-`<ol>` grouping with
+  `start` is deliberately not ported (line-standalone render matches
+  for chat-scale lists); the media 📷 placeholder is web parity.
+- #326 CLOSED: sticker save (`ADD_STICKER_CONFIRM` →
+  `misc_save_sticker`), the quote on the sticker send (`send_msg`
+  viewtype `Sticker`), and the visibility switch. Default is the
+  composer button. `"1"` on `velta-stickers-in-attach` moves it into
+  Attach.
+- #327 CLOSED: quote-tap fetch-then-jump beyond the loaded window
+  (`jumpPlan`, 50×40 cap, toasts on Gone/TooFar).
+- #328 CLOSED: chat appearance — text size, bubble corners,
+  hyphenation, the liquid-glass composer switch, and the
+  stickers-in-attach switch.
 - #329 CLOSED 2026-11-14 — the full bar + Contacts / Calls / QR /
   New-chat side views shipped (see the 2026-11-14 ledger entry).
 

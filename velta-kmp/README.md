@@ -3,15 +3,20 @@
 Native client for **Android + Desktop (Windows/macOS/Linux)** built with
 Kotlin Multiplatform + Compose Multiplatform.
 
-**Status (2026-11-19):** work in progress (#192); the Tauri app remains
-Velta's shipping Android app. Version is **0.9.0**. N1–N3 and the **#321 visual shell** are complete, and the
+**Status (2026-11-21):** work in progress (#192); the Tauri app remains
+Velta's shipping Android app. Version is **0.9.1**. N1–N3 and the **#321 visual shell** are complete, and the
 0.9.0 / #358 wave is in: pin tray, read position, disappearing timer,
 own-profile editor, auto-download / text-only settings, background
 catch-up / boot / toggle / UnifiedPush settings, swipe motion, attach
 preview and crop/draw editor, floating reply card, chat appearance
 (text size, corners, hyphenation, liquid-glass composer), relay and
 SOCKS5 message cards, reply threads, and an Android app-lock PIN beside the biometric
-lock. A long message clamps at 12 lines (Read more / Show less). A
+lock. The composer has the web's @-mention picker (keys, avatars,
+loading row) and bubbles render mention chips, web-style quote
+blockquotes, and full markdown (#323–#328 all closed). Quote taps fetch
+history to jump beyond the loaded window. Push tokens register through
+the standard JSON-RPC surface (the shim intercept is gone). A long
+message clamps at 12 lines (Read more / Show less). A
 message the core shortened offers Show Full Message… on Android.
 Desktop shows a notice for that page. A picture leaves 5dp above its
 caption. The menu drawer can turn on Velta Loop; desktop leaves the
