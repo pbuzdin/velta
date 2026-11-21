@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.unit.em
 
 /**
@@ -48,6 +49,8 @@ internal fun markdownAnnotated(
     codeBackground: Color,
     textColor: Color,
     members: List<MentionMember> = emptyList(),
+    quoteBar: Color = Color.Unspecified,
+    quoteInk: Color = Color.Unspecified,
 ): AnnotatedString {
     // textColor is the bubble ink; emphasis uses the default span color.
     if (text.isBlank()) return AnnotatedString(text)
@@ -57,8 +60,14 @@ internal fun markdownAnnotated(
         if (index > 0) builder.append("\n")
         val quoted = QUOTE_LINE.find(rawLine)
         if (quoted != null) {
-            builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-            builder.append("│ ")
+            // Web .msg-text blockquote: 3px accent bar + dim ink, no italic
+            // (out rows: lighter bar, out-link ink — the caller picks per
+            // side from the tokens). A span cannot draw a border, so a
+            // full-height block glyph stands in for the bar.
+            builder.pushStyle(SpanStyle(color = quoteBar.takeOrElse { accent }))
+            builder.append("▎")
+            builder.pop()
+            builder.pushStyle(SpanStyle(color = quoteInk.takeOrElse { textColor }))
             appendInline(builder, quoted.groupValues[1], accent, codeBackground, members)
             builder.pop()
             return@forEachIndexed
