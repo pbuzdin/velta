@@ -62,9 +62,8 @@ static VM: Mutex<Option<JavaVM>> = Mutex::new(None);
 #[cfg(target_os = "android")]
 static SHIM_CLASS: Mutex<Option<GlobalRef>> = Mutex::new(None);
 
-/// Clears the session when the worker exits, including panic, and tells
-/// Kotlin. Constructed only after `Accounts::new` succeeds.
-#[cfg(target_os = "android")]
+/// Clears the session when the worker exits, including panic, and (on
+/// Android) tells Kotlin. Constructed only after `Accounts::new` succeeds.
 struct SessionGuard;
 
 impl SessionGuard {
@@ -371,6 +370,7 @@ fn emit_line(line: &str) {
 
 #[cfg(not(target_os = "android"))]
 fn emit_line(line: &str) {
+    use std::io::Write;
     let mut out = std::io::stdout().lock();
     let _ = out.write_all(line.as_bytes());
     let _ = out.write_all(b"\n");
