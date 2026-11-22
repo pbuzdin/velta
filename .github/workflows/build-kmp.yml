@@ -1,5 +1,9 @@
 name: Build KMP
 
+# Run titles follow the head commit message by default, which reads like
+# git log spam in the Actions list (#462). A stable, readable title instead:
+run-name: "Build KMP — ${{ github.event.pull_request.title || github.ref_name }}"
+
 on:
   # Unfrozen 2026-11-12: velta-kmp is back in active work (#192) — build
   # on every master push that touches it.
@@ -76,7 +80,7 @@ jobs:
           export AR_x86_64_linux_android="$TC/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TC/aarch64-linux-android24-clang"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TC/x86_64-linux-android24-clang"
-cargo build --release --lib \
+          cargo build --release --lib \
             --target aarch64-linux-android --target x86_64-linux-android
           "$TC/llvm-strip" --strip-all \
             target/aarch64-linux-android/release/libvelta_rpc_shim.so
