@@ -54,7 +54,8 @@ data-encoding = "2"
 # fetch_page_title: best-effort <title> for the in-app browser bar.
 # socks-proxy: link previews go through the account proxy (SOCKS5).
 ureq = { version = "2", features = ["socks-proxy"] }
-socket2 = "0.5"
+# "all": xfer.rs's iroh 0.35 (netwatch 0.5, BSD/macOS netmon) needs Type::RAW.
+socket2 = { version = "0.5", features = ["all"] }
 # Large file (#138, lufi.rs): WebSocket over TLS through the account proxy.
 # Same versions ureq already links — no new crates in the lock.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
