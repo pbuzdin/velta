@@ -103,7 +103,7 @@ import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
-import { ICON, P, svg } from "./icons.js";
+import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
 
 // #286: module-top so boot-time relay status refreshes never hit a TDZ.
@@ -1902,7 +1902,22 @@ async function renderLoopView() {
   const seq = ++lcCardSeq;
   const model = await hubModel().catch(() => null);
   if (seq !== lcCardSeq) return; // superseded by a newer render
-  if (!model || listView !== "loop") return;
+  if (!model || listView !== "loop") {
+    // #456 follow-up: local chat is off (or the engine is gone) — the view
+    // explains itself and offers the switch, instead of an empty shell.
+    if (listView === "loop" && !model) {
+      const rows = sideViewShell(t("Velta Loop"), t("Local chat on the same network"));
+      rows.innerHTML = `<div class="side-view-sub">${escapeHtml(t("Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network."))}</div>
+        <button type="button" class="chat-item side-option" data-loop-on><span class="side-option-label">${escapeHtml(t("Turn on local chat"))}</span>${svg(P.chevronRight, "side-option-arrow")}</button>`;
+      rows.querySelector("[data-loop-on]").addEventListener("click", async () => {
+        await setP2pEnabled(true);
+        toast(t("Velta Loop is on — local chat on the same network"));
+        rebuildDrawer();
+        renderLoopView();
+      });
+    }
+    return;
+  }
   const rows = sideViewShell(t("Velta Loop"), t("Local chat on the same network"));
   const short = (model.device.nodeId || "").slice(0, 8);
   rows.innerHTML = `
@@ -2011,6 +2026,7 @@ function applyBarVisibility() {
     // #456: Loop needs the p2p engine — no dead icon without the shell.
     const show = !barHidden.includes(key) && (key !== "loop" || (p2pAvailable() && isTauri()));
     btn.hidden = !show;
+    if (key === "loop") btn.classList.toggle("loop-on", show && p2pEnabled());
     any = any || show;
   }
   // Menu button can't be hidden; with everything else hidden the bar loses
@@ -7837,6 +7853,11 @@ async function boot() {
       for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
         b.classList.toggle("active", b.dataset.view === listView);
       }
+      // #456 follow-up: the bar carries the REAL Loop brand mark (the same
+      // logo the drawer row uses), not the 24-grid stroke glyph — at bar
+      // size that one read as a scribble.
+      const loopBtn = document.getElementById("bar-loop");
+      if (loopBtn) loopBtn.innerHTML = LOOP_SVG;
       applyBarVisibility();
       syncPlusChip();
       bindChatHeadMenu();
