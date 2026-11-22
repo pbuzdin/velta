@@ -49,7 +49,8 @@ test("#295: Linux core is velta-rpc-server; PKGBUILD has no provides/conflicts; 
   assert.doesNotMatch(pb, /^(provides|conflicts)=/m);
   const sc = readFileSync(new URL("../velta-app/src-tauri/src/sidecar.rs", import.meta.url), "utf8");
   assert.match(sc, /not\(any\(target_os = "macos", target_os = "android"\)\)\)\)\]\nconst SIDECAR_NAME: &str = "velta-rpc-server";/);
-  assert.match(sc, /#\[cfg\(target_os = "macos"\)\]\nconst SIDECAR_NAME: &str = "deltachat-rpc-server";/);
+  // #424: the sidecar is the shim bin everywhere - one name on all platforms.
+  assert.match(sc, /#\[cfg\(target_os = "macos"\)\]\nconst SIDECAR_NAME: &str = "velta-rpc-server";/);
   const wf = readFileSync(new URL("../.github/workflows/build-linux.yml", import.meta.url), "utf8");
   assert.equal((wf.match(/! grep -q 'deltachat-rpc-server'/g) || []).length, 3);
   assert.match(wf, /pacman -S --noconfirm deltachat-rpc-server/);

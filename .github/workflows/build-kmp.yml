@@ -76,7 +76,7 @@ jobs:
           export AR_x86_64_linux_android="$TC/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TC/aarch64-linux-android24-clang"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TC/x86_64-linux-android24-clang"
-          cargo build --release \
+cargo build --release --lib \
             --target aarch64-linux-android --target x86_64-linux-android
           "$TC/llvm-strip" --strip-all \
             target/aarch64-linux-android/release/libvelta_rpc_shim.so

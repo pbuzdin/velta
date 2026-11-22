@@ -35,11 +35,11 @@ function hostTriple() {
 
 function sidecarPath() {
   const dir = join(ROOT, "velta-app", "src-tauri", "binaries");
-  const names = ["deltachat-rpc-server-x86_64-pc-windows-msvc.exe"];
+  const names = ["velta-rpc-server-x86_64-pc-windows-msvc.exe"];
   const triple = hostTriple();
   if (triple) {
-    names.push(`deltachat-rpc-server-${triple}`);
-    names.push(`deltachat-rpc-server-${triple}.exe`);
+    names.push(`velta-rpc-server-${triple}`);
+    names.push(`velta-rpc-server-${triple}.exe`);
   }
   for (const name of names) {
     const p = join(dir, name);

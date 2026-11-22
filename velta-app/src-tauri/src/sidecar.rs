@@ -69,9 +69,9 @@ static SIDECAR_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[cfg(windows)]
-const SIDECAR_NAME: &str = "deltachat-rpc-server.exe";
+const SIDECAR_NAME: &str = "velta-rpc-server.exe";
 #[cfg(target_os = "macos")]
-const SIDECAR_NAME: &str = "deltachat-rpc-server";
+const SIDECAR_NAME: &str = "velta-rpc-server";
 // #295: Linux packages install Velta's core as /usr/bin/velta-rpc-server so
 // they never clash with distro `deltachat-rpc-server` packages. Only
 // absolute candidates below are tried; PATH is never searched.
@@ -149,6 +149,9 @@ pub(crate) fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: 
         });
 
     let mut cmd = Command::new(&sidecar_path);
+    // #424: the sidecar is the shim bin now — it takes the accounts root and
+    // the DEK through the same env the JNI startCore arguments map to.
+    cmd.env("VELTA_ACCOUNTS_DIR", &accounts);
     if let Some(raw) = &key {
         cmd.env("VELTA_DB_KEY", raw);
     }

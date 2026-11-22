@@ -142,18 +142,18 @@ on its own.
 
    ```powershell
    $env:PATH = "$PWD\tools\strawberry-perl\perl\bin;$PWD\tools\strawberry-perl\c\bin;$PWD\tools\nasm;$env:PATH"
-   cargo build -p deltachat-rpc-server --release   # in core/
+   cargo build --release --locked --bin velta-rpc-server   # in velta-kmp/native/rpc-shim/ (#424)
    ```
 
    Watch out: build from `core/` but compose PATH from the *repo root*
    absolute path — `$PWD\tools\...` inside `core/` silently yields a PATH
    without perl and openssl-sys fails with `Command 'perl' not found`.
-3. Verify: `deltachat-rpc-server.exe --version` must print the vendored
-   core version (2.62.0 since 1.4.33; was 2.61.0 in 1.4.24–1.4.32).
+3. Verify: the shim bin speaks JSON-RPC on stdio (no `--version`; its identity
+   is the vendored core it compiled against, pinned by the release-version-pins test).
 4. Copy to all three destinations:
-   - `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`
-   - `velta-app/src-tauri/binaries/deltachat-rpc-server.exe`
-   - `deltachat-backend/windows-x86_64/deltachat-rpc-server.exe`
+   - `velta-app/src-tauri/binaries/velta-rpc-server-x86_64-pc-windows-msvc.exe`
+   - `velta-app/src-tauri/binaries/velta-rpc-server.exe`
+   - `deltachat-backend/windows-x86_64/velta-rpc-server.exe`
 
 CI does the equivalent via chocolatey StrawberryPerl + NASM
 (`build-windows.yml`). The `gh run view <id> --log-failed` grep that finds

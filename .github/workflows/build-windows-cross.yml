@@ -34,7 +34,7 @@ jobs:
         id: sidecar
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: core/target/x86_64-pc-windows-gnu/release/deltachat-rpc-server.exe
+          path: velta-kmp/native/rpc-shim/target/x86_64-pc-windows-gnu/release/velta-rpc-server.exe
           key: sidecar-windows-gnu-x86_64-rust1.98-release-crt-static-${{ steps.sidecar-key.outputs.hash }}
 
       - name: Install Rust toolchain with Windows target
@@ -50,20 +50,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mingw-w64 perl
 
-      - name: Build deltachat-rpc-server sidecar for Windows (GNU)
+      - name: Build velta-rpc-server sidecar for Windows (GNU, #424 shim bin)
         if: steps.sidecar.outputs.cache-hit != 'true'
-        working-directory: ./core
+        working-directory: ./velta-kmp/native/rpc-shim
         env:
           CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
           CXX_x86_64_pc_windows_gnu: x86_64-w64-mingw32-g++
           CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
-        run: cargo build -p deltachat-rpc-server --release --target x86_64-pc-windows-gnu
+        run: cargo build --release --locked --bin velta-rpc-server --target x86_64-pc-windows-gnu
 
       - name: Upload sidecar artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: deltachat-rpc-server-windows-gnu
-          path: core/target/x86_64-pc-windows-gnu/release/deltachat-rpc-server.exe
+          name: velta-rpc-server-windows-gnu
+          path: velta-kmp/native/rpc-shim/target/x86_64-pc-windows-gnu/release/velta-rpc-server.exe
 
   build-installer:
     needs: [build-sidecar]
@@ -92,14 +92,14 @@ jobs:
       - name: Download sidecar from Ubuntu build
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: deltachat-rpc-server-windows-gnu
+          name: velta-rpc-server-windows-gnu
           path: velta-app/src-tauri/binaries
 
       - name: Rename sidecar for Tauri bundle
         shell: pwsh
         run: |
-          $src = "velta-app/src-tauri/binaries/deltachat-rpc-server.exe"
-          $dst = "velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
+          $src = "velta-app/src-tauri/binaries/velta-rpc-server.exe"
+          $dst = "velta-app/src-tauri/binaries/velta-rpc-server-x86_64-pc-windows-msvc.exe"
           if (Test-Path $dst) { Remove-Item $dst }
           Move-Item -Path $src -Destination $dst
 
