@@ -775,12 +775,90 @@ fn fetch_capped(agent: &ureq::Agent, url: &str) -> Result<String, String> {
 /// The ureq agent for fetch_link_preview: direct without a proxy, through it
 /// otherwise. Err (no agent at all) when the proxy can't be used.
 fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
-    let mut builder = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(5));
+    // #452: a bare `ureq/x` UA is maximally bot-flaggable — bot walls
+    // (QRATOR et al) answer it with challenge pages or the site icon instead
+    // of the real og:image, so previews must look like a browser. 10 s
+    // instead of 5 s: cold TLS + slow RTT on mobile frequently beat 5 s.
+    let mut builder = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36 Velta/1")
+        // Sites negotiate formats per Accept; the default `*/*` of some
+        // stacks makes image endpoints serve whatever is cheapest.
+        .set("Accept", "text/html,application/xhtml+xml,image/avif,image/webp,image/*;q=0.8,*/*;q=0.5");
     if let Some(p) = link_preview_proxy(proxy)? {
         let p = ureq::Proxy::new(&p).map_err(|_| "unsupported proxy for link previews".to_string())?;
         builder = builder.proxy(p);
     }
     Ok(builder.build())
+}
+
+/// #452: og:image URLs that point at site chrome (favicons, touch icons,
+/// logos) are not content previews — the bake must fall back to a text-only
+/// card rather than a logo tile.
+fn preview_image_url_ok(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    // Strip any query before path matching so ?v=2 logos don't slip through
+    // on the query, and match path segments with separators on both sides.
+    let path = lower.split(['?', '#']).next().unwrap_or("");
+    !(path.contains("/favicon")
+        || path.contains("apple-touch-icon")
+        || path.contains("/logo")
+        || path.ends_with("/logo.png")
+        || path.ends_with("/logo.svg")
+        || path.ends_with("/logo.jpg"))
+}
+
+/// #452: sniff PNG IHDR / JPEG SOF dimensions and reject icon-class images —
+/// square and ≤256 px, the shape of every touch icon. Content behind a
+/// bot-wall sometimes serves exactly that in place of the og:image. Returns
+/// true when the bytes ARE icon-class; unparsable bytes are not gated (the
+/// content-type check already ran).
+fn image_is_icon(bytes: &[u8]) -> bool {
+    let dims = png_dims(bytes).or_else(|| jpeg_dims(bytes));
+    match dims {
+        Some((w, h)) => w == h && w <= 256,
+        None => false,
+    }
+}
+
+/// Minimal PNG header parse: 8-byte signature, IHDR width/height at 16..24.
+fn png_dims(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" || &bytes[12..16] != b"IHDR" {
+        return None;
+    }
+    Some((
+        u32::from_be_bytes(bytes[16..20].try_into().ok()?),
+        u32::from_be_bytes(bytes[20..24].try_into().ok()?),
+    ))
+}
+
+/// Minimal JPEG scan: walk markers to the first SOF0..SOF3 (baseline and
+/// progressive carry identical 16-bit height/width right after the segment
+/// length; SOF4..15 are rare/hierarchical and left unparsed on purpose).
+fn jpeg_dims(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 4 || &bytes[..2] != b"\xff\xd8" {
+        return None;
+    }
+    let mut i = 2;
+    while i + 9 <= bytes.len() {
+        if bytes[i] != 0xFF {
+            i += 1;
+            continue;
+        }
+        let marker = bytes[i + 1];
+        if (0xC0..=0xC3).contains(&marker) {
+            let h = u32::from_be_bytes([0, 0, bytes[i + 5], bytes[i + 6]]);
+            let w = u32::from_be_bytes([0, 0, bytes[i + 7], bytes[i + 8]]);
+            return Some((w, h));
+        }
+        if marker == 0xFF || (0xD8..=0xD9).contains(&marker) || marker == 0x01 {
+            i += 2;
+            continue;
+        }
+        let len = usize::from_be_bytes([0, 0, bytes[i + 2], bytes[i + 3]]);
+        i += 2 + len.max(2);
+    }
+    None
 }
 
 /// Relay signup invite claim (docs/invite-cards.md): GET
@@ -905,15 +983,17 @@ async fn fetch_link_preview(url: String, proxy: Option<String>) -> Result<serde_
 
         // og:image: fetch and inline as a data: URL (CSP img-src allows data:
         // in all three copies; remote hosts are deliberately not allowed).
-        // Cap at 512 KB; on any failure just ship no image.
+        // Cap at 512 KB; on any failure just ship no image. #452: bot walls
+        // sometimes answer with the site's icon — an icon tile must not be
+        // baked as the preview, so the URL and the sniffed dimensions gate it.
         let mut image_data: Option<String> = None;
         if let Some(img) = image_url {
-            if img.starts_with("https://") {
+            if img.starts_with("https://") && preview_image_url_ok(&img) {
                 if let Ok(iresp) = agent.get(&img).call() {
                     let mime = iresp.content_type().to_string();
                     if mime.starts_with("image/") {
                         let mut ib = Vec::new();
-                        if read_bounded(iresp, &mut ib) {
+                        if read_bounded(iresp, &mut ib) && !image_is_icon(&ib) {
                             image_data = Some(format!(
                                 "data:{mime};base64,{}",
                                 data_encoding::BASE64.encode(&ib)
@@ -1632,6 +1712,49 @@ mod upload_path_tests {
             upload_contains(&file, &uploads),
             "{file:?} should sit under {uploads:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod preview_icon_gate_tests {
+    use super::{image_is_icon, jpeg_dims, png_dims, preview_image_url_ok};
+
+    #[test]
+    fn url_gate_rejects_site_chrome() {
+        assert!(!preview_image_url_ok("https://habr.com/img/favicons/apple-touch-icon-120.png"));
+        assert!(!preview_image_url_ok("https://x.example/favicon.ico"));
+        assert!(!preview_image_url_ok("https://x.example/favicon.png?v=2"));
+        assert!(!preview_image_url_ok("https://x.example/img/logo.png"));
+        assert!(preview_image_url_ok("https://habr.com/share/publication/1107896/c64edba6/"));
+        assert!(preview_image_url_ok("https://x.example/photos/cat.jpg"));
+        // segment-shaped matches only: "logos"/"catalog" are content paths
+        assert!(preview_image_url_ok("https://x.example/blog/why-logos-are-hard"));
+        assert!(preview_image_url_ok("https://catalog.example/p/1"));
+    }
+
+    #[test]
+    fn icon_gate_reads_png_and_jpeg_dims() {
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&120u32.to_be_bytes());
+        png.extend_from_slice(&120u32.to_be_bytes());
+        assert_eq!(png_dims(&png), Some((120, 120)));
+        assert!(image_is_icon(&png), "a 120x120 square is icon-class (#452)");
+
+        let mut wide = png.clone();
+        wide[16..20].copy_from_slice(&1200u32.to_be_bytes());
+        wide[20..24].copy_from_slice(&630u32.to_be_bytes());
+        assert_eq!(png_dims(&wide), Some((1200, 630)));
+        assert!(!image_is_icon(&wide), "a 1200x630 banner is a real preview");
+
+        // JPEG SOF0: SOI, SOF0, segment len 11, precision 8, h=120, w=120
+        let jpeg = [0xFFu8, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x78, 0x00, 0x78];
+        assert_eq!(jpeg_dims(&jpeg), Some((120, 120)));
+        assert!(image_is_icon(&jpeg));
+
+        // unparsable bytes are not gated — the content-type check ran first
+        assert!(!image_is_icon(b"not an image"));
     }
 }
 
