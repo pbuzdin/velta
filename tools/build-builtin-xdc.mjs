@@ -93,6 +93,7 @@ export function buildSendDirect(icon) {
     { name: "manifest.toml", data: read("manifest.toml") },
     { name: "index.html", data: read("index.html") },
     { name: "velta-tokens.css", data: read("velta-tokens.css") },
+    { name: "webxdc.js", data: read("webxdc.js") },
     { name: "main.js", data: Buffer.from(main, "utf8") },
     { name: "icon.png", data: icon || read("icon.png") },
   ]);

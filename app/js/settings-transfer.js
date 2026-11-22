@@ -161,6 +161,7 @@ export const SETTINGS = [
   onByDefault("read-receipts", "Read receipts", "velta-mdns"),
   onByDefault("remember-scroll", "Remember scroll position", "velta-remember-scroll"),
   onByDefault("local-chat-typing", "Local chat typing hints", "velta-p2p-typing"),
+  onByDefault("loop-seal-media", "Encrypt stored media", "velta-p2p-seal"),
 ];
 const BY_KEY = new Map(SETTINGS.map(s => [s.key, s]));
 function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }

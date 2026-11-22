@@ -3349,7 +3349,7 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
 }
 .webxdc-title { font-weight: 600; font-size: 14px; }
 .webxdc-frame {
-  flex: 1; border: 0; width: 100%;
+  flex: 1; border: 0; width: 100%; min-height: 0;
   background: var(--bg); /* no white flash before the app paints itself */
   color-scheme: dark; /* dark canvas + dark scrollbars; app can override */
 }
@@ -3688,6 +3688,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
   position: relative; inset: auto; z-index: 5;
   flex: 0 0 var(--webxdc-panel-h);
   height: var(--webxdc-panel-h);
+  overflow: hidden;
   border-bottom: 1px solid rgba(255,255,255,.12);
   box-shadow: 0 4px 12px rgba(0,0,0,.25);
 }

@@ -39,7 +39,7 @@
   function send(bytes) { try { channel && channel.send(bytes); } catch (e) { console.warn(e); } }
 
   function join() {
-    if (noRealtime) return;
+    if (noRealtime || !wx) return;
     if (wx.veltaRealtimeAvailable === false) { markNoRealtime(); return; }
     if (channel || !wx.joinRealtimeChannel) return;
     try { channel = wx.joinRealtimeChannel(); } catch (e) { $("#peers").textContent = "Realtime channel unavailable: " + e.message; return; }
@@ -82,7 +82,23 @@
     offers.set(offer.id, o);
     list.prepend(o.card);
     paintRx(o);
+    revealNew();
   }
+
+  // Desktop opens Beam in a short panel. The list scrolls; the header and
+  // footer stay. A new card is prepended, then brought to the top.
+  function paintCount() {
+    const n = senders.size + offers.size;
+    document.body.classList.toggle("has-files", n > 0);
+    const el = $("#count");
+    el.hidden = !n;
+    el.textContent = n === 1 ? "1 file" : n ? `${n} files` : "";
+  }
+  function revealNew() {
+    paintCount();
+    list.scrollTop = 0;
+  }
+  $("#count").onclick = () => { list.scrollTop = 0; };
 
   function paintRx(o) {
     const { offer, rx } = o;
@@ -168,12 +184,16 @@
   }
 
   $("#pick").onclick = async () => {
-    join();
-    if (noRealtime) return;
+    // importFiles first. Delta Chat opens a hidden file input from this
+    // click; joining the realtime channel IPCs before that and the picker
+    // never appears.
+    if (!wx || typeof wx.importFiles !== "function") { alert("Choosing a file is not available in this host."); return; }
     let files;
-    try { files = await wx.importFiles({ multiple: false }); } catch (e) { alert(e.message); return; }
+    try { files = await wx.importFiles({ multiple: false }); } catch (e) { alert(e.message || String(e)); return; }
     const file = files && files[0];
     if (!file) return;
+    join();
+    if (noRealtime) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     const s = new Transfer.Sender({ name: file.name || "file", bytes, send });
     senders.set(s.offer.id, s);
@@ -181,6 +201,7 @@
     s.card.className = "card";
     s.card.innerHTML = `<div class="name">${esc(s.offer.name)}</div><div class="meta">${fmt(s.offer.size)} · you are offering this</div><div class="meta" data-state>Waiting for receivers…</div><div class="meta">Keep Beam open until someone has it — then they pass it on too.</div><div class="meta" data-seeders></div><div data-peers></div>`;
     list.prepend(s.card);
+    revealNew();
     s.announce();
     // Status update: chat info line + receivers who open the app later see it.
     wx.sendUpdate({ payload: { offer: s.offer, from: me }, info: `Offering ${s.offer.name} (${fmt(s.offer.size)}) — open "Velta Beam" to receive` }, "");
@@ -215,8 +236,10 @@
   }, Transfer.PROG_MS);
 
   (async () => {
+    if (!wx) return;
     try { const i = await wx.getSelfInfo(); me = (i && i.addr) || ""; } catch (e) {}
     join();
+    if (typeof wx.setUpdateListener !== "function") return;
     wx.setUpdateListener((u) => {
       const p = u && u.payload;
       if (p && p.offer && Transfer.validOffer(p.offer) && !senders.has(p.offer.id)) {

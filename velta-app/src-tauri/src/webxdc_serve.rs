@@ -36,6 +36,21 @@ pub const WEBXDC_SHIM: &str = include_str!("webxdc-shim.js");
 pub const WEBXDC_PERMISSIONS_POLICY: &str = "camera=(), microphone=(), display-capture=(), geolocation=(), \
     usb=(), serial=(), hid=(), bluetooth=(), midi=()";
 
+/// Windows WebView2 runs every Tauri init script in child frames. The one that
+/// creates `window.__TAURI_INTERNALS__` is not reliable there (it also defines
+/// non-configurable `isTauri`, which this must not touch), and `path/init.js`
+/// then throws reading `.plugins`. Registered as the first plugin so it runs
+/// before that script. Other platforms do not inject main-frame scripts into
+/// iframes.
+pub const FRAME_INTERNALS_JS: &str = r#"(function(){if(window.__TAURI_INTERNALS__)return;Object.defineProperty(window,"__TAURI_INTERNALS__",{value:{plugins:{}}});})();"#;
+
+#[cfg(windows)]
+pub fn frame_internals_shim<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("velta-frame-internals")
+        .js_init_script_on_all_frames(FRAME_INTERNALS_JS)
+        .build()
+}
+
 pub const WEBXDC_CSP: &str = "default-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost; \
     style-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost 'unsafe-inline' blob:; \
     font-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
@@ -210,14 +225,10 @@ pub async fn webxdc_serve(
 
     if is_index {
         // Inject the shim before the app's own scripts run so
-        // window.webxdc exists by the time app code executes. Also stub
-        // __TAURI_INTERNALS__: WebView2 runs Tauri's core+plugin init
-        // scripts in opaque-origin frames too, and the plugin guests crash
-        // with "Cannot read properties of undefined (reading 'plugins')"
-        // because the internals object was never defined here. The stub
-        // lands before them (document-created scripts run first), the
-        // frame never legitimately uses Tauri APIs, and the console stays
-        // clean so real app errors are visible.
+        // window.webxdc exists by the time app code executes. The
+        // __TAURI_INTERNALS__ line is only a backstop for later page
+        // scripts: document-created plugin scripts run first, and on
+        // Windows those are covered by frame_internals_shim.
         let html = String::from_utf8_lossy(&bytes).to_string();
         let head_at = html
             .find("<head")
@@ -245,6 +256,12 @@ pub async fn webxdc_serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_internals_shim_skips_istauri() {
+        assert!(FRAME_INTERNALS_JS.contains("plugins"));
+        assert!(!FRAME_INTERNALS_JS.contains("isTauri"));
+    }
 
     #[test]
     fn icon_exemption_is_images_only() {

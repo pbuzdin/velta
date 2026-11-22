@@ -1408,6 +1408,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       ${onPrivacySecurity ? `<button type="button" class="ctx-item" data-act="privacy-security">${ICON.shieldCheck}<span>${t("Privacy & security…")}</span></button>` : ""}
       ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Loop", p2pOn ? "on" : "off"))}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="${escapeHtml(t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."))}">${ICON.typing}<span>${escapeHtml(toggleText("Typing indicator", localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable && p2pOn ? `<label class="ctx-item">${ICON.lock}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Encrypt stored media", localStorage.getItem("velta-p2p-seal") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Stored on this device only. Transfers stay end-to-end encrypted either way."))}</span></span><input type="checkbox" role="switch" data-toggle="p2p-seal"${localStorage.getItem("velta-p2p-seal") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
       <details class="drawer-details">
         <summary>${ICON.palette}<span data-theme-summary>${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[theme] || "Auto") })}</span></summary>
@@ -1825,6 +1826,14 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     else localStorage.setItem("velta-p2p-typing", "0");
     setToggleUi("p2p-typing", "Typing indicator", on);
     toast(toggleText("Typing indicator", on ? "on" : "off"));
+  });
+  drawer.querySelector('[data-toggle="p2p-seal"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-p2p-seal");
+    else localStorage.setItem("velta-p2p-seal", "0");
+    setToggleUi("p2p-seal", "Encrypt stored media", on);
+    window.dispatchEvent(new CustomEvent("velta-p2p-seal", { detail: on }));
+    toast(toggleText("Encrypt stored media", on ? "on" : "off"));
   });
   drawer.querySelector("[data-lp-opts]")?.addEventListener("change", e => {
     const input = e.target.closest?.("[data-lp-value]") || e.target;

@@ -73,6 +73,13 @@ fun LoopSettingsRow(model: AppModel) {
                 checked = model.loopTypingOn,
                 onCheckedChange = { model.setLoopTyping(it) },
             )
+            LoopToggleRow(
+                icon = VeltaIcons.lock,
+                title = L.t("Encrypt stored media"),
+                subtitle = L.t("Stored on this device only. Transfers stay end-to-end encrypted either way."),
+                checked = model.loopSealOn,
+                onCheckedChange = { model.setLoopSeal(it) },
+            )
         }
     }
 }

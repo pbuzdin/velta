@@ -28,7 +28,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -268,6 +268,9 @@ struct FileRx {
     /// under `g-<gid>`); `None` for a 1:1 transfer. A frame of one kind never
     /// touches a transfer of the other.
     gid: Option<String>,
+    /// Snapshot of the at-rest seal at FileBegin. A later toggle does not
+    /// change this transfer.
+    seal: bool,
 }
 
 /// Cap for one local-chat media transfer.
@@ -351,6 +354,77 @@ fn copy_plain(src: &std::path::Path, dest: &std::path::Path) -> anyhow::Result<(
     std::io::copy(&mut reader, &mut out)?;
     out.sync_all()?;
     Ok(())
+}
+
+/// #465: seal new Loop blobs with this device's attachment key. Default on.
+/// A transfer snapshots the flag at the start, so a flip mid-send does not
+/// change a file already in flight. No key means plaintext, same as relay media.
+/// ponytail: one flag for the process. Split per profile if two accounts differ.
+static SEAL_MEDIA: AtomicBool = AtomicBool::new(true);
+
+pub fn set_seal_media(on: bool) {
+    SEAL_MEDIA.store(on, Ordering::Relaxed);
+}
+
+fn seal_media() -> bool {
+    SEAL_MEDIA.load(Ordering::Relaxed)
+}
+
+/// Writes `src` to `dest`. When sealing, `dest` is VLTA and the returned
+/// length is the plaintext size the wire announces. Otherwise [`copy_plain`].
+fn store_outgoing(
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    key: Option<&velta_attachment::AttachmentKey>,
+    seal: bool,
+) -> anyhow::Result<u64> {
+    if seal {
+        if let Some(key) = key {
+            let mut reader = velta_attachment::AttachmentReader::open(src, Some(key))?;
+            let len = reader.len();
+            let mut out = std::fs::File::create(dest)?;
+            velta_attachment::encrypt(key, &mut reader, len, &mut out)?;
+            out.sync_all()?;
+            return Ok(len);
+        }
+    }
+    copy_plain(src, dest)?;
+    Ok(std::fs::metadata(dest)?.len())
+}
+
+fn open_plain(
+    path: &std::path::Path,
+    key: Option<&velta_attachment::AttachmentKey>,
+) -> anyhow::Result<velta_attachment::AttachmentReader> {
+    velta_attachment::AttachmentReader::open(path, key)
+}
+
+/// Replaces a finished plaintext partial with VLTA. Windows cannot rename
+/// over a file that is still there, so the plaintext is removed first.
+fn seal_in_place(path: &std::path::Path, key: &velta_attachment::AttachmentKey) -> anyhow::Result<()> {
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("blob");
+    let tmp = path.with_file_name(format!(".{name}.vlta"));
+    let _ = std::fs::remove_file(&tmp);
+    velta_attachment::encrypt_file(key, path, &tmp)?;
+    std::fs::remove_file(path)?;
+    if std::fs::rename(&tmp, path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::bail!("could not replace the stored file");
+    }
+    Ok(())
+}
+
+/// `false` means the partial was removed and the caller must not publish it.
+fn seal_received(path: &std::path::Path, seal: bool) -> bool {
+    if !seal {
+        return true;
+    }
+    let Some(key) = shim_attachment_key() else { return true };
+    if seal_in_place(path, &key).is_err() {
+        let _ = std::fs::remove_file(path);
+        return false;
+    }
+    true
 }
 
 /// Best-effort mime from extension (rendering is driven by the extension
@@ -1035,12 +1109,19 @@ impl P2p {
         std::fs::create_dir_all(&dest_dir)?;
         let id = random_id();
         let dest = dest_dir.join(format!("{id}_{safe}"));
-        copy_plain(std::path::Path::new(src), &dest).with_context(|| "copy into blobs dir".to_string())?;
-        let size = std::fs::metadata(&dest)?.len();
-
-        // Frames are built up-front; a mid-send session death loses the tail —
-        // the peer's partial is discarded by the size check on FileEnd.
-        let data = std::fs::read(&dest)?;
+        let key = shim_attachment_key();
+        let seal = seal_media();
+        let size = store_outgoing(std::path::Path::new(src), &dest, key.as_ref(), seal)
+            .with_context(|| "copy into blobs dir".to_string())?;
+        let mut reader = open_plain(&dest, key.as_ref()).map_err(|e| {
+            let _ = std::fs::remove_file(&dest);
+            e
+        })?;
+        let mut data = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut data).map_err(|e| {
+            let _ = std::fs::remove_file(&dest);
+            anyhow!(e)
+        })?;
         let mut frames = Vec::new();
         frames.push(Frame::FileBegin {
             id: id.clone(),
@@ -1729,7 +1810,7 @@ impl P2p {
                     Ok(_) => {
                         self.rx_files.lock().unwrap().insert(
                             (node_id, id.clone()),
-                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0, gid: None },
+                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0, gid: None, seal: seal_media() },
                         );
                     }
                     Err(e) => self.sink.emit(json!({
@@ -1777,6 +1858,9 @@ impl P2p {
                 let _ = std::fs::File::open(&t.partial).and_then(|f| f.sync_all());
                 if t.got != t.size {
                     let _ = std::fs::remove_file(&t.partial);
+                    return;
+                }
+                if !seal_received(&t.partial, t.seal) {
                     return;
                 }
                 let final_path = unique_path(&t.dir, &t.name);
@@ -3480,8 +3564,10 @@ impl P2p {
         let dest_dir = self.blobs_dir.join(format!("g-{gid}"));
         std::fs::create_dir_all(&dest_dir)?;
         let dest = dest_dir.join(format!("out-{id}_{safe}"));
-        copy_plain(std::path::Path::new(src), &dest).context("copy into blobs dir")?;
-        let size = std::fs::metadata(&dest)?.len();
+        let key = shim_attachment_key();
+        let seal = seal_media();
+        let size = store_outgoing(std::path::Path::new(src), &dest, key.as_ref(), seal)
+            .context("copy into blobs dir")?;
         if size > MAX_GROUP_FILE_BYTES {
             let _ = std::fs::remove_file(&dest);
             bail!("file too large for a local group (cap 32 MB)");
@@ -3663,7 +3749,7 @@ impl P2p {
         };
         let res: Result<()> = async {
             let closed = || anyhow!("session closed");
-            let mut f = std::fs::File::open(&path).context("open the stored copy")?;
+            let mut f = open_plain(&path, shim_attachment_key().as_ref()).context("open the stored copy")?;
             link.tx
                 .send(Frame::GroupFileBegin { gid: gid.clone(), id: id.clone(), ts, name, size, mime, caption })
                 .map_err(|_| closed())?;
@@ -3864,7 +3950,7 @@ impl P2p {
                     Ok(_) => {
                         self.rx_files.lock().unwrap().insert(
                             (from, id),
-                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0, gid: Some(gid.clone()) },
+                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0, gid: Some(gid.clone()), seal: seal_media() },
                         );
                     }
                     Err(e) => err(&format!("cannot receive file: {e}")),
@@ -3914,6 +4000,13 @@ impl P2p {
                 let _ = std::fs::File::open(&t.partial).and_then(|f| f.sync_all());
                 if t.got != t.size {
                     let _ = std::fs::remove_file(&t.partial);
+                    self.sink.emit(json!({
+                        "kind": "group-file-progress", "gid": gid, "from": node, "id": id,
+                        "dir": "recv", "failed": true,
+                    }));
+                    return;
+                }
+                if !seal_received(&t.partial, t.seal) {
                     self.sink.emit(json!({
                         "kind": "group-file-progress", "gid": gid, "from": node, "id": id,
                         "dir": "recv", "failed": true,
@@ -6612,7 +6705,7 @@ mod tests {
         // A 1:1 transfer is not touched by the sweep.
         me.rx_files.lock().unwrap().insert(
             (sender, "one".into()),
-            FileRx { partial: me.dir.join("p"), dir: me.dir.clone(), name: "x".into(), size: 1, mime: String::new(), caption: String::new(), ts: 0, got: 0, gid: None },
+            FileRx { partial: me.dir.join("p"), dir: me.dir.clone(), name: "x".into(), size: 1, mime: String::new(), caption: String::new(), ts: 0, got: 0, gid: None, seal: false },
         );
         me.drop_group_inbound(|n, _| *n == sender);
         assert_eq!(me.rx_files.lock().unwrap().len(), 1);
@@ -6697,5 +6790,49 @@ mod tests {
         assert!(copy_plain(&enc_src, &out).is_err(), "absent key fails closed");
         // Restore so the passthrough behavior stays observable.
         std::env::set_var("VELTA_DB_KEY", hex);
+    }
+
+    /// #465: a sealed blob is VLTA on disk and plaintext through the reader the wire uses.
+    #[test]
+    fn store_outgoing_seals_at_rest_and_reads_plain() {
+        let dir = temp_dir("seal-rest");
+        let key = velta_attachment::AttachmentKey::from_db_key(
+            "x'00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'",
+        ).unwrap().unwrap();
+        let other = velta_attachment::AttachmentKey::from_db_key(
+            "x'ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100'",
+        ).unwrap().unwrap();
+        let src = dir.join("in.bin");
+        let raw = b"folder-zip-bytes";
+        std::fs::write(&src, raw).unwrap();
+
+        let sealed = dir.join("sealed.bin");
+        let n = store_outgoing(&src, &sealed, Some(&key), true).unwrap();
+        assert_eq!(n, raw.len() as u64);
+        assert!(velta_attachment::is_encrypted(&sealed).unwrap());
+        let mut got = Vec::new();
+        std::io::Read::read_to_end(&mut open_plain(&sealed, Some(&key)).unwrap(), &mut got).unwrap();
+        assert_eq!(got, raw);
+
+        let plain = dir.join("plain.bin");
+        assert_eq!(store_outgoing(&src, &plain, Some(&key), false).unwrap(), n);
+        assert_eq!(std::fs::read(&plain).unwrap(), raw);
+
+        let bare = dir.join("bare.bin");
+        assert_eq!(store_outgoing(&src, &bare, None, true).unwrap(), n);
+        assert_eq!(std::fs::read(&bare).unwrap(), raw);
+
+        let enc_src = dir.join("enc-src.bin");
+        velta_attachment::encrypt_file(&key, &src, &enc_src).unwrap();
+        assert_eq!(store_outgoing(&enc_src, &dir.join("resealed.bin"), Some(&key), true).unwrap(), n);
+        assert!(store_outgoing(&enc_src, &dir.join("nope.bin"), Some(&other), true).is_err());
+
+        let partial = dir.join("partial-1");
+        std::fs::write(&partial, raw).unwrap();
+        seal_in_place(&partial, &key).unwrap();
+        assert!(velta_attachment::is_encrypted(&partial).unwrap());
+        got.clear();
+        std::io::Read::read_to_end(&mut open_plain(&partial, Some(&key)).unwrap(), &mut got).unwrap();
+        assert_eq!(got, raw);
     }
 }

@@ -64,11 +64,15 @@ Tests: tests/webxdc-media-deny.test.mjs, scripts/e2e-webxdc-media-deny.mjs, scri
 
 ## WebView2 crash workaround
 
-Tauri's core+plugin init scripts run in opaque-origin frames and throw
-`Cannot read properties of undefined (reading 'plugins')`. `webxdc_serve`
-stubs `window.__TAURI_INTERNALS__` (plugins/metadata) into the served
-index.html before them so the frame's console stays clean — the frame never
-legitimately uses Tauri APIs.
+On Windows, WebView2 runs Tauri's `path` init script inside the opaque webxdc
+iframe, and it reads `window.__TAURI_INTERNALS__.plugins` before that object
+exists (`Cannot read properties of undefined (reading 'plugins')`).
+`frame_internals_shim` (webxdc_serve.rs) is the first plugin in `lib.rs` and
+defines the object for every frame. It must not define `isTauri`: the
+bootstrap uses a non-configurable `defineProperty`, and a second one throws.
+The index.html assignment is only a backstop for later page scripts;
+document-created scripts run before any HTML. Other platforms do not inject
+those scripts into iframes. The frame never legitimately uses Tauri APIs.
 
 ## Path handling
 

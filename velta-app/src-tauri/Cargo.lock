@@ -8932,6 +8932,7 @@ dependencies = [
  "tokio-util",
  "ureq",
  "velta-attachment",
+ "walkdir",
  "webpki-roots 0.26.11",
  "windows 0.59.0",
  "yerpc",
