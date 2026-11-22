@@ -1731,5 +1731,12 @@
   "Send folder…": "Envoyer un dossier…",
   "Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network.": "Le chat local est désactivé. Activez-le pour jumeler les appareils proches et utiliser les groupes locaux — tout reste sur votre réseau.",
   "Turn on local chat": "Activer le chat local",
-  "Velta Loop is on — local chat on the same network": "Velta Loop est actif — chat local sur le même réseau"
+  "Velta Loop is on — local chat on the same network": "Velta Loop est actif — chat local sur le même réseau",
+  "Waiting for your contact to open Velta": "En attente de l’ouverture de Velta par votre contact",
+  "Connecting directly…": "Connexion directe…",
+  "Connected directly · no server in between": "Connexion directe · aucun serveur entre vous",
+  "Direct connection refused: security check failed": "Connexion directe refusée : échec du contrôle de sécurité",
+  "File too large for this browser (limit {n} MB)": "Fichier trop volumineux pour ce navigateur (limite {n} Mo)",
+  "No direct connection. The network may isolate devices (guest Wi-Fi) or block peer-to-peer. Velta does not relay Loop traffic.": "Pas de connexion directe. Le réseau isole peut-être les appareils (Wi-Fi invité) ou bloque le pair-à-pair. Velta ne relaie pas le trafic Loop.",
+  "Direct connection closed": "Connexion directe fermée"
 }
