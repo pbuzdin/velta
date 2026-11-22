@@ -1736,5 +1736,12 @@
   "Sent directly (iroh)": "Envoyé directement (iroh)",
   "Sent by email": "Envoyé par e-mail",
   "Send large files directly": "Envoyer les gros fichiers directement",
-  "Files over 6 MB to Velta contacts go device to device. If that fails, Velta sends them by email.": "Les fichiers de plus de 6 Mo envoyés à des contacts Velta passent directement d’appareil à appareil. En cas d’échec, Velta les envoie par e-mail."
+  "Files over 6 MB to Velta contacts go device to device. If that fails, Velta sends them by email.": "Les fichiers de plus de 6 Mo envoyés à des contacts Velta passent directement d’appareil à appareil. En cas d’échec, Velta les envoie par e-mail.",
+  "Waiting for your contact to open Velta": "En attente de l’ouverture de Velta par votre contact",
+  "Connecting directly…": "Connexion directe…",
+  "Connected directly · no server in between": "Connexion directe · aucun serveur entre vous",
+  "Direct connection refused: security check failed": "Connexion directe refusée : échec du contrôle de sécurité",
+  "File too large for this browser (limit {n} MB)": "Fichier trop volumineux pour ce navigateur (limite {n} Mo)",
+  "No direct connection. The network may isolate devices (guest Wi-Fi) or block peer-to-peer. Velta does not relay Loop traffic.": "Pas de connexion directe. Le réseau isole peut-être les appareils (Wi-Fi invité) ou bloque le pair-à-pair. Velta ne relaie pas le trafic Loop.",
+  "Direct connection closed": "Connexion directe fermée"
 }
