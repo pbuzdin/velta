@@ -216,7 +216,16 @@ test("receiver progress: frames, tracker percent/done/stale/drop", () => {
 
 test("ui wires progress broadcast and the receiver list", () => {
   const ui = readFileSync(new URL("../app/webxdc/send-direct/ui.js", import.meta.url), "utf8");
-  for (const s of ["Transfer.T_PROG", "Transfer.progressFrame(o.rx, myPeer(), myName()", "Transfer.PROG_MS", "receiver${n === 1 ? \"\" : \"s\"}", 'aria-label="Receivers"']) assert.ok(ui.includes(s), s);
+  for (const s of ["Transfer.T_PROG", "Transfer.progressFrame(o.rx, myPeer(), myName()", "Transfer.PROG_MS", "receiver${n === 1 ? \"\" : \"s\"}", 'aria-label="Receivers"', "function revealNew", "if (!wx) return"]) assert.ok(ui.includes(s), s);
+  const pick = ui.slice(ui.indexOf('$("#pick").onclick'));
+  assert.ok(pick.indexOf("importFiles") !== -1 && pick.indexOf("importFiles") < pick.indexOf("join()"), "file picker before realtime join");
+  const html = readFileSync(new URL("../app/webxdc/send-direct/index.html", import.meta.url), "utf8");
+  assert.ok(html.indexOf('src="webxdc.js"') !== -1 && html.indexOf('src="webxdc.js"') < html.indexOf('src="main.js"'));
+  assert.match(html, />v1\.2</);
+  assert.match(html, /id="count"/);
+  assert.match(html, /body\.has-files h1/);
+  assert.ok(ui.includes('classList.toggle("has-files"'));
+  assert.match(readFileSync(new URL("../velta-app/src-tauri/src/webxdc-shim.js", import.meta.url), "utf8"), /if \(window\.webxdc\) return;/);
   const main = classicTransfer(readFileSync(new URL("../app/webxdc/send-direct/transfer.js", import.meta.url), "utf8"));
   for (const n of ["T_PROG", "PROG_MS", "SILENT_MS", "ReceiverTracker", "progressFrame", "validProgress"]) assert.match(main, new RegExp(`window\\.Transfer = \\{[^}]*\\b${n}\\b`));
 });

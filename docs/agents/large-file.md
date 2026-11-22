@@ -122,7 +122,13 @@ Receivers broadcast PROG (`have/n`, done+SHA-256 verdict) every ~1 s; the
 sender lists each receiver with a percent bar and "N receivers" (stale after
 10 s silence if partway, dropped if they had nothing). In the host it opens
 as a panel below the chat header (`webxdc-panel.js`; expand/collapse never
-reloads the frame).
+reloads the frame). `index.html` loads `webxdc.js` before `main.js`: Delta
+Chat installs `window.webxdc` only for that URL. Velta injects its shim
+already and skips a second load. The desktop panel caps the frame
+(`min-height: 0` on `.webxdc-frame`) so the file list scrolls inside it.
+Once a file is listed, the title and intro collapse and the choose button
+shares one row with the file count. A new file scrolls to the top. The
+footer shows the app version.
 
 Verified: node tests (lossy two-receiver simulation, tamper → mismatch,
 shim join/send/leave over the bridge, xdc freshness); a two-page Chromium
