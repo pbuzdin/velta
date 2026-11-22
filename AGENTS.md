@@ -141,6 +141,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── icons.js          # shared inline SVG icon set (outline, stroke 2, round caps, aria-hidden); every UI icon comes from here; drawer icons have no fills (dots = zero-length round-cap strokes, `h.01`), invite = qr glyph; only the Velta Loop brand mark (LOOP_SVG) is filled — tests/icons.test.mjs
 │   │   ├── qr-encode.js      # QR encoder with optimal numeric/alphanumeric/byte segmentation (smaller codes for every QR shown)
 │   │   ├── local-chat.js     # local chat core adapter: Proxy interceptor for p2p:<peerId> chats, media transfers/progress, offline queue + auto-flush (see 5.4 / conventions)
+│   │   ├── webrtc-loop.js    # PWA Loop over WebRTC data channels (#468): Velta-message signaling (non-trickle, xdc status updates), no TURN, DTLS fingerprint pin, per-contact opt-in, chat + files (OPFS stream / 150 MB memory cap) — engine only, not wired to UI yet; scripts/e2e-webrtc-loop.mjs
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── image-compress.js # outgoing photo → lossy WebP when it clearly pays (size-gated, renderer-side canvas, #81)
 │   │   ├── bare-links.js     # scheme-less link detection (t.me/x, example.com) for markdown.js: TLD tiers, boundaries (#85)

@@ -400,3 +400,44 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
 - Tests: `five_member_group_*`, `session_open_announces_the_group_cap_*`,
   `five_real_engines_form_a_group_and_chat`, the worst-case size check in
   groups.rs.
+
+## PWA Loop over WebRTC (#468, engine slice)
+
+`app/js/webrtc-loop.js` is the PWA's Loop transport. Browsers can't use iroh's
+direct paths, so `LoopLink` uses one reliable, ordered `RTCDataChannel` per
+contact.
+
+- **Signaling** goes over encrypted Velta messages. `createXdcSignal` sends
+  `{payload: {veltaLoop: {vlw: 1, t: offer|answer|bye, from, sid, sdp, fp}}}`
+  as webxdc status updates in the 1:1 chat, with no `info`, so nothing shows
+  in the chat. Offer and answer go out once, with every candidate gathered
+  (non-trickle), because Velta messages take seconds.
+- **No ICE servers by default.** There is no TURN, and STUN only if a caller
+  passes `iceServers`. A dead path ends in `failed` / `network` with a message
+  about isolating networks. Traffic is never relayed silently.
+- **DTLS pin.** `fp` is the sender's certificate fingerprint, inside the
+  encrypted message.
+  - A signal whose SDP names another fingerprint is refused before any WebRTC
+    object is created.
+  - On open, the certificate the peer presented (`getStats`, transport →
+    `remoteCertificateId`) must equal the pin. `link.verified` reports that
+    this check ran.
+- **Frames.** Text frames are JSON (`msg`/`ack`, `file-begin|end|cancel|reject`).
+  File chunks are binary `[idLen][id][16 KiB]`, sent with `bufferedAmount`
+  back-pressure, and handled strictly in order.
+- **Receiving files.** They stream into OPFS (`createWritable`, Chromium).
+  Elsewhere they go to memory, capped by `MEM_CAP` (150 MB). Every file is
+  SHA-256 checked against `file-begin`.
+- **Opt-in per contact** (`loopOptIn` / `setLoopOptIn`, localStorage
+  `velta-loop-webrtc`), because WebRTC shows the peer your local IPs. State
+  lines never show an address.
+- **Tests.** `tests/webrtc-loop.test.mjs` (pure parts) and
+  `scripts/e2e-webrtc-loop.mjs`. The e2e runs two real Chromium pages with no
+  ICE servers and covers: direct connect plus pin verified, chat plus ack, a
+  3 MB file to OPFS with hash check, cancel, a tampered SDP refused, and no
+  path reported as failed.
+- **Not done yet:**
+  - UI wiring: the per-contact toggle, the state chip, and Loop chats in the
+    chat list for PWA peers;
+  - the Tauri side (`webrtc-rs`) for PWA ↔ desktop/Android;
+  - optional user-configured TURN.
