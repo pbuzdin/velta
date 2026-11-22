@@ -1726,5 +1726,8 @@
   "The folder is empty (hidden files are skipped)": "Le dossier est vide (les fichiers cachés sont ignorés)",
   "Couldn't send the folder: ": "Échec de l'envoi du dossier : ",
   "Extract here": "Extraire ici",
-  "Send folder…": "Envoyer un dossier…"
+  "Send folder…": "Envoyer un dossier…",
+  "Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network.": "Le chat local est désactivé. Activez-le pour jumeler les appareils proches et utiliser les groupes locaux — tout reste sur votre réseau.",
+  "Turn on local chat": "Activer le chat local",
+  "Velta Loop is on — local chat on the same network": "Velta Loop est actif — chat local sur le même réseau"
 }

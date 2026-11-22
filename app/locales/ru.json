@@ -1726,5 +1726,8 @@
   "The folder is empty (hidden files are skipped)": "Папка пуста (скрытые файлы пропускаются)",
   "Couldn't send the folder: ": "Не удалось отправить папку: ",
   "Extract here": "Извлечь сюда",
-  "Send folder…": "Отправить папку…"
+  "Send folder…": "Отправить папку…",
+  "Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network.": "Локальный чат выключен. Включите его, чтобы связываться с устройствами рядом и использовать локальные группы — всё остаётся в вашей сети.",
+  "Turn on local chat": "Включить локальный чат",
+  "Velta Loop is on — local chat on the same network": "Velta Loop включён — локальный чат в вашей сети"
 }
