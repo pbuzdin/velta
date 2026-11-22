@@ -3244,6 +3244,46 @@ object VeltaIcons {
         }.build()
     }
 
+    /** app/js/icons.js P.loop — house style: 24 grid, stroke 2, round caps. */
+    val loop: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "VeltaIcons.Loop",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathData {
+        moveTo(4.0f, 5.0f)
+        lineToRelative(5.0f, 0.0f)
+        lineToRelative(6.0f, 14.0f)
+        moveTo(20.0f, 5.0f)
+        lineToRelative(-5.0f, 0.0f)
+        lineToRelative(-2.5f, 6.0f)
+        moveTo(7.5f, 19.0f)
+        horizontalLineToRelative(5.0f)
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                pathData = PathData {
+        moveTo(17.5f, 13.5f)
+        arcToRelative(5.5f, 5.5f, 0.0f, false, true, -9.8f, 2.6f)
+        moveTo(6.5f, 10.5f)
+        arcToRelative(5.5f, 5.5f, 0.0f, false, true, 9.8f, -2.6f)
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     /** app/js/icons.js P.chatLines — house style: 24 grid, stroke 2, round caps. */
     val chatLines: ImageVector by lazy {
         ImageVector.Builder(

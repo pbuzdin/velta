@@ -1437,7 +1437,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         <summary>${ICON.bottomBar}<span>${t("Bottom bar buttons")}</span></summary>
         <fieldset class="scale-opts" data-bar-opts>
           <legend class="vh">${t("Bottom bar buttons")}</legend>
-          ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${t(label)}</span></label>`).join("")}
+          ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"], ["loop", "Velta Loop"]].map(([key, label]) => `<label class="scale-opt"${key === "loop" && !p2pAvailable && !p2pOn ? ' hidden' : ''}><input type="checkbox" role="switch" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint">${t("Menu button is always visible.")}</div>
       </details>

@@ -97,13 +97,13 @@ import { shouldAskRoaming, dismissRoamingHintForever } from "./roaming-hint.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
-import { isAndroid, tauriInvoke, rustLog } from "./tauri.js";
+import { isAndroid, isTauri, tauriInvoke, rustLog } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
-import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { ICON, P, svg } from "./icons.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
 
 // #286: module-top so boot-time relay status refreshes never hit a TDZ.
@@ -1880,86 +1880,74 @@ async function refreshChatList({ fromDirty = false } = {}) {
 
 // Local chat hub card: lives at the top of the chat list while local chat
 // is on. Replaces the old hub modal — pairing/invite stay as small modals.
-let lcCardSeq = 0;
-let lcCardOpen = true;
-let lcCardSig = null; // last rendered model — skip DOM writes when unchanged
+let lcCardSeq = 0; // render epoch for the Loop view (superseded-render guard)
+// #456: the hub lives in the Loop bar view; the in-list card is retired.
+// Event listeners keep calling this — it refreshes the loop view when it is
+// on screen and keeps the retired container hidden otherwise.
 async function renderLocalChatCard() {
   const el = $("lc-card");
-  if (!el) return;
+  if (el) el.hidden = true;
+  if (listView === "loop") await renderLoopView();
+}
+
+// The Loop bar view: the old hub card, lifted into the side-view shell.
+// Same model (hubModel), same actions, re-rendered on the same events.
+async function renderLoopView() {
   const seq = ++lcCardSeq;
   const model = await hubModel().catch(() => null);
   if (seq !== lcCardSeq) return; // superseded by a newer render
-  if (!model) { el.hidden = true; lcCardSig = null; return; }
-  // Rebuild only when the model changed — chat-list refreshes fire on every
-  // msg-state event and a DOM rewrite eats taps on the card's buttons.
-  const sig = JSON.stringify(model);
-  if (sig === lcCardSig) { el.hidden = false; return; }
-  lcCardSig = sig;
-  el.hidden = false;
-  const loopSvg = LOOP_SVG;
+  if (!model || listView !== "loop") return;
+  const rows = sideViewShell(t("Velta Loop"), t("Local chat on the same network"));
   const short = (model.device.nodeId || "").slice(0, 8);
-  const peerRows = model.peers.map(p => `
+  rows.innerHTML = `
+    <div class="lc-device">${escapeHtml(t("This device:"))} <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>${escapeHtml(t("Edit name"))}</button></div>
+    <div class="lc-actions">
+      <button type="button" class="btn-text" data-invite>${escapeHtml(t("Show invite"))}</button>
+      <button type="button" class="btn-text" data-add>${escapeHtml(t("Add contact"))}</button>
+      <button type="button" class="btn-text" data-new-group>${escapeHtml(t("New group"))}</button>
+    </div>
+    ${(model.nearby || []).map(n => `
+    <div class="lc-row" data-pair="${escapeAttr(n.id)}">
+      <span class="lc-dot on"></span>
+      <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
+      <button type="button" class="btn-text" data-pair="${escapeAttr(n.id)}">${escapeHtml(t("Pair"))}</button>
+    </div>`).join("")}
+    ${model.peers.map(p => `
     <div class="lc-row" data-open="${escapeAttr(p.id)}">
       <span class="lc-dot ${p.online ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(p.name)}</span>
       ${p.queued ? `<span class="lc-row-queued">${escapeHtml(t("{n} queued", { n: p.queued }))}</span>` : ""}
       <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="${escapeHtml(t("Open chat"))}" aria-label="${escapeAttr(t("Open chat with {name}", { name: p.name }))}">${escapeHtml(t("Chat"))}</button>
       <button type="button" class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="${escapeHtml(t("Remove device"))}" aria-label="${escapeAttr(t("Remove {name}", { name: p.name }))}">${ICON.close}</button>
-    </div>`).join("");
-  const nearbyRows = model.nearby.map(n => `
-    <div class="lc-row" data-pair="${escapeAttr(n.id)}">
-      <span class="lc-dot on"></span>
-      <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
-      <button type="button" class="btn-text" data-pair="${escapeAttr(n.id)}">${escapeHtml(t("Pair"))}</button>
-    </div>`).join("");
-  const groupRows = (model.groups || []).map(g => `
+    </div>`).join("")}
+    ${(model.groups || []).map(g => `
     <div class="lc-row" data-open="${escapeAttr(g.id)}">
       <span class="lc-dot ${g.removed ? "" : g.online > 1 ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(g.name)}</span>
       <span class="lc-row-queued">${escapeHtml(g.removed ? t("closed") : t("{members} members · {online} online", { members: g.members, online: g.online }))}</span>
       <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(g.id)}" title="${escapeHtml(t("Open group"))}" aria-label="${escapeAttr(t("Open group {name}", { name: g.name }))}">${escapeHtml(t("Chat"))}</button>
-    </div>`).join("");
-  el.innerHTML = `
-    <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
-      ${loopSvg}
-      <span class="lc-card-title">${escapeHtml(t("Velta Loop"))}</span>
-      <span class="lc-card-chevron">${svg(P.chevronDown, "", 'width="16" height="16"')}</span>
-    </div>
-    <div class="bar-opts-hint ctx-hint">${t("Local chat on the same network")}</div>
-    <div class="lc-card-body">
-      <div class="lc-device">${escapeHtml(t("This device:"))} <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>${escapeHtml(t("Edit name"))}</button></div>
-      <div class="lc-actions">
-        <button type="button" class="btn-text" data-invite>${escapeHtml(t("Show invite"))}</button>
-        <button type="button" class="btn-text" data-add>${escapeHtml(t("Add contact"))}</button>
-        <button type="button" class="btn-text" data-new-group>${escapeHtml(t("New group"))}</button>
-      </div>
-      ${nearbyRows ? `<div class="lc-sec">${escapeHtml(t("Nearby on the same network"))}</div>${nearbyRows}` : ""}
-      ${peerRows ? `<div class="lc-sec">${escapeHtml(t("Paired devices"))}</div>${peerRows}` : ""}
-      ${groupRows ? `<div class="lc-sec">${escapeHtml(t("Groups"))}</div>${groupRows}` : ""}
-    </div>`;
-  if (lcCardOpen) el.classList.add("open");
-  el.querySelector("[data-toggle]").addEventListener("click", () => { lcCardOpen = !lcCardOpen; el.classList.toggle("open"); });
+    </div>`).join("")}`;
   const invoke = tauriInvoke();
   const renderQr = text => core.createQrSvg(text);
-  el.querySelector("[data-invite]").addEventListener("click", () => {
+  rows.querySelector("[data-invite]").addEventListener("click", () => {
     if (!invoke) return toast(t("Pairing needs the Velta app shell"));
     showInviteModal(invoke, renderQr).catch(err => toast(String(err?.message || err)));
   });
-  el.querySelector("[data-add]").addEventListener("click", () => {
+  rows.querySelector("[data-add]").addEventListener("click", () => {
     if (!invoke) return toast(t("Pairing needs the Velta app shell"));
     addContact(invoke).catch(err => toast(String(err?.message || err)));
   });
-  el.querySelector("[data-new-group]").addEventListener("click", () => newLocalGroupFlow());
-  el.querySelector("[data-rename]").addEventListener("click", async () => {
+  rows.querySelector("[data-new-group]").addEventListener("click", () => newLocalGroupFlow());
+  rows.querySelector("[data-rename]").addEventListener("click", async () => {
     const name = await askText(t("Device name"), model.device.name, t("Save"));
     if (!name || !name.trim()) return;
     try {
       await renameDevice(name.trim());
       toast(t("Device renamed"));
-      renderLocalChatCard();
+      renderLoopView();
     } catch (err) { toast(String(err?.message || err)); }
   });
-  el.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", async e => {
+  rows.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", async e => {
     e.stopPropagation();
     const peerId = btn.dataset.remove;
     const name = btn.closest(".lc-row")?.querySelector(".lc-row-name")?.textContent || "this device";
@@ -1967,20 +1955,20 @@ async function renderLocalChatCard() {
     try {
       await removePeer(peerId);
       toast(t("Device removed"));
-      renderLocalChatCard();
+      renderLoopView();
       refreshChatList();
       closeVanishedGroupChat();
     } catch (err) { toast(String(err?.message || err)); }
   }));
-  el.querySelectorAll("[data-pair]").forEach(btn => btn.addEventListener("click", e => {
+  rows.querySelectorAll("[data-pair]").forEach(btn => btn.addEventListener("click", e => {
     e.stopPropagation();
     pairNearbyFlow(invoke, btn.dataset.pair).catch(err => toast(String(err?.message || err)));
   }));
-  el.querySelectorAll("[data-chat]").forEach(btn => btn.addEventListener("click", e => {
+  rows.querySelectorAll("[data-chat]").forEach(btn => btn.addEventListener("click", e => {
     e.stopPropagation(); // row click opens too — don't open twice
     openChat(btn.dataset.chat);
   }));
-  el.querySelectorAll("[data-open]").forEach(row => row.addEventListener("click", () =>
+  rows.querySelectorAll("[data-open]").forEach(row => row.addEventListener("click", () =>
     openChat(row.dataset.open)));
 }
 
@@ -2011,10 +1999,11 @@ async function newLocalGroupFlow() {
 function applyBarVisibility() {
   const bar = document.querySelector(".list-bar");
   let any = false;
-  for (const key of ["chats", "contacts", "calls", "qr"]) {
+  for (const key of ["chats", "contacts", "calls", "qr", "loop"]) {
     const btn = document.getElementById(`bar-${key}`);
     if (!btn) continue;
-    const show = !barHidden.includes(key);
+    // #456: Loop needs the p2p engine — no dead icon without the shell.
+    const show = !barHidden.includes(key) && (key !== "loop" || (p2pAvailable() && isTauri()));
     btn.hidden = !show;
     any = any || show;
   }
@@ -2053,12 +2042,24 @@ function setListView(view) {
   }
   syncHeaderButtons();
   syncChatCategoryBar();
-  if (listView === "chats") { renderChatList(); return; }
-  if (listView === "contacts") { renderContactsView(); return; }
-  if (listView === "calls") { renderCallsView(); return; }
-  if (listView === "qr") { renderQrView(); return; }
-  if (listView === "search") { renderSearchView(); return; }
-  if (listView === "new") { renderNewChatView(); return; }
+  if (listView === "chats") { renderChatList(); renderLocalChatCard(); syncPlusChip(); return; }
+  if (listView === "contacts") { renderContactsView(); syncPlusChip(); return; }
+  if (listView === "calls") { renderCallsView(); syncPlusChip(); return; }
+  if (listView === "qr") { renderQrView(); syncPlusChip(); return; }
+  if (listView === "search") { renderSearchView(); syncPlusChip(); return; }
+  if (listView === "new") { renderNewChatView(); syncPlusChip(); return; }
+  if (listView === "loop") { renderLoopView(); syncPlusChip(); return; }
+}
+
+// #456: the + left the bar — it is a floating chip beside the chat list,
+// visible only while a list-replacing view is NOT hiding the list... i.e.
+// only on the chats view (the list IS the chats there). Hidden on every
+// other view and whenever the two-pane sidebar is collapsed.
+function syncPlusChip() {
+  const plus = document.getElementById("btn-new-chat");
+  if (!plus) return;
+  const collapsed = document.getElementById("app")?.classList.contains("list-collapsed");
+  plus.hidden = listView !== "chats" || collapsed;
 }
 
 // The header search button doubles as the search view toggle: magnifier
@@ -7804,6 +7805,9 @@ async function boot() {
       // context menu as before (anchored to its button), QR shows this
       // profile's invite code, scan opens the camera join flow.
       listCollapse = initListCollapse({ getChats: () => state.chats });
+      // #456: the + chip hides while the two-pane sidebar is collapsed.
+      document.getElementById("app")?.addEventListener("transitionend", () => syncPlusChip());
+      document.getElementById("app")?.addEventListener("velta-list-collapse", () => syncPlusChip());
       $("bar-menu").addEventListener("click", () => {
         if (drawer?.el?.classList.contains("open")) drawer.close();
         else drawer?.open();
@@ -7819,7 +7823,7 @@ async function boot() {
         btn.innerHTML = e.detail.open ? BAR_MENU_ICONS.open : BAR_MENU_ICONS.closed;
         btn.title = e.detail.open ? t("Close menu") : t("Menu");
       });
-      for (const view of ["chats", "contacts", "calls", "qr"]) {
+      for (const view of ["chats", "contacts", "calls", "qr", "loop"]) {
         $(`bar-${view}`).addEventListener("click", () => setListView(view));
       }
       // Boot lands on the chats view without going through setListView —
@@ -7828,6 +7832,7 @@ async function boot() {
         b.classList.toggle("active", b.dataset.view === listView);
       }
       applyBarVisibility();
+      syncPlusChip();
       bindChatHeadMenu();
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));

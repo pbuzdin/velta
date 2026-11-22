@@ -415,7 +415,10 @@ test("UI guards exist for p2pg: header line, hidden relay-only actions, gated en
   // both "new group" entries only exist behind the local-chat switch
   assert.match(app, /p2pEnabled\(\) && p2pAvailable\(\) \? \[\{ label: "New local group/);
   assert.match(app, /async function newLocalGroupFlow\(\)[\s\S]{0,300}!p2pEnabled\(\)/);
-  assert.match(app, /if \(!model\) \{ el\.hidden = true/, "hub card stays hidden when local chat is off");
+  // #456: the in-list hub card is retired — the hub renders as the Loop bar
+  // view; the retired container stays hidden and the view shows "no engine"
+  // through hubModel() returning null.
+  assert.match(app, /if \(el\) el\.hidden = true/, "retired hub card container stays hidden");
 });
 
 const sysRow = (id, kind, text, ts) => ({ seq: 0, from: "", id, ts, tsEff: ts, dir: "sys", text, replyTo: null, replyText: null, delivered: [], sysKind: kind });
