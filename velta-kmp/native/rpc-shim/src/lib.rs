@@ -193,7 +193,10 @@ fn worker_main(
 /// `db_key` is the 64-hex database-encryption DEK. The vendored core reads
 /// `VELTA_DB_KEY` when accounts open (patch #20). Set it here, before the
 /// worker exists. Empty string = keyless (upstream behavior).
-pub(crate) fn start_core(accounts_dir: String, db_key: String) -> i32 {
+/// The three entry points `main.rs` (#424) drives. `pub` because the bin is
+/// a separate crate from the lib; not part of any external API contract.
+#[doc(hidden)]
+pub fn start_core(accounts_dir: String, db_key: String) -> i32 {
     let _lock = START_LOCK.lock().expect("start lock");
     if SERVING.load(Ordering::SeqCst) {
         return 1;
@@ -242,7 +245,8 @@ pub(crate) fn start_core(accounts_dir: String, db_key: String) -> i32 {
 
 /// Signals the session to end. Idempotent. Does not join: the next
 /// `start_core` joins the worker so this call stays non-blocking (#224).
-pub(crate) fn stop_core() -> i32 {
+#[doc(hidden)]
+pub fn stop_core() -> i32 {
     let _lock = START_LOCK.lock().expect("start lock");
     SERVING.store(false, Ordering::SeqCst);
     if let Some(stop) = STOP.write().expect("stop lock").take() {
@@ -254,7 +258,8 @@ pub(crate) fn stop_core() -> i32 {
     0
 }
 
-pub(crate) fn send_line(line: String) -> i32 {
+#[doc(hidden)]
+pub fn send_line(line: String) -> i32 {
     let guard = match LIVE.lock() {
         Ok(guard) => guard,
         Err(_) => return -1,
