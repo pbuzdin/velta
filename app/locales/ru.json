@@ -1716,5 +1716,15 @@
   "The browser can only restore an unencrypted backup. Use the desktop or Android app for a passphrase-protected file.": "В браузере можно восстановить только копию без пароля. Для файла с паролем используйте приложение на компьютере или Android.",
   "Passphrase-protected backups are not supported in the browser. Export without a passphrase, or use the desktop or Android app.": "Резервные копии с паролем в браузере не поддерживаются. Экспортируйте без пароля или используйте приложение на компьютере или Android.",
   "This backup is encrypted and cannot be imported in the browser. Restore it in the desktop or Android app, or export an unencrypted backup.": "Эта копия зашифрована и не может быть импортирована в браузере. Восстановите её в приложении на компьютере или Android либо экспортируйте незашифрованную копию.",
-  "Profile transferred from another Velta device": "Профиль перенесён с другого устройства Velta"
+  "Profile transferred from another Velta device": "Профиль перенесён с другого устройства Velta",
+  "Extract": "Извлечь",
+  "Extract to…": "Извлечь в…",
+  "Extracted {n} files": "Извлечено файлов: {n}",
+  "Couldn't extract: ": "Не удалось извлечь: ",
+  "Sending a folder needs the Velta app": "Отправка папки требует приложения Velta",
+  "Couldn't read the folder: ": "Не удалось прочитать папку: ",
+  "The folder is empty (hidden files are skipped)": "Папка пуста (скрытые файлы пропускаются)",
+  "Couldn't send the folder: ": "Не удалось отправить папку: ",
+  "Extract here": "Извлечь сюда",
+  "Send folder…": "Отправить папку…"
 }

@@ -271,9 +271,12 @@ struct FileRx {
 }
 
 /// Cap for one local-chat media transfer.
-const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
+// #454: the 1:1 path streams from disk now, so the cap is a sanity bound
+// (2 GB), not a RAM guard. The receiver still discards torn partials by
+// the size check on FileEnd.
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 // V-10/#67: a peer must not pin memory/fds with many parallel inbound
-// transfers on top of the per-file 256 MB cap. Global bound across peers
+// transfers on top of the per-file 2 GB cap. Global bound across peers
 // keeps the whole engine bounded too.
 const MAX_INBOUND_FILES_PER_PEER: usize = 3;
 const MAX_INBOUND_FILES_TOTAL: usize = 8;
@@ -1000,7 +1003,6 @@ impl P2p {
         caption: &str,
     ) -> Result<(String, PathBuf)> {
         const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
-        const MAX_FILE: u64 = 256 * 1024 * 1024;
         let node_id = NodeId::from_str(peer_str)?;
         // Before the file is copied anywhere: only paired devices get 1:1 media.
         self.require_paired(&node_id)?;
@@ -1008,8 +1010,8 @@ impl P2p {
         if !meta.is_file() {
             bail!("not a file");
         }
-        if meta.len() > MAX_FILE {
-            bail!("file too large for local chat (cap 256 MB)");
+        if meta.len() > MAX_FILE_BYTES {
+            bail!("file too large for local chat (cap 2 GB)");
         }
         let safe = sanitize_name(name);
         let mime = mime_for(&safe);
@@ -1024,27 +1026,73 @@ impl P2p {
         copy_plain(std::path::Path::new(src), &dest, key.as_ref()).with_context(|| "copy into blobs dir".to_string())?;
         let size = std::fs::metadata(&dest)?.len();
 
-        // Frames are built up-front; a mid-send session death loses the tail —
-        // the peer's partial is discarded by the size check on FileEnd.
-        let data = std::fs::read(&dest)?;
-        let mut frames = Vec::new();
-        frames.push(Frame::FileBegin {
+        let ts = now_ms();
+        // #454: hand the session write path a BOUNDED channel and stream the
+        // chunks from disk on a worker task — the old path built every frame
+        // in RAM first (a 256 MB file = ~340 MB of frames held at once). The
+        // task takes the tx clone; a mid-send session death closes the
+        // receiver, the task's sends fail, and the peer discards its torn
+        // partial by the size check on FileEnd (which then never arrives).
+        let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel::<Frame>(64);
+        let begin = Frame::FileBegin {
             id: id.clone(),
             ts: now_ms(),
             name: safe.clone(),
             size,
             mime: mime.clone(),
             caption: caption.to_string(),
-        });
-        for chunk in data.chunks(CHUNK_RAW) {
-            frames.push(Frame::FileChunk {
-                id: id.clone(),
-                data: BASE64.encode(chunk),
-            });
+        };
+        let (chunk_tx, chunk_rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, std::io::Error>>(64);
+        {
+            let file = std::fs::File::open(&dest)?;
+            std::thread::Builder::new()
+                .name("p2p-file-read".into())
+                .spawn(move || {
+                    use std::io::Read;
+                    let mut reader = std::io::BufReader::with_capacity(CHUNK_RAW, file);
+                    let mut buf = vec![0u8; CHUNK_RAW];
+                    loop {
+                        match reader.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                if chunk_tx.send(Ok(buf[..n].to_vec())).is_err() {
+                                    return; // consumer gone (session died)
+                                }
+                            }
+                            Err(e) => {
+                                let _ = chunk_tx.send(Err(e));
+                                return;
+                            }
+                        }
+                    }
+                })
+                .ok();
         }
-        frames.push(Frame::FileEnd { id: id.clone() });
-
-        let ts = now_ms();
+        {
+            // Frame-builder task: FileBegin, chunks (read errors abort the
+            // transfer mid-stream — the peer's size check cleans up), FileEnd.
+            let id = id.clone();
+            std::thread::Builder::new()
+                .name("p2p-file-frames".into())
+                .spawn(move || {
+                    let _ = frame_tx.send(begin);
+                    for chunk in chunk_rx {
+                        match chunk {
+                            Ok(data) => {
+                                if frame_tx.send(Frame::FileChunk { id: id.clone(), data: BASE64.encode(&data) }).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[p2p] file read failed mid-send: {e}");
+                                return; // no FileEnd: receiver discards the partial
+                            }
+                        }
+                    }
+                    let _ = frame_tx.send(Frame::FileEnd { id });
+                })
+                .ok();
+        }
         let now_online = {
             let mut inner = self.inner.lock().unwrap();
             let peer = inner
@@ -1055,8 +1103,10 @@ impl P2p {
             peer.live.retain(|h| !h.tx.is_closed());
             let mut sent_now = false;
             if let Some(handle) = peer.live.first() {
-                for f in &frames {
-                    if handle.tx.send(f.clone()).is_err() {
+                // Pump the streamed frames; the unbounded session channel
+                // takes them as fast as the writer can serialize.
+                for f in frame_rx {
+                    if handle.tx.send(f).is_err() {
                         sent_now = false;
                         break;
                     }
