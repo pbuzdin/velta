@@ -7,6 +7,10 @@ Extracted from AGENTS.md. Source: `velta-app/src-tauri/src/p2p.rs` +
 
 A second chat transport completely independent of the Delta Chat core: 1:1
 end-to-end-encrypted chat between paired devices on the same network, using
+QUIC TLS 1.3 keyed by the ed25519 node identity (the pairing QR pins that
+identity, so the tunnel authenticates both directions); group membership
+states are signed by the group's creator. Media is plaintext at rest in
+`p2p-blobs/` on both ends — see the storage caveat below.
 iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
 `discovery-local-network` feature) — modeled on the core's backup transfer
 (`core/src/imex/transfer.rs`).
@@ -112,6 +116,13 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   accounts dir because blobfile/media-server refuse paths outside it, and
   that check is the sandbox: peer-supplied file names are sanitized
   (basename only, safe chars) before they ever touch the filesystem.
+  - Storage plaintext caveat (#448/#451): blob copies on BOTH ends sit as
+    plaintext files in `p2p-blobs/` — the sender's uploads/ copy is
+    VLTA-ciphertext under the sender's key, which the receiver cannot
+    unwrap, so transfers carry plaintext frames and rely on the QUIC-TLS
+    tunnel. This differs from relay-chat media (VLTA at rest); encrypting
+    p2p blobs with the device's own attachment key on write is the pending
+    parity step. The chat database itself stays encrypted (#178).
   - Folders (#459): Attach → Send folder… (local chats) — `list_folder_files`
     (picked-path gate, depth 12, dotfiles skipped) → `folder-zip.js` STORE zip
     (CRC-32, UTF-8 names, dot segments resolved) → the archive rides the normal

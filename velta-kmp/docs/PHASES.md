@@ -79,6 +79,15 @@ PRs #432/#433: the FGS notification drops the stale timestamp
 (`velta-msg.<accountId>`). v1.5.6 published; #226 (app-lock PIN)
 verified complete and closed. KMP `versionName` is 0.9.1.
 
+**2026-11-22 (CI):** the Build KMP workflow had been failing at startup
+since PR #455 — that PR's edit wrote a `cargo build` line at column 0,
+breaking the `run: |` block scalar, and GitHub killed every run before any
+job existed (the runs showed the raw head-commit message as their title —
+the "strange name" report). Nothing in CI validates workflow YAML;
+`yaml.safe_load` any hand-edited workflow before pushing. PR #462 restores
+the indent and adds a `run-name:` so runs title from the PR subject /
+branch (verified green: run 44994857529).
+
 **2026-11-22 (post-v1.5.6 wave):** PR #447 — system back at the root
 chat list backgrounds the app (`PlatformRootBackHandler` →
 `moveTaskToBack`, armed only on the plain chats view; dialogs compose

@@ -1465,7 +1465,9 @@ recorded locally and capped at 30. Every view button can be hidden in
 Settings → Bottom bar buttons; the Menu button is always visible, and when
 all view buttons are hidden the bar's background turns transparent. The
 **Velta Loop** button appears in the bar only when the local-chat engine is
-available (it is absent in the browser PWA). The **+** is not a bar button:
+available (it is absent in the browser PWA), and tints accent while local
+chat is on. Tapping Loop with local chat off opens the view with a one-tap
+**Turn on local chat** switch — no drawer detour. The **+** is not a bar button:
 it floats beside the chat list — below the list-collapse chevron on wide
 layouts, above the bar on narrow ones — and shows only while the chat list
 itself is on screen.
