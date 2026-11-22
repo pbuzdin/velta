@@ -117,12 +117,20 @@ composeApp/src/
                  event loop; `LoopPairDialog` / `LoopNewGroupDialog`
                  cover pairing approval and `p2p_group_create`
                  (GROUP_MAX_OTHERS 4, name ≤64).
-native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines over JNI, #357);
+native/rpc-shim/ Rust crate, two artifacts (#424): the Android cdylib (in-process
+                 core, JSON Lines over JNI, #357) AND the desktop sidecar bin
+                 `velta-rpc-server` (stdio, framing byte-compatible with
+                 deltachat-rpc-server; jni is an Android-only dep; log() is
+                 stderr — stdout IS the RPC framing; loop_host is
+                 Android-gated). Cargo.lock is tracked (--locked).
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
   native/rpc-shim/src/p2p.rs + p2p/ + loop_host.rs
                  the Velta Loop engine (iroh 0.35, LAN discovery, no
                  relay — lifted from velta-app/src-tauri/src/p2p.rs,
-                 Tauri stripped) behind `loop_host`: a SECOND JNI
+                 Tauri stripped; media sends go through copy_plain —
+                 blob sources are VLTA ciphertext under THIS device's
+                 key, and the peer unwraps with its own, so a byte-exact
+                 copy shipped undecryptable bytes, #450) behind `loop_host`: a SECOND JNI
                  channel beside the core session — Kotlin `startLoop`
                  (binds LAN only after start; the pref gate lives in
                  Kotlin) / `sendLoopLine`, events via `RpcShim.onLoopLine`
@@ -298,7 +306,11 @@ never run Gradle on the Windows side.
   Loop, Relays, Settings). It stops above the bar so Menu toggles it.
   No Refresh item. Android
   back inside a side view returns to chats (`PlatformBackHandler(enabled)`)
-  — the expect/actual grew an `enabled` parameter for this.
+  — the expect/actual grew an `enabled` parameter for this. At the ROOT
+  (`ChatListScreen`, plain chats) `PlatformRootBackHandler` backgrounds
+  the app (`moveTaskToBack`) instead of letting the activity finish to the
+  launcher (#443); it arms only when nothing else can close, and later
+  compositions (dialogs/sheets) still own the back first.
 - Category chips (#57, web .chat-cats, `CategoryChips`): All / Unread /
   People / Groups / Channels / Bots / System, equal-flex pills (11.5sp,
   active accent bg + onAccent ink). `chatCategoryOf` lives in

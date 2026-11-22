@@ -21,7 +21,13 @@ pre-encryption profile migrates automatically on first start (export,
 verify, swap, rollback backup kept) — and the accounts directory opts
 out of OS/cloud backups and device transfer. The event loop watches
 the core: a wedged process can no longer hang the app behind a live
-foreground service. A long
+foreground service. The Android back button
+backgrounds the app from the root chat list instead of exiting to the
+launcher (deeper layers — menus, threads, pickers — keep their own back
+handling). A profile received as a second device posts a note in the
+device chat saying where it came from. Local-chat media transfers ship
+plaintext over the wire (the peer stores it under its own key), so
+images and files arrive readable on the other device. A long
 message clamps at 12 lines (Read more / Show less). A
 message the core shortened offers Show Full Message… on Android.
 Desktop shows a notice for that page. A picture leaves 5dp above its

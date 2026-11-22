@@ -79,6 +79,25 @@ PRs #432/#433: the FGS notification drops the stale timestamp
 (`velta-msg.<accountId>`). v1.5.6 published; #226 (app-lock PIN)
 verified complete and closed. KMP `versionName` is 0.9.1.
 
+**2026-11-22 (post-v1.5.6 wave):** PR #447 — system back at the root
+chat list backgrounds the app (`PlatformRootBackHandler` →
+`moveTaskToBack`, armed only on the plain chats view; dialogs compose
+later and keep priority), and a received second-device profile posts a
+`velta-transfer` device-chat note (`VeltaCore.addDeviceMessage`, the
+web `addDeviceMessage` shape; ru/fr wired — added through the WEB packs
++ `gen-kmp-strings.mjs`: the Lang packs are GENERATED, hand-editing
+them made master's `tests.yml` red until PR #449 regenerated). PR #450
++ #451 — local-chat media ships plaintext: blob sources are VLTA
+ciphertext under this device's key (core encrypts blobdir copies,
+quilt #22), and the receiver unwraps with its own key, so every
+transferred image died with "attachment key authentication failed"
+(#445); `copy_plain` decrypts on copy (key from `VELTA_DB_KEY`), non-
+VLTA passthrough byte-exact, fails closed on absent/wrong key. The
+desktop twin is PR #448. PR #455 — the shim crate builds the desktop
+sidecar too (`[[bin]] velta-rpc-server`): one source, two artifacts;
+`jni` is Android-only, `log()` is stderr (stdout is the RPC framing),
+`loop_host` is Android-gated until a desktop caller exists (#398/#454).
+
 **Hardening — #259 closed 2026-11-21:** steps 1 (per-launch RPC auth
 token, `14672853`), 5 (`remoteMessaging` FGS), 6 (15-minute persisted
 JobScheduler fetch), 8 (strong biometric via `LockPolicy`) and 9
