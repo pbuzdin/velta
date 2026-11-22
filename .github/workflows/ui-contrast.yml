@@ -18,22 +18,41 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ui-contrast-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   contrast:
     runs-on: ubuntu-24.04  # Playwright has no chromium build for ubuntu-latest (26.04) yet
-    timeout-minutes: 40
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: scripts/node_modules
+          key: pw-nm-${{ runner.os }}-1.56.0
       - name: Token + bubble-label contrast tests
         run: node --test tests/bubble-label-contrast.test.mjs tests/design-token-guard.test.mjs tests/chat-appearance.test.mjs
-      - name: Install Playwright Chromium
+      - name: Install Playwright driver
+        working-directory: scripts
+        run: npm install --no-fund --no-audit playwright@1.56.0
+      - name: Use runner's preinstalled Chrome
         working-directory: scripts
         run: |
-          npm install --no-fund --no-audit playwright@1.56.0
-          npx playwright install --with-deps chromium
+          # e2e-contrast.mjs reads CHROMIUM_PATH (executablePath). The runner
+          # image ships Google Chrome — skip the ~130MB chromium download and
+          # the apt install-deps pass entirely.
+          if [ -x /usr/bin/google-chrome ]; then
+            echo "CHROMIUM_PATH=/usr/bin/google-chrome" >> "$GITHUB_ENV"
+          else
+            npx playwright install --with-deps chromium  # fallback only
+          fi
       - name: App-wide contrast audit
         run: node scripts/e2e-contrast.mjs ${{ (github.event_name == 'workflow_dispatch' && inputs.full) && '' || '--quick' }} --json "$RUNNER_TEMP/contrast.json" --shots "$RUNNER_TEMP/contrast-shots"
       - uses: actions/upload-artifact@v4
