@@ -1098,7 +1098,7 @@ fn extract_zip_entries(
     for entry in entries {
         let rel: String = entry
             .rel
-            .replace('\', "/")
+            .replace('\\', "/")
             .split('/')
             .filter(|seg| !seg.is_empty() && *seg != "." && *seg != ".." && !seg.starts_with('.'))
             .collect::<Vec<_>>()
@@ -1148,7 +1148,7 @@ fn list_folder_files(app: tauri::AppHandle, path: String) -> Result<Vec<serde_js
             continue;
         }
         let rel = match entry.path().strip_prefix(&root) {
-            Ok(rel) => rel.to_string_lossy().replace('\', "/"),
+            Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
             Err(_) => continue,
         };
         if rel.is_empty()
