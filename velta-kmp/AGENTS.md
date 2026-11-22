@@ -130,7 +130,11 @@ native/rpc-shim/ Rust crate, two artifacts (#424): the Android cdylib (in-proces
                  Tauri stripped; media sends go through copy_plain —
                  blob sources are VLTA ciphertext under THIS device's
                  key, and the peer unwraps with its own, so a byte-exact
-                 copy shipped undecryptable bytes, #450) behind `loop_host`: a SECOND JNI
+                 copy shipped undecryptable bytes, #450; transfers carry
+                 plaintext frames INSIDE the QUIC-TLS tunnel, and blob
+                 copies rest as plaintext files in p2p-blobs/ on both
+                 ends — encrypting them with the device attachment key
+                 on write is the pending at-rest parity step) behind `loop_host`: a SECOND JNI
                  channel beside the core session — Kotlin `startLoop`
                  (binds LAN only after start; the pref gate lives in
                  Kotlin) / `sendLoopLine`, events via `RpcShim.onLoopLine`
