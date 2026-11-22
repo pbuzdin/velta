@@ -102,7 +102,6 @@ impl Drop for SessionGuard {
 /// object per line, no trailing newline. Ends on [stop] or a dropped sender.
 async fn run_session(
     state: CommandApi,
-    accounts: Arc<RwLock<Accounts>>,
     mut incoming: mpsc::UnboundedReceiver<String>,
     outgoing: mpsc::Sender<String>,
     stop: Arc<tokio::sync::Notify>,
@@ -177,7 +176,7 @@ fn worker_main(
         let session = tokio::spawn({
             let stop = stop.clone();
             async move {
-                run_session(state, accounts, in_rx, out_tx, stop).await;
+                run_session(state, in_rx, out_tx, stop).await;
             }
         });
         while let Some(line) = out_rx.recv().await {
@@ -612,7 +611,7 @@ mod tests {
         let (in_tx, in_rx) = mpsc::unbounded_channel();
         let (out_tx, mut out_rx) = mpsc::channel(8);
         let stop = Arc::new(tokio::sync::Notify::new());
-        let task = tokio::spawn(run_session(state, accounts, in_rx, out_tx, stop));
+        let task = tokio::spawn(run_session(state, in_rx, out_tx, stop));
         in_tx
             .send(
                 r#"{"jsonrpc":"2.0","id":7,"method":"set_push_device_token","params":["webpush:x|key|auth"]}"#.into(),
@@ -647,7 +646,7 @@ mod tests {
         let (in_tx, in_rx) = mpsc::unbounded_channel();
         let (out_tx, mut out_rx) = mpsc::channel(8);
         let stop = Arc::new(tokio::sync::Notify::new());
-        let task = tokio::spawn(run_session(state, accounts, in_rx, out_tx, stop));
+        let task = tokio::spawn(run_session(state, in_rx, out_tx, stop));
         in_tx
             .send(r#"{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}"#.into())
             .expect("send");
