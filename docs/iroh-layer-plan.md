@@ -1,13 +1,30 @@
-# iroh second layer — design and phased plan
+# iroh + chatmail transport layer — design and phased plan
 
-Status: proposal, 2026-10-06. Docs only, no code yet. Evidence and citations:
+Status: proposal, revised 2026-11-22 (first draft 2026-10-06). Docs only, no
+code yet. Evidence and citations:
 [`research/iroh-layer-research.md`](research/iroh-layer-research.md). Related:
-[`agents/p2p.md`](agents/p2p.md) (Local chat engine),
-[`research/archive/PLAN-PWA-WEBSOCKET.MD`](research/archive/PLAN-PWA-WEBSOCKET.MD) (PWA, Architecture C).
+[`agents/p2p.md`](agents/p2p.md) (Velta Loop / local chat engine),
+[`research/archive/PLAN-PWA-WEBSOCKET.MD`](research/archive/PLAN-PWA-WEBSOCKET.MD)
+(PWA, Architecture C). Tracked as
+[#470](https://github.com/pbuzdin/velta/issues/470). Also:
+[#469](https://github.com/pbuzdin/velta/issues/469) (Loop on iroh 1.x),
+[#454](https://github.com/pbuzdin/velta/issues/454) (streamed Loop transfers),
+[#468](https://github.com/pbuzdin/velta/issues/468) (PWA WebRTC Loop).
 
-Pavel's requirement: "iroh chat and calls will have separate chat folders and
-these chats will be marked with an 'iroh' chip near their avatars". iroh is a
-**second layer**. It never replaces email/chatmail transport.
+Pavel's original UX requirement (2026-10-06): "iroh chat and calls will have
+separate chat folders and these chats will be marked with an 'iroh' chip near
+their avatars".
+
+Direction (2026-11-22): Velta has **one transport layer with two backends**,
+both using the same identity and the same Velta keys. **iroh** is the instant
+path when both peers are reachable (Loop, calls, live typing, live delivery).
+**chatmail** is the fallback for offline delivery, push, multi-device sync,
+stable group membership, key verification, and talking to Delta Chat users. A
+user can run **Loop-only**, with no chatmail account, for own devices and
+friends on the same network.
+
+This is **not** a standalone iroh messenger, and it does **not** replace
+chatmail. See §1.6.
 
 ---
 
@@ -17,64 +34,161 @@ these chats will be marked with an 'iroh' chip near their avatars". iroh is a
   per webxdc message, ephemeral node keys, no sender attribution, 128 KiB
   messages, one hidden email per join) and backup transfer. There is no API for
   chat messages, presence or calls over iroh (research §1, §2).
-- **Recommended architecture (B):** **core stays the system of record and the
-  authenticated rendezvous. Velta's existing iroh engine in the Tauri shell
-  (`p2p.rs`, same iroh 0.35 crate) becomes the live data plane.** The engine
+- **Recommended architecture (B), now framed as a transport layer:** **core
+  stays the system of record and the authenticated rendezvous wherever a
+  chatmail account exists. Velta's existing iroh engine in the Tauri shell
+  (`p2p.rs`) is the live data plane.** The engine already powers Loop. It
   gains a relay mode (the chatmail relay's iroh relay) and "links": iroh nodes
-  bound to core contacts. Every user-visible message still goes through
+  bound to the same Velta identity as the chatmail contact. Every
+  user-visible message in a chatmail-backed chat still goes through
   `send_msg` first. The iroh copy is a provisional fast path, de-duplicated by
   Message-ID (`rfc724_mid`). **No change to production `core/`.**
-- **MVP (Phases 0+1, ~16 days):** 1:1 chats only, desktop and Android:
+- **Loop-only mode:** a profile with no chatmail account can still use Loop
+  for own devices and friends on the same network. Messages then exist only
+  on the iroh path, with Loop's sender-side queue. Limits are shown in the
+  UI: no push, no server-side multi-device sync, no Delta Chat interop.
+- **iroh version:** Loop can move to iroh 1.x as its own dependency, decoupled
+  from core's 0.35 (#469). A live path that uses a chatmail iroh relay may
+  stay on 0.35 until those relays support 1.x.
+- **MVP (Phases 0+1, ~18 days):** 1:1 chats only, desktop and Android:
   - per-chat opt-in link with consent;
   - presence, typing and instant text with email dedup;
   - live "delivered/read" hints;
   - the **iroh folder** and the **"iroh" chip**.
 - **Later:**
+  - Phase L: Loop-only onboarding (no chatmail account);
   - Phase 2: calls signalling over iroh (WebRTC media stays);
-  - Phase 3: large direct files;
+  - Phase 3: large direct files, sharing the streamed Loop transfer engine
+    (#454);
   - Phase 4: groups;
-  - Phase 5: the iroh 1.0 migration;
-  - Phase 6: the PWA, relay-only.
-- **Total:** ~41 working days for Phases 0–5, +4 days for a PWA spike, and +15–25
-  days for a full PWA layer.
+  - Phase 5: iroh 1.x — Loop first (#469), then the chatmail-relay path;
+  - Phase 6: the PWA. First path is WebRTC Loop for chats and small files,
+    no relay (#468). Relay-only iroh in wasm stays a later option.
+- **Total:** ~41 working days for Phases 0–5 as estimated in 2026-10-06, plus
+  a few days for the transport abstraction and Loop-only onboarding, +4 days
+  for a PWA spike, and +15–25 days for a full PWA layer. #454, #468 and #469
+  have their own estimates in those issues.
 
 ---
 
 ## 1. Goals, non-goals, invariants
 
 **Goals:**
+- One transport layer with two backends, sharing one Velta identity.
 - Lower latency between online Velta peers.
 - Live state (typing, presence, delivered/read hints).
 - Faster call setup.
-- Later: files bigger than email allows.
-- Clear UX: an iroh folder and an "iroh" chip.
+- Later: files bigger than email allows, including streamed Loop transfers
+  (#454).
+- Optional Loop-only mode: use Velta with no chatmail account, for own
+  devices and friends on the same network.
+- Clear UX: an iroh folder and an "iroh" chip. Loop-only limits are visible.
 
 **Non-goals:**
-- Replacing chatmail.
-- iroh-only chats with addresses. Local chat (`p2p:`) already covers serverless
-  chat and stays as it is.
+- Replacing chatmail with a standalone iroh messenger (§1.6).
+- Rebuilding store-and-forward, push, multi-device sync, group membership or
+  key verification as an iroh-only stack.
 - Media over iroh in this plan (research §3.4).
 - Patching production `core/`.
 
 **Invariants (become KEEP rules in AGENTS.md when built):**
 
-1. **Email first.** Every user-visible message, call and file stub is created
-   through core (`send_msg`, `place_outgoing_call` …) before or alongside its
-   iroh copy. Nothing visible exists only on iroh. The one exception is Phase-3
-   large files: an explicit, consented transfer whose email stub always exists.
-2. **Default off.** A fresh install opens no sockets for this layer. This is
-   the same rule as Local chat (AGENTS.md §5.4).
+1. **Chatmail first, when a chatmail account exists.** Every user-visible
+   message, call and file stub in a chatmail-backed chat is created through
+   core (`send_msg`, `place_outgoing_call` …) before or alongside its iroh
+   copy. Nothing in those chats exists only on iroh. The one exception is
+   Phase-3 large files: an explicit, consented transfer whose email stub
+   always exists.
+   **Loop-only chats are the other exception:** they have no chatmail copy,
+   because there is no account. They use Loop's own store and sender-side
+   queue, and the UI states the limits.
+2. **Default off for the chatmail-linked live path.** A fresh install opens no
+   sockets for that path. This is the same rule as Loop (AGENTS.md §5.4).
+   Loop itself stays the existing opt-in local-chat feature. Loop-only
+   onboarding is an explicit choice, not a silent default for people who
+   already have a chatmail account.
 3. **Degrade to plain chatmail.** A peer without Velta or without the layer,
-   a peer that is offline, or any iroh failure: the chat behaves exactly like
-   today. No errors and no lost messages.
-4. **The core copy wins.** When the email copy arrives it replaces the
-   provisional iroh copy: content, order and state. Core MDNs remain
-   authoritative for read state.
+   a peer that is offline, or any iroh failure: a chatmail-backed chat
+   behaves exactly like today. No errors and no lost messages.
+4. **The core copy wins** in chatmail-backed chats. When the email copy
+   arrives it replaces the provisional iroh copy: content, order and state.
+   Core MDNs remain authoritative for read state.
 5. **Never use n0 default relays.** Only the profile's chatmail iroh relay,
    or none. Research §4: n0's 0.35 relays end on 2026-12-31, and upstream
-   avoids n0 (#5591, #8490).
-6. **Respect the proxy.** If core has a proxy enabled, the layer stays off,
-   because iroh bypasses proxies (`core/src/net/proxy.rs:158-159`).
+   avoids n0 (#5591, #8490). Loop on a LAN needs no relay.
+6. **Respect the proxy.** If core has a proxy enabled, the chatmail-linked
+   live path stays off, because iroh bypasses proxies
+   (`core/src/net/proxy.rs:158-159`). Loop-only, which has no core proxy
+   setting, keeps its own policy (LAN-first; no unexpected relays).
+
+---
+
+## 1.5 One transport layer, two backends
+
+```
+Velta transport layer
+  ├── iroh backend — instant path, when both peers are reachable
+  │     Loop (own devices and friends, usually the same network)
+  │     live message delivery
+  │     live typing and presence
+  │     call signalling
+  └── chatmail backend — reliable path
+        offline store-and-forward
+        push notifications
+        multi-device sync
+        group membership and key verification
+        Delta Chat interop
+```
+
+Both backends belong to the same profile identity:
+
+- **With a chatmail account:** the long-term identity is the Autocrypt key.
+  The iroh node id is bound to it, either by an in-person QR ticket or by an
+  authenticated chatmail message (§4.1). Each device of the same person has
+  its own node id, all bound to that key.
+- **Loop-only, no chatmail account:** the profile still has a long-term
+  key, and peers are paired in person with the existing Loop QR flow. If
+  that person later adds a chatmail account, the same identity is reused so
+  existing Loop chats and new chatmail chats stay one person, not two.
+
+The UI stays one messenger: one chat list, one composer. The transport
+layer chooses the path. A chat may be chatmail-backed, Loop-only, or
+chatmail-backed with a live iroh overlay (the "iroh" chip).
+
+## 1.6 Why chatmail stays (not a standalone iroh messenger)
+
+iroh is a live transport. It moves data between devices that are online at
+the same moment, with optional sender-side queuing (as Loop already does).
+It does not, by itself, give Velta the things chatmail already provides:
+
+- **Store-and-forward.** A message has to wait somewhere while the other
+  phone is off. That "somewhere" is a server that stores ciphertext and
+  hands it over later. Building that on iroh means running such servers
+  and defining retention, quotas and abuse policy — in other words, a new
+  mail service.
+- **Push.** Mobile OS push needs a persistent server-side registration.
+  Chatmail already does this. An iroh-only app would only be reachable
+  while it is in the foreground, unless we rebuild a push path.
+- **Multi-device sync.** Chatmail delivers a copy to each of a person's
+  devices and keeps history consistent. An iroh-only design would have to
+  invent a sync protocol and a place to park messages for a device that is
+  offline.
+- **Stable group membership.** Chatmail already has add, remove, and a
+  membership that survives offline members. Loop groups are a small,
+  online mesh. Scaling that to chatmail-sized groups without a
+  store-and-forward path is a new problem.
+- **Contact keys and verification.** Chatmail already has Autocrypt,
+  fingerprints and verified contact setup. An iroh-only messenger would
+  need its own key model and verification UX.
+- **Interop.** Every chatmail-backed message is a normal Delta Chat
+  message. A standalone iroh messenger talks only to other Velta devices
+  that also run that stack.
+
+Rebuilding those pieces is months of work and a new security surface to
+audit. The right shape is the one above: iroh for the instant path,
+chatmail for everything that has to work when the other device is not
+there, and Loop-only as an optional mode for a small, online set of Velta
+peers — not a second product.
 
 ---
 
@@ -82,9 +196,15 @@ these chats will be marked with an 'iroh' chip near their avatars". iroh is a
 
 An **iroh chat** is a **normal core 1:1 chat** (Phase 4 adds groups) whose
 contact has at least one **linked Velta device**. A linked device is an iroh
-node id bound to that contact through the link protocol (§4.1), with the layer
-enabled on both sides. Its history and storage are the core chat's; the iroh
-layer adds live delivery and state on top.
+node id bound to that contact — and to the same Velta identity — through the
+link protocol (§4.1), with the layer enabled on both sides. Its history and
+storage are the core chat's; the iroh path adds live delivery and state on
+top.
+
+**Loop-only chats** (`p2p:` / `p2pg:`) are the other kind. They already exist
+as Velta Loop and have no core chat underneath. In Loop-only mode they are
+first-class: they are the only chats that profile has. They still appear in
+the iroh folder and keep the wifi badge (D7).
 
 States (the chip and the header show them as text):
 
@@ -108,21 +228,28 @@ Pavel decides so (D2).
 Options (research §6): **A** JS-only on core gossip, **B** Velta engine as the
 data plane with core as rendezvous, **C** a core patch series.
 
-**Recommendation: B.** Reasons:
+**Recommendation: B**, as the live half of the transport layer in §1.5.
+The chatmail backend is already core. The iroh backend is Velta's engine,
+shared with Loop. Reasons:
 
 1. **Velta already owns a tested iroh engine** with almost every primitive
    needed: persistent identity, authenticated 1:1 QUIC sessions, `Msg`/`Ack`/
    `Typing` frames, offline queue, chunked files, ALPN versioning, unknown-frame
    tolerance and Rust tests (`docs/agents/p2p.md`). Core's realtime channel
    offers broadcast only, without sender identity or backpressure.
-2. **No core patches.** Desktop runs the stock `deltachat-rpc-server`
-   sidecar, so any core change means a custom sidecar build on every platform,
-   on top of the production core quilt (21 ops at 2.63.0) and the wasm series.
+2. **No core patches.** Desktop now runs Velta's `velta-rpc-server` (the
+   same shim as Android). Any change to production `core/` still means a
+   custom core build on every platform, on top of the production core quilt
+   and the wasm series, so this layer does not go there.
 3. **Identity is stable.** Core's iroh node id changes on every `stop_io`.
    Rendezvous via core would cost one hidden email per chat per restart.
-4. **It fits Pavel's "use the iroh inside core" in practice.** It is the same
-   iroh 0.35 library, already compiled into Velta's binary (one crate build on
-   Android). Only the endpoint is Velta's.
+   Velta's node id is long-term and is bound to the profile's Velta key
+   (§1.5).
+4. **The live data plane is Velta's engine, not core's gossip channel.**
+   Today that engine shares iroh 0.35 with core. Loop can take iroh 1.x as
+   its own dependency (#469), so the apps may ship two iroh copies until
+   core upgrades. The chatmail-relay live path may stay on 0.35 until
+   chatmail relays publish 1.x endpoints.
 
 **What B costs:**
 - **Rendezvous:** needs an encrypted, contact-authenticated channel. Phase 1
@@ -354,20 +481,25 @@ relay from the link payload. No n0 fallback.
 - Measured in Spike S4. Upstream #7058 notes that idle endpoints keep pinging
   the relay.
 
-### 4.11 Versioning and iroh 1.0
+### 4.11 Versioning and iroh 1.x
 
-- **`/velta/link/1` on iroh 0.35.**
-  - The 0.35 wire is incompatible with 1.0 (core PR #8182, relay#1010).
+- **`/velta/link/1` on iroh 0.35** for the chatmail-relay live path, for as
+  long as chatmail relays speak 0.35.
+  - The 0.35 wire is incompatible with 1.x (core PR #8182, relay#1010).
   - Chatmail relays run 0.35 relays today.
   - n0 0.35 relays end 2026-12-31. They are not used anyway.
-- **Phase 5:**
-  - Move the link engine to iroh 1.0 and `/velta/link/2`, once chatmail relays
-    publish 1.0 relays (new METADATA key per relay#1010).
+- **Loop on iroh 1.x first (#469).** Loop is LAN-first and does not need a
+  chatmail iroh relay, so it can move to 1.x as its own dependency, decoupled
+  from core's 0.35. Measure the extra binary size, and give mixed-version
+  peers a clear "update Velta to use Loop" message.
+- **Phase 5, after Loop:**
+  - Move the link engine to iroh 1.x and `/velta/link/2`, once chatmail
+    relays publish 1.x relays (new METADATA key per relay#1010).
   - During the transition, link payloads advertise `iroh`; mismatches show
     "peer needs update".
-  - Option: link both crates side by side (renamed dependency), as core
-    considers for backup transfer. That costs binary size (unverified, estimated
-    several MB).
+  - Until core itself moves to 1.x, the apps may ship two iroh copies
+    (Loop on 1.x, core and the link path on 0.35). When core upgrades, drop
+    the duplicate and share one copy again (#469).
 
 ---
 
@@ -488,32 +620,52 @@ audio over QUIC datagrams.
 
 The most-requested upstream use (forum, adbenitez 2026-06-15).
 
+Loop already has its own file path, and #454 extends it: zip chunks streamed
+in Rust, both ways between desktop and Android, no 2 GB memory cap, a
+free-space check, and resume after a drop. Phase 3 for chatmail-backed chats
+should reuse that engine, not invent a second one.
+
 1. The sender picks a file above the email limit (or opts in for any size).
 2. Velta sends an **email stub** via core: a text message such as "📎 video.mp4
    (180 MB), sent via iroh to Velta", plus `file-offer { stub_mid, sha256, … }`.
 3. The receiver accepts (auto-accept up to N MB from linked contacts, D11).
-4. The transfer reuses the p2p chunking (96 KB frames, partial files, sanitized
-   names, `is_safe_transfer_id`). The data lands in a Velta-owned blob directory
-   under the accounts dir. Velta does not create core messages for the file:
-   the stub is the core copy, and the file is attached in Velta's view of that
-   stub.
-5. Restart and resume: from byte 0 (as today), or ranged resume as a
-   stretch goal.
+4. The transfer uses the streamed Loop machinery from #454 (chunked writes
+   to disk, path checks, cancel, progress). The data lands in a Velta-owned
+   blob directory under the accounts dir, or a folder the user picks
+   (Android SAF, as in #454). Velta does not create core messages for the
+   file: the stub is the core copy, and the file is attached in Velta's view
+   of that stub.
+5. Restart and resume: from the last good chunk, as in #454.
+
+Loop-only transfers have no email stub and no Delta Chat compatibility
+constraint, which is why #454 can drop the 2 GB cap and stream both ways.
 
 ---
 
 ## 8. PWA (Phase 6)
 
-- Browsers have no UDP. iroh in wasm is relay-only over WebSocket and
-  end-to-end encrypted (research §5).
+- Browsers have no UDP, and they cannot open the raw local-network sockets
+  that native Loop uses. That is why Loop is hidden in the PWA today.
+- **Option P0 (first, #468): WebRTC Loop for chats and small files, with no
+  relay.** Browsers swap connection details as encrypted Velta messages (or,
+  in Loop-only, as a QR / in-band offer). On the same Wi-Fi the data path is
+  usually device to device, encrypted with DTLS. No TURN by default: if a
+  direct path fails, say so clearly. PWA-to-PWA comes first; PWA-to-Tauri
+  needs a WebRTC transport on the Tauri side (for example `webrtc-rs`).
+  Limits: the tab must stay in the foreground; isolated guest networks fail;
+  Chromium can stream received files to disk, other browsers need a memory
+  cap. Big transfers stay a Tauri feature (#454).
 - **Option P1:** the wasm core's own peer channels (option A, gossip).
   Unverified: the wasm series keeps iroh but never runs it.
-- **Option P2 (recommended): port the link engine (protocol subset:
-  text, typing, presence, call signalling) to wasm on iroh 1.0**, after Phase
-  5. Interop with native peers goes through the shared relay. Calls in the PWA
+- **Option P2: port the link engine (protocol subset: text, typing,
+  presence, call signalling) to wasm on iroh 1.x**, after Phase 5. This is
+  the path for a *cross-network* live overlay in the PWA. In a browser, iroh
+  is relay-only over WebSocket and stays end-to-end encrypted (research §5).
+  Interop with native peers goes through a shared relay. Calls in the PWA
   use browser WebRTC plus TURN, which already works.
 - **Gate:** PLAN-PWA Architecture C landing first
-  (`docs/research/wasm-core-landing-checklist.md`).
+  (`docs/research/wasm-core-landing-checklist.md`). #468 can start without
+  waiting for an iroh wasm port.
 
 ---
 
@@ -524,20 +676,21 @@ Estimates in working days for one developer familiar with p2p.rs.
 | Phase | Content | Days |
 |---|---|---|
 | **0. Spikes** | S1 chatmail iroh-relay URL derivation plus relay mode in a test endpoint (desktop ↔ Android on different networks: connect rate, direct upgrade rate, RTT). S2 helper xdc round trip; rendering in DC Desktop and DC Android; status updates without `info` stay silent; deleting the xdc. S3 relay-only / IP-hiding feasibility on iroh 0.35. S4 latency baseline (email vs iroh) and Android battery for 1 h in the foreground | **3** |
-| **1. MVP: 1:1 live layer** | 1.1 per-profile endpoint, relay mode, settings, proxy gate (1.5). 1.2 link protocol (xdc + QR), registry, consent, revoke (2.5). 1.3 session auth, dial policy, presence (1.5). 1.4 `live` envelope, rfc724_mid dedup and reconcile, notification dedup incl. Android poller (3). 1.5 typing, live ack/read hints (1). 1.6 UI: iroh folder, avatar chip, header status, a11y/RTL/forced colours (1.5). 1.7 tests and two-device matrix (2) | **13** |
+| **1. MVP: 1:1 live layer** | 1.0 transport API over the existing engines (one send/receive surface, two backends, shared identity) (2). 1.1 per-profile endpoint, relay mode, settings, proxy gate (1.5). 1.2 link protocol (xdc + QR), registry, consent, revoke (2.5). 1.3 session auth, dial policy, presence (1.5). 1.4 `live` envelope, rfc724_mid dedup and reconcile, notification dedup incl. Android poller (3). 1.5 typing, live ack/read hints (1). 1.6 UI: iroh folder, avatar chip, header status, a11y/RTL/forced colours (1.5). 1.7 tests and two-device matrix (2) | **15** |
+| **L. Loop-only mode** | Onboarding with no chatmail account; reuse the same identity later if an account is added; UI for the limits (no push, no server-side multi-device sync, no Delta Chat interop); existing Loop chats stay first-class | **5** |
 | **2. Calls signalling** | ring/answer/ice/end/busy frames, `calls.js` `fastSignal`, reconciliation rules, iroh filter in Calls, tests | **6** |
-| **3. Large files** | stub plus offer/accept, transfer reuse, consent and auto-accept policy, UI progress/retry | **5** |
+| **3. Large files** | stub plus offer/accept, reuse the streamed Loop engine from #454, consent and auto-accept policy, UI progress/retry | **5** |
 | **4. Groups** | membership from core plus 1:1 links, `group-live` mesh, dedup, typing in groups, cap 8 | **9** |
-| **5. iroh 1.0 migration** | engine on iroh 1.0, `/velta/link/2`, relay discovery for 1.0 relays, mismatch UX, optional dual stack | **5** |
-| Subtotal 0–5 | | **41** |
-| **6. PWA** | spike (wasm engine subset over relay, 4 d); full layer after PWA C lands (15–25 d) | 4 + 15–25 |
+| **5. iroh 1.x** | Loop on 1.x first (#469, own estimate). Then the link engine on 1.x, `/velta/link/2`, relay discovery for 1.x relays, mismatch UX, optional dual stack until core upgrades | **5** (link path; Loop in #469) |
+| Subtotal 0–5 + L | 2026-10-06 total was 41; +2 for the transport API and +5 for Loop-only | **48** |
+| **6. PWA** | WebRTC Loop spike first (#468); later, wasm engine subset over a relay (4 d) and a full layer after PWA C lands (15–25 d) | 4 + 15–25, plus #468 |
 | R1 (optional) | core patch series spike (invisible header; MIME-over-iroh dedup via `receive_imf`), apply-on-copy only, plus an upstream write-up | 10 |
 | R2 (optional) | desktop native audio over iroh datagrams, feasibility only | 5 |
 
 **MVP acceptance criteria (Phases 0+1):**
 
 1. With the layer off (default): no new sockets, identical behaviour. Pinned by
-   a test, as for Local chat.
+   a test, as for Loop.
 2. Two Velta devices (desktop + Android) on different networks, chat linked:
    - text shows on the peer in **< 1 s p50** while both are in the foreground
      (via iroh, direct or relay);
@@ -553,8 +706,18 @@ Estimates in working days for one developer familiar with p2p.rs.
    chat" plus the state. It mirrors correctly in RTL and stays visible under
    forced colours. axe shows no new violations on the chat list.
 7. No n0 relay is contacted (asserted in tests by relay config). With a proxy
-   enabled in core, the layer refuses to start.
+   enabled in core, the chatmail-linked live path refuses to start.
 8. Revoke on either side drops the session within 5 s and removes the chip.
+
+**Loop-only acceptance criteria (Phase L):**
+
+1. A new profile can be created with no chatmail account and can use Loop
+   with another Velta device on the same network.
+2. The UI states the limits: no push, no server-side multi-device sync, no
+   Delta Chat interop.
+3. Adding a chatmail account later reuses the same identity. Existing Loop
+   chats remain.
+4. A Loop-only profile never contacts an n0 relay.
 
 **Tests:**
 - **Rust (`cargo test --lib p2p::link`):**
@@ -584,7 +747,7 @@ Estimates in working days for one developer familiar with p2p.rs.
 
 | # | Risk | Mitigation |
 |---|---|---|
-| R1 | iroh 0.35 end of life; the 1.0 wire break splits peers (research §4) | version field in links, Phase 5, mismatch UX; never rely on n0 |
+| R1 | iroh 0.35 end of life; the 1.x wire break splits peers (research §4, #469) | Loop upgrades first (#469) with a clear mixed-version message; link path waits for chatmail 1.x relays; never rely on n0 |
 | R2 | Relay URL not exposed by JSON-RPC; some chatmail iroh relays are broken (#8490) | S1 derivation plus `/generate_204` probe; fall back to "linked (offline)"; propose an upstream `get_info` field |
 | R3 | Helper xdc confuses other-client users, or users delete it | clear page in the xdc; QR carrier as an alternative; option C/upstream later |
 | R4 | Dedup gaps: email copy never arrives, or the `rfc724Mid` lookup costs an RPC per message | lookup only in linked chats; "not yet received by email" marker; soak test |
@@ -596,6 +759,7 @@ Estimates in working days for one developer familiar with p2p.rs.
 | R10 | Engine growth (p2p.rs is ~7k lines); two endpoints per device | separate `p2p/link.rs`; lazy endpoint; shared helpers |
 | R11 | Upstream later ships an overlapping feature (e.g. iroh files) with another protocol | small protocol; track #8182 and the forum; be ready to adopt upstream |
 | R12 | Desktop sidecar and Android in-process paths differ for the notification hook | hook lives in the shell's poller; desktop page path in JS |
+| R13 | Loop-only users expect push, history on a new device, or Delta Chat interop | clear limits in onboarding and in the chat; adding a chatmail account later reuses the same identity |
 
 ---
 
@@ -625,9 +789,14 @@ Estimates in working days for one developer familiar with p2p.rs.
 10. **D10 Unreconciled live messages:** keep them forever with a marker, or
     drop them after 30 days?
 11. **D11 Large files:** size cap and auto-accept threshold for linked contacts.
-12. **D12 iroh version:** build the MVP on 0.35 (matches core and chatmail
-    relays today; recommended) and migrate in Phase 5, or start on 1.0 with a
-    self-hosted/n0 1.0 relay?
+12. **D12 iroh version:** Loop on iroh 1.x first as its own dependency
+    (#469; recommended). Keep the chatmail-relay live path on 0.35 until
+    those relays support 1.x, then migrate it in Phase 5. Do not start the
+    chatmail-relay path on a public n0 1.x relay.
 13. **D13 Upstream:** propose a small core API (expose the iroh relay URL;
     sender id on status updates; optional per-chat peer channel) upstream in
     parallel?
+14. **D14 Loop-only onboarding:** a first-run choice ("use without a
+    chatmail account", recommended) for own devices and friends on the same
+    network, or only as an advanced setting after a chatmail account exists?
+    Adding a chatmail account later must reuse the same identity (§1.5).
