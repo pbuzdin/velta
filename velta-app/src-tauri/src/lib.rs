@@ -781,10 +781,7 @@ fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
     // instead of 5 s: cold TLS + slow RTT on mobile frequently beat 5 s.
     let mut builder = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(10))
-        .user_agent("Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36 Velta/1")
-        // Sites negotiate formats per Accept; the default `*/*` of some
-        // stacks makes image endpoints serve whatever is cheapest.
-        .set("Accept", "text/html,application/xhtml+xml,image/avif,image/webp,image/*;q=0.8,*/*;q=0.5");
+        .user_agent("Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36 Velta/1");
     if let Some(p) = link_preview_proxy(proxy)? {
         let p = ureq::Proxy::new(&p).map_err(|_| "unsupported proxy for link previews".to_string())?;
         builder = builder.proxy(p);
@@ -855,7 +852,7 @@ fn jpeg_dims(bytes: &[u8]) -> Option<(u32, u32)> {
             i += 2;
             continue;
         }
-        let len = usize::from_be_bytes([0, 0, bytes[i + 2], bytes[i + 3]]);
+        let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
         i += 2 + len.max(2);
     }
     None
