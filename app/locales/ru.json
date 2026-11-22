@@ -1731,5 +1731,10 @@
   "Send folder…": "Отправить папку…",
   "Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network.": "Локальный чат выключен. Включите его, чтобы связываться с устройствами рядом и использовать локальные группы — всё остаётся в вашей сети.",
   "Turn on local chat": "Включить локальный чат",
-  "Velta Loop is on — local chat on the same network": "Velta Loop включён — локальный чат в вашей сети"
+  "Velta Loop is on — local chat on the same network": "Velta Loop включён — локальный чат в вашей сети",
+  "📎 {name} · {size} — sent directly from device to device": "📎 {name} · {size} — отправлено напрямую с устройства на устройство",
+  "Sent directly (iroh)": "Отправлено напрямую (iroh)",
+  "Sent by email": "Отправлено по почте",
+  "Send large files directly": "Отправлять большие файлы напрямую",
+  "Files over 6 MB to Velta contacts go device to device. If that fails, Velta sends them by email.": "Файлы больше 6 МБ для контактов Velta идут напрямую между устройствами. Если не получится, Velta отправит их по почте."
 }
