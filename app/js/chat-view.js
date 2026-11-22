@@ -120,6 +120,7 @@ import { attachMentionPicker, fprCode } from "./mentions.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { lcRetryTransfer } from "./local-chat.js";
+import { zipFolder } from "./folder-zip.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealItem } from "./text-only-mode.js";
@@ -3628,6 +3629,17 @@ export class ChatView {
         onClick: () => showAttachmentInFolder(m.filePath, m.fileName, { mime: m.fileMime || null }),
       });
     }
+    // #454: a received folder zip (p2p chats send folders this way) — extract
+    // next to the archive via the shell, honoring the stored relative paths.
+    if (!covered && this.chat?.isP2p && m.viewtype === "file"
+      && m.filePath && (!m.downloadState || m.downloadState === "Done")
+      && String(m.fileName || "").toLowerCase().endsWith(".zip")
+      && tauriInvoke()) {
+      items.push({
+        label: "Extract here", short: t("Extract"), pair: "file", icon: ICO.folder,
+        onClick: () => this._extractFolderZip(m),
+      });
+    }
     // Local P2P groups: no pin / forward / save / react / delete (relay-core
     // features the mesh engine has no equivalent for).
     const p2pg = !!this.chat?.isP2pGroup;
@@ -4427,6 +4439,12 @@ export class ChatView {
       if (stickersInAttach() && !this.chat?.isP2pGroup) {
         attachItems.push({ label: "Stickers", icon: ICO.sticker, onClick: () => this._toggleStickerPicker() });
       }
+      // #454: whole folder as one p2p transfer — zip on pick (STORE), the
+      // engine streams it like any file. Local chats only: relay chats have
+      // the per-file flow and Lufi for big media.
+      if (this.chat?.isP2p && largeFileAvailable()) {
+        attachItems.push({ label: "Send folder…", icon: ICON.folder, onClick: () => this._sendFolder() });
+      }
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
       if (largeFileAvailable() && !this.chat?.isP2p) {
@@ -5142,6 +5160,90 @@ export class ChatView {
         return msg;
       },
     });
+  }
+
+  // #454: extract a received folder zip. The archive's relative paths are
+  // honored under a destination the user picks (the save dialog's directory
+  // return is a shell concern — here: save next to the archive in blobs via
+  // save_attachment's dialog flow). Bytes come through read_media_bytes so
+  // the VLTA/plaintext pipeline applies.
+  async _extractFolderZip(m) {
+    const invoke = tauriInvoke();
+    if (!invoke) return;
+    try {
+      const bytes = new Uint8Array(await invoke("read_media_bytes", { src: m.filePath }));
+      const { unzipToMap } = await import("./folder-zip.js");
+      const files = unzipToMap(bytes);
+      const base = String(m.fileName || "folder.zip").replace(/\.zip$/i, "");
+      // The user picks the destination; entries land under <dest>/<base>/<rel>.
+      // The shell composes the absolute paths (the renderer never does).
+      const dir = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: t("Extract to…") } });
+      const dest = (Array.isArray(dir) ? dir[0] : dir) || "";
+      if (!dest) return;
+      await invoke("allow_picked_path", { path: dest }).catch(e => rustLog(`allow_picked_path: ${e}`));
+      const entries = Object.entries(files).map(([rel, data]) => ({ rel, data }));
+      const wrote = await invoke("extract_zip_entries", {
+        dest,
+        base,
+        entries: entries.map(e => ({ rel: e.rel, data: Array.from(e.data) })),
+      });
+      toast(t("Extracted {n} files", { n: wrote }));
+      diagnosticsSink.append("info", `folder zip extracted: ${wrote} entries under ${base}/`);
+    } catch (err) {
+      errToast(t("Couldn't extract: ") + (err?.message || err));
+      diagnosticsSink.append("error", `folder extract failed: ${err?.message || err}`);
+    }
+  }
+
+  // #454: whole folder as one p2p transfer. The dialog picks the folder
+  // (directory open returns its path), the shell enumerates it (picked-path
+  // gate), the renderer zips entry by entry (folder-zip.js, STORE) and hands
+  // the archive to the normal local-chat send — the engine streams it.
+  async _sendFolder() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    const invoke = tauriInvoke();
+    if (!invoke) { errToast(t("Sending a folder needs the Velta app")); return; }
+    let picked;
+    try {
+      picked = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false } });
+    } catch (err) {
+      diagnosticsSink.append("warning", `folder picker failed: ${err?.message || err}`);
+      return;
+    }
+    const folder = (Array.isArray(picked) ? picked[0] : picked) || "";
+    if (!folder || !this._isCurrent(session)) return;
+    await invoke("allow_picked_path", { path: folder }).catch(e => rustLog(`allow_picked_path: ${e}`));
+    let entries;
+    try {
+      entries = await invoke("list_folder_files", { path: folder });
+    } catch (err) {
+      errToast(t("Couldn't read the folder: ") + (err?.message || err));
+      return;
+    }
+    if (!entries.length) { errToast(t("The folder is empty (hidden files are skipped)")); return; }
+    const folderName = String(folder).replace(/\\/g, "/").split("/").filter(Boolean).pop() || "folder";
+    try {
+      const blob = await zipFolder(entries, async (entry) => {
+        const bytes = await invoke("plugin:fs|read_file", { path: entry.path });
+        return new Uint8Array(bytes);
+      }, (done, total) => {
+        if (done % 10 === 0 || done === total) diagnosticsSink.append("info", `folder zip: ${done}/${total}`);
+      });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const filename = `${folderName}.zip`;
+      const filePath = await this._writeBlobForSend(filename, bytes);
+      // allow_picked_path for the staged archive: the engine's send_file
+      // copies it into blobs (copy_plain) before streaming.
+      await invoke("allow_picked_path", { path: filePath }).catch(e => rustLog(`allow_picked_path: ${e}`));
+      const msg = await this.core.sendMessage(session.chatId, {
+        text: "", viewtype: "file", file: filePath, filename,
+      });
+      if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); }
+    } catch (err) {
+      if (this._isCurrent(session)) errToast(t("Couldn't send the folder: ") + (err?.message || err));
+      diagnosticsSink.append("error", `folder send failed: ${err?.message || err}`);
+    }
   }
 
   async _sendAttachment(kind) {

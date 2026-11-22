@@ -1074,6 +1074,100 @@ async fn encrypt_upload(app: tauri::AppHandle, path: String) -> Result<(), Strin
     }).await.map_err(|e| e.to_string())?
 }
 
+/// #454: write the entries of a received folder zip under
+/// `<dest>/<base>/<rel>`. The renderer sends rel + bytes; this composes the
+/// absolute paths and refuses escapes (.., absolute, drive prefixes) so a
+/// crafted archive cannot write outside the chosen tree. The destination
+/// must already be an allowed pick (allow_picked_path before this call).
+#[tauri::command]
+fn extract_zip_entries(
+    app: tauri::AppHandle,
+    dest: String,
+    base: String,
+    entries: Vec<ExtractEntry>,
+) -> Result<usize, String> {
+    use std::io::Write;
+    crate::picked::check(&app, std::path::Path::new(&dest))
+        .map_err(|_| "destination was not picked by the user".to_string())?;
+    let base_safe: String = base
+        .chars()
+        .map(|c| if c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | ' ') { c } else { '_' })
+        .collect();
+    let root = std::path::Path::new(&dest).join(&base_safe);
+    let mut wrote = 0usize;
+    for entry in entries {
+        let rel: String = entry
+            .rel
+            .replace('\\', "/")
+            .split('/')
+            .filter(|seg| !seg.is_empty() && *seg != "." && *seg != ".." && !seg.starts_with('.'))
+            .collect::<Vec<_>>()
+            .join("/");
+        if rel.is_empty() {
+            continue;
+        }
+        let path = root.join(&rel);
+        // Belt and suspenders: the joined path must stay under the tree.
+        if !path.starts_with(&root) {
+            return Err("entry escaped the destination".into());
+        }
+        let parent = path.parent().ok_or("entry has no parent")?;
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+        file.write_all(&entry.data).map_err(|e| e.to_string())?;
+        wrote += 1;
+    }
+    Ok(wrote)
+}
+
+#[derive(serde::Deserialize)]
+pub struct ExtractEntry {
+    pub rel: String,
+    pub data: Vec<u8>,
+}
+
+/// #454: enumerate a user-picked folder for the zip-on-pick flow. The pick
+/// is the consent (same V-07 gate as the other arbitrary-path readers), the
+/// walk is depth-limited, and each entry carries the relative path the
+/// renderer zips by; bytes are read later through the fs plugin with the
+/// folder allowed by the caller (allow_picked_path).
+#[tauri::command]
+fn list_folder_files(app: tauri::AppHandle, path: String) -> Result<Vec<serde_json::Value>, String> {
+    use walkdir::WalkDir;
+    crate::picked::check(&app, std::path::Path::new(&path))
+        .map_err(|_| "folder was not picked by the user".to_string())?;
+    let root = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for entry in WalkDir::new(&root)
+        .max_depth(12)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let rel = match entry.path().strip_prefix(&root) {
+            Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+        if rel.is_empty()
+            || entry
+                .path()
+                .components()
+                .any(|c| matches!(c, std::path::Component::Normal(s) if s.to_string_lossy().starts_with('.')))
+        {
+            continue;
+        }
+        out.push(serde_json::json!({
+            "path": entry.path().to_string_lossy(),
+            "relativePath": rel,
+            "size": entry.metadata().map(|m| m.len()).unwrap_or(0),
+        }));
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
     use tauri::path::BaseDirectory;
@@ -5559,7 +5653,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
