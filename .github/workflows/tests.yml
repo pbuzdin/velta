@@ -40,3 +40,5 @@ jobs:
         run: npx --prefix scripts playwright install --with-deps chromium
       - name: Main UI browser smoke
         run: node scripts/e2e-smoke.mjs
+      - name: PWA Loop over WebRTC (#468)
+        run: node scripts/e2e-webrtc-loop.mjs
