@@ -219,7 +219,15 @@ const THEMES = ['dark', 'amoled', 'light', 'brutal']
 
 const all = new Map() // violation -> [contexts]
 let skippedTotal = 0
-for (const theme of THEMES) for (const accent of ACCENTS) {
+// One combo = one (theme, accent) context walking every screen. Combos are
+// independent, so they run on a small worker pool — the audit was the whole
+// CI runtime serially. One page at a time per context keeps memory flat.
+const combos = []
+for (const theme of THEMES) for (const accent of ACCENTS) combos.push([theme, accent])
+
+async function runCombo([theme, accent]) {
+  const found = new Map()
+  let skippedCount = 0
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, permissions: ['microphone'] })
   await ctx.addInitScript(([t, a]) => {
     localStorage.setItem('velta-mock', '1'); localStorage.setItem('dw-theme', t === 'amoled' ? 'dark' : t)
@@ -235,8 +243,8 @@ for (const theme of THEMES) for (const accent of ACCENTS) {
       if (id !== 'toast') await page.evaluate(() => document.querySelectorAll('.toasts > *').forEach(t => t.remove()))
       await go(page)
       const { violations, skipped } = await page.evaluate(audit)
-      skippedTotal += skipped.length
-      for (const v of violations) { if (!all.has(v)) all.set(v, []); all.get(v).push(tag) }
+      skippedCount += skipped.length
+      for (const v of violations) { if (!found.has(v)) found.set(v, []); found.get(v).push(tag) }
       console.log(`${violations.length ? 'FAIL' : 'ok  '} ${tag}${violations.length ? ' (' + violations.length + ')' : ''}`)
       if (shots) await page.screenshot({ path: join(shots, `${theme}${accent ? '-' + accent.slice(1) : ''}-${id}.png`) })
     } catch (e) { console.log(`SKIP ${tag}: ${String(e.message).split('\n')[0]}`) }
@@ -266,8 +274,8 @@ for (const theme of THEMES) for (const accent of ACCENTS) {
       }, tokens)
       await page.goto(`${origin}/webxdc/group-call/index.html`); await page.waitForTimeout(500)
       const { violations, skipped } = await page.evaluate(audit)
-      skippedTotal += skipped.length
-      for (const v of violations) { if (!all.has(v)) all.set(v, []); all.get(v).push(tag) }
+      skippedCount += skipped.length
+      for (const v of violations) { if (!found.has(v)) found.set(v, []); found.get(v).push(tag) }
       console.log(`${violations.length ? 'FAIL' : 'ok  '} ${tag}${violations.length ? ' (' + violations.length + ')' : ''}`)
       if (shots) await page.screenshot({ path: join(shots, `${theme}${accent ? '-' + accent.slice(1) : ''}-group-call-app-${mode}.png`) })
     } catch (e) { console.log(`SKIP ${tag}: ${String(e.message).split('\n')[0]}`) }
@@ -275,7 +283,18 @@ for (const theme of THEMES) for (const accent of ACCENTS) {
     if (mode === 'needs-velta' && accent) break
   }
   await ctx.close()
+  return { found, skippedCount }
 }
+
+const WORKERS = 4 // ubuntu-24.04 runner vCPUs
+let next = 0
+await Promise.all(Array.from({ length: WORKERS }, async () => {
+  while (next < combos.length) {
+    const { found, skippedCount } = await runCombo(combos[next++])
+    skippedTotal += skippedCount
+    for (const [v, tags] of found) { if (!all.has(v)) all.set(v, []); all.get(v).push(...tags) }
+  }
+}))
 await browser.close(); server.close()
 const list = [...all.entries()].map(([v, ctxs]) => ({ v, n: ctxs.length, where: [...new Set(ctxs)].slice(0, 4) }))
 for (const { v, n, where } of list) console.log(`  ✗ ${v}\n      ${n}× e.g. ${where.join(' | ')}`)
