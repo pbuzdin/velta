@@ -25,6 +25,9 @@ use yerpc::{RpcClient, RpcSession};
 
 pub mod p2p;
 mod db_key;
+// The p2p loop host has no desktop caller yet: its only entries are the JNI
+// exports (Kotlin drives it). #398/#454 light it up on desktop.
+#[cfg(target_os = "android")]
 mod loop_host;
 
 /// Engine log line. `p2p.rs` calls this; it is not the core session log.
@@ -397,12 +400,6 @@ pub(crate) fn jni_on_loop_exit() {
     jni_call("onLoopExit", None);
 }
 
-// Desktop bin (#424): the p2p loop has no Java host to report to. The loop
-// still runs for local chat; its lines are dropped at this boundary.
-#[cfg(not(target_os = "android"))]
-pub(crate) fn jni_on_loop_line(_line: &str) {}
-#[cfg(not(target_os = "android"))]
-pub(crate) fn jni_on_loop_exit() {}
 
 /// JNI: `RpcShim.startLoop(accountsDir) -> 1`, or -1. Does not open a port.
 #[cfg(target_os = "android")]
