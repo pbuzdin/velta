@@ -189,12 +189,20 @@ local chat again later brings the setup screen back.
 list and opens in the standard chat view (adapter: `app/js/local-chat.js`
 wraps the core, so the virtualized list, composer, drafts and read-tick
 rendering all work unchanged). Text and **media files** (images, video, audio,
-any file up to 256 MB) are supported: files transfer as base64-chunked frames
-over the same encrypted session, land in `p2p-blobs/<peer>/` under the
-accounts directory and render through the regular media pipeline. Peer names
+any file up to 2 GB) are supported: files stream as base64-chunked frames
+over the same encrypted session (read straight from disk — a large send
+does not load the file into memory), land in `p2p-blobs/<peer>/` under the
+accounts directory and render through the regular media pipeline. Whole
+**folders** go as one transfer: Attach → **Send folder…** zips the picked
+folder (relative paths preserved, hidden files skipped) and the archive
+travels like any file; a received folder zip offers **Extract here**, which
+unpacks it under a destination you choose. Media must fit in one send while
+the peer is online (text queues offline) — media transferred before the
+plaintext-storage fix (v1.5.6-era builds) is undecryptable on the receiving
+side; re-send it after both devices are updated. Peer names
 arrive only from pairing. The hub — device identity, invite QR, add contact,
-nearby-device pairing — is a collapsible **Velta Loop** card pinned above the chat list
-while local chat is on; peers must be online to receive media (text queues
+nearby-device pairing — lives in the **Velta Loop** view: the loop button in
+the bottom bar (or the drawer switch) opens it; peers must be online to receive media (text queues
 offline). Voice messages are not offered in local chats (the attach menu hides
 the item) and the audio-call button is hidden there — the P2P engine carries
 no call signaling.
@@ -426,6 +434,13 @@ context menu (that chat wins):
   (SOCKS5 or HTTP), the page and its
   image are fetched through it; if the proxy is unsupported or unreachable,
   no preview is loaded rather than falling back to a direct fetch.
+
+The fetch identifies itself as a browser (sites that challenge unknown
+clients — habr's bot wall, for example — otherwise serve a variant whose
+preview image is just the site icon), and an image that smells like site
+chrome is not used: preview URLs pointing at favicons/touch icons/logos are
+ignored, and a square image of 256 px or less is treated as an icon. The
+card then ships text-only instead of a logo tile.
 
 Captions on photos, videos and files do not load a preview. A picture
 already sent does not turn back into a live card.
@@ -1447,8 +1462,13 @@ tab lists the folder in place of the list; writing a message from an
 archived chat moves it back to the main list. The core keeps no call log — calls exist only
 as call messages — so the Calls view lists calls ended on this device,
 recorded locally and capped at 30. Every view button can be hidden in
-Settings → Bottom bar buttons; the Menu and + buttons are always visible,
-and when all view buttons are hidden the bar's background turns transparent.
+Settings → Bottom bar buttons; the Menu button is always visible, and when
+all view buttons are hidden the bar's background turns transparent. The
+**Velta Loop** button appears in the bar only when the local-chat engine is
+available (it is absent in the browser PWA). The **+** is not a bar button:
+it floats beside the chat list — below the list-collapse chevron on wide
+layouts, above the bar on narrow ones — and shows only while the chat list
+itself is on screen.
 The list renders contact rows through a virtual scroller, so large address
 books don't inflate the DOM.
 

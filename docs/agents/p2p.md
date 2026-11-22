@@ -105,11 +105,21 @@ SOCKS proxy was #29 and does not start this work.
 Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
 
 - Media goes over FileBegin/FileChunk/FileEnd frames (base64, 96 KB raw per
-  frame, 256 MB cap) in p2p.rs and lands in
+  frame; the sender streams chunks from the blobs copy through a bounded
+  channel into a frame-builder task — no whole-file RAM buffer (#459) —
+  2 GB sanity cap shared with the receiver) in p2p.rs and lands in
   `<accounts>/p2p-blobs/<nodeId>/` — that directory MUST stay under the
   accounts dir because blobfile/media-server refuse paths outside it, and
   that check is the sandbox: peer-supplied file names are sanitized
   (basename only, safe chars) before they ever touch the filesystem.
+  - Folders (#459): Attach → Send folder… (local chats) — `list_folder_files`
+    (picked-path gate, depth 12, dotfiles skipped) → `folder-zip.js` STORE zip
+    (CRC-32, UTF-8 names, dot segments resolved) → the archive rides the normal
+    send. Received zips offer Extract here: `unzipToMap` validates the central
+    directory + CRCs and rejects non-STORE entries / path escapes;
+    `extract_zip_entries` writes under a user-picked destination with an
+    escape-proof join (`<dest>/<base>/<rel>`). The renderer never composes
+    absolute paths.
   KEEP (1.4.28): peer-supplied **transfer ids** go through
   `is_safe_transfer_id` before joining the `partial-{id}` path — the id is
   also peer input; only short `[A-Za-z0-9_-]` tokens pass.
