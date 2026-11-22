@@ -431,9 +431,15 @@ function openDiagnosticsChat() {
   $("diagnostic-actions").hidden = false;
   $("reply-preview").hidden = true;
   // Logging / DevTools switches reflect their runtime state on every open —
-  // the persisted flag is the source of truth, the checkbox follows.
+  // the persisted flag is the source of truth, the checkbox follows. Both
+  // are shell-only (#458): the PWA has no velta.log file and no DevTools
+  // target behind them, so showing them would be placebo — hidden there.
   const loggingSw = $("sw-logging");
   const devtoolsSw = $("sw-devtools");
+  if (!tauriInvoke()) {
+    loggingSw?.closest(".diag-switch")?.setAttribute("hidden", "");
+    devtoolsSw?.closest(".diag-switch")?.setAttribute("hidden", "");
+  }
   if (loggingSw) {
     // Default OFF: missing key is off; only an explicit "1" writes velta.log
     // (boot: heartbeats still write). About Velta has the same switch.
