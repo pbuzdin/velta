@@ -125,6 +125,8 @@ export const P = {
   contacts: '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0114 0M16 3.5a4 4 0 010 9M15.5 14a7 7 0 016.5 7"/>',
   qr: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3M21 14v3M14 18v3M18 21h3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  // Velta Loop mark, redrawn as a 24x24 stroke glyph for the bottom bar (#456).
+  loop: '<path d="M4 5l5 0 6 14M20 5l-5 0-2.5 6M7.5 19h5"/><path d="M17.5 13.5a5.5 5.5 0 0 1-9.8 2.6M6.5 10.5a5.5 5.5 0 0 1 9.8-2.6" fill="none" stroke-linecap="round"/>',
   chatLines: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
   // composer "Commands" quick tool: slash in a keycap — "/ to insert a command
   cmdSlash: '<rect x="3" y="3" width="18" height="18" rx="5"/><path d="M15.5 8l-7 8"/>',

@@ -49,6 +49,8 @@ export function initListCollapse({ app = document.getElementById("app"), getChat
     btn.setAttribute("aria-label", label);
     btn.title = `${label} (${/Mac|iPhone|iPad/.test(globalThis.navigator?.platform || "") ? "⌘" : "Ctrl+"}B)`;
     refreshBadge();
+    // #456: the floating + chip hides while the sidebar is collapsed.
+    app.dispatchEvent(new CustomEvent("velta-list-collapse", { detail: { collapsed } }));
   };
   const toggle = () => {
     if (!wide()) return;
