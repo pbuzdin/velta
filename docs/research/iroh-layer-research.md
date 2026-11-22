@@ -1,11 +1,21 @@
 # iroh second layer — research (core 2.62.0, Velta 1.4.x)
 
-Status: research, 2026-10-06. Companion plan: [`../iroh-layer-plan.md`](../iroh-layer-plan.md).
+Status: research, 2026-10-06, with a 2026-11-22 addendum in §8. Companion plan:
+[`../iroh-layer-plan.md`](../iroh-layer-plan.md).
 
-Question (Pavel): add an **iroh-first second layer** for messaging and calls,
-using the iroh that already ships inside chatmail core. It must **not replace**
-email/chatmail transport. iroh chats and calls get their own folders and an
-**"iroh" chip** next to the avatar.
+The 2026-10-06 text below is kept as the evidence base (core 2.62.0 checkout).
+The plan's direction was revised on 2026-11-22: one Velta transport layer with
+two backends (iroh for the instant path, chatmail for the reliable path),
+optional Loop-only mode, and an explicit decision not to build a standalone
+iroh messenger. Tracked as
+[#470](https://github.com/pbuzdin/velta/issues/470). See §8 for what has
+moved since, including core 2.69.0, `velta-rpc-server`, iroh 1.5.0, and
+issues #454, #468 and #469.
+
+Question (Pavel, 2026-10-06): add an **iroh-first second layer** for messaging
+and calls, using the iroh that already ships inside chatmail core. It must
+**not replace** email/chatmail transport. iroh chats and calls get their own
+folders and an **"iroh" chip** next to the avatar.
 
 Sources: the vendored core in `core/` is upstream tag **v2.62.0**
 (chatmail/core commit `c41cac76d284f44094341c5d9f4eb3a847e2c34b`, released
@@ -86,9 +96,10 @@ Velta's Tauri shell depends on the same `iroh = "0.35"` with the
 `discovery-local-network` feature (`velta-app/src-tauri/Cargo.toml:53-54`). Its
 lock holds a single `iroh 0.35.0` (`velta-app/src-tauri/Cargo.lock:3525`). On
 Android, where core is linked in-process (`Cargo.toml:58-60`), both use one
-crate build. On desktop, core runs as the separate `deltachat-rpc-server`
-sidecar process (AGENTS.md §9.2), so the shell and core never share an
-endpoint.
+crate build. On desktop, at the time of this research, core ran as the separate
+`deltachat-rpc-server` sidecar process (AGENTS.md §9.2), so the shell and
+core never share an endpoint. As of 2026-11-22 desktop runs Velta's
+`velta-rpc-server` instead; they still do not share an endpoint (§8).
 
 ### 1.2 Webxdc realtime channels (`core/src/peer_channels.rs`)
 
@@ -437,12 +448,14 @@ view is a **local** call log in localStorage `velta-call-log`
   no iroh endpoint to talk to"). PLAN-PWA-WEBSOCKET Architecture B estimates a
   wasm port of p2p.rs at ~1.5–3 person-months
   (`wasm-core-mail-proxy.md:262`).
-- **Verdict:** a PWA iroh layer is possible later, but relay-only. The relay
-  hop costs ~30–100 ms, the same estimate as PLAN-PWA §2, and it hides the user's
-  IP from peers. Two ways to get there: the wasm core's peer channels, or a wasm
-  build of the Velta engine. Build it on iroh 1.0, where wasm is CI-checked
-  upstream, not on 0.35. A browser peer can talk to a native peer only through a
-  relay both can reach.
+- **Verdict (2026-10-06):** a PWA iroh layer is possible later, but
+  relay-only. The relay hop costs ~30–100 ms, the same estimate as PLAN-PWA
+  §2, and it hides the user's IP from peers. Two ways to get there: the wasm
+  core's peer channels, or a wasm build of the Velta engine. Build it on
+  iroh 1.x, where wasm is CI-checked upstream, not on 0.35. A browser peer
+  can talk to a native peer over iroh only through a relay both can reach.
+  **Addendum:** PWA-to-PWA Loop over WebRTC with no relay is now planned
+  (#468); PWA-to-Tauri needs a WebRTC transport on the Tauri side. See §8.
 
 ---
 
@@ -493,3 +506,81 @@ proposal to take upstream later, not something to build now.
   (`docs/accessibility-and-keybindings.md:465-467`).
 - **Avatar:** `<velta-avatar>` takes `name, color, kind, size, avatar,
   contact-id, addr` (`components.js:13-15`).
+
+---
+
+## 8. Addendum, 2026-11-22
+
+The plan was revised on 2026-11-22
+([#470](https://github.com/pbuzdin/velta/issues/470)). The 2026-10-06
+research above remains the evidence for what core exposes and how iroh
+works in Velta. This addendum records the new framing and the facts that
+have moved.
+
+### Direction
+
+Velta will have **one transport layer with two backends**, sharing the same
+identity and the same Velta keys:
+
+- **iroh** is the instant path when both peers are reachable: Velta Loop,
+  calls, live typing, and live message delivery.
+- **chatmail** is the fallback: offline delivery, push, multi-device sync,
+  group membership, key verification, and talking to Delta Chat users.
+
+A user can run **Loop-only**, with no chatmail account, for own devices and
+friends on the same network. Loop-only chats have no chatmail copy. The
+sender queues until the peer is reachable, as Loop already does. The UI
+must state the limits: no push, no server-side multi-device sync, no
+Delta Chat interop.
+
+The 2026-10-06 recommendation (architecture B: Velta's engine as the live
+data plane, core as the system of record and the authenticated rendezvous)
+still holds for chatmail-backed chats. The revision is the framing: B is
+the live half of a two-backend transport layer, and Loop-only is an
+allowed mode, not a non-goal.
+
+### Why not a standalone iroh messenger
+
+iroh only moves data between devices that are online at the same moment.
+Replacing chatmail would mean rebuilding store-and-forward (a server that
+holds ciphertext while a phone is off), push notifications, multi-device
+sync, stable group membership, contact keys and verification, and interop
+with every Delta Chat user. That work ends up as a new mail server under
+another name: months of effort and a new security surface to audit.
+Chatmail stays the reliable path. iroh sits beside it, not in its place.
+See plan §1.6.
+
+### Facts that have moved since 2026-10-06
+
+- **Core version.** The vendored core is now **2.69.0** (this research was
+  taken against 2.62.0). The iroh surface in core is still 0.35, used for
+  webxdc realtime and backup transfer. There is still no general API for
+  chat messages, presence or calls over iroh. Line numbers in §1–§7 refer
+  to the 2.62.0 checkout.
+- **Desktop sidecar.** Desktop no longer runs stock `deltachat-rpc-server`.
+  It runs Velta's `velta-rpc-server`, built from the same shim as Android.
+  The live engine still lives in the Tauri shell, so architecture B is
+  unchanged: the shell and core do not share an iroh endpoint, and this
+  layer still does not patch production `core/`.
+- **iroh 1.x.** The latest iroh is **1.5.0** (2026-11-19). Loop is still on
+  0.35 because chatmail core pins that version for webxdc realtime. The
+  upgrade is tracked as a Loop-only dependency in
+  [#469](https://github.com/pbuzdin/velta/issues/469), decoupled from
+  core's 0.35. A live path that uses a chatmail iroh relay may stay on
+  0.35 until those relays support 1.x. n0 public 0.35 relays still end on
+  2026-12-31; Velta must not use them (plan invariant 5).
+- **Streamed Loop transfers.**
+  [#454](https://github.com/pbuzdin/velta/issues/454) covers zip chunks
+  streamed in Rust, both ways between desktop and Android, with no 2 GB
+  memory cap, a free-space check, and resume after a drop. Plan §7 says
+  the chatmail-backed large-file path should reuse that engine.
+- **PWA Loop.** [#468](https://github.com/pbuzdin/velta/issues/468) covers
+  WebRTC Loop in the PWA for chats and small files, with no relay.
+  Signalling rides encrypted Velta messages (or a Loop-only QR). This
+  relaxes the 2026-10-06 verdict that a browser peer can only talk to a
+  native peer through an iroh relay. PWA-to-PWA can be direct on a LAN;
+  PWA-to-Tauri needs a WebRTC transport on the Tauri side. An iroh-wasm,
+  relay-only path remains a later option for a cross-network live overlay.
+
+Private relay hostnames and IPs are out of scope for this document and
+must not be published here.
