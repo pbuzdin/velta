@@ -86,7 +86,7 @@ jobs:
           # Smoke test: the staged core answers a JSON-RPC call. Keep stdin
           # open a moment — the server exits on EOF before replying.
           REPLY=$( ( echo '{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}'; sleep 3 ) \
-            | DC_ACCOUNTS_PATH="$RUNNER_TEMP/accounts" "$B-universal-apple-darwin" 2>/dev/null | head -c 400 )
+            | VELTA_ACCOUNTS_DIR="$RUNNER_TEMP/accounts" "$B-universal-apple-darwin" 2>/dev/null | head -c 400 )
           echo "$REPLY"
           echo "$REPLY" | grep -q deltachat_core_version
 
