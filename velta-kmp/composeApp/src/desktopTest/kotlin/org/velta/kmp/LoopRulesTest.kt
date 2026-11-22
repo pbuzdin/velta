@@ -34,6 +34,7 @@ import org.velta.kmp.ui.loopGroupOf
 import org.velta.kmp.ui.loopListRows
 import org.velta.kmp.ui.loopPeerOf
 import org.velta.kmp.ui.loopTypingLine
+import org.velta.kmp.ui.loopSealWanted
 import org.velta.kmp.ui.loopTypingWanted
 import org.velta.kmp.ui.loopUnpairBody
 import org.velta.kmp.ui.parseLoopMessages
@@ -122,6 +123,8 @@ class LoopRulesTest {
     fun menuTypingAndUnpairText() {
         assertTrue(loopTypingWanted(null))
         assertFalse(loopTypingWanted("0"))
+        assertTrue(loopSealWanted(null))
+        assertFalse(loopSealWanted("0"))
         assertEquals(listOf(LoopMenu.Unpair), loopChatMenu(false, false, false))
         assertEquals(listOf(LoopMenu.Rename, LoopMenu.Disband), loopChatMenu(true, true, false))
         assertEquals(listOf(LoopMenu.Leave), loopChatMenu(true, false, false))

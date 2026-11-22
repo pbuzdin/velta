@@ -1382,6 +1382,8 @@
   "DNS tunnel": "Tunnel DNS",
   "Remove the DNS tunnel?": "Supprimer le tunnel DNS ?",
   "Typing indicator": "Indicateur de saisie",
+  "Encrypt stored media": "Chiffrer les fichiers enregistrés",
+  "Stored on this device only. Transfers stay end-to-end encrypted either way.": "Uniquement sur cet appareil. Le transfert reste chiffré de bout en bout dans tous les cas.",
   "Show and send read receipts": "Afficher et envoyer les accusés de lecture",
   "Multi-device": "Multi-appareil",
   "Low-battery marker": "Repère de batterie faible",

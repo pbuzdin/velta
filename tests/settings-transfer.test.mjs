@@ -35,6 +35,9 @@ test("serialize: header with date, one key: value line per setting, stable order
   assert.match(UI, /"1048576", "1 MB"/);
   assert.doesNotMatch(UI, /655360|640 KB/);
   assert.doesNotMatch(text, /#/, "no '#': it would render as a hashtag button");
+  assert.match(text, /^loop-seal-media: on$/m);
+  assert.match(UI, /data-toggle="p2p-seal"/);
+  assert.match(UI, /Transfers stay end-to-end encrypted either way/);
 });
 
 test("round trip: every setting survives serialize → parse → apply on a fresh device", () => {

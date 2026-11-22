@@ -1562,6 +1562,7 @@ class AppModel(
         val loop = VeltaLoop(client)
         loopClient = loop
         try {
+            loop.setSeal(loopSealOn)
             reloadLoop(loop, null)
             loopReady = true
             collectLoop(loop)
@@ -1915,6 +1916,20 @@ class AppModel(
         }
     }
 
+    fun setLoopSeal(on: Boolean) {
+        loopSealOn = on
+        platform.setPref(LOOP_SEAL_PREF, if (on) null else "0")
+        val loop = loopClient ?: return
+        scope.launch {
+            try {
+                loop.setSeal(on)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     fun setLoopTyping(on: Boolean) {
         val was = loopTypingOn
         loopTypingOn = on
@@ -2225,6 +2240,9 @@ class AppModel(
         private set
     /** Absent is on, matching the web key. */
     var loopTypingOn by mutableStateOf(loopTypingWanted(platform.pref(LOOP_TYPING_PREF)))
+        private set
+    /** Absent seals stored Loop files. `"0"` leaves new files plaintext. */
+    var loopSealOn by mutableStateOf(loopSealWanted(platform.pref(LOOP_SEAL_PREF)))
         private set
     private var loopClient: VeltaLoop? = null
     private var loopStopping = false

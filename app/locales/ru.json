@@ -1382,6 +1382,8 @@
   "DNS tunnel": "DNS-туннель",
   "Remove the DNS tunnel?": "Удалить DNS-туннель?",
   "Typing indicator": "Индикатор набора",
+  "Encrypt stored media": "Шифровать сохранённые файлы",
+  "Stored on this device only. Transfers stay end-to-end encrypted either way.": "Только на этом устройстве. Передача в любом случае остаётся со сквозным шифрованием.",
   "Show and send read receipts": "Показывать и отправлять отчёты о прочтении",
   "Multi-device": "Несколько устройств",
   "Low-battery marker": "Метка низкого заряда",

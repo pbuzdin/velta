@@ -178,6 +178,10 @@ async fn dispatch(engine: &Arc<P2p>, line: &str) -> Option<String> {
 
 async fn call(engine: &Arc<P2p>, method: &str, params: &Value) -> Result<Value> {
     match method {
+        "p2p_set_seal" => {
+            crate::p2p::set_seal_media(bool_at(params, 0));
+            Ok(Value::Null)
+        }
         "p2p_status" => Ok(engine.status()),
         "p2p_create_invite" => engine.create_invite().await.map(Value::String),
         "p2p_accept_invite" => engine.accept_invite(&arg(params, 0)).await,

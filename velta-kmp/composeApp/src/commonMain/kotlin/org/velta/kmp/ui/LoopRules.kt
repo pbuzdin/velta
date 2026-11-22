@@ -14,6 +14,9 @@ const val LOOP_PREF = "velta-p2p"
 /** Web key. Absent is on; `"0"` sends and shows nothing. */
 const val LOOP_TYPING_PREF = "velta-p2p-typing"
 
+/** Web key. Absent seals Loop blobs at rest; `"0"` stores them plaintext. */
+const val LOOP_SEAL_PREF = "velta-p2p-seal"
+
 const val LOOP_NAME_MAX = 64
 const val LOOP_GROUP_MAX_OTHERS = 4
 const val LOOP_MSG_LIMIT = 200
@@ -88,6 +91,8 @@ fun loopGroupNameOk(name: String): Boolean {
 fun loopGroupMembersOk(count: Int): Boolean = count in 1..LOOP_GROUP_MAX_OTHERS
 
 fun loopTypingWanted(pref: String?): Boolean = pref != "0"
+
+fun loopSealWanted(pref: String?): Boolean = pref != "0"
 
 enum class LoopMenu { Rename, Leave, Disband, Delete, Unpair }
 
@@ -349,6 +354,10 @@ class VeltaLoop(private val client: RpcClient) : AutoCloseable {
 
     suspend fun setName(name: String) {
         client.call("p2p_set_name", RpcClient.params(RpcClient.param(name)))
+    }
+
+    suspend fun setSeal(on: Boolean) {
+        client.call("p2p_set_seal", RpcClient.params(RpcClient.param(on)))
     }
 
     suspend fun peerImpact(peer: String): Pair<List<String>, List<String>> {
