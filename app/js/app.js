@@ -30,7 +30,7 @@ import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified 
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, notifyThrottled, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
 import { installGlassComposer } from "./glass-composer.js";
 import { createNotifyQueue } from "./notify-queue.js";
-import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
+import { p2pAvailable, p2pEnabled, setP2pEnabled, applyP2pSeal, p2pSealOn, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
 import { openInAppBrowser } from "./inapp-browser.js";
@@ -1571,6 +1571,7 @@ function refreshAfterSettingsApply(keys) {
   // Strings are baked at render. Boot reapplies theme, scale and core copies.
   if (has("language")) { location.reload(); return; }
   if (has("theme") || has("amoled")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
+  if (has("loop-seal-media")) applyP2pSeal(p2pSealOn());
   if (has("stickers-in-attach")) window.dispatchEvent(new Event("velta-stickers-pref"));
   if (has("send-later") || has("commands-button")) window.dispatchEvent(new Event("velta-composer-pref"));
   if (has("glass-composer")) window.dispatchEvent(new Event("velta-glass-pref"));
