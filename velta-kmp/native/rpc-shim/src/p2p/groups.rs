@@ -12,7 +12,7 @@ use std::{collections::{BTreeMap, HashMap}, net::SocketAddr, path::Path, str::Fr
 
 use anyhow::{anyhow, bail, Context as _, Result};
 use data_encoding::HEXLOWER;
-use iroh::{NodeId, SecretKey};
+use iroh::{EndpointId as NodeId, SecretKey};
 use serde::{Deserialize, Serialize};
 
 /// A local group holds at most this many members, the creator included.

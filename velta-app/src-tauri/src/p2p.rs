@@ -37,7 +37,9 @@ use std::{
 use anyhow::{anyhow, bail, Context as _, Result};
 use data_encoding::BASE64;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER};
-use iroh::{endpoint::{Connection, ConnectOptions, RecvStream, SendStream, TransportConfig}, Endpoint, NodeAddr, NodeId, RelayMode, SecretKey};
+// #469: iroh 1.x. `NodeId`/`NodeAddr` are the 0.35 names, kept as aliases so
+// the engine reads the same as before the port.
+use iroh::{endpoint::{presets, Connection, ConnectOptions, QuicTransportConfig, RecvStream, SendStream}, Endpoint, EndpointAddr as NodeAddr, EndpointId as NodeId, RelayMode, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -65,12 +67,16 @@ fn default_alpns() -> Vec<Vec<u8>> {
 /// that is not v2 is v1.
 fn proto_of(conn: &Connection) -> u8 {
     match conn.alpn() {
-        Some(a) if a == ALPN_V2 => 2,
+        a if a == ALPN_V2 => 2,
         _ => 1,
     }
 }
 /// Ticket prefix, mirrors the DCBACKUP style of out-of-band tickets.
 const TICKET_PREFIX: &str = "VELTAP2P1:";
+/// mDNS service name of iroh 0.35's local discovery. iroh 1.x defaults to
+/// `irohv1`; Loop keeps the old name so mixed 0.35 / 1.x peers (Velta up to
+/// 1.5.x and later builds) still discover each other (#469).
+const MDNS_SERVICE: &str = "iroh.local.swarm";
 /// Compact binary ticket format tag (first payload byte).
 const TICKET_FMT_BIN: u8 = 2;
 /// Maximum size of a single JSON frame.
@@ -720,13 +726,20 @@ impl P2p {
         let secret = load_or_create_identity(&dir)?;
         let name = load_profile(&dir).unwrap_or_default();
 
-        let mut transport_config = TransportConfig::default();
-        transport_config.max_idle_timeout(Some(IDLE_TIMEOUT.try_into()?));
-        let endpoint = Endpoint::builder()
+        let transport_config = QuicTransportConfig::builder()
+            .max_idle_timeout(Some(IDLE_TIMEOUT.try_into()?))
+            .build();
+        // LAN only: no relay, no DNS/pkarr address lookup; mDNS is the one
+        // address lookup (it moved out of iroh into its own crate in 1.x).
+        let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(secret.clone())
             .alpns(alpns.clone())
             .relay_mode(RelayMode::Disabled)
-            .discovery_local_network()
+            .address_lookup(
+                // Keep 0.35's mDNS service name so 1.x and 0.35 Loop peers
+                // still find each other's addresses on the LAN (#469).
+                iroh_mdns_address_lookup::MdnsAddressLookup::builder().service_name(MDNS_SERVICE),
+            )
             .transport_config(transport_config)
             .bind()
             .await
@@ -833,7 +846,7 @@ impl P2p {
     }
 
     pub fn node_id(&self) -> NodeId {
-        self.endpoint.node_id()
+        self.endpoint.id()
     }
 
     // -- command API ---------------------------------------------------------
@@ -896,14 +909,8 @@ impl P2p {
     /// hello/welcome handshake, not in the ticket.
     pub async fn create_invite(&self) -> Result<String> {
         let token = random_id();
-        let node_addr = self
-            .endpoint
-            .node_addr()
-            .await
-            .context("resolving own addresses")?;
-        let addrs: Vec<String> = node_addr
-            .direct_addresses
-            .iter()
+        let node_addr = self.endpoint.addr();
+        let addrs: Vec<String> = node_addr.ip_addrs()
             .map(|a| a.to_string())
             .collect();
         self.inner.lock().unwrap().token = token.clone();
@@ -956,7 +963,7 @@ impl P2p {
         if node_id == self.node_id() {
             bail!("that is your own invite");
         }
-        let node_addr = NodeAddr::new(node_id).with_direct_addresses(addrs.clone());
+        let node_addr = NodeAddr::from_parts(node_id, addrs.iter().copied().map(iroh::TransportAddr::Ip));
 
         let conn = tokio::time::timeout(CONNECT_TIMEOUT, self.dial(node_addr))
             .await
@@ -966,12 +973,7 @@ impl P2p {
         let (mut send, mut recv) = conn.open_bi().await?;
 
         let my_name = self.inner.lock().unwrap().name.clone();
-        let my_addrs = self
-            .endpoint
-            .node_addr()
-            .await?
-            .direct_addresses
-            .iter()
+        let my_addrs = self.endpoint.addr().ip_addrs()
             .map(|a| a.to_string())
             .collect();
         write_json(
@@ -1491,12 +1493,12 @@ impl P2p {
             inner
                 .peers
                 .get(&node_id)
-                .map(|p| NodeAddr::new(node_id).with_direct_addresses(p.addrs.clone()))
+                .map(|p| NodeAddr::from_parts(node_id, p.addrs.iter().copied().map(iroh::TransportAddr::Ip)))
         };
         let Some(addr) = addr else { return };
 
         if std::env::var("VELTA_P2P_DEBUG").is_ok() {
-            eprintln!("[p2p-dbg] dialing {} addrs={:?}", node_id, addr.direct_addresses);
+            eprintln!("[p2p-dbg] dialing {} addrs={:?}", node_id, addr.ip_addrs().collect::<Vec<_>>());
         }
         let attempt = async {
             let conn = self.dial(addr).await?;
@@ -1962,7 +1964,7 @@ impl P2p {
     /// (token must match the currently advertised invite), plain session for
     /// known peers.
     async fn handle_incoming(self: Arc<Self>, conn: Connection) -> Result<()> {
-        let node_id = conn.remote_node_id().context("no remote node id")?;
+        let node_id = conn.remote_id();
         let proto = proto_of(&conn);
         // Paired contacts and members of a group roster we are in are both
         // allowed a session; everyone else goes through pairing below.
@@ -2172,10 +2174,10 @@ impl P2p {
                 }
                 _ = tokio::time::sleep_until(next_send) => {
                     next_send = tokio::time::Instant::now() + BEACON_INTERVAL;
-                    let Ok(na) = self.endpoint.node_addr().await else { continue };
+                    let na = self.endpoint.addr();
                     let mut targets: Vec<SocketAddr> =
                         vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::BROADCAST), BEACON_PORT)];
-                    for a in &na.direct_addresses {
+                    for a in na.ip_addrs() {
                         if let IpAddr::V4(v4) = a.ip() {
                             let o = v4.octets();
                             // /24 subnet broadcast for the interface + global broadcast
@@ -2189,7 +2191,7 @@ impl P2p {
                     let payload = json!({
                         "name": self.inner.lock().unwrap().name.clone(),
                         "node_id": self.node_id().to_string(),
-                        "addrs": na.direct_addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+                        "addrs": na.ip_addrs().map(|a| a.to_string()).collect::<Vec<_>>(),
                     });
                     let data = payload.to_string();
                     for t in &targets {
@@ -4814,6 +4816,61 @@ mod tests {
         dir
     }
 
+
+    /// #469: Loop runs on iroh 1.x while Velta up to 1.5.x ships iroh 0.35.
+    /// On Loop's relay-less direct paths the two speak the same QUIC + TLS:
+    /// a 0.35 peer finds a 1.x engine over mDNS (legacy service name), dials
+    /// it, and a 1.x engine dials a 0.35 peer and exchanges stream data. So
+    /// mixed-version peers keep working and existing pairings stay valid.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn iroh_1x_engine_interops_with_iroh_035_peers() {
+        let (new, _rx) = start("mixed-new").await;
+        let old = iroh035::Endpoint::builder()
+            .relay_mode(iroh035::RelayMode::Disabled)
+            .discovery_local_network()
+            .alpns(vec![ALPN_V2.to_vec()])
+            .bind()
+            .await
+            .unwrap();
+        let new_id = iroh035::NodeId::from_bytes(new.node_id().as_bytes()).unwrap();
+
+        // 0.35 -> 1.x by node id only: the address comes from mDNS.
+        let conn = tokio::time::timeout(Duration::from_secs(20), old.connect(new_id, ALPN_V2))
+            .await
+            .expect("0.35 -> 1.x dial timed out")
+            .expect("0.35 -> 1.x dial failed");
+        assert_eq!(conn.alpn().as_deref(), Some(ALPN_V2));
+        conn.close(0u32.into(), b"done");
+
+        // 1.x -> 0.35 with the direct addresses, then an echo round trip.
+        let echo = old.clone();
+        tokio::spawn(async move {
+            while let Some(inc) = echo.accept().await {
+                let Ok(c) = inc.await else { continue };
+                if let Ok((mut s, mut r)) = c.accept_bi().await {
+                    let got = r.read_to_end(64).await.unwrap();
+                    s.write_all(&got).await.unwrap();
+                    s.finish().unwrap();
+                    let _ = c.closed().await;
+                }
+            }
+        });
+        let old_addrs: Vec<SocketAddr> = old.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let old_id = NodeId::from_bytes(old.node_id().as_bytes()).unwrap();
+        let addr = NodeAddr::from_parts(old_id, old_addrs.into_iter().map(iroh::TransportAddr::Ip));
+        let conn = tokio::time::timeout(Duration::from_secs(20), new.dial(addr))
+            .await
+            .expect("1.x -> 0.35 dial timed out")
+            .expect("1.x -> 0.35 dial failed");
+        assert_eq!(proto_of(&conn), 2, "v2 ALPN negotiated across versions");
+        let (mut s, mut r) = conn.open_bi().await.unwrap();
+        s.write_all(b"ping").await.unwrap();
+        s.finish().unwrap();
+        assert_eq!(r.read_to_end(64).await.unwrap(), b"ping");
+        new.close().await;
+        old.close().await;
+    }
+
     async fn start(tag: &str) -> (Arc<P2p>, std_mpsc::Receiver<Value>) {
         let (tx, rx) = std_mpsc::channel();
         let p2p = P2p::start(temp_dir(tag), temp_dir(&format!("{tag}-blobs")), Sink::Test(tx))
@@ -5588,8 +5645,8 @@ mod tests {
         let (alice, alice_rx) = start("grp-in-alice").await;
         let (carol, carol_rx) = start("grp-in-carol").await;
         let (creator, _crx) = start("grp-in-creator").await;
-        let alice_addrs: Vec<SocketAddr> = alice.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
-        let carol_addrs: Vec<SocketAddr> = carol.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let alice_addrs: Vec<SocketAddr> = alice.endpoint.addr().ip_addrs().copied().collect();
+        let carol_addrs: Vec<SocketAddr> = carol.endpoint.addr().ip_addrs().copied().collect();
         let fake = |name: &str, addrs: Vec<SocketAddr>| Peer {
             kind: PeerKind::Paired, name: name.into(), addrs, proto: 2,
             live: vec![], connecting: false, queued: vec![], msgs: vec![],
@@ -6375,7 +6432,7 @@ mod tests {
 
         // E can't open a session to B either: B knows E neither as a contact
         // nor as a member, so it takes the pairing path and refuses.
-        let b_addrs: Vec<SocketAddr> = t.b.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let b_addrs: Vec<SocketAddr> = t.b.endpoint.addr().ip_addrs().copied().collect();
         let mut p = paper("B");
         p.addrs = b_addrs;
         e.inner.lock().unwrap().peers.insert(bid, p);
@@ -6408,7 +6465,7 @@ mod tests {
         let c2 = P2p::start(cdir, cblobs, Sink::Test(tx)).await.unwrap();
         // B's roster address for C is stale after the restart; C dials out. Give
         // it B's real address the way a beacon would.
-        let b_addrs: Vec<SocketAddr> = b.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let b_addrs: Vec<SocketAddr> = b.endpoint.addr().ip_addrs().copied().collect();
         c2.inner.lock().unwrap().peers.get_mut(&bid).unwrap().addrs = b_addrs;
         c2.trigger_group_dials();
         until(60, "C catches up", || texts(&c2, &gid).len() == 5).await;
@@ -6677,7 +6734,7 @@ mod tests {
         drop(a);
         let (tx, _rx) = std_mpsc::channel();
         let c2 = P2p::start(cdir, cblobs, Sink::Test(tx)).await.unwrap();
-        let b_addrs: Vec<SocketAddr> = b.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let b_addrs: Vec<SocketAddr> = b.endpoint.addr().ip_addrs().copied().collect();
         c2.inner.lock().unwrap().peers.get_mut(&bid).unwrap().addrs = b_addrs;
         c2.trigger_group_dials();
         until(60, "C gets epoch 2 from B", || c2.groups()[0]["name"] == "Renamed").await;
@@ -6752,11 +6809,11 @@ mod tests {
         let bob_id = bob.node_id().to_string();
 
         // Bob hears Alice's (tokenless) beacon and taps "Pair".
-        let na = alice.endpoint.node_addr().await.unwrap();
+        let na = alice.endpoint.addr();
         let beacon = json!({
             "name": "alice3",
             "node_id": alice_id,
-            "addrs": na.direct_addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+            "addrs": na.ip_addrs().map(|a| a.to_string()).collect::<Vec<_>>(),
         });
         bob.hear_beacon(&beacon, "127.0.0.1:1".parse().unwrap());
 
