@@ -42,6 +42,7 @@ pub const WEBXDC_PERMISSIONS_POLICY: &str = "camera=(), microphone=(), display-c
 /// then throws reading `.plugins`. Registered as the first plugin so it runs
 /// before that script. Other platforms do not inject main-frame scripts into
 /// iframes.
+#[cfg_attr(not(windows), allow(dead_code))] // only used by the Windows shim (and tests)
 pub const FRAME_INTERNALS_JS: &str = r#"(function(){if(window.__TAURI_INTERNALS__)return;Object.defineProperty(window,"__TAURI_INTERNALS__",{value:{plugins:{}}});})();"#;
 
 #[cfg(windows)]
