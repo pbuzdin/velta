@@ -20,6 +20,7 @@ desktop.ini
 # The app is built from a committed lockfile so CI resolves the exact
 # dependency set that was tested locally (e.g. shadowsocks MSRV bumps).
 !velta-app/src-tauri/Cargo.lock
+!velta-kmp/native/rpc-shim/Cargo.lock
 # Archived core-service cdylib (no CI since 2026-10-20); keep its lock.
 !archive/velta-core-service/rust/Cargo.lock
 # vello_cpu paint bench; keep the lock that produced results.json.
