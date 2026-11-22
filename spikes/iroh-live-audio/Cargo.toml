@@ -1,0 +1,24 @@
+[package]
+name = "iroh-live-audio-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+description = "#472 spike: group audio rooms over iroh-live (Media over QUIC on iroh). Not part of any app build."
+
+# Standalone: not a member of any Velta workspace, own Cargo.lock. iroh-live
+# is not on crates.io and pins moq by git rev, so it must not leak into the
+# app's lockfiles until it stabilises.
+[workspace]
+
+[dependencies]
+iroh-live = { git = "https://github.com/n0-computer/iroh-live", rev = "747b1bd0567d2f6b019a89633c04e6561ccac460", default-features = false, features = ["media", "rooms"] }
+iroh = { version = "1.5", default-features = false, features = ["tls-aws-lc-rs", "metrics"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+# Real microphone capture + speaker playback (cpal; needs ALSA headers on Linux).
+devices = ["iroh-live/capture", "iroh-live/playback"]
