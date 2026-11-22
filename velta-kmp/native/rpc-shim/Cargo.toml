@@ -26,7 +26,14 @@ debug = false
 
 [lib]
 name = "velta_rpc_shim"
-crate-type = ["cdylib"]
+# cdylib: Android JNI (.so). rlib: the desktop sidecar bin (#424) links the
+# same session code - one source, two artifacts.
+crate-type = ["cdylib", "rlib"]
+
+# Desktop sidecar (#424): replaces the deltachat-rpc-server externalBin.
+[[bin]]
+name = "velta-rpc-server"
+path = "src/main.rs"
 
 [dependencies]
 deltachat-jsonrpc = { path = "../../../core/deltachat-jsonrpc" }
@@ -48,4 +55,6 @@ iroh = { version = "0.35", default-features = false, features = ["discovery-loca
 # p2p media must ship plaintext: uploads copies are VLTA-encrypted with this
 # device key (same as the desktop fix, #448/#450).
 velta-attachment = { path = "../../../packages/attachment-crypto" }
+# JNI is the Android transport only; the desktop bin speaks stdio (#424).
+[target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

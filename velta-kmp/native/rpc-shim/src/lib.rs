@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use deltachat_jsonrpc::api::{Accounts, CommandApi};
 use futures_util::StreamExt;
+#[cfg(target_os = "android")]
 use jni::objects::{GlobalRef, JClass, JString, JValue};
+#[cfg(target_os = "android")]
 use jni::{JNIEnv, JavaVM};
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
@@ -23,11 +25,17 @@ use yerpc::{RpcClient, RpcSession};
 
 pub mod p2p;
 mod db_key;
+// The p2p loop host has no desktop caller yet: its only entries are the JNI
+// exports (Kotlin drives it). #398/#454 light it up on desktop.
+#[cfg(target_os = "android")]
 mod loop_host;
 
 /// Engine log line. `p2p.rs` calls this; it is not the core session log.
+/// stderr ALWAYS: in the desktop sidecar (#424) stdout is the RPC channel —
+/// a log line there would corrupt the JSON-lines framing. On Android this
+/// surfaces in logcat like any println.
 pub(crate) fn log(msg: &str) {
-    println!("velta-shim: {msg}");
+    eprintln!("velta-shim: {msg}");
 }
 
 pub(crate) fn random_bytes<const N: usize>() -> [u8; N] {
@@ -52,11 +60,13 @@ static WORKER: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 
 static LIVE: Mutex<Option<mpsc::UnboundedSender<String>>> = Mutex::new(None);
 
+#[cfg(target_os = "android")]
 static VM: Mutex<Option<JavaVM>> = Mutex::new(None);
+#[cfg(target_os = "android")]
 static SHIM_CLASS: Mutex<Option<GlobalRef>> = Mutex::new(None);
 
-/// Clears the session when the worker exits, including panic, and tells
-/// Kotlin. Constructed only after `Accounts::new` succeeds.
+/// Clears the session when the worker exits, including panic, and (on
+/// Android) tells Kotlin. Constructed only after `Accounts::new` succeeds.
 struct SessionGuard;
 
 impl SessionGuard {
@@ -66,6 +76,7 @@ impl SessionGuard {
     }
 }
 
+#[cfg(target_os = "android")]
 impl Drop for SessionGuard {
     fn drop(&mut self) {
         SERVING.store(false, Ordering::SeqCst);
@@ -76,11 +87,21 @@ impl Drop for SessionGuard {
     }
 }
 
+/// Desktop bin: the process ending IS the session end — no callback.
+#[cfg(not(target_os = "android"))]
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        SERVING.store(false, Ordering::SeqCst);
+        if let Ok(mut live) = LIVE.lock() {
+            *live = None;
+        }
+    }
+}
+
 /// One yerpc session. `incoming` is `send_line`. `outgoing` is one JSON
 /// object per line, no trailing newline. Ends on [stop] or a dropped sender.
 async fn run_session(
     state: CommandApi,
-    accounts: Arc<RwLock<Accounts>>,
     mut incoming: mpsc::UnboundedReceiver<String>,
     outgoing: mpsc::Sender<String>,
     stop: Arc<tokio::sync::Notify>,
@@ -155,11 +176,13 @@ fn worker_main(
         let session = tokio::spawn({
             let stop = stop.clone();
             async move {
-                run_session(state, accounts, in_rx, out_tx, stop).await;
+                run_session(state, in_rx, out_tx, stop).await;
             }
         });
         while let Some(line) = out_rx.recv().await {
-            jni_on_line(&line);
+            // #424: one emit hook, two transports — Android calls back into
+            // Kotlin over JNI, the desktop bin prints to stdout.
+            emit_line(&line);
         }
         session.abort();
         let _ = session.await;
@@ -172,7 +195,10 @@ fn worker_main(
 /// `db_key` is the 64-hex database-encryption DEK. The vendored core reads
 /// `VELTA_DB_KEY` when accounts open (patch #20). Set it here, before the
 /// worker exists. Empty string = keyless (upstream behavior).
-fn start_core(accounts_dir: String, db_key: String) -> i32 {
+/// The three entry points `main.rs` (#424) drives. `pub` because the bin is
+/// a separate crate from the lib; not part of any external API contract.
+#[doc(hidden)]
+pub fn start_core(accounts_dir: String, db_key: String) -> i32 {
     let _lock = START_LOCK.lock().expect("start lock");
     if SERVING.load(Ordering::SeqCst) {
         return 1;
@@ -221,7 +247,8 @@ fn start_core(accounts_dir: String, db_key: String) -> i32 {
 
 /// Signals the session to end. Idempotent. Does not join: the next
 /// `start_core` joins the worker so this call stays non-blocking (#224).
-fn stop_core() -> i32 {
+#[doc(hidden)]
+pub fn stop_core() -> i32 {
     let _lock = START_LOCK.lock().expect("start lock");
     SERVING.store(false, Ordering::SeqCst);
     if let Some(stop) = STOP.write().expect("stop lock").take() {
@@ -233,7 +260,8 @@ fn stop_core() -> i32 {
     0
 }
 
-fn send_line(line: String) -> i32 {
+#[doc(hidden)]
+pub fn send_line(line: String) -> i32 {
     let guard = match LIVE.lock() {
         Ok(guard) => guard,
         Err(_) => return -1,
@@ -247,6 +275,7 @@ fn send_line(line: String) -> i32 {
     }
 }
 
+#[cfg(target_os = "android")]
 /// Cache the VM and `RpcShim` from the Java thread that called `startCore`.
 /// `FindClass` from the worker later would use the system loader and miss it.
 fn remember_vm(env: &mut JNIEnv) -> bool {
@@ -278,6 +307,7 @@ fn remember_vm(env: &mut JNIEnv) -> bool {
     true
 }
 
+#[cfg(target_os = "android")]
 pub(crate) fn jni_call(method: &str, line: Option<&str>) {
     let vm = {
         let guard = match VM.lock() {
@@ -332,23 +362,46 @@ pub(crate) fn jni_call(method: &str, line: Option<&str>) {
     }
 }
 
+#[cfg(target_os = "android")]
 fn jni_on_line(line: &str) {
     jni_call("onNativeLine", Some(line));
 }
 
+/// One outgoing JSON line from the session. Android: JNI callback into
+/// Kotlin (`RpcShim.onNativeLine`). Desktop bin (#424): stdout, one line
+/// with a trailing `\n` — byte-compatible with deltachat-rpc-server.
+#[cfg(target_os = "android")]
+fn emit_line(line: &str) {
+    jni_on_line(line);
+}
+
+#[cfg(not(target_os = "android"))]
+fn emit_line(line: &str) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(line.as_bytes());
+    let _ = out.write_all(b"\n");
+    let _ = out.flush();
+}
+
+#[cfg(target_os = "android")]
 fn jni_on_exit() {
     jni_call("onNativeExit", None);
 }
 
+#[cfg(target_os = "android")]
 pub(crate) fn jni_on_loop_line(line: &str) {
     jni_call("onLoopLine", Some(line));
 }
 
+#[cfg(target_os = "android")]
 pub(crate) fn jni_on_loop_exit() {
     jni_call("onLoopExit", None);
 }
 
+
 /// JNI: `RpcShim.startLoop(accountsDir) -> 1`, or -1. Does not open a port.
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startLoop<'local>(
     mut env: JNIEnv<'local>,
@@ -366,6 +419,7 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startLoop<'local>(
 }
 
 /// JNI: `RpcShim.stopLoop() -> 0`. Idempotent.
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_stopLoop(
     _env: JNIEnv,
@@ -375,6 +429,7 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_stopLoop(
 }
 
 /// JNI: `RpcShim.sendLoopLine(line) -> 0`, or -1 when the engine is not up.
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_sendLoopLine(
     mut env: JNIEnv,
@@ -389,6 +444,7 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_sendLoopLine(
 }
 
 /// JNI: `RpcShim.startCore(accountsDir, dbKey) -> 1`, or a negative code.
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startCore<'local>(
     mut env: JNIEnv<'local>,
@@ -411,6 +467,7 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startCore<'local>(
 }
 
 /// JNI: `RpcShim.stopCore() -> 0`. Idempotent.
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_stopCore(
     _env: JNIEnv,
@@ -420,6 +477,7 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_stopCore(
 }
 
 /// JNI: `RpcShim.sendLine(line) -> 0`, or -1 when no session is serving.
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_sendLine(
     mut env: JNIEnv,
@@ -553,7 +611,7 @@ mod tests {
         let (in_tx, in_rx) = mpsc::unbounded_channel();
         let (out_tx, mut out_rx) = mpsc::channel(8);
         let stop = Arc::new(tokio::sync::Notify::new());
-        let task = tokio::spawn(run_session(state, accounts, in_rx, out_tx, stop));
+        let task = tokio::spawn(run_session(state, in_rx, out_tx, stop));
         in_tx
             .send(
                 r#"{"jsonrpc":"2.0","id":7,"method":"set_push_device_token","params":["webpush:x|key|auth"]}"#.into(),
@@ -588,7 +646,7 @@ mod tests {
         let (in_tx, in_rx) = mpsc::unbounded_channel();
         let (out_tx, mut out_rx) = mpsc::channel(8);
         let stop = Arc::new(tokio::sync::Notify::new());
-        let task = tokio::spawn(run_session(state, accounts, in_rx, out_tx, stop));
+        let task = tokio::spawn(run_session(state, in_rx, out_tx, stop));
         in_tx
             .send(r#"{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}"#.into())
             .expect("send");
