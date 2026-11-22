@@ -46,7 +46,9 @@ serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 data-encoding = "2"
 getrandom = "0.2"
-socket2 = "0.5"
+# "all": core's iroh 0.35 (netwatch 0.5, BSD/macOS netmon) needs Type::RAW.
+# Loop's iroh 0.35 used to switch it on via discovery-local-network (#469).
+socket2 = { version = "0.5", features = ["all"] }
 # #259 step 2: the plaintext → SQLCipher migration opens account databases
 # directly (same bundled SQLCipher the core links).
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
