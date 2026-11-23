@@ -3557,6 +3557,86 @@ object VeltaIcons {
         }.build()
     }
 
+    /** app/js/icons.js P.dash — house style: 24 grid, stroke 2, round caps. */
+    val dash: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "VeltaIcons.Dash",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathData {
+        moveTo(10.0f, 12.0f)
+        horizontalLineToRelative(11.0f)
+        moveTo(16.0f, 7.0f)
+        lineToRelative(5.0f, 5.0f)
+        lineToRelative(-5.0f, 5.0f)
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                pathData = PathData {
+        moveTo(3.0f, 8.0f)
+        horizontalLineToRelative(4.0f)
+        moveTo(2.0f, 12.0f)
+        horizontalLineToRelative(4.0f)
+        moveTo(3.0f, 16.0f)
+        horizontalLineToRelative(4.0f)
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    /** app/js/icons.js P.mail — house style: 24 grid, stroke 2, round caps. */
+    val mail: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "VeltaIcons.Mail",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathData {
+        moveTo(5.0f, 5.0f)
+        horizontalLineTo(19.0f)
+        arcTo(2.0f, 2.0f, 0.0f, false, true, 21.0f, 7.0f)
+        verticalLineTo(17.0f)
+        arcTo(2.0f, 2.0f, 0.0f, false, true, 19.0f, 19.0f)
+        horizontalLineTo(5.0f)
+        arcTo(2.0f, 2.0f, 0.0f, false, true, 3.0f, 17.0f)
+        verticalLineTo(7.0f)
+        arcTo(2.0f, 2.0f, 0.0f, false, true, 5.0f, 5.0f)
+        close()
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                pathData = PathData {
+        moveTo(3.5f, 6.5f)
+        lineTo(12.0f, 13.0f)
+        lineToRelative(8.5f, -6.5f)
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     /** app/js/icons.js P.shield — house style: 24 grid, stroke 2, round caps. */
     val shield: ImageVector by lazy {
         ImageVector.Builder(

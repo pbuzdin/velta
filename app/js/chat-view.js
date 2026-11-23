@@ -845,6 +845,9 @@ export class ChatView {
   // chat: the caller's freshly fetched chat object (app.js openChat), which
   // saves a second getChat per open (#25); fetched here when omitted.
   async open(chatId, chat = null) {
+    // #470 Velta Dash: wire the transfer on the first open, so this device
+    // announces the capability (ui.velta.xfer) before its first message.
+    ensureXfer(this);
     if (this.thread) this._closeThread();
     this._coreReplyCounts = new Map(); // per chat; refetched after the first page
     // Drop the previous open's right to paint, but leave its rows on screen.

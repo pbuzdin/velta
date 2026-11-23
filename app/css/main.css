@@ -970,6 +970,25 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 .xfer-state { color: var(--text-dim); font-size: var(--fs-2); max-width: 22em; }
 .xfer-open { flex: none; font-weight: 600; }
 .xfer-ask { flex: none; }
+/* Velta Dash route badge on the card: which path the file took. Same
+   colour as .xfer-state (already AA-checked on both bubble kinds). */
+.xfer-route { display: inline-flex; align-items: center; gap: 4px; flex: none;
+  color: var(--text-dim); font-size: var(--fs-2); font-weight: 600; }
+.xfer-route svg { width: 14px; height: 14px; flex: none; }
+/* Velta Dash chat-header badge: reads as status, not a button. The button
+   box is the 44px hit area; the pill inside is the visual. accent-text is
+   the AA token for accent text on app surfaces in every theme. */
+.dash-badge { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 44px; min-height: 44px; padding: 0 2px; margin: 0; border: 0;
+  background: none; color: var(--accent-text); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.dash-badge[hidden] { display: none; }
+.dash-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 6px;
+  border: 1px solid currentColor; border-radius: 999px; font-size: var(--fs-2); font-weight: 600; line-height: 1.4; }
+.dash-pill svg { width: 14px; height: 14px; flex: none; }
+.dash-badge:focus-visible { outline: none; }
+.dash-badge:focus-visible .dash-pill { outline: 2px solid currentColor; outline-offset: 2px; }
+.dash-explainer-text { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
+.dash-explainer-text svg { width: 20px; height: 20px; flex: none; color: var(--accent-text); margin-top: 1px; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }

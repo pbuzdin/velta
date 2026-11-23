@@ -1,6 +1,7 @@
 import { t } from "./i18n.js";
-// iroh-xfer.js — automatic iroh file transfer for Velta ↔ Velta 1:1 chats
-// (#470). The engine is velta-app/src-tauri/src/xfer.rs (Tauri commands
+// iroh-xfer.js — Velta Dash ("Dash"): automatic iroh file transfer for
+// Velta ↔ Velta 1:1 chats (#470). Not Loop (local network) and not Beam
+// (send to many); internal names stay "xfer". The engine is velta-app/src-tauri/src/xfer.rs (Tauri commands
 // xfer_offer / xfer_fetch / xfer_withdraw); this module holds the policy and
 // the message formats, pure so node tests cover them.
 //
@@ -78,7 +79,7 @@ function fmtSize(n) {
  * ticket on its own line.
  */
 export function fileCardText({ name, size, ticket }) {
-  return `${t("📎 {name} · {size} — sent directly from device to device", { name, size: fmtSize(size) })}\n` +
+  return `${t("📎 {name} · {size} — sent with Velta Dash", { name, size: fmtSize(size) })}\n` +
     `${t("If your app can't open this, the file follows by email.")}\n${ticket}`;
 }
 
@@ -98,11 +99,43 @@ export function parseResendRequest(text) {
 
 /** UI line saying which path a file took. */
 export function routeLabel(route) {
-  return route === "iroh" ? t("Sent directly (iroh)") : t("Sent by email");
+  return route === "iroh" ? t("Sent with Velta Dash") : t("Sent by email");
 }
 
-export const SETTING_LABEL = () => t("Send large files directly");
-export const SETTING_HINT = () => t("Files over 6 MB to Velta contacts go device to device. If that fails, Velta sends them by email.");
+/** Brand: "Velta Dash" stays untranslated (like Velta Loop / Velta Beam). */
+export const DASH = "Velta Dash";
+export const SETTING_LABEL = () => t(DASH);
+export const SETTING_HINT = () => t("Fast transfer for files over 6 MB, directly between devices. It starts with a Velta contact after you both exchange a message; email is the fallback.");
+
+/**
+ * Dash status of one chat, for the header badge and the explainer:
+ *   null       — not applicable (group, self, local chat, PWA)
+ *   "off"      — the setting is off
+ *   "waiting"  — on, but the contact has not proved it runs Dash yet
+ *   "on"       — on and proven: files over 6 MB go via Dash
+ */
+export function dashState({ kind, isP2p, contactId, shell, enabled, proven }) {
+  if (!shell || kind !== "single" || isP2p || contactId == null || contactId === 1) return null;
+  if (!enabled) return "off";
+  return proven ? "on" : "waiting";
+}
+
+/** Explainer text per dashState (plain text, the caller escapes). */
+export function dashExplainer(state) {
+  if (state === "on") return t("Velta Dash is on with this contact: files over 6 MB go directly between devices, with email as a fallback.");
+  if (state === "waiting") return t("Velta Dash is on, but not with this contact yet. Dash starts after you both exchange a message. Contacts on other apps get files by email.");
+  return t("Velta Dash is off: files go by email.");
+}
+
+/** Why a file over the threshold went by email, for the diagnostics log. */
+export function emailReason({ size, oneToOne, proven, enabled, available }) {
+  if (!(Number(size) > THRESHOLD)) return null;
+  if (!available) return "no Dash here (PWA)";
+  if (!enabled) return "Velta Dash is off";
+  if (!oneToOne) return "not a 1:1 chat";
+  if (!proven) return "contact has not proved Velta Dash yet (no Chat-Velta-Xfer seen — exchange one message)";
+  return null;
+}
 
 /** A plain-object store over localStorage (the pending list survives restarts). */
 export function jsonStore(key, store = globalThis.localStorage) {

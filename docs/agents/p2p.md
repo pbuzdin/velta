@@ -413,7 +413,33 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   `five_real_engines_form_a_group_and_chat`, the worst-case size check in
   groups.rs.
 
-## Automatic iroh file transfer (#470)
+## Velta Dash — automatic iroh file transfer (#470)
+
+**Name.** User-facing brand: **Velta Dash** (short: **Dash**), kept
+untranslated in ru/fr like Velta Loop and Velta Beam. Dash is the automatic
+over-6-MB 1:1 file path; Loop is the local-network chat, Beam the send-to-many
+webxdc. Code, prefs, commands and config keys keep the internal name `xfer`
+(`velta-iroh-xfer`, `xfer_*`, `ui.velta.xfer*`, `VXFER1:`).
+
+**UI.**
+- Drawer toggle "Velta Dash: on/off" (`data-setting="dash"`, Tauri only). A
+  flip fires `velta-dash`: the glue re-announces `ui.velta.xfer` and the chat
+  header badge refreshes.
+- Chat header badge `#btn-dash` (icon `P.dash` + "Dash"): shown only in a 1:1
+  chat with Dash on **and** the contact proven (`dashState() === "on"`);
+  hidden for groups, Saved Messages, local chats, the PWA, Delta Chat and
+  unproven contacts. A message from the open contact re-checks it. Tap →
+  explainer with a link to the drawer setting. 44px hit area.
+- Contact profile row "Velta Dash: On / Not yet / Off" opens the same
+  explainer; "Not yet" carries the hint "Dash starts after you both exchange
+  a message".
+- File card: route badge `.xfer-route` — Dash, or Email fallback.
+- Diagnostics (#489): a file over 6 MB that goes by email logs
+  `iroh xfer: sent <name> by email: <reason>` (`emailReason()`: off, not 1:1,
+  contact not proven, PWA).
+- The capability is announced on the first chat open (`ensureXfer` in
+  `ChatView.open`), so the first message already carries the header: after
+  one message each way both sides are proven.
 
 `velta-app/src-tauri/src/xfer.rs` is the engine. It uses **iroh 0.35**
 (`iroh035`), the version core and chatmail relays' iroh relays speak.
