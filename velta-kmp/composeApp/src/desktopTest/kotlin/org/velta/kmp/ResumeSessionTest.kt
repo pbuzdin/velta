@@ -50,6 +50,10 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
             // Profile storage asks on open. An empty list returns; a missing
             // answer hangs the coroutine until the 30 s timeout.
             "get_message_ids" to "[]",
+            // #465: the Loop engine is sealed-by-default — the model sends
+            // this on every loop init; without an answer setSeal hangs the
+            // init coroutine and loopReady never sets (#473 fixture gap).
+            "p2p_set_seal" to "null",
         )
     }
 

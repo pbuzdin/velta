@@ -3464,7 +3464,10 @@ class AppModel(
                 println("velta-kmp: startIo on switch failed: $t")
             }
         }
-        accountId = id
+        // Caches reset BEFORE accountId flips: observers that see the new
+        // accountId (tests poll it) must never also see the old profile's
+        // side view or caches — the reset is straight-line from here to
+        // listView = "chats", no suspension in between.
         revealedMedia = emptySet()
         composerText = ""
         replyTo = null
@@ -3472,6 +3475,7 @@ class AppModel(
         resetChatActions()
         sendError = null
         resetAccountCaches()
+        accountId = id
         try {
             accountAddr = veltaCore.accountInfo(id).addr
         } catch (t: Throwable) {

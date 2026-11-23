@@ -4440,6 +4440,12 @@ mod tests {
             .await
             .unwrap();
         p2p.set_name(tag.to_string()).unwrap();
+        // #465: the engine factories test TRANSFER semantics, not storage
+        // format — keep blobs plaintext so byte asserts stay meaningful
+        // regardless of whether a parallel test has set VELTA_DB_KEY. The
+        // at-rest format is covered param-explicitly by
+        // store_outgoing_seals_at_rest_and_reads_plain.
+        set_seal_media(false);
         (p2p, rx)
     }
 
