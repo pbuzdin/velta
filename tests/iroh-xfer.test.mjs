@@ -94,3 +94,74 @@ test("transport: expired/unreachable fetch asks for the email copy; sender mails
   const c = createTransport({ enabled: () => true, email: { sendFile: async () => {}, sendText: async () => {} }, iroh: { fetch: async () => ({ error: "Io(reset)", email: false }) } });
   assert.equal((await c.receive({ chatId: 1, text: sentA[0][1] })).retry, true, "broken stream: resume over iroh, no email");
 });
+
+test("ui glue: send routes, cards render, fetch states and the resend fallback", async () => {
+  const ui = await import("../app/js/iroh-xfer-ui.js");
+  const texts = [], files = [], offers = [];
+  let fetchResult = { path: "C:/xfer-in/abc.bin" };
+  ui.initXferUi({
+    core: {},
+    invoke: async (cmd, args) => {
+      if (cmd === "xfer_offer") { offers.push(args.path); const h = args.path.includes("big") ? "cd" : "ef"; return enc({ ...tk, hash: h.repeat(32), name: args.path.includes("big") ? "big.bin" : "other.bin", size: THRESHOLD + 1 }); }
+      if (cmd === "xfer_fetch") return fetchResult;
+      return null;
+    },
+    sendText: async (chatId, text) => texts.push({ chatId, text }),
+    sendFile: async (chatId, path, name) => files.push({ chatId, path, name }),
+    metadata: async () => ({ "a@relay.example": { iroh_relay: "https://iroh.relay.example/" } }),
+  });
+
+  // Sender: over threshold to a same-relay peer routes; the card is mailed.
+  const peer = "b@relay.example";
+  assert.equal(await ui.peerIsVelta(peer), true);
+  assert.equal(await ui.peerIsVelta("z@else.example"), false, "foreign relay is not a Velta peer (v1 heuristic)");
+  const out = await ui.maybeSend({ chatId: 5, path: "C:/dl/big.bin", name: "big.bin", size: THRESHOLD + 1, oneToOne: true, peerAddr: peer });
+  assert.equal(out.handled, true);
+  assert.equal(offers[0], "C:/dl/big.bin");
+  const cardText = texts[0].text;
+  assert.match(cardText, /^📎 big\.bin/);
+  assert.match(cardText, /^VXFER1:/m);
+
+  // Sender's bubble: outgoing card shows the iroh route, no actions.
+  ui.noteCard(5, cardText, true);
+  const outHtml = ui.xferCardHtml(cardText);
+  assert.match(outHtml, /Sent directly \(iroh\)/);
+  assert.doesNotMatch(outHtml, /xfer-ask|Received/);
+
+  // Receiver: first render kicks the fetch; success lands Open + Received.
+  // (A different device's offer carries its own hash — separate state entry.)
+  const rText = `📎 got.bin · 6.7 MB — sent directly from device to device\n${enc({ ...tk, hash: "aa".repeat(32), name: "got.bin" })}`;
+  ui.noteCard(9, rText, false);
+  await new Promise(r => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
+  const rHtml = ui.xferCardHtml(rText);
+  assert.match(rHtml, /Received/);
+  assert.match(rHtml, /xfer-open/);
+  assert.match(rHtml, /got\.bin/);
+
+  // Receiver: fetch that wants email sends the fallback request, label flips.
+  fetchResult = { error: "Expired", email: true };
+  const out3 = await ui.maybeSend({ chatId: 5, path: "C:/dl/other.bin", name: "other.bin", size: THRESHOLD + 1, oneToOne: true, peerAddr: peer });
+  assert.equal(out3.handled, true);
+  const t2 = enc({ ...tk, name: "late.bin", hash: "ef".repeat(32) });
+  const late = `📎 late.bin · 6.7 MB — sent directly from device to device\n${t2}`;
+  ui.noteCard(9, late, false);
+  await new Promise(r => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
+  assert.match(texts.at(-1).text, /^VXFER-RESEND:/);
+  assert.match(ui.xferCardHtml(late), /Asked for the email copy/);
+
+  // Sender: the fallback request mails the pending file exactly once.
+  assert.equal(await ui.xferCardHtml !== null, true);
+  const resend = resendRequestText("ef".repeat(32));
+  ui.noteCard(5, resend, false);
+  await new Promise(r => setTimeout(r, 0));
+  assert.deepEqual(files, [{ chatId: 5, path: "C:/dl/other.bin", name: "other.bin" }]);
+  ui.noteCard(5, resend, false);
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(files.length, 1, "only once");
+
+  // Under threshold / group / non-Velta: the caller sends normally.
+  const out2 = await ui.maybeSend({ chatId: 5, path: "C:/dl/small.txt", name: "small.txt", size: 100, oneToOne: true, peerAddr: peer });
+  assert.equal(out2.handled, false);
+});
