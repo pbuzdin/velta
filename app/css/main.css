@@ -961,6 +961,15 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
   -webkit-touch-callout: none;
 }
 .msg-text .msg-code:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 4px; }
+/* #470: iroh file transfer card — renders in place of the ticket text. */
+.xfer-card { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.xfer-glyph { width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+  border-radius: 8px; background: var(--bg-hover); color: var(--accent-text); font-weight: 600; }
+.xfer-name { flex: 1; min-width: 0; font-weight: 600; word-break: break-all; }
+.xfer-meta { display: block; font-weight: 400; color: var(--text-dim); font-size: var(--fs-2); }
+.xfer-state { color: var(--text-dim); font-size: var(--fs-2); white-space: nowrap; }
+.xfer-open { flex: none; font-weight: 600; }
+.xfer-ask { flex: none; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }

@@ -16,6 +16,7 @@ import { findHashtags } from "./hashtags.js";
 import { findMentions } from "./mentions.js";
 import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
 import { inviteLinkChipHtml } from "./invite-cards.js";
+import { xferCardHtml } from "./iroh-xfer-ui.js";
 import { t } from "./i18n.js";
 
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
@@ -24,6 +25,10 @@ const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
 // opts.mentions: chat members [{ id, name, code }] → @mention chips
 // (mentions.js; SELF id 1 gets the stronger "mention-me" style).
 export function renderMarkdown(rawText, opts = {}) {
+  // VXFER1 file cards (#470) render as their own bubble content, before any
+  // markdown pass — the ticket line must never show as raw text.
+  const xfer = xferCardHtml(rawText);
+  if (xfer) return xfer;
   const members = opts?.mentions || null;
   const inline = raw => inlineWith(raw, members);
   const text = String(rawText ?? "");

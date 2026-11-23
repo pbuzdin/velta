@@ -127,11 +127,27 @@ import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealIte
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
+import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard } from "./iroh-xfer-ui.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
 // Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
 // first use; largeFileAvailable() is just "running in the Tauri shell".
 const largeFileAvailable = () => !!tauriInvoke();
+
+// #470: the automatic iroh file transfer glue — one init per ChatView; the
+// transport singleton keeps the pending offers for the resend fallback.
+let xferUiReady = false;
+function ensureXfer(view) {
+  if (xferUiReady) return;
+  xferUiReady = true;
+  initXferUi({
+    core: view.core,
+    invoke: tauriInvoke(),
+    metadata: () => view.core?.getServerMetadata?.(),
+    sendText: (chatId, text) => view._sendArchivedAware(chatId, { text }),
+    sendFile: (chatId, path, name) => view._sendArchivedAware(chatId, { viewtype: shareViewtype(name), file: path, filename: name }),
+  });
+}
 // Cheap header gate so Saved Messages can offer Apply without pulling
 // settings-transfer.js into the boot graph (strict parse is on Apply).
 function looksLikeSettings(text) {
@@ -2659,6 +2675,10 @@ export class ChatView {
       // Language card (lang-cards.js): device chat + device sender only.
       const langCard = langCardCode(m.text, { trusted: this.chat?.kind === "device" && m.fromDevice === true });
       const bodyText = langCard ? stripLangLink(m.text) : m.text;
+      // #470: first render of an iroh file card kicks its fetch (incoming)
+      // or the sender's email-out (peer asked for the email copy).
+      ensureXfer(this);
+      xferNoteCard(m.chatId, bodyText, m.out === true);
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
       bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(bodyText, { mentions: this._mentionMembers })}`;
       if (langCard) bubble += langCardHtml(langCard, { esc: escapeHtml });
@@ -5416,6 +5436,27 @@ export class ChatView {
     }
     const sendFile = async (path, caption) => {
       const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
+      // >6 MB to a 1:1 Velta peer goes device-to-device over iroh (#470) when
+      // the setting is on; the transport mails the file itself if the offer
+      // fails, so a true return here always means delivered.
+      if (!caption) {
+        ensureXfer(this);
+        let peerAddr = null;
+        if (this.chat?.contactId != null && this.core?.getContact) {
+          try { peerAddr = (await this.core.getContact(this.chat.contactId))?.addr || null; } catch {}
+        }
+        const bytes = await attachmentBytes(this.core, path);
+        if (!this._isCurrent(session)) return false;
+        const sent = await xferMaybeSend({
+          chatId: session.chatId, path, name, size: bytes.length,
+          oneToOne: this.chat?.chatType === "Single", peerAddr,
+        });
+        if (sent.handled) {
+          if (!this._isCurrent(session)) return false;
+          if (sent.msg) this.appendOutgoing(sent.msg);
+          return true;
+        }
+      }
       const msg = await this._sendArchivedAware(session.chatId, { text: caption, viewtype: shareViewtype(name), file: path, filename: name });
       if (!this._isCurrent(session)) return false;
       this.appendOutgoing(msg);
