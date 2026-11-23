@@ -1165,3 +1165,20 @@ this in #379: every domain tab draws the branded square; see the
 **Still open:** webxdc, N4 release signing, #323–#328 fidelity
 follow-ups, relay-side UnifiedPush delivery, ktlint/detekt. CI native-lib
 cache is #369 (see `docs/agents/release-ci.md`).
+
+**2026-11-22/23 wave (PRs #463, #473, #474):**
+- **Loop at rest encrypted** (#465, PR #473, `37fdbac6`): stored media is
+  VLTA-sealed with the device attachment key — `store_outgoing` seals on
+  store (the wire still announces plaintext length), received files are
+  sealed in place on FileEnd (plaintext partial removed before the rename;
+  Windows cannot rename over a live file), reads decrypt via `open_plain`.
+  Opt-out: "Encrypt stored media" toggle in LoopRules/LoopScreen (default
+  ON, pref `velta-p2p-seal`, `AppModel.setLoopSeal` → `loop.setSeal`;
+  applied at shell start). The toggle never affects the wire. ru/fr wired.
+  On-device acceptance (VLTA magic, rendering, Extract-here, toggle) still
+  pending.
+- **Loop on iroh 1.5** (#469, PR #474): the shim engine decoupled from
+  core's iroh 0.35; mixed 0.35/1.x peers interoperate on direct paths.
+  Still open (Loop): PWA WebRTC Loop UI wiring (#468 remainder — engine
+  slice shipped, desktop #475), group audio over iroh-live (#472, spike
+  #477), second-device acceptance of the seal toggle.

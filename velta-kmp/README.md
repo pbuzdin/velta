@@ -25,9 +25,11 @@ foreground service. The Android back button
 backgrounds the app from the root chat list instead of exiting to the
 launcher (deeper layers — menus, threads, pickers — keep their own back
 handling). A profile received as a second device posts a note in the
-device chat saying where it came from. Local-chat media transfers ship
-plaintext over the wire (the peer stores it under its own key), so
-images and files arrive readable on the other device. A long
+device chat saying where it came from. Local-chat media transfers ride
+the end-to-end tunnel (plaintext frames inside QUIC-TLS, so images and
+files arrive readable on the other device) and are VLTA-encrypted at
+rest by default (#465) — the drawer's "Encrypt stored media" toggle
+opts a device out; the toggle never affects the wire. A long
 message clamps at 12 lines (Read more / Show less). A
 message the core shortened offers Show Full Message… on Android.
 Desktop shows a notice for that page. A picture leaves 5dp above its
