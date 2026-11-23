@@ -705,6 +705,9 @@ impl Sink {
         match self {
             Sink::Tauri(app) => {
                 use tauri::Emitter;
+                // #454: long transfers keep a foreground service up.
+                #[cfg(target_os = "android")]
+                crate::saf::observe(&value);
                 let _ = app.emit("p2p-event", value);
             }
             Sink::Test(tx) => {
@@ -4889,6 +4892,82 @@ pub async fn p2p_send_folder(
     .map_err(|e| e.to_string())??;
     let size = std::fs::metadata(&stored).map(|m| m.len()).unwrap_or(0);
     Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": name, "size": size }))
+}
+
+/// #454 Android: sends a folder picked with `saf_pick_tree` as one streamed
+/// zip (same reply as `p2p_send_folder`).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn p2p_send_tree(
+    state: tauri::State<'_, P2pState>,
+    peer_id: String,
+    uri: String,
+    caption: String,
+) -> Result<serde_json::Value, String> {
+    crate::saf::check_picked(&uri)?;
+    let engine = engine(&state).map_err(|e| e.to_string())?;
+    let (id, stored, name) = tauri::async_runtime::spawn_blocking(move || {
+        let (base, listing) = crate::saf::list_tree(&uri)?;
+        let plan = crate::loopzip::FolderZip::from_listing(listing)?;
+        engine.send_zip(&peer_id, plan, &base, &caption)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))?;
+    let size = std::fs::metadata(&stored).map(|m| m.len()).unwrap_or(0);
+    Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": name, "size": size }))
+}
+
+/// #454 Android: sends a `content://` file picked in the system picker,
+/// read once straight into the stored copy (no uploads/ copy first).
+/// Returns `{id, path, name, size}`.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn p2p_send_content_uri(
+    state: tauri::State<'_, P2pState>,
+    peer_id: String,
+    uri: String,
+    caption: String,
+) -> Result<serde_json::Value, String> {
+    if !uri.starts_with("content://") {
+        return Err("not a content URI".into());
+    }
+    let engine = engine(&state).map_err(|e| e.to_string())?;
+    let (id, stored, name, size) = tauri::async_runtime::spawn_blocking(move || {
+        let (name, size) = crate::saf::describe(&uri)?;
+        let reader = crate::saf::open_read(&uri)?;
+        let (id, stored) = engine.send_reader(&peer_id, &name, size, reader, &caption)?;
+        anyhow::Ok((id, stored, name, size))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))?;
+    Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": sanitize_name(&name), "size": size }))
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn p2p_send_tree(peer_id: String, uri: String, caption: String) -> Result<serde_json::Value, String> {
+    let _ = (peer_id, uri, caption);
+    Err("folder trees are Android-only".into())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn p2p_send_content_uri(peer_id: String, uri: String, caption: String) -> Result<serde_json::Value, String> {
+    let _ = (peer_id, uri, caption);
+    Err("content URIs are Android-only".into())
+}
+
+/// #454 Android: the transfer notification's Cancel.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn cancel_many(app: &tauri::AppHandle, pairs: &[(String, String)]) {
+    use tauri::Manager;
+    let Some(state) = app.try_state::<P2pState>() else { return };
+    let Ok(engine) = engine(&state) else { return };
+    for (peer, id) in pairs {
+        let _ = engine.cancel_file(peer, id);
+    }
 }
 
 /// #454: resumes an interrupted 1:1 send from what the receiver holds.
