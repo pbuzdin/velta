@@ -74,6 +74,26 @@ test("create_qr_svg QRs carry the Velta logo, not the Delta Chat overlay", async
   assert.ok(rpc.includes('brandCoreQrSvg(reencodeCoreQrSvg(await this._call("create_qr_svg", text), text))'));
 });
 
+test("brandAnyQrSvg brands bare QRs at any viewBox and stays idempotent", async () => {
+  const { brandAnyQrSvg, VELTA_QR_LOGO } = await import("../app/js/qr-encode.js");
+  // A mock-core QR: square viewBox, no core logo group.
+  const bare = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 33 33"><rect width="33" height="33" fill="#fff"/><path transform="translate(4,4)" fill="#000" d="M0,0h1v1h-1z"/></svg>';
+  const out = brandAnyQrSvg(bare);
+  assert.ok(out.includes(VELTA_QR_LOGO), "plate injected");
+  assert.ok(out.includes('transform="scale(0.064453125)"'), `scaled from the 512 design: ${out}`);
+  assert.match(out, /<\/svg>$/);
+  assert.equal(brandAnyQrSvg(out), out, "already-branded QR returned as-is");
+  // Core-branded QRs still swap the Delta overlay (delegates to brandCoreQrSvg).
+  const core = '<svg viewBox="0 0 512 512"><g transform="translate(208,208) scale(2)"><path d="x"/></g></svg>';
+  assert.ok(brandAnyQrSvg(core).includes(VELTA_QR_LOGO));
+  // Non-square / unparsable viewBox: never corrupt the svg.
+  assert.equal(brandAnyQrSvg('<svg viewBox="0 0 33 44"></svg>'), '<svg viewBox="0 0 33 44"></svg>');
+  assert.equal(brandAnyQrSvg("<svg></svg>"), "<svg></svg>");
+  // The Loop invite modal runs every QR through it.
+  const p2p = readFileSync(new URL("../app/js/p2p.js", import.meta.url), "utf8");
+  assert.ok(p2p.includes("brandAnyQrSvg(svg)"));
+});
+
 test("QR container fills the dialog width and stays square", () => {
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   const box = css.slice(css.indexOf(".qr-box {"), css.indexOf("}", css.indexOf(".qr-box {")));

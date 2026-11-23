@@ -342,10 +342,12 @@ svg { width: 24px; height: 24px; display: block; }
   .bar-btn:hover { background: var(--bg-hover); }
 }
 .bar-btn.active { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 8px 8px 0 0; }
-/* #456 follow-up: the Loop bar button carries the brand mark (drawer logo),
-   sized like the other bar icons; a subtle accent tint shows when local
-   chat is ON (the active-view state still uses .active). */
-#bar-loop svg { width: var(--ico-4); height: auto; }
+/* #456 follow-up: the Loop bar button carries the brand mark (drawer logo);
+   a subtle accent tint shows when local chat is ON (the active-view state
+   still uses .active). The mark keeps the same 22x22 box as the other bar
+   icons (.bar-btn svg) — the non-square glyph letterboxes inside it, so no
+   button reads shorter than its neighbours. */
+.bar-btn.loop-on svg { color: var(--accent); }
 .bar-btn.loop-on svg { color: var(--accent); }
 .bar-btn.bar-accent { background: var(--accent); color: var(--on-accent); }
 /* #109: .bar-btn.active squares the bottom corners for the view tabs. The + is not a tab. */

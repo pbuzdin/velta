@@ -357,3 +357,15 @@ export function brandCoreQrSvg(svg) {
   if (!svg || !CORE_LOGO.test(svg)) return svg;
   return svg.replace(CORE_LOGO, (_, tail) => VELTA_QR_LOGO + tail);
 }
+
+// Brand ANY QR svg: core-branded ones swap via brandCoreQrSvg; bare ones
+// (mock core, other hosts) get the logo plate injected, scaled from the
+// 512-design onto whatever the viewBox is. Already-branded returns as-is.
+export function brandAnyQrSvg(svg) {
+  if (!svg || /data-velta-logo/.test(svg)) return svg;
+  const branded = brandCoreQrSvg(svg);
+  if (branded !== svg) return branded;
+  const n = +(/viewBox="0 0 (\d+(?:\.\d+)?) \1"/.exec(svg) || [])[1];
+  if (!n) return svg;
+  return svg.replace(/<\/svg>\s*$/, `<g transform="scale(${n / 512})">${VELTA_QR_LOGO}</g></svg>`);
+}
