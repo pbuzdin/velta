@@ -1,7 +1,8 @@
 // WCAG AA (4.5:1) for the dim in-bubble labels: "Forwarded a message"
-// (.msg-fwd), "edited" + timestamp (.msg-meta), quote sender (.q-name), and
-// the read ticks (3:1, icon). Every theme, both bubble sides, the default
-// accent and custom accents (dark, mid, light/yellow, near-white).
+// (.msg-fwd), "edited" + timestamp (.msg-meta), quote sender (.q-name),
+// the Velta Dash file card (.xfer-meta / .xfer-state / .xfer-route / .xfer-glyph),
+// and the read ticks (3:1, icon). Every theme, both bubble sides, the default
+// accent and custom accents (dark, mid, light/yellow, near-white, near-black).
 // Translucent layers (--bg-reply) are composited over the real bubble first.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -57,6 +58,12 @@ function pairs(theme, t) {
     ["in .msg-deleted", mix80(c("--text-dim"), c("--text")), inB, 4.5],
     ["out .msg-deleted", theme === "brutal" ? c("--nb-main-ink") : mix80(c("--text-meta-out"), c("--text")), outB, 4.5],
     ["out .ticks.read (icon)", theme === "brutal" ? c("--nb-main-ink") : c("--ticks-read"), outB, 3],
+    // Velta Dash file card (#470): size, status and route badge use the same
+    // tokens as .file-size; the type tile matches .file-ico (accent fill + ink).
+    ["in .xfer-meta / .xfer-state / .xfer-route", c("--text-dim"), inB, 4.5],
+    ["out .xfer-meta / .xfer-state / .xfer-route", c("--text-meta-out"), outB, 4.5],
+    ["in/out .xfer-glyph", c("--on-accent"), c("--accent"), 4.5],
+    ["out .xfer-name (brutal ink / body text)", theme === "brutal" ? c("--nb-main-ink") : c("--text"), outB, 4.5],
   ];
 }
 function check(label, theme, t) {
@@ -73,9 +80,9 @@ test("dim in-bubble labels reach AA with the theme accents", () => {
   assert.deepEqual(bad, []);
 });
 
-test("dim in-bubble labels reach AA with custom accents (dark, mid, light, yellow, near-white)", () => {
+test("dim in-bubble labels reach AA with custom accents (dark, mid, light, yellow, near-white, near-black)", () => {
   const bad = [];
-  for (const acc of ["#1d3a8a", "#3fa34d", "#e0516e", "#f2e14c", "#a6e3ff", "#e8e8f0"]) {
+  for (const acc of ["#1d3a8a", "#3fa34d", "#e0516e", "#f2e14c", "#a6e3ff", "#e8e8f0", "#10131a", "#f4f4f4"]) {
     for (const th of ["dark", "light", "brutal"]) {
       const d = A.deriveAccent(acc, th);
       const keys = th === "brutal" ? A.BRUTAL_KEYS : Object.keys(A.VAR_NAMES);

@@ -963,17 +963,25 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 .msg-text .msg-code:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 4px; }
 /* #470: iroh file transfer card — renders in place of the ticket text. */
 .xfer-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 4px 0; }
+/* File-type tile uses the same accent fill + ink as .msg-file .file-ico:
+   --accent-text on --bg-hover over the outgoing bubble missed AA (2.62
+   dark, 4.39 light, 1.28 brutal). --on-accent on --accent is guaranteed. */
 .xfer-glyph { width: 30px; height: 30px; flex: none; display: grid; place-items: center;
-  border-radius: 8px; background: var(--bg-hover); color: var(--accent-text); font-weight: 600; }
+  border-radius: 8px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .xfer-name { flex: 1; min-width: 0; font-weight: 600; word-break: break-all; }
 .xfer-meta { display: block; font-weight: 400; color: var(--text-dim); font-size: var(--fs-2); }
 .xfer-state { color: var(--text-dim); font-size: var(--fs-2); max-width: 22em; }
 .xfer-open { flex: none; font-weight: 600; }
 .xfer-ask { flex: none; }
 /* Velta Dash route badge on the card: which path the file took. Same
-   colour as .xfer-state (already AA-checked on both bubble kinds). */
+   colour as .xfer-state; outgoing bubbles remapped below like .file-size. */
 .xfer-route { display: inline-flex; align-items: center; gap: 4px; flex: none;
   color: var(--text-dim); font-size: var(--fs-2); font-weight: 600; }
+/* Outgoing bubbles sit on --bg-bubble-out: silver --text-dim does not
+   reach AA there (2.41 dark, 1.32 brutal). Same token as .msg-file .file-size. */
+.msg-row.out .xfer-meta,
+.msg-row.out .xfer-state,
+.msg-row.out .xfer-route { color: var(--text-meta-out); }
 .xfer-route svg { width: 14px; height: 14px; flex: none; }
 /* Velta Dash chat-header badge: reads as status, not a button. The button
    box is the 44px hit area; the pill inside is the visual. accent-text is
@@ -3560,7 +3568,8 @@ html[data-theme="brutal"] .msg-row.out .bubble { background: var(--nb-main); }
 html[data-theme="brutal"] .msg-row.out .bubble .msg-text,
 html[data-theme="brutal"] .msg-row.out .msg-fwd,
 html[data-theme="brutal"] .msg-row.out .reaction-chip,
-html[data-theme="brutal"] .msg-row.out .msg-file { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .msg-row.out .msg-file,
+html[data-theme="brutal"] .msg-row.out .xfer-card { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-meta { color: var(--text-meta-out); }
 html[data-theme="brutal"] .msg-meta .ticks.read { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-text a,
