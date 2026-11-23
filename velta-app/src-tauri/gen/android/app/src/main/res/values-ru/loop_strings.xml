@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="loop_transfer_channel">Передачи в локальном чате</string>
+    <plurals name="loop_transfer_title">
+        <item quantity="one">Передача %d файла</item>
+        <item quantity="few">Передача %d файлов</item>
+        <item quantity="many">Передача %d файлов</item>
+        <item quantity="other">Передача %d файла</item>
+    </plurals>
+    <string name="loop_transfer_progress">%1$s из %2$s</string>
+    <string name="loop_transfer_cancel">Отмена</string>
+</resources>

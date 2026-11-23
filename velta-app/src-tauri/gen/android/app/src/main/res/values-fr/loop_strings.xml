@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="loop_transfer_channel">Transferts du chat local</string>
+    <plurals name="loop_transfer_title">
+        <item quantity="one">Transfert de %d fichier</item>
+        <item quantity="many">Transfert de %d fichiers</item>
+        <item quantity="other">Transfert de %d fichiers</item>
+    </plurals>
+    <string name="loop_transfer_progress">%1$s sur %2$s</string>
+    <string name="loop_transfer_cancel">Annuler</string>
+</resources>
