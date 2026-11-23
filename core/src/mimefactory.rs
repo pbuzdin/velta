@@ -1178,6 +1178,17 @@ impl MimeFactory {
             mail_builder::headers::raw::Raw::new("1.0").into(),
         ));
 
+        // Velta patch (#31, #470): encrypted mail only, and only once the app
+        // turned the transfer on (`ui.velta.xfer` = "1").
+        if self.encryption.is_encrypted()
+            && context.get_ui_config("ui.velta.xfer").await?.as_deref() == Some("1")
+        {
+            headers.push((
+                "Chat-Velta-Xfer",
+                mail_builder::headers::raw::Raw::new("1").into(),
+            ));
+        }
+
         if self.req_mdn {
             // we use "Chat-Disposition-Notification-To"
             // because replies to "Disposition-Notification-To" are weird in many cases

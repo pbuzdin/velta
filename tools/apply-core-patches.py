@@ -2877,6 +2877,108 @@ async fn test_velta_config_read_not_blocked_by_sql_holder() -> Result<()> {
 pub(crate) const VELTA_SEND_STRICT_KEY: &str = "ui.velta.send_strict";
 """,
     ),
+
+    # ---- VENDORISSUES #31 (#470): Velta file-transfer capability header ----
+    # A Velta client that can fetch iroh file tickets says so in its
+    # encrypted mail; the sender only routes large files over iroh to
+    # key-contacts that sent it in a signed message.
+    dict(
+        id="#31 Chat-Velta-Xfer header name (headerdef.rs)",
+        file="core/src/headerdef.rs",
+        applied="    ChatVeltaXfer,",
+        anchor="    ChatVersion,\n",
+        where="after",
+        text="""    /// Velta patch (#31, #470): "1" = the sending client fetches iroh file
+    /// tickets (automatic large-file transfer).
+    ChatVeltaXfer,
+""",
+    ),
+    dict(
+        id="#31 advertise the file-transfer capability (mimefactory.rs)",
+        file="core/src/mimefactory.rs",
+        applied="\"Chat-Velta-Xfer\"",
+        anchor="""        headers.push((
+            "Chat-Version",
+            mail_builder::headers::raw::Raw::new("1.0").into(),
+        ));
+""",
+        where="after",
+        text="""
+        // Velta patch (#31, #470): encrypted mail only, and only once the app
+        // turned the transfer on (`ui.velta.xfer` = "1").
+        if self.encryption.is_encrypted()
+            && context.get_ui_config("ui.velta.xfer").await?.as_deref() == Some("1")
+        {
+            headers.push((
+                "Chat-Velta-Xfer",
+                mail_builder::headers::raw::Raw::new("1").into(),
+            ));
+        }
+""",
+    ),
+    dict(
+        id="#31 remember capable key-contacts (receive_imf.rs)",
+        file="core/src/receive_imf.rs",
+        applied="ui.velta.xfer.peer.",
+        anchor="    // Lookup parent message.\n",
+        where="before",
+        text="""    // Velta patch (#31, #470): a signed message from a key-contact that
+    // carries Chat-Velta-Xfer marks the contact as able to fetch iroh file
+    // tickets. Never cleared by messages without it (the contact's other
+    // devices may lack the feature; they get the email copy).
+    if fingerprint.is_some()
+        && !from_id.is_special()
+        && mime_parser.get_header(HeaderDef::ChatVeltaXfer) == Some("1")
+    {
+        context
+            .set_ui_config(
+                &format!("ui.velta.xfer.peer.{}", from_id.to_u32()),
+                Some(&tools::time().to_string()),
+            )
+            .await
+            .log_err(context)
+            .ok();
+    }
+
+""",
+    ),
+    dict(
+        id="#31 capability test (receive_imf_tests.rs)",
+        file="core/src/receive_imf/receive_imf_tests.rs",
+        applied="async fn test_velta_xfer_capability()",
+        anchor="/// Tests that user is notified about new incoming contact requests,\n",
+        where="before",
+        text="""/// Velta patch #31 (#470): the file-transfer capability is sent only once
+/// the app enabled it, and remembered per key-contact from signed mail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_xfer_capability() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let alice = &tcm.alice().await;
+    let bob = &tcm.bob().await;
+    let key = |c: ContactId| format!("ui.velta.xfer.peer.{}", c.to_u32());
+
+    let msg = tcm.send_recv_accept(alice, bob, "hi").await;
+    let msg = if msg.get_showpadlock() { msg } else {
+        tcm.send_recv(bob, alice, "hi back").await;
+        tcm.send_recv(alice, bob, "hi again").await
+    };
+    assert!(msg.get_showpadlock());
+    assert_eq!(bob.get_ui_config(&key(msg.from_id)).await?, None);
+
+    alice.set_ui_config("ui.velta.xfer", Some("1")).await?;
+    let msg = tcm.send_recv(alice, bob, "now with the transfer").await;
+    assert!(msg.get_showpadlock());
+    assert!(bob.get_ui_config(&key(msg.from_id)).await?.is_some());
+
+    // Messages without the header (another device of alice) keep the mark.
+    alice.set_ui_config("ui.velta.xfer", None).await?;
+    let msg = tcm.send_recv(alice, bob, "from an older device").await;
+    assert!(bob.get_ui_config(&key(msg.from_id)).await?.is_some());
+    Ok(())
+}
+
+""",
+    ),
 ]
 
 

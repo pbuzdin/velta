@@ -619,6 +619,24 @@ pub(crate) async fn receive_imf_inner(
         }
     };
 
+    // Velta patch (#31, #470): a signed message from a key-contact that
+    // carries Chat-Velta-Xfer marks the contact as able to fetch iroh file
+    // tickets. Never cleared by messages without it (the contact's other
+    // devices may lack the feature; they get the email copy).
+    if fingerprint.is_some()
+        && !from_id.is_special()
+        && mime_parser.get_header(HeaderDef::ChatVeltaXfer) == Some("1")
+    {
+        context
+            .set_ui_config(
+                &format!("ui.velta.xfer.peer.{}", from_id.to_u32()),
+                Some(&tools::time().to_string()),
+            )
+            .await
+            .log_err(context)
+            .ok();
+    }
+
     // Lookup parent message.
     //
     // This may be useful to assign the message to

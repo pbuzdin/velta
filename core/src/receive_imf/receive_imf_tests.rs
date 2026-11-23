@@ -2779,6 +2779,35 @@ async fn test_gmx_forwarded_msg() -> Result<()> {
     Ok(())
 }
 
+/// Velta patch #31 (#470): the file-transfer capability is sent only once
+/// the app enabled it, and remembered per key-contact from signed mail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_xfer_capability() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let alice = &tcm.alice().await;
+    let bob = &tcm.bob().await;
+    let key = |c: ContactId| format!("ui.velta.xfer.peer.{}", c.to_u32());
+
+    let msg = tcm.send_recv_accept(alice, bob, "hi").await;
+    let msg = if msg.get_showpadlock() { msg } else {
+        tcm.send_recv(bob, alice, "hi back").await;
+        tcm.send_recv(alice, bob, "hi again").await
+    };
+    assert!(msg.get_showpadlock());
+    assert_eq!(bob.get_ui_config(&key(msg.from_id)).await?, None);
+
+    alice.set_ui_config("ui.velta.xfer", Some("1")).await?;
+    let msg = tcm.send_recv(alice, bob, "now with the transfer").await;
+    assert!(msg.get_showpadlock());
+    assert!(bob.get_ui_config(&key(msg.from_id)).await?.is_some());
+
+    // Messages without the header (another device of alice) keep the mark.
+    alice.set_ui_config("ui.velta.xfer", None).await?;
+    let msg = tcm.send_recv(alice, bob, "from an older device").await;
+    assert!(bob.get_ui_config(&key(msg.from_id)).await?.is_some());
+    Ok(())
+}
+
 /// Tests that user is notified about new incoming contact requests,
 /// but not about additional messages arriving in the contact request chat.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
