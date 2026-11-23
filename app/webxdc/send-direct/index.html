@@ -7,27 +7,58 @@
 <link rel="stylesheet" href="velta-tokens.css">
 <style>
   /* Velta design system: every color/size is a token from velta-tokens.css
-     (generated from app/css/main.css). */
+     (generated from app/css/main.css). ONE scroller: the whole page scrolls,
+     so a host that gives the frame an odd height (Delta Chat) still works —
+     no nested flex height chain to break (#473 follow-up UX pass). */
   * { box-sizing: border-box; }
   html, body { height: 100%; }
-  body { font: var(--fs-4)/1.45 var(--font); margin: 0; padding: var(--sp-3); background: var(--bg); color: var(--text);
-    min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  body { font: var(--fs-4)/1.45 var(--font); margin: 0; background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3) var(--sp-3) 0;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
   h1 { font-size: var(--fs-5); font-weight: 600; margin: 0; }
   .toprow { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-  p.note { color: var(--text-dim); font-size: var(--fs-3); margin: var(--sp-1) 0 var(--sp-2);
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   button.count { background: transparent; color: var(--text-dim); font-size: var(--fs-2); font-weight: 600; padding: var(--sp-1) var(--sp-2); }
+  details.intro { margin: var(--sp-1) 0 var(--sp-2); color: var(--text-dim); font-size: var(--fs-3); }
+  details.intro summary { cursor: pointer; list-style: none; }
+  details.intro summary::-webkit-details-marker { display: none; }
+  details.intro summary::before { content: "›"; display: inline-block; transition: transform .15s; }
+  details.intro[open] summary::before { transform: rotate(90deg); }
+  details.intro p { margin: var(--sp-1) 0 0; }
   button { font: inherit; font-weight: 600; border: 0; border-radius: var(--radius-pill); padding: var(--sp-2) var(--sp-4);
     background: var(--accent); color: var(--on-accent); cursor: pointer; }
   @media (hover: hover) and (pointer: fine) { button:not(:disabled):not(.sec):not(.count):hover { background: var(--accent-hover); } }
   button.sec { background: transparent; color: var(--accent-text); padding: var(--sp-1) var(--sp-2); }
+  button.tiny { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-3); }
   button:disabled { opacity: .5; cursor: default; }
   button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .card { background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius-media); padding: var(--sp-3); margin: var(--sp-2) 0; }
-  .name { font-weight: 600; word-break: break-all; }
+  /* Sticky action bar: the primary action survives any scroll position and
+     any panel height (thumb zone on mobile). */
+  .act { flex: none; display: flex; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3);
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border); }
+  .act .hint { flex: 1; min-width: 0; color: var(--text-dim); font-size: var(--fs-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card { background: var(--bg-sidebar); border: 1px solid var(--border); border-left: 3px solid var(--border);
+    border-radius: var(--radius-media); padding: var(--sp-3); margin: 0 0 var(--sp-2); }
+  .card.live { border-left-color: var(--green); }
+  .card.done { border-left-color: var(--green); }
+  .card.mine { border-left-color: var(--accent); }
+  .card.wait { opacity: .72; }
+  .name { font-weight: 600; word-break: break-all; display: flex; align-items: center; gap: 8px; }
+  .glyph { width: 28px; height: 28px; flex: none; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--accent) 16%, var(--bg-sidebar)); color: var(--accent-text); font-size: var(--fs-4); font-weight: 600; }
+  .chip { display: inline-block; font-size: var(--fs-2); font-weight: 600; border-radius: var(--radius-pill);
+    padding: 1px 8px; margin-left: auto; white-space: nowrap; }
+  .chip.in { background: color-mix(in srgb, var(--green) 18%, var(--bg-sidebar)); color: var(--green); }
+  .chip.mine { background: color-mix(in srgb, var(--accent) 18%, var(--bg-sidebar)); color: var(--accent-text); }
+  .state { color: var(--text-dim); font-size: var(--fs-3); margin-top: 2px; font-weight: 600; }
+  .card.live .state, .card.done .state { color: var(--green); }
   .meta { color: var(--text-dim); font-size: var(--fs-2); }
-  progress { width: 100%; height: 6px; margin-top: var(--sp-2); accent-color: var(--accent); }
   .ok { color: var(--green); } .bad { color: var(--danger); }
+  progress { width: 100%; height: 6px; margin-top: var(--sp-2); accent-color: var(--accent); }
   .row { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); }
   ul.peers { list-style: none; margin: var(--sp-2) 0 0; padding: 0; font-size: var(--fs-2); }
   ul.peers li { display: grid; grid-template-columns: minmax(0,1fr) 30% auto; gap: var(--sp-2); align-items: center; padding: 2px 0; }
@@ -37,17 +68,17 @@
   header { flex: none; }
   #peers:empty { display: none; }
   #peers { margin: var(--sp-2) 0 0; font-size: var(--fs-2); color: var(--text-dim); }
-  #list { flex: 1; min-height: 0; overflow: auto; }
+  #list { margin-top: var(--sp-2); }
+  #empty { color: var(--text-dim); font-size: var(--fs-3); text-align: center; padding: var(--sp-4) 0; }
   /* Once a file is listed, drop the title and intro. The host bar already
-     names the app, and the short desktop panel has to spend its height on
-     the cards. The choose button and the count stay, on one row. */
-  body.has-files h1, body.has-files .note { display: none; }
+     names the app, and a short panel has to spend its height on the cards.
+     The count stays, on the top row. */
+  body.has-files h1, body.has-files .intro { display: none; }
   body.has-files header { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
   body.has-files .toprow { flex: 1; margin: 0; }
-  body.has-files header .row { margin-top: 0; }
   body.has-files #peers { flex-basis: 100%; margin-top: 0; }
   footer { flex: none; display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3);
-    margin-top: var(--sp-2); font-size: var(--fs-2); color: var(--text-dim); }
+    padding: var(--sp-1) var(--sp-3) var(--sp-2); font-size: var(--fs-2); color: var(--text-dim); }
   /* outside Velta only (ui.js): one quiet line, never a popup. The address is
      plain selectable text too, since Delta Chat may block external links. */
   .cta { margin: 0; text-align: right; font-size: var(--fs-2); color: var(--text-dim); user-select: text; -webkit-user-select: text; }
@@ -56,19 +87,28 @@
 </style>
 </head>
 <body>
+<div class="scroll">
 <header>
   <div class="toprow">
     <h1>Velta Beam</h1>
     <button type="button" id="count" class="count" hidden></button>
   </div>
-  <p class="note">Peer to peer: everyone in this chat who opens Beam can receive, and whoever has the file passes it on. No server stores it. Encrypted in transit; checked with SHA-256.</p>
-  <div class="row"><button id="pick">Choose a file to send…</button></div>
+  <details class="intro">
+    <summary>Peer-to-peer in this chat · no server stores the file · SHA-256 checked</summary>
+    <p>Everyone in this chat who has Beam open receives the file and passes it on — that's how it spreads without a server. Transfers are encrypted in transit and verified with SHA-256. Keep Beam open while you share — a closed app can't serve pieces.</p>
+  </details>
   <div id="peers" aria-live="polite"></div>
 </header>
 <div id="list"></div>
+<div id="empty">Nothing shared yet — choose a file and it goes straight to this chat, peer-to-peer.</div>
+</div>
+<div class="act">
+  <span class="hint">Peer-to-peer · no server stores files</span>
+  <button id="pick">Choose a file to send…</button>
+</div>
 <footer>
-  <span>v1.2</span>
-  <p class="cta" id="velta-cta" hidden>Faster transfers with Velta · <a href="https://velta.cc" target="_blank" rel="noopener">velta.cc</a></p>
+  <span>v1.3</span>
+  <p class="cta" id="velta-cta" hidden>Direct transfers work best in Velta · <a href="https://velta.cc" target="_blank" rel="noopener">velta.cc</a></p>
 </footer>
 <script src="webxdc.js"></script>
 <script src="main.js"></script>

@@ -221,7 +221,7 @@ test("ui wires progress broadcast and the receiver list", () => {
   assert.ok(pick.indexOf("importFiles") !== -1 && pick.indexOf("importFiles") < pick.indexOf("join()"), "file picker before realtime join");
   const html = readFileSync(new URL("../app/webxdc/send-direct/index.html", import.meta.url), "utf8");
   assert.ok(html.indexOf('src="webxdc.js"') !== -1 && html.indexOf('src="webxdc.js"') < html.indexOf('src="main.js"'));
-  assert.match(html, />v1\.2</);
+  assert.match(html, />v1\.3</);
   assert.match(html, /id="count"/);
   assert.match(html, /body\.has-files h1/);
   assert.ok(ui.includes('classList.toggle("has-files"'));
