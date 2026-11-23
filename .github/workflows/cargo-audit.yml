@@ -1,0 +1,36 @@
+# RustSec check for the shipped lockfiles (#55). Accepted advisories live in
+# tools/audit-allowlist.txt with a reason each; anything else fails. Runs
+# weekly too, because new advisories land without any change on our side.
+name: cargo-audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'tools/audit-allowlist.txt'
+      - 'tools/cargo-audit.sh'
+      - '.github/workflows/cargo-audit.yml'
+  push:
+    branches: [master]
+    paths:
+      - '**/Cargo.lock'
+      - 'tools/audit-allowlist.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit (allowlisted)
+        run: tools/cargo-audit.sh
