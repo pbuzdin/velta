@@ -19,12 +19,12 @@ import { fileUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { t } from "./i18n.js";
 import { escapeHtml } from "./format.js";
+import { withTimeout } from "./load-retry.js";
 
 let env = null;  // { core, invoke } — invoke null in the PWA
 let transport = null;
 let metadataFn = null;       // async () => get_server_metadata | null
 let hooks = null;            // { sendText, sendFile, lastSent }
-let metaCache = { at: 0, value: null };
 let lastSent = null;         // the card message transport.send just mailed
 let account = "0";
 let selfChat = null;         // Saved Messages chat id (cached per account)
@@ -33,11 +33,22 @@ const cardState = new Map(); // ticket hash -> { outgoing?, mine?, chatId, path?
 const CARDS_MAX = 300;
 const SWEEP_MS = 5 * 60 * 1000;
 
+// Send waits on the pre-send route. get_server_metadata waits on core locks
+// an IO restart holds for 30 s and hangs on a dead network; the shell bounds
+// xfer_health itself at ~6 s; xfer_offer copies the file behind the endpoint
+// lock. A stalled call must time out here, never turn Send into a no-op.
+export const WAIT_MS = Object.freeze({ metaMs: 4000, peerMs: 4000, healthMs: 10000, offerMs: 120000 });
+let limits = { ...WAIT_MS }; // per initXferUi; tests pass short ones
+let metaCache = { at: 0, value: null, ttl: 0 };
 const META_TTL = 5 * 60 * 1000;
+const META_RETRY_MS = 20 * 1000;
 async function relayMeta() {
-  if (metaCache.value && Date.now() - metaCache.at < META_TTL) return metaCache.value;
-  metaCache = { at: Date.now(), value: await (metadataFn?.() ?? Promise.resolve(null)).catch(() => null) };
-  return metaCache.value;
+  if (metaCache.value !== null && Date.now() - metaCache.at < metaCache.ttl) return metaCache.value;
+  let value = null;
+  try { value = await withTimeout(metadataFn?.() ?? Promise.resolve(null), limits.metaMs, "get_server_metadata"); }
+  catch { /* stalled or failed: no relay known this time, ask again soon */ }
+  metaCache = { at: Date.now(), value, ttl: value ? META_TTL : META_RETRY_MS };
+  return value;
 }
 
 // --- persisted card state -------------------------------------------------
@@ -59,7 +70,7 @@ function saveCards() {
  *  Chat-Velta-Xfer. Unknown contacts (and Delta Chat) get email. */
 export async function peerCanXfer(contactId) {
   if (contactId == null || !env?.core?.getConfig) return false;
-  try { return !!(await env.core.getConfig(peerCapabilityKey(contactId))); } catch { return false; }
+  try { return !!(await withTimeout(env.core.getConfig(peerCapabilityKey(contactId)), limits.peerMs, "get_config")); } catch { return false; }
 }
 
 /** This device announces the capability (core adds the header) while the
@@ -328,9 +339,10 @@ function useAccount(id) {
 
 /** Wire once from boot: shell handles + the composer's send hooks. In the
  *  PWA (no invoke) the transport has no iroh: cards ask for the email copy. */
-export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen }) {
+export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen, timeouts = {} }) {
   if (transport) return; // never re-init
   env = { core, invoke: invoke || null };
+  limits = { ...WAIT_MS, ...timeouts };
   metadataFn = metadata || (async () => null);
   hooks = { sendText, sendFile, lastSent: () => lastSent };
   account = String(core?.accountId ?? "0");
@@ -343,7 +355,9 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen 
       sendText: async (chatId, text) => { const msg = await sendText(chatId, text); lastSent = msg; return msg; },
     },
     iroh: invoke ? {
-      offer: (path, relay, name) => invoke("xfer_offer", { path, relay, name }),
+      // A stalled offer (endpoint lock held) rejects here: the transport then
+      // mails the file, or reports too-big instead of waiting forever.
+      offer: (path, relay, name) => withTimeout(invoke("xfer_offer", { path, relay, name }), limits.offerMs, "xfer_offer"),
       fetch: (ticket, relay, peers) => invoke("xfer_fetch", { ticket, relay, peers: peers?.length ? peers : null }),
       withdraw: (hash) => invoke("xfer_withdraw", { hash }),
       status: (hashes) => invoke("xfer_status", { hashes }),
@@ -443,8 +457,10 @@ async function dashHealth() {
   if (!env?.invoke) return null;
   if (health.value && Date.now() - health.at < 20000) return health.value;
   let v;
-  try { v = await env.invoke("xfer_health", { relay: advertisedRelay(await relayMeta()) }); }
-  catch (e) { v = { ready: false, relay: null, relayConnected: false, error: String(e?.message || e) }; }
+  try { v = await withTimeout(env.invoke("xfer_health", { relay: advertisedRelay(await relayMeta()) }), limits.healthMs, "xfer_health"); }
+  // A timeout means "not checked", not "down": the plan then tries Dash and
+  // the send itself reports if it cannot deliver.
+  catch (e) { v = /rpc timeout/.test(String(e?.message || e)) ? null : { ready: false, relay: null, relayConnected: false, error: String(e?.message || e) }; }
   health = { at: Date.now(), value: v };
   return v;
 }
