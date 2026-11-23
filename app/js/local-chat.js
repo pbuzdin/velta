@@ -845,9 +845,9 @@ export function cancelQueuedItem(chatId, itemId) {
   emitChanged();
 }
 
-// Retry an interrupted (failed) transfer: re-sends the stored copy of the
-// file from byte zero (no resume) and swaps the failed message for the new
-// one. The old message only leaves the store once the engine accepted the
+// Retry an interrupted (failed) transfer: resumes it when the engine still
+// has it parked (#454), else re-sends the stored copy of the file from byte
+// zero and swaps the failed message for the new one. The old message only leaves the store once the engine accepted the
 // re-send — on failure it comes back, still showing its Retry button.
 export async function lcRetryTransfer(chatId, msgId, memberId = null) {
   if (isGroupId(chatId)) return lcRetryGroupFile(chatId, msgId, memberId);
@@ -856,6 +856,17 @@ export async function lcRetryTransfer(chatId, msgId, memberId = null) {
   const msg = p?.msgs.find(x => x.id === msgId);
   if (!msg) return;
   if (!isTauri()) { delete msg.transfer; emitChanged(); return; } // sim preview: no real transfers
+  // #454: an interrupted send continues from what the peer already holds;
+  // the engine refuses when there is nothing to resume (cancelled, or the
+  // app restarted), and then the stored copy is re-sent from byte zero.
+  if (msg.out && !msg.transfer?.cancelled) {
+    try {
+      await invoke()("p2p_resume_file", { peerId, id: msg.engineId || msg.id });
+      msg.transfer = { pct: msg.transfer?.pct || 0, dir: "send" };
+      emitChanged();
+      return;
+    } catch { /* fall through to a fresh send */ }
+  }
   const file = msg.file || {};
   if (!file.path) throw new Error("original file is gone");
   p.msgs = p.msgs.filter(x => x.id !== msgId);
@@ -957,7 +968,8 @@ function engineInit() {
       if (!msg) return;
       if (d.failed) {
         // Session died, or either side cancelled (#454): the bubble shows
-        // why, and a Retry on the sending side (re-sends from byte zero).
+        // why, and a Retry on the sending side. A dropped session also
+        // resumes by itself when the peer reconnects (progress replaces this).
         msg.transfer = { failed: true, cancelled: !!d.cancelled, pct: msg.transfer?.pct || 0, dir: d.dir };
         emitChanged();
         return;

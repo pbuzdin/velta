@@ -119,6 +119,13 @@ enum Frame {
     /// receiver refusing it, e.g. for free space). A 1.5.x peer skips it as
     /// an unknown frame; protocol-2 sessions only.
     FileCancel { id: String, #[serde(default)] reason: String },
+    /// #454 resume, sender -> receiver: "how much of `id` do you hold?"
+    /// Sent before re-streaming an interrupted transfer; protocol 2 only.
+    FileQuery { id: String, size: u64 },
+    /// Receiver -> sender: "I hold the first `have` bytes of `id`" (0: start
+    /// over with a FileBegin). The sender then streams the rest as plain
+    /// FileChunks and a FileEnd.
+    FileResume { id: String, have: u64 },
     /// Session keepalive / opening frame.
     Ping,
     // -- Group frames: protocol 2 sessions only, never sent on a v1 session --
@@ -292,6 +299,9 @@ struct FileRx {
 const MAX_FILE_BYTES: u64 = 1 << 40;
 /// Head room kept free on top of a transfer (the OS, the database, logs).
 const FREE_SPACE_MARGIN: u64 = 256 * 1024 * 1024;
+/// How long a resuming sender waits for the receiver's FileResume before
+/// starting over (an older receiver never answers).
+const RESUME_WAIT: Duration = Duration::from_secs(5);
 
 /// Refuses a write of `bytes` into `dir` that would leave less than
 /// [`FREE_SPACE_MARGIN`] free. Unknown free space (an odd filesystem) passes.
@@ -523,6 +533,15 @@ struct LiveHandle {
     credits: Arc<tokio::sync::Semaphore>,
 }
 
+/// #454: an outgoing 1:1 transfer that lost its session mid-stream.
+#[derive(Debug, Clone)]
+struct Paused {
+    node: NodeId,
+    path: PathBuf,
+    size: u64,
+    begin: Frame,
+}
+
 /// How this device knows a peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PeerKind {
@@ -708,6 +727,13 @@ pub struct P2p {
     rx_files: Mutex<HashMap<(NodeId, String), FileRx>>,
     /// #454: outgoing 1:1 streams by transfer id; set to stop one.
     out_files: Mutex<HashMap<String, (NodeId, Arc<AtomicBool>)>>,
+    /// #454: interrupted outgoing 1:1 transfers, resumed when the peer's
+    /// next session opens (or on Retry). In memory: a restart re-sends.
+    paused: Mutex<HashMap<String, Paused>>,
+    /// Pending FileQuery answers by transfer id.
+    resume_waiters: Mutex<HashMap<String, (NodeId, tokio::sync::oneshot::Sender<u64>)>>,
+    /// (bytes already there, size) of resumed sends, for the progress events.
+    resume_base: Mutex<HashMap<String, (u64, u64)>>,
     /// Outgoing group media by transfer id.
     group_xfers: Mutex<HashMap<String, GroupXfer>>,
     endpoint: Endpoint,
@@ -813,6 +839,9 @@ impl P2p {
             blobs_dir,
             rx_files: Mutex::new(HashMap::new()),
             out_files: Mutex::new(HashMap::new()),
+            paused: Mutex::new(HashMap::new()),
+            resume_waiters: Mutex::new(HashMap::new()),
+            resume_base: Mutex::new(HashMap::new()),
             group_xfers: Mutex::new(HashMap::new()),
             endpoint,
             secret,
@@ -1234,32 +1263,96 @@ impl P2p {
         }
         self.persist_messages(&node_id, &[stored]);
         let begin = Frame::FileBegin { id: id.clone(), ts: now_ms(), name: safe, size, mime, caption: caption.to_string() };
+        self.spawn_stream(Paused { node: node_id, path: dest.clone(), size, begin }, id.clone(), link, false);
+        Ok((id, dest))
+    }
+
+    /// Runs one outgoing stream on its own task. With `resume`, it first asks
+    /// the receiver what it holds (FileQuery) and continues from there; a
+    /// peer that does not answer within [`RESUME_WAIT`] gets the whole file.
+    /// A stream that dies with its session (not cancelled) is parked in
+    /// `paused` and resumes when the peer's next session opens.
+    fn spawn_stream(self: &Arc<Self>, job: Paused, id: String, link: FileLink, resume: bool) {
         let cancel = Arc::new(AtomicBool::new(false));
-        self.out_files.lock().unwrap().insert(id.clone(), (node_id, cancel.clone()));
+        self.out_files.lock().unwrap().insert(id.clone(), (job.node, cancel.clone()));
         let this = self.clone();
-        let (tid, path) = (id.clone(), dest.clone());
         tauri::async_runtime::spawn(async move {
-            let res = this.stream_one(&tid, &path, size, begin, &link, &cancel).await;
-            this.out_files.lock().unwrap().remove(&tid);
+            let mut from = 0u64;
+            if resume {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                this.resume_waiters.lock().unwrap().insert(id.clone(), (job.node, tx));
+                if link.tx.send(Frame::FileQuery { id: id.clone(), size: job.size }).is_ok() {
+                    if let Ok(Ok(have)) = tokio::time::timeout(RESUME_WAIT, rx).await {
+                        from = have.min(job.size);
+                    }
+                }
+                this.resume_waiters.lock().unwrap().remove(&id);
+            }
+            if from > 0 {
+                this.resume_base.lock().unwrap().insert(id.clone(), (from, job.size));
+            }
+            let begin = (from == 0).then(|| job.begin.clone());
+            let res = this.stream_one(&id, &job.path, job.size, from, begin, &link, &cancel).await;
+            this.out_files.lock().unwrap().remove(&id);
+            this.resume_base.lock().unwrap().remove(&id);
             if let Err(e) = res {
                 let cancelled = cancel.load(Ordering::Relaxed);
+                if !cancelled && link.tx.is_closed() {
+                    this.paused.lock().unwrap().insert(id.clone(), job.clone());
+                }
                 this.sink.emit(json!({
-                    "kind": "file-progress", "peerId": node_id.to_string(), "id": tid, "dir": "send",
+                    "kind": "file-progress", "peerId": job.node.to_string(), "id": id, "dir": "send",
                     "failed": true, "cancelled": cancelled, "reason": format!("{e:#}"),
                 }));
             }
         });
-        Ok((id, dest))
     }
 
-    async fn stream_one(&self, id: &str, path: &std::path::Path, size: u64, begin: Frame, link: &FileLink, cancel: &AtomicBool) -> Result<()> {
-        use std::io::Read;
+    /// #454: resumes an interrupted outgoing transfer (Retry, or the peer's
+    /// session came back). Errors when there is nothing to resume, so the UI
+    /// can fall back to a fresh send.
+    pub fn resume_file(self: &Arc<Self>, peer_str: &str, id: &str) -> Result<()> {
+        let node_id = NodeId::from_str(peer_str)?;
+        let job = {
+            let p = self.paused.lock().unwrap();
+            p.get(id).filter(|j| j.node == node_id).cloned().context("nothing to resume")?
+        };
+        let link = {
+            let inner = self.inner.lock().unwrap();
+            inner.peers.get(&node_id).and_then(|p| p.live.iter().find(|h| !h.tx.is_closed())).map(|h| (FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id }, h.proto))
+        };
+        let Some((link, proto)) = link else {
+            self.clone().trigger_connect(node_id);
+            bail!("peer is offline");
+        };
+        self.paused.lock().unwrap().remove(id);
+        // Protocol 1 peers don't know FileQuery: start over right away.
+        self.spawn_stream(job, id.to_string(), link, proto >= 2);
+        Ok(())
+    }
+
+    /// Resumes every parked transfer to `node` (its session just opened).
+    fn resume_paused(self: &Arc<Self>, node: NodeId) {
+        let ids: Vec<String> = self.paused.lock().unwrap().iter().filter(|(_, j)| j.node == node).map(|(i, _)| i.clone()).collect();
+        for id in ids {
+            let _ = self.resume_file(&node.to_string(), &id);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn stream_one(&self, id: &str, path: &std::path::Path, size: u64, from: u64, begin: Option<Frame>, link: &FileLink, cancel: &AtomicBool) -> Result<()> {
+        use std::io::{Read, Seek};
         const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
         let closed = || anyhow!("session closed");
         let mut f = open_plain(path, attachment_key().as_ref()).context("open the stored copy")?;
-        link.tx.send(begin).map_err(|_| closed())?;
+        if from > 0 {
+            f.seek(std::io::SeekFrom::Start(from))?;
+        }
+        if let Some(begin) = begin {
+            link.tx.send(begin).map_err(|_| closed())?;
+        }
         let mut buf = vec![0u8; CHUNK_RAW];
-        let mut total = 0u64;
+        let mut total = from;
         loop {
             let mut n = 0;
             while n < buf.len() {
@@ -1300,6 +1393,9 @@ impl P2p {
         let mut hit = false;
         if let Some((_, flag)) = self.out_files.lock().unwrap().get(id).filter(|(n, _)| *n == node_id) {
             flag.store(true, Ordering::Relaxed);
+            hit = true;
+        }
+        if self.paused.lock().unwrap().remove(id).is_some() {
             hit = true;
         }
         if let Some(t) = self.rx_files.lock().unwrap().remove(&(node_id, id.to_string())) {
@@ -1674,6 +1770,8 @@ impl P2p {
         // Right after the opening Ping: tell the peer where each shared group
         // stands (protocol 2 sessions only).
         self.group_session_open(node_id, &tx);
+        // #454: carry on with transfers the last session dropped.
+        self.resume_paused(node_id);
         let mut group_window = (std::time::Instant::now(), 0u32);
         // Keepalive: without traffic QUIC idles out after IDLE_TIMEOUT and the
         // peer shows offline even though both engines are healthy.
@@ -1701,7 +1799,11 @@ impl P2p {
                             }
                             if let Frame::FileChunk { id, data } = &frame {
                                 let decoded = data.len() * 3 / 4;
-                                let e = send_progress.entry(id.clone()).or_insert((0u64, 0u64));
+                                // A resumed send has no FileBegin: start at what
+                                // the receiver already held.
+                                let e = send_progress
+                                    .entry(id.clone())
+                                    .or_insert_with(|| self.resume_base.lock().unwrap().get(id).copied().unwrap_or((0, 0)));
                                 e.0 += decoded as u64;
                                 self.sink.emit(json!({
                                     "kind": "file-progress", "peerId": node_id.to_string(),
@@ -1890,6 +1992,44 @@ impl P2p {
                     "reply_to": reply_to,
                     "reply_text": reply_text,
                 }));
+            }
+            Frame::FileQuery { id, size } => {
+                // Resume: keep the partial up to what is really on disk.
+                let have = {
+                    let mut rx = self.rx_files.lock().unwrap();
+                    let key = (node_id, id.clone());
+                    match rx.get_mut(&key) {
+                        Some(t) if t.gid.is_none() && t.size == size => {
+                            let on_disk = std::fs::metadata(&t.partial).map(|m| m.len()).unwrap_or(0);
+                            let have = on_disk.min(t.got);
+                            let ok = std::fs::OpenOptions::new().write(true).open(&t.partial).and_then(|f| f.set_len(have)).is_ok();
+                            if ok {
+                                t.got = have;
+                                have
+                            } else {
+                                rx.remove(&key);
+                                0
+                            }
+                        }
+                        Some(t) if t.gid.is_none() => {
+                            let _ = std::fs::remove_file(&t.partial);
+                            rx.remove(&key);
+                            0
+                        }
+                        _ => 0,
+                    }
+                };
+                if is_safe_transfer_id(&id) {
+                    let _ = tx.send(Frame::FileResume { id, have });
+                }
+            }
+            Frame::FileResume { id, have } => {
+                let mut w = self.resume_waiters.lock().unwrap();
+                if w.get(&id).is_some_and(|(n, _)| *n == node_id) {
+                    if let Some((_, reply)) = w.remove(&id) {
+                        let _ = reply.send(have);
+                    }
+                }
             }
             Frame::FileCancel { id, reason } => {
                 let out = self.out_files.lock().unwrap().get(&id).filter(|(n, _)| *n == node_id).map(|(_, f)| f.clone());
@@ -4723,6 +4863,12 @@ pub async fn p2p_send_folder(
     Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": name, "size": size }))
 }
 
+/// #454: resumes an interrupted 1:1 send from what the receiver holds.
+#[tauri::command]
+pub fn p2p_resume_file(state: tauri::State<'_, P2pState>, peer_id: String, id: String) -> Result<(), String> {
+    engine(&state).map_err(|e| e.to_string())?.resume_file(&peer_id, &id).map_err(|e| e.to_string())
+}
+
 /// #454: cancels a 1:1 transfer in either direction.
 #[tauri::command]
 pub fn p2p_cancel_file(state: tauri::State<'_, P2pState>, peer_id: String, id: String) -> Result<(), String> {
@@ -7177,6 +7323,100 @@ mod tests {
         assert!(require_space(&d, 1).is_ok());
         let err = require_space(&d, u64::MAX / 2).unwrap_err().to_string();
         assert!(err.contains("not enough free space"), "{err}");
+    }
+
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_interrupted_send_resumes_from_what_the_receiver_holds() {
+        let (a, _ev) = start("resume-s").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (_tb, rb) = attach_live(&a, b, 2);
+        let (path, data) = write_blob(&a, "r.bin", 1_000_000);
+        let (id, _) = a.send_file(&b.to_string(), &path, "r.bin", "").unwrap();
+        until(10, "streaming", || rb.len() > GROUP_FILE_CREDITS).await;
+        // The session dies mid-stream.
+        let credits = live_credits(&a, &b);
+        drop(rb);
+        credits.close();
+        until(10, "parked for resume", || a.paused.lock().unwrap().contains_key(&id)).await;
+        // A new session: the sender asks first, then streams only the rest.
+        let (tb2, mut rb2) = attach_live(&a, b, 2);
+        a.resume_file(&b.to_string(), &id).unwrap();
+        until(10, "FileQuery sent", || rb2.len() >= 1).await;
+        let q = drain(&mut rb2);
+        assert!(matches!(&q[0], Frame::FileQuery { id: qid, size } if qid == &id && *size == 1_000_000), "{q:?}");
+        a.handle_frame(b, Frame::FileResume { id: id.clone(), have: 500_000 }, &tb2);
+        let credits = live_credits(&a, &b);
+        let mut all = Vec::new();
+        let mut guard = 0;
+        while !all.iter().any(|f| matches!(f, Frame::FileEnd { .. })) {
+            guard += 1;
+            assert!(guard < 400, "stream stalled");
+            credits.add_permits(GROUP_FILE_CREDITS);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            all.extend(drain(&mut rb2));
+        }
+        assert_eq!(file_frames(&all).0, 0, "no FileBegin on a resume");
+        let mut got = Vec::new();
+        for f in &all {
+            if let Frame::FileChunk { data, .. } = f {
+                got.extend(BASE64.decode(data.as_bytes()).unwrap());
+            }
+        }
+        assert_eq!(got, data[500_000..], "exactly the missing tail");
+        assert!(a.paused.lock().unwrap().is_empty());
+        assert!(a.resume_file(&b.to_string(), &id).is_err(), "nothing left to resume");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_receiver_answers_resume_queries_and_finishes_the_file() {
+        let (a, ev) = start("resume-r").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (tb, mut rb) = attach_live(&a, b, 2);
+        let data: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        a.handle_frame(b, Frame::FileBegin { id: "rr".into(), ts: 1, name: "rr.bin".into(), size: data.len() as u64, mime: String::new(), caption: String::new() }, &tb);
+        a.handle_frame(b, Frame::FileChunk { id: "rr".into(), data: BASE64.encode(&data[..100_000]) }, &tb);
+        // A torn tail on disk past what was counted is cut off.
+        let partial = a.blobs_dir.join(b.to_string()).join("partial-rr");
+        {
+            use std::io::Write;
+            std::fs::OpenOptions::new().append(true).open(&partial).unwrap().write_all(b"torn").unwrap();
+        }
+        a.handle_frame(b, Frame::FileQuery { id: "rr".into(), size: data.len() as u64 }, &tb);
+        let r = drain(&mut rb);
+        assert!(r.iter().any(|f| matches!(f, Frame::FileResume { id, have } if id == "rr" && *have == 100_000)), "{r:?}");
+        assert_eq!(std::fs::metadata(&partial).unwrap().len(), 100_000);
+        a.handle_frame(b, Frame::FileChunk { id: "rr".into(), data: BASE64.encode(&data[100_000..]) }, &tb);
+        a.handle_frame(b, Frame::FileEnd { id: "rr".into() }, &tb);
+        let m = wait_for(&ev, 5, |e| e["kind"] == "message" && e["id"] == "rr");
+        assert_eq!(std::fs::read(m["file"]["path"].as_str().unwrap()).unwrap(), data);
+        // Unknown transfer or a different size: start over.
+        a.handle_frame(b, Frame::FileQuery { id: "nope".into(), size: 5 }, &tb);
+        assert!(drain(&mut rb).iter().any(|f| matches!(f, Frame::FileResume { id, have } if id == "nope" && *have == 0)));
+    }
+
+    /// A peer that never answers the query (an older build) gets the whole
+    /// file again after RESUME_WAIT, with a fresh FileBegin.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn resume_without_an_answer_starts_over() {
+        let (a, _ev) = start("resume-old").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (_tb, rb) = attach_live(&a, b, 2);
+        let (path, _) = write_blob(&a, "o.bin", 1_000_000);
+        let (id, _) = a.send_file(&b.to_string(), &path, "o.bin", "").unwrap();
+        until(10, "streaming", || rb.len() > GROUP_FILE_CREDITS).await;
+        let credits = live_credits(&a, &b);
+        drop(rb);
+        credits.close();
+        until(10, "parked", || a.paused.lock().unwrap().contains_key(&id)).await;
+        let (_tb2, mut rb2) = attach_live(&a, b, 2);
+        a.resume_file(&b.to_string(), &id).unwrap();
+        tokio::time::sleep(RESUME_WAIT + Duration::from_millis(500)).await;
+        live_credits(&a, &b).add_permits(100);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let all = drain(&mut rb2);
+        assert!(matches!(all[0], Frame::FileQuery { .. }));
+        assert_eq!(file_frames(&all), (1, 11, 1), "query, then the whole file");
     }
 
     fn rss_kb() -> u64 {
