@@ -1,0 +1,46 @@
+# RustSec advisories accepted for the shipped lockfiles (#55).
+# One ID per line, then a reason. CI (.github/workflows/cargo-audit.yml)
+# fails on any vulnerability NOT listed here, so a new advisory or a new
+# crate path shows up as a red check instead of going unnoticed.
+# Remove a line as soon as the bump that fixes it lands.
+
+# iroh 0.35 stack (core's webxdc realtime + #470 file transfer). Cleared when
+# core moves to iroh 1.x and the iroh035 dependency is dropped.
+RUSTSEC-2026-0049 rustls-webpki 0.102.8 via iroh/iroh-relay 0.35
+RUSTSEC-2026-0098 rustls-webpki 0.102.8 via iroh/iroh-relay 0.35
+RUSTSEC-2026-0099 rustls-webpki 0.102.8 via iroh/iroh-relay 0.35
+RUSTSEC-2026-0104 rustls-webpki 0.102.8 via iroh/iroh-relay 0.35
+RUSTSEC-2026-0382 rustls-webpki 0.102.8 via iroh/iroh-relay 0.35
+RUSTSEC-2026-0118 hickory-proto 0.25.2 via hickory-resolver <- iroh 0.35
+RUSTSEC-2026-0119 hickory-proto 0.25.2 via hickory-resolver <- iroh 0.35
+RUSTSEC-2026-0487 hickory-proto 0.25.2 via hickory-resolver <- iroh 0.35
+RUSTSEC-2026-0489 hickory-proto 0.25.2 via hickory-resolver <- iroh 0.35
+RUSTSEC-2026-0490 hickory-proto 0.25.2 via hickory-resolver <- iroh 0.35
+RUSTSEC-2026-0491 hickory-proto 0.25.2 via hickory-resolver <- iroh 0.35
+RUSTSEC-2026-0504 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0505 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0511 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0512 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0530 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0531 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0532 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0549 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0550 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0551 hickory-proto 0.25.2 DNSSEC (validation not enabled by iroh)
+RUSTSEC-2026-0514 hickory-resolver 0.25.2 DNSSEC (validation not enabled by iroh)
+
+# Vendored core (pgp 0.21, rusqlite 0.37). Needs a core bump or core patch.
+RUSTSEC-2023-0071 rsa 0.9.10 via pgp; no upstream fix (legacy RSA keys)
+RUSTSEC-2025-0144 ml-dsa 0.0.4 via pgp; local signing only
+RUSTSEC-2026-0387 crypto-bigint 0.5.5 via pgp/elliptic-curve; local timing
+RUSTSEC-2026-0459 libsqlite3-sys 0.35.0 via rusqlite 0.37 (core workspace pin)
+
+# Windows updater only: extracts a signature-verified update archive.
+# Fixed by tauri-plugin-updater 2.14 (zip 9), which needs tauri 2.12 + the
+# matching @tauri-apps/* npm packages; tracked in #55.
+RUSTSEC-2026-0367 zip 4.6.1 via tauri-plugin-updater 2.12 (Windows)
+RUSTSEC-2026-0368 zip 4.6.1 via tauri-plugin-updater 2.12 (Windows)
+RUSTSEC-2026-0369 zip 4.6.1 via tauri-plugin-updater 2.12 (Windows)
+RUSTSEC-2026-0429 zip 4.6.1 via tauri-plugin-updater 2.12 (Windows)
+RUSTSEC-2026-0545 zip 4.6.1 via tauri-plugin-updater 2.12 (Windows)
+RUSTSEC-2026-0548 zip 4.6.1 via tauri-plugin-updater 2.12 (Windows)
