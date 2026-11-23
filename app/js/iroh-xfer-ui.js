@@ -5,6 +5,7 @@
 // Pure logic lives in iroh-xfer.js; this module holds the DOM + shell glue.
 import { createTransport, parseFileCard, parseResendRequest, advertisedRelay, THRESHOLD, routeLabel } from "./iroh-xfer.js";
 import { fileUrl } from "./media.js";
+import { diagnosticsSink } from "./diagnostics.js";
 import { t } from "./i18n.js";
 import { escapeHtml } from "./format.js";
 
@@ -42,7 +43,9 @@ export async function peerIsVelta(peerAddr) {
  */
 export async function maybeSend({ chatId, path, name, size, oneToOne, peerAddr }) {
   if (!transport || !oneToOne || !(Number(size) > THRESHOLD)) return { handled: false };
-  await transport.send({ chatId, file: { path, name, size }, oneToOne, peerIsVelta: await peerIsVelta(peerAddr) });
+  const r = await transport.send({ chatId, file: { path, name, size }, oneToOne, peerIsVelta: await peerIsVelta(peerAddr) });
+  if (r.via === "offer-failed") sink("error", `offer failed — mailed instead: ${r.error}`);
+  else if (r.route === "iroh") sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`);
   return { handled: true, msg: hooks?.lastSent?.() || null };
 }
 
@@ -79,6 +82,9 @@ const escapeAttr = escapeHtml;
 function fmtSize(n) {
   return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 }
+function sink(level, msg) {
+  try { diagnosticsSink.append(level, `iroh xfer: ${msg}`); } catch {}
+}
 
 /** Bubble-render side effect: first sight of a card kicks its fetch; first
  *  sight of a fallback request triggers the sender's email-out. */
@@ -90,16 +96,22 @@ export function noteCard(chatId, text, outgoing) {
     if (cardState.has(hash)) return;
     if (outgoing) { cardState.set(hash, { outgoing, chatId }); return; }
     cardState.set(hash, { outgoing: false, chatId });
+    sink("info", `fetching ${card.name} (${fmtSize(card.size)}) directly from the sender`);
     transport.receive({ chatId, text }).then((r) => {
       const st = cardState.get(hash);
       if (!st) return;
-      if (r?.path) { st.path = r.path; st.done = true; }
-      else if (r?.asked) st.asked = true;
+      if (r?.path) { st.path = r.path; st.done = true; sink("info", `received ${card.name} over iroh`); }
+      else if (r?.asked) { st.asked = true; sink("error", `fetch failed — asked for the email copy (${r.error || "unknown"})`); }
+      else if (r?.error) sink("info", `fetch interrupted — will resume over iroh (${r.error})`);
       refresh(hash);
-    }).catch(() => {});
+    }).catch((e) => { sink("error", `fetch crashed: ${e?.message || e}`); });
     return;
   }
-  if (parseResendRequest(text) && !outgoing) transport.onResendRequest({ text });
+  if (parseResendRequest(text) && !outgoing) {
+    transport.onResendRequest({ text }).then((name) => {
+      if (name) sink("info", `fetch failed on the other end — mailed ${name}`);
+    }).catch(() => {});
+  }
 }
 
 function refresh(hash) {

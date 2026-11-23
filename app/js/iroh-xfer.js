@@ -102,7 +102,7 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
   const pending = new Map(); // hash -> {chatId, file} kept until fetched, mailed or expired
   async function send({ chatId, file, oneToOne, peerIsVelta }) {
     const route = chooseRoute({ size: file.size, oneToOne, peerIsVelta, enabled: enabled(), available: !!iroh });
-    if (route === "email") { await email.sendFile(chatId, file); return { route }; }
+    if (route === "email") { await email.sendFile(chatId, file); return { route, via: "policy" }; }
     try {
       const ticket = await iroh.offer(file.path, await relay());
       const tk = decodeTicket(ticket);
@@ -110,9 +110,9 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
       pending.set(tk.hash, { chatId, file, exp: tk.exp });
       await email.sendText(chatId, fileCardText({ name: file.name, size: file.size, ticket }));
       return { route: "iroh", hash: tk.hash };
-    } catch {
+    } catch (error) {
       await email.sendFile(chatId, file); // could not offer: mail it right away
-      return { route: "email" };
+      return { route: "email", via: "offer-failed", error };
     }
   }
   /** A received text: fetch a file card over iroh, or ask for the email copy. */
@@ -125,15 +125,16 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
     if (r && r.email) { await email.sendText(chatId, resendRequestText(card.tk.hash)); return { route: "email", asked: true, error: r.error }; }
     return { route: "iroh", error: r?.error || "failed", retry: true }; // broken stream: retry resumes
   }
-  /** Sender: the receiver could not fetch — mail the file and stop offering it. */
+  /** Sender: the receiver could not fetch — mail the file and stop offering
+   *  it. Returns the mailed file's name, or null when nothing matched. */
   async function onResendRequest({ text }) {
     const hash = parseResendRequest(text);
     const p = hash && pending.get(hash);
-    if (!p) return false;
+    if (!p) return null;
     pending.delete(hash);
     await iroh?.withdraw(hash);
     await email.sendFile(p.chatId, p.file);
-    return true;
+    return p.file.name;
   }
   return { send, receive, onResendRequest, pending };
 }
