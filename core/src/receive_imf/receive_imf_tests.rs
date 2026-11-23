@@ -2789,7 +2789,9 @@ async fn test_velta_xfer_capability() -> Result<()> {
     let key = |c: ContactId| format!("ui.velta.xfer.peer.{}", c.to_u32());
 
     let msg = tcm.send_recv_accept(alice, bob, "hi").await;
-    let msg = if msg.get_showpadlock() { msg } else {
+    let msg = if msg.get_showpadlock() {
+        msg
+    } else {
         tcm.send_recv(bob, alice, "hi back").await;
         tcm.send_recv(alice, bob, "hi again").await
     };
