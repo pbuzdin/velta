@@ -162,7 +162,7 @@ export const SETTINGS = [
   onByDefault("remember-scroll", "Remember scroll position", "velta-remember-scroll"),
   onByDefault("local-chat-typing", "Local chat typing hints", "velta-p2p-typing"),
   onByDefault("loop-seal-media", "Encrypt stored media", "velta-p2p-seal"),
-  onByDefault("iroh-xfer", "Send large files directly", "velta-iroh-xfer"),
+  onByDefault("iroh-xfer", "Velta Dash", "velta-iroh-xfer"),
 ];
 const BY_KEY = new Map(SETTINGS.map(s => [s.key, s]));
 function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }

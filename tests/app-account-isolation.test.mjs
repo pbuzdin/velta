@@ -114,6 +114,10 @@ function setup(t) {
   const context = createContext({
     ...icons,
     loadErrorBanner,
+    // #470 Velta Dash header badge (iroh-xfer.js / tauri.js imports): no
+    // shell here, so the badge stays hidden.
+    dashState: () => null, dashExplainer: () => "", irohXferEnabled: () => true,
+    peerCapabilityKey: (id) => `ui.velta.xfer.peer.${id}`, tauriInvoke: () => null,
     core,
     localStorage: { getItem: () => null },
     t: (s, vars) => vars ? s.replace(/\{(\w+)\}/g, (_, k) => vars[k]) : s,

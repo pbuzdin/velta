@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   THRESHOLD, chooseRoute, irohXferEnabled, setIrohXferEnabled, advertisedRelay, decodeTicket,
   fileCardText, parseFileCard, resendRequestText, parseResendRequest, createTransport, EMAIL_MAX, DELIVERED_GRACE_MS,
+  dashState, dashExplainer, emailReason, routeLabel, SETTING_LABEL,
 } from "../app/js/iroh-xfer.js";
 
 const tk = { v: 1, proto: "iroh-0.35", node: "ab".repeat(32), relay: "https://iroh.relay.example/", addrs: [], hash: "cd".repeat(32), size: 7000000, name: "Фильм.mp4", exp: 4000000000 };
@@ -203,6 +204,8 @@ function fakeCore(config = {}) {
 const tick = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0)); };
 
 test("ui glue (Tauri): capability announce, proven peers only, events, own-device ask", async () => {
+  const diag = [];
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: (lvl, text) => diag.push(text) } });
   const ui = await import("../app/js/iroh-xfer-ui.js?tauri");
   const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
   const texts = [], files = [], calls = [];
@@ -226,12 +229,26 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
 
   // Unknown contact (or Delta Chat): normal attachment, even on the same relay.
   assert.equal((await ui.maybeSend({ chatId: 5, path: "/f", name: "f.bin", size: THRESHOLD + 1, oneToOne: true, contactId: 13 })).handled, false);
+  assert.match(diag.at(-1), /iroh xfer: sent f\.bin .* by email: contact has not proved Velta Dash yet/, "#489 diagnostics say why it fell back");
+  // Turning Dash off in the drawer re-announces "0" (core drops the header).
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  localStorage.setItem("velta-iroh-xfer", "0");
+  window.dispatchEvent(new Event("velta-dash"));
+  await tick();
+  assert.equal(core.config["ui.velta.xfer"], "0");
+  assert.equal((await ui.maybeSend({ chatId: 6, path: "/f", name: "g.bin", size: THRESHOLD + 1, oneToOne: true, contactId: 12 })).handled, false);
+  assert.match(diag.at(-1), /by email: Velta Dash is off/);
+  localStorage.removeItem("velta-iroh-xfer");
+  window.dispatchEvent(new Event("velta-dash"));
+  await tick();
+  assert.equal(core.config["ui.velta.xfer"], "1");
   assert.equal(await ui.peerCanXfer(12), true);
   const out = await ui.maybeSend({ chatId: 6, path: "/dl/big.bin", name: "big.bin", size: THRESHOLD + 1, oneToOne: true, contactId: 12 });
   assert.equal(out.handled, true);
   assert.match(texts[0].text, /^VXFER1:/m);
   ui.noteCard(6, texts[0].text, true);
-  assert.match(ui.xferCardHtml(texts[0].text), /Sent directly \(iroh\)/);
+  assert.match(ui.xferCardHtml(texts[0].text), /Sent with Velta Dash/);
+  assert.match(ui.xferCardHtml(texts[0].text), /class="xfer-route" data-route="dash"/, "card badge: the path taken");
   assert.doesNotMatch(ui.xferCardHtml(texts[0].text), /xfer-ask/, "the sending device has the file: no ask button");
 
   // A card arriving while its chat is closed is fetched from the core event.
@@ -240,6 +257,7 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   await tick();
   assert.match(ui.xferCardHtml(got), /Received/);
   assert.match(ui.xferCardHtml(got), /xfer-open/);
+  assert.match(ui.xferCardHtml(got), /data-route="dash"/);
   ui.noteCard(9, got, false);
   assert.equal(calls.filter((c) => c === "xfer_fetch").length, 1, "rendering again does not fetch twice");
 
@@ -259,6 +277,7 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   await ui.askForEmailCopy(H2("ee"));
   assert.deepEqual(texts.at(-1), { chatId: 3, text: resendRequestText(H2("ee")) });
   assert.match(ui.xferCardHtml(mine), /Asked for the email copy/);
+  assert.match(ui.xferCardHtml(mine), /data-route="email"[^>]*>.*Email fallback/, "card badge: email fallback");
 
   // This device holds big.bin's offer: a request for it from Saved Messages
   // (its own other device, an outgoing message there) mails it there.
@@ -292,4 +311,54 @@ test("ui glue (PWA): no iroh — cards ask for the email copy, nothing is offere
   await tick();
   assert.equal(texts.length, 1, "expired cards: the sender mails those itself");
   assert.match(ui.xferCardHtml(old), /xfer-ask/, "manual ask still available");
+});
+
+test("Velta Dash: brand strings, header badge state, explainer hint, fallback reasons", () => {
+  assert.equal(SETTING_LABEL(), "Velta Dash");
+  assert.equal(routeLabel("iroh"), "Sent with Velta Dash");
+  assert.match(fileCardText({ name: "a.bin", size: tk.size, ticket: "VXFER1:x" }).split("\n")[0], /sent with Velta Dash/);
+  const one = { kind: "single", isP2p: false, contactId: 12, shell: true, enabled: true, proven: true };
+  assert.equal(dashState(one), "on", "badge: 1:1, Dash on, capability proven");
+  assert.equal(dashState({ ...one, proven: false }), "waiting", "unproven (or Delta Chat): no badge");
+  assert.equal(dashState({ ...one, enabled: false }), "off");
+  assert.equal(dashState({ ...one, kind: "group" }), null, "never in groups");
+  assert.equal(dashState({ ...one, contactId: 1 }), null, "not in Saved Messages");
+  assert.equal(dashState({ ...one, isP2p: true }), null, "not in local (Loop) chats");
+  assert.equal(dashState({ ...one, shell: false }), null, "not in the PWA");
+  assert.match(dashExplainer("on"), /files over 6 MB go directly between devices, with email as a fallback/);
+  assert.match(dashExplainer("waiting"), /Dash starts after you both exchange a message/);
+  const big = { size: THRESHOLD + 1, oneToOne: true, proven: true, enabled: true, available: true };
+  assert.equal(emailReason(big), null);
+  assert.equal(emailReason({ ...big, size: 10 }), null, "small files: no log line");
+  assert.match(emailReason({ ...big, proven: false }), /not proved/);
+  assert.match(emailReason({ ...big, enabled: false }), /off/);
+  assert.match(emailReason({ ...big, oneToOne: false }), /1:1/);
+  assert.match(emailReason({ ...big, available: false }), /PWA/);
+});
+
+test("Velta Dash icon: house-style outline glyph, not Beam or Loop", async () => {
+  const { P, ICON } = await import("../app/js/icons.js");
+  assert.ok(P.dash && P.dash !== P.loop);
+  assert.doesNotMatch(P.dash, /fill="currentColor"/);
+  assert.match(ICON.dash, /stroke-width="2"/);
+  assert.match(ICON.dash, /aria-hidden="true"/);
+});
+
+test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawer toggle is branded", async () => {
+  const { readFileSync } = await import("node:fs");
+  const html = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
+  const btn = /<button[^>]*id="btn-dash"[^>]*>/.exec(html)?.[0] || "";
+  assert.match(btn, /\bhidden\b/);
+  assert.match(btn, /aria-label="Velta Dash is on with this contact"/);
+  assert.match(btn, /data-i18n-label="Velta Dash is on with this contact"/);
+  assert.match(html, /id="btn-dash"[\s\S]*?data-icon="dash"/);
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  const rule = /\.dash-badge \{[^}]*\}/.exec(css)?.[0] || "";
+  assert.match(rule, /min-width: 44px/);
+  assert.match(rule, /min-height: 44px/);
+  const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
+  assert.match(ui, /data-setting="dash">\$\{ICON\.dash\}/);
+  assert.match(ui, /toggleText\("Velta Dash"/);
+  assert.match(ui, /new CustomEvent\("velta-dash"/);
+  assert.doesNotMatch(ui, /Send large files directly/);
 });

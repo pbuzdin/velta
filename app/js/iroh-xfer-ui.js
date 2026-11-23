@@ -11,8 +11,9 @@
 //                              fetches nor asks for the email copy twice.
 import {
   createTransport, parseFileCard, parseResendRequest, resendRequestText, advertisedRelay, jsonStore,
-  irohXferEnabled, THRESHOLD, routeLabel, CAPABILITY_KEY, peerCapabilityKey,
+  irohXferEnabled, THRESHOLD, routeLabel, CAPABILITY_KEY, peerCapabilityKey, emailReason,
 } from "./iroh-xfer.js";
+import { svg, P } from "./icons.js";
 import { fileUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { t } from "./i18n.js";
@@ -80,11 +81,14 @@ async function selfChatId() {
  * file card, or the immediate email fallback after a failed offer.
  */
 export async function maybeSend({ chatId, path, name, size, oneToOne, contactId }) {
-  if (!transport || !env?.invoke || !oneToOne || !(Number(size) > THRESHOLD)) return { handled: false };
-  const can = await peerCanXfer(contactId);
-  if (!can) return { handled: false };
+  if (!(Number(size) > THRESHOLD)) return { handled: false };
+  const can = oneToOne && !!env?.invoke && await peerCanXfer(contactId);
+  // #489 diagnostics: say why a large file went by email.
+  const why = emailReason({ size, oneToOne, proven: can, enabled: irohXferEnabled(), available: !!(transport && env?.invoke) });
+  if (why) { sink("info", `sent ${name} (${fmtSize(size)}) by email: ${why}`); return { handled: false }; }
   const r = await transport.send({ chatId, file: { path, name, size }, oneToOne, peerIsVelta: true });
   if (r.via === "offer-failed") sink("error", `offer failed — mailed instead: ${r.error}`);
+  else if (r.via === "policy") sink("info", `sent ${name} (${fmtSize(size)}) by email: policy`);
   else if (r.route === "iroh") { cardState.set(r.hash, { outgoing: true, mine: true, chatId }); sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`); }
   return { handled: true, msg: hooks?.lastSent?.() || null };
 }
@@ -105,6 +109,19 @@ function stateText(st) {
 /** The "ask" button shows on incoming cards not yet received or asked, and
  *  on outgoing cards on a device that has no copy (the sender's other
  *  device, or the PWA). */
+/** The path a file took, as a small badge: Dash, or the email fallback.
+ *  Unknown (still receiving, or the sender's other device) shows none. */
+function routeOf(st) {
+  if (st.mailed || st.asked) return "email";
+  if ((st.outgoing && st.mine) || st.done) return "dash";
+  return null;
+}
+function routeBadgeHtml(st) {
+  const r = routeOf(st);
+  if (!r) return "";
+  const label = r === "dash" ? t("Dash") : t("Email fallback");
+  return `<span class="xfer-route" data-route="${r}">${r === "dash" ? svg(P.dash) : svg(P.mail)}<span>${escapeHtml(label)}</span></span>`;
+}
 function canAsk(st) {
   return !st.path && !st.asked && !st.done && (!st.outgoing || !st.mine);
 }
@@ -125,7 +142,7 @@ export function xferCardHtml(text) {
         : "";
     return `<span class="xfer-card" data-xfer="${escapeAttr(card.tk.hash)}"><span class="xfer-glyph">${escapeHtml((card.name.split(".").pop()?.[0] || "f").toUpperCase())}</span>` +
       `<span class="xfer-name">${escapeHtml(card.name)}<span class="xfer-meta">${escapeHtml(fmtSize(card.size))}</span></span>` +
-      `<span class="xfer-state" role="status">${escapeHtml(stateText(st))}</span>${actions}</span>`;
+      `<span class="xfer-state" role="status">${escapeHtml(stateText(st))}</span>${routeBadgeHtml(st)}${actions}</span>`;
   }
   if (parseResendRequest(text)) return `<span class="xfer-state">${escapeHtml(t("Asked for the email copy"))}</span>`;
   return null;
@@ -226,6 +243,10 @@ function refresh(hash) {
   for (const card of document.querySelectorAll(`[data-xfer="${hash}"]`)) {
     const el = card.querySelector(".xfer-state");
     if (el) el.textContent = stateText(st);
+    const badge = routeBadgeHtml(st);
+    const old = card.querySelector(".xfer-route");
+    if (old) old.remove();
+    if (badge) el?.insertAdjacentHTML("afterend", badge);
     const ask = card.querySelector(".xfer-ask");
     if (ask && !canAsk(st)) ask.remove();
     if (st.path && !card.querySelector(".xfer-open")) {
@@ -285,6 +306,9 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata }) {
   core?.addEventListener?.("incoming-msg", onMsg);
   core?.addEventListener?.("msg-updated", onMsg);
   core?.addEventListener?.("account-changed", (e) => { useAccount(e?.detail?.accountId ?? core.accountId); announce(); runSweep(); });
+  // The drawer toggle flips the pref: announce the new state (core adds or
+  // drops the capability header on the next encrypted message).
+  if (typeof window !== "undefined") window.addEventListener?.("velta-dash", () => announce());
   announce();
   if (invoke) {
     runSweep();

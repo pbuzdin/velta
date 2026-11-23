@@ -1409,7 +1409,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Loop", p2pOn ? "on" : "off"))}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="${escapeHtml(t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."))}">${ICON.typing}<span>${escapeHtml(toggleText("Typing indicator", localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item">${ICON.lock}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Encrypt stored media", localStorage.getItem("velta-p2p-seal") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Stored on this device only. Transfers stay end-to-end encrypted either way."))}</span></span><input type="checkbox" role="switch" data-toggle="p2p-seal"${localStorage.getItem("velta-p2p-seal") !== "0" ? " checked" : ""}></label>` : ""}
-      ${tauriInvoke() ? `<label class="ctx-item">${ICON.fileLarge}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Send large files directly", localStorage.getItem("velta-iroh-xfer") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Files over 6 MB to Velta contacts go device to device. If that fails, Velta sends them by email."))}</span></span><input type="checkbox" role="switch" data-toggle="iroh-xfer"${localStorage.getItem("velta-iroh-xfer") !== "0" ? " checked" : ""}></label>` : ""}
+      ${tauriInvoke() ? `<label class="ctx-item" data-setting="dash">${ICON.dash}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Dash", localStorage.getItem("velta-iroh-xfer") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Fast transfer for files over 6 MB, directly between devices. It starts with a Velta contact after you both exchange a message; email is the fallback."))}</span></span><input type="checkbox" role="switch" data-toggle="iroh-xfer"${localStorage.getItem("velta-iroh-xfer") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
       <details class="drawer-details">
         <summary>${ICON.palette}<span data-theme-summary>${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[theme] || "Auto") })}</span></summary>
@@ -1836,14 +1836,15 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     window.dispatchEvent(new CustomEvent("velta-p2p-seal", { detail: on }));
     toast(toggleText("Encrypt stored media", on ? "on" : "off"));
   });
-  // #470: the iroh file transfer reads this pref live (iroh-xfer.js), so no
-  // event is needed — the next send just takes the new route.
+  // #470 Velta Dash: the transfer reads this pref live (iroh-xfer.js); the
+  // event re-announces the capability and refreshes the chat header badge.
   drawer.querySelector('[data-toggle="iroh-xfer"]')?.addEventListener("change", e => {
     const on = e.target.checked;
     if (on) localStorage.removeItem("velta-iroh-xfer");
     else localStorage.setItem("velta-iroh-xfer", "0");
-    setToggleUi("iroh-xfer", "Send large files directly", on);
-    toast(toggleText("Send large files directly", on ? "on" : "off"));
+    setToggleUi("iroh-xfer", "Velta Dash", on);
+    toast(toggleText("Velta Dash", on ? "on" : "off"));
+    window.dispatchEvent(new CustomEvent("velta-dash", { detail: on }));
   });
   drawer.querySelector("[data-lp-opts]")?.addEventListener("change", e => {
     const input = e.target.closest?.("[data-lp-value]") || e.target;

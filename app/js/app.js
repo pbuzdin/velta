@@ -104,6 +104,7 @@ import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { dashState, dashExplainer, irohXferEnabled, peerCapabilityKey } from "./iroh-xfer.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
 
 // #286: module-top so boot-time relay status refreshes never hit a TDZ.
@@ -2941,6 +2942,7 @@ async function openChat(chatId) {
   videoBtn.hidden = callBtn.hidden;
   videoBtn.onclick = callBtn.onclick ? () => startCallIfMicOk(chat, { video: true }) : null;
   refreshChannelAuthorButton(chat, current);
+  refreshDashBadge(chat, current);
   // Device messages are read-only system posts — no composer. Every open
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
   // rights check: members without posting rights get no composer either.
@@ -3012,9 +3014,59 @@ function closeChatUI() {
   $("main-composer").hidden = false;
   if (chatView) chatView.readOnly = false;
   $("chat-head-actions").style.visibility = "";
+  hideDashBadge();
   hideChannelAuthorButton();
   renderChatList();
 }
+
+// #470 Velta Dash: the chat header badge shows only in a 1:1 chat with Dash
+// on AND the contact's capability proven (core patch #31 stores
+// ui.velta.xfer.peer.<id> from their encrypted, signed messages). Tapping it
+// opens a short explainer; the same explainer (with the "not yet" hint) is
+// the "Velta Dash" row of the contact profile.
+async function chatDashState(chat) {
+  let proven = false;
+  if (chat?.contactId != null && chat.contactId !== 1 && core.getConfig) {
+    try { proven = !!(await core.getConfig(peerCapabilityKey(chat.contactId))); } catch {}
+  }
+  return dashState({ kind: chat?.kind, isP2p: !!chat?.isP2p, contactId: chat?.contactId ?? null, shell: !!tauriInvoke(), enabled: irohXferEnabled(), proven });
+}
+let dashBadgeChat = null;
+async function refreshDashBadge(chat, current = () => true) {
+  const btn = $("btn-dash");
+  if (!btn) return;
+  dashBadgeChat = chat;
+  const st = await chatDashState(chat);
+  if (!current() || dashBadgeChat !== chat) return;
+  btn.hidden = st !== "on";
+  btn.onclick = st === "on" ? () => showDashExplainer("on") : null;
+}
+function hideDashBadge() {
+  dashBadgeChat = null;
+  const btn = $("btn-dash");
+  if (btn) { btn.hidden = true; btn.onclick = null; }
+}
+function showDashExplainer(st) {
+  const body = document.createElement("div");
+  body.className = "dash-explainer";
+  body.innerHTML = `<p class="dash-explainer-text">${svg(P.dash)}<span>${escapeHtml(dashExplainer(st))}</span></p>`;
+  const foot = document.createElement("div");
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "btn-text";
+  open.textContent = t("Velta Dash setting");
+  foot.append(open);
+  const m = showModal({ title: t("Velta Dash"), body, foot, compact: true });
+  open.addEventListener("click", () => { m.close(); openDashSetting(); });
+}
+function openDashSetting() {
+  drawer?.open();
+  const row = drawer?.el?.querySelector('[data-setting="dash"]');
+  if (!row) return;
+  row.scrollIntoView?.({ block: "center" });
+  row.querySelector("input")?.focus({ preventScroll: true });
+}
+if (typeof window !== "undefined") window.addEventListener?.("velta-dash", () => { if (dashBadgeChat) refreshDashBadge(dashBadgeChat); });
 
 // Issue #132: "Message author" in an incoming channel's header opens (or
 // creates) the 1:1 chat with its one author. Hidden until the core names an
@@ -3334,6 +3386,7 @@ async function showChatInfo(chat) {
     ${!chat.isP2p && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? mediaSectionsHtml() : ""}
     ${chat.isP2pGroup ? `<div class="profile-description" data-pg-hint style="font-size:13px;opacity:.75;padding:6px 2px" hidden></div>` : ""}
     ${contactRows}
+    ${isContactProfile && !chat.isP2p && tauriInvoke() ? `<div class="info-row" data-dash role="button" tabindex="0" style="cursor:pointer"><span class="k">${escapeHtml(t("Velta Dash"))}</span><span class="v" data-dash-val>…</span></div>` : ""}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v" data-muted-val>${escapeHtml(chat.muted ? t("Muted") : t("On"))}</span></div>` : `<div class="info-row"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? (caps.canSetTimer
       ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>`
@@ -3350,6 +3403,19 @@ async function showChatInfo(chat) {
     </details>` : ""}`;
   // Name sits below the avatar now, so the head bar carries only the close.
   const modal = showModal({ title: "", body });
+  // #470 Velta Dash row: On / Not yet / Off; tap for the explainer.
+  const dashRow = body.querySelector("[data-dash]");
+  if (dashRow) {
+    const dashChat = { kind: "single", isP2p: false, contactId: chat.contactId };
+    chatDashState(dashChat).then(st => {
+      const v = dashRow.querySelector("[data-dash-val]");
+      if (!st) { dashRow.remove(); return; }
+      if (v) v.textContent = st === "on" ? t("On") : st === "waiting" ? t("Not yet") : t("Off");
+      const open = () => showDashExplainer(st);
+      dashRow.addEventListener("click", open);
+      dashRow.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+    }).catch(() => dashRow.remove());
+  }
 
   // Apps / Photos / Videos / Audio / Files: counts now, contents on open.
   // Contact profiles carry no chat id — scope their sections to the 1:1
@@ -7898,6 +7964,8 @@ async function boot() {
     core.addEventListener("incoming-msg", ev => {
       if (!incrementalChatList()) scheduleChatListRefresh(); // coalesced (one trailing refresh)
       const msg = ev?.detail?.msg;
+      // A message from the open 1:1 contact may have just proved Velta Dash.
+      if (dashBadgeChat && msg?.chatId === dashBadgeChat.id && $("btn-dash")?.hidden) refreshDashBadge(dashBadgeChat);
       // Toasts are throttled to one per 4 s: skip the per-message work
       // outright while throttled, otherwise group the burst per chat.
       if (notifyThrottled()) return;
