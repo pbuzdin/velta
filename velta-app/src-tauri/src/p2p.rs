@@ -7578,7 +7578,10 @@ mod tests {
         let out = std::path::PathBuf::from(got["file"]["path"].as_str().unwrap());
         assert_eq!(std::fs::metadata(&out).unwrap().len(), size);
         let grew_mb = peak.load(Ordering::Relaxed).saturating_sub(base) / 1024;
-        if base > 0 {
+        // RSS is process-wide: other tests running in parallel inflate it,
+        // so the bound is only checked when the run was sized on purpose
+        // (VELTA_BIG_TEST_MB, run alone).
+        if base > 0 && std::env::var("VELTA_BIG_TEST_MB").is_ok() {
             assert!(grew_mb < 64, "RSS grew {grew_mb} MB for a {mb} MB transfer: not streaming");
         }
         let _ = std::fs::remove_file(&src);
