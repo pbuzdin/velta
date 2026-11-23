@@ -124,11 +124,22 @@ sender lists each receiver with a percent bar and "N receivers" (stale after
 as a panel below the chat header (`webxdc-panel.js`; expand/collapse never
 reloads the frame). `index.html` loads `webxdc.js` before `main.js`: Delta
 Chat installs `window.webxdc` only for that URL. Velta injects its shim
-already and skips a second load. The desktop panel caps the frame
-(`min-height: 0` on `.webxdc-frame`) so the file list scrolls inside it.
-Once a file is listed, the title and intro collapse and the choose button
-shares one row with the file count. A new file scrolls to the top. The
-footer shows the app version.
+already and skips a second load.
+
+UI (v1.3 UX pass): ONE scroller — the whole page scrolls, no nested
+flex height chain, so a host that gives the frame an odd height (Delta
+Chat) still scrolls; the desktop panel keeps its cap (`min-height: 0`
+on `.webxdc-frame`). The choose button lives in a sticky bottom action
+bar (visible at any scroll position, thumb zone on mobile). The intro
+is a collapsed `<details>` (one-line summary: peer-to-peer · no server
+· SHA-256) — the quick guide doubles as the empty state ("Nothing
+shared yet — …"). Once a file is listed, the title and intro hide
+entirely and the file count takes the top row; a new file scrolls to
+the top. Cards are stateful: green edge + green "Available now" when
+actionable, dimmed while waiting, accent edge + "Sharing" chip on your
+own offers, extension-initial tile per file. The footer shows the app
+version; outside Velta the footer CTA reads "Direct transfers work
+best in Velta · velta.cc".
 
 Verified: node tests (lossy two-receiver simulation, tamper → mismatch,
 shim join/send/leave over the bridge, xdc freshness); a two-page Chromium

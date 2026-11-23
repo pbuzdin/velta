@@ -93,12 +93,25 @@
     const el = $("#count");
     el.hidden = !n;
     el.textContent = n === 1 ? "1 file" : n ? `${n} files` : "";
+    $("#empty").hidden = n > 0; // the guide doubles as the empty state
   }
   function revealNew() {
     paintCount();
     list.scrollTop = 0;
   }
   $("#count").onclick = () => { list.scrollTop = 0; };
+
+  // File-type tile: the extension's initial, uppercased — a stable monogram
+  // that needs no icon set and reads at 28 px.
+  const glyph = (name) => { const ext = String(name).split(".").pop(); return esc((ext && ext[0] || "f").toUpperCase()); };
+  const cardHtml = (o, offer) => `
+    <div class="name"><span class="glyph">${glyph(offer.name)}</span>${esc(offer.name)}<span class="chip ${o.from ? "in" : "mine"}">${o.from ? "Incoming" : "Sharing"}</span></div>
+    <div class="meta">${fmt(offer.size)}${o.from ? " · from " + esc(o.from) : ""}</div>
+    <div data-state></div>
+    ${o.rx && !o.rx.done ? `<progress max="1000" value="${Math.round(o.rx.progress * 1000)}"></progress>` : ""}
+    <div class="meta" data-seeders></div>
+    <div class="row" data-actions></div>
+    <div data-peers></div>`;
 
   function paintRx(o) {
     const { offer, rx } = o;
@@ -108,17 +121,14 @@
     if (rx && !rx.done) state = `Receiving ${fmt(rx.receivedBytes)} of ${fmt(offer.size)}` + (online ? "" : " · waiting for a sender");
     if (noRealtime && !rx) state = NO_RT;
     if (rx && rx.done) state = rx.ok ? '<span class="ok">Received — SHA-256 verified</span> · sharing while Beam is open' : '<span class="bad">Checksum mismatch — file discarded</span>';
-    o.card.innerHTML = `<div class="name">${esc(offer.name)}</div>
-      <div class="meta">${fmt(offer.size)}${o.from ? " · from " + esc(o.from) : ""}</div>
-      <div class="meta" data-state>${state}</div>
-      ${rx && !rx.done ? `<progress max="1000" value="${Math.round(rx.progress * 1000)}"></progress>` : ""}
-      <div class="meta" data-seeders></div>
-      <div class="row" data-actions></div>
-      <div data-peers></div>`;
+    // Green edge + green state = actionable or finished; dimmed = waiting.
+    o.card.className = "card" + (rx && rx.done && rx.ok ? " done" : rx && rx.done ? " wait" : rx ? " wait" : online ? " live" : " wait");
+    o.card.innerHTML = cardHtml(o, offer);
+    o.card.querySelector("[data-state]").innerHTML = `<div class="state">${state}</div>`;
     paintPeers(o);
     const act = o.card.querySelector("[data-actions]");
     if (!rx) {
-      const b = Object.assign(document.createElement("button"), { textContent: "Receive" });
+      const b = Object.assign(document.createElement("button"), { textContent: "Receive", className: "tiny" });
       b.disabled = !online || noRealtime;
       b.onclick = () => {
         o.rx = new Transfer.Receiver({ offer, send });
@@ -129,11 +139,11 @@
       act.append(b);
     } else if (rx.done && rx.ok) {
       const blob = () => new File([rx.bytes], offer.name);
-      const save = Object.assign(document.createElement("button"), { textContent: "Save to chat" });
+      const save = Object.assign(document.createElement("button"), { textContent: "Save to chat", className: "tiny" });
       save.onclick = async () => {
         try { const r = await wx.sendToChat({ file: { name: offer.name, blob: blob() } }); if (r && r.ok === false && !r.cancelled) alert(r.error || "Could not send"); } catch (e) { alert(e.message); }
       };
-      const dl = Object.assign(document.createElement("button"), { textContent: "Download", className: "sec" });
+      const dl = Object.assign(document.createElement("button"), { textContent: "Download", className: "sec tiny" });
       dl.onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob()); a.download = offer.name; a.click(); };
       act.append(save, dl);
     }
@@ -176,7 +186,7 @@
     if (!s || !s.card) return;
     const t = trackers.get(id);
     const n = t ? t.activeCount() : 0;
-    s.card.querySelector("[data-state]").textContent = n ? `${n} receiver${n === 1 ? "" : "s"}` + (s.served ? ` · ${s.served} chunk(s) served` : "") : s.served ? `Sending… ${s.served} chunk(s) served` : "Waiting for receivers…";
+    s.card.querySelector("[data-state] .state").textContent = n ? `${n} receiver${n === 1 ? "" : "s"}` + (s.served ? ` · ${s.served} chunk(s) served` : "") : s.served ? `Sending… ${s.served} chunk(s) served` : "Waiting for receivers…";
     s.card.querySelector("[data-peers]").innerHTML = peersHtml(id);
     const sd = s.card.querySelector("[data-seeders]");
     const tx = seedersText(id);
@@ -199,7 +209,7 @@
     senders.set(s.offer.id, s);
     s.card = document.createElement("div");
     s.card.className = "card";
-    s.card.innerHTML = `<div class="name">${esc(s.offer.name)}</div><div class="meta">${fmt(s.offer.size)} · you are offering this</div><div class="meta" data-state>Waiting for receivers…</div><div class="meta">Keep Beam open until someone has it — then they pass it on too.</div><div class="meta" data-seeders></div><div data-peers></div>`;
+    s.card.innerHTML = `<div class="name"><span class="glyph">${glyph(s.offer.name)}</span>${esc(s.offer.name)}<span class="chip mine">Sharing</span></div><div class="meta">${fmt(s.offer.size)} · you are offering this</div><div data-state><div class="state">Waiting for receivers…</div></div><div class="meta">Keep Beam open until someone has it — then they pass it on too.</div><div class="meta" data-seeders></div><div data-peers></div>`;
     list.prepend(s.card);
     revealNew();
     s.announce();
