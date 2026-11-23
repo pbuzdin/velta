@@ -63,6 +63,8 @@ pub const IROH_PROTO: &str = "iroh-0.35";
 /// Default ticket lifetime (the sender re-sends by email after this).
 pub const DEFAULT_TTL: Duration = Duration::from_secs(24 * 3600);
 /// Leftover `.part` files older than this are deleted at start.
+/// A fetch gives up when no bytes arrive for this long (resumable).
+pub const READ_IDLE: Duration = Duration::from_secs(30);
 pub const PART_MAX_AGE: Duration = Duration::from_secs(3 * 24 * 3600);
 /// Offers expired longer than this are forgotten by [`Xfer::sweep`] (the UI
 /// mails or withdraws them well before).
@@ -187,14 +189,30 @@ pub fn relay_mode_for(relay: Option<&str>) -> Result<RelayMode> {
 }
 
 /// The relay a fetch may dial: the ticket's relay only when it is the one
-/// our own chatmail transport advertises. Anything else (another server,
-/// n0) is ignored and the fetch runs direct-only.
-pub fn allowed_relay(ticket_relay: Option<&str>, own: Option<&str>) -> Option<RelayUrl> {
+/// our own chatmail transport advertises, or the sender's own chatmail
+/// relay (`peers`: the sender's mail domains — chatmail serves its iroh
+/// relay at `https://<domain>` — or full relay URLs). Anything else
+/// (another server, n0) is ignored and the fetch runs direct-only.
+pub fn allowed_relay(ticket_relay: Option<&str>, own: Option<&str>, peers: &[String]) -> Option<RelayUrl> {
     let norm = |s: &str| s.trim().trim_end_matches('/').to_ascii_lowercase();
-    match (ticket_relay, own) {
-        (Some(t), Some(o)) if norm(t) == norm(o) => t.parse().ok(),
-        _ => None,
+    let t = ticket_relay?;
+    let url: RelayUrl = t.parse().ok()?;
+    if own.is_some_and(|o| norm(o) == norm(t)) {
+        return Some(url);
     }
+    // RelayUrl stores hosts as FQDNs ("example.org."): drop the dot.
+    let host = url.host_str().unwrap_or("").trim_end_matches('.').to_ascii_lowercase();
+    let https = url.scheme() == "https";
+    let ok = peers.iter().any(|p| {
+        let p = p.trim().to_ascii_lowercase();
+        if p.contains("://") {
+            norm(&p) == norm(t)
+        } else {
+            let d = p.trim_start_matches('.').trim_end_matches('.');
+            https && !d.is_empty() && (host == d || host == format!("iroh.{d}"))
+        }
+    });
+    ok.then_some(url)
 }
 
 /// Route decision for one attachment (the JS side mirrors it in iroh-xfer.js).
@@ -555,10 +573,17 @@ impl Xfer {
     /// Fetches `ticket` into `out_dir/<name>` (sealed when the profile has a
     /// key), resuming a `.part` left by an interrupted run. `progress(done,
     /// size)` is called per chunk.
-    pub async fn fetch(
+    pub async fn fetch(&self, ticket: &Ticket, out_dir: &Path, progress: impl FnMut(u64, u64)) -> std::result::Result<PathBuf, FetchError> {
+        self.fetch_from(ticket, out_dir, &[], progress).await
+    }
+
+    /// [`Xfer::fetch`] that may also dial the sender's own chatmail relay
+    /// (`peers`, see [`allowed_relay`]).
+    pub async fn fetch_from(
         &self,
         ticket: &Ticket,
         out_dir: &Path,
+        peers: &[String],
         mut progress: impl FnMut(u64, u64),
     ) -> std::result::Result<PathBuf, FetchError> {
         if ticket.proto != IROH_PROTO {
@@ -590,7 +615,7 @@ impl Xfer {
 
         let node: NodeId = ticket.node.parse().map_err(|_| FetchError::Unreachable("bad node id".into()))?;
         let mut addr = NodeAddr::new(node).with_direct_addresses(ticket.addrs.iter().copied());
-        if let Some(url) = allowed_relay(ticket.relay.as_deref(), self.relay.as_deref()) {
+        if let Some(url) = allowed_relay(ticket.relay.as_deref(), self.relay.as_deref(), peers) {
             addr = addr.with_relay_url(url);
         }
         let conn = match tokio::time::timeout(Duration::from_millis(self.connect_timeout_ms.load(Ordering::Relaxed)), self.endpoint.connect(addr, ALPN)).await {
@@ -630,12 +655,18 @@ impl Xfer {
         progress(done, ticket.size);
         let mut buf = vec![0u8; CHUNK];
         loop {
-            let n = match recv.read(&mut buf).await {
-                Ok(Some(n)) => n,
-                Ok(None) => break,
-                Err(e) => {
+            // A sender that went to the background stops sending without
+            // closing: give up after READ_IDLE so the UI can resume/retry.
+            let n = match tokio::time::timeout(READ_IDLE, recv.read(&mut buf)).await {
+                Ok(Ok(Some(n))) => n,
+                Ok(Ok(None)) => break,
+                Ok(Err(e)) => {
                     let _ = f.flush().await;
                     return Err(FetchError::Io(e.to_string())); // the .part stays: resume next time
+                }
+                Err(_) => {
+                    let _ = f.flush().await;
+                    return Err(FetchError::Io("stalled".into()));
                 }
             };
             done += n as u64;
@@ -760,7 +791,10 @@ async fn ensure(state: &XferState, app: &tauri::AppHandle, relay: Option<String>
     use tauri::Manager;
     let mut g = state.inner.lock().await;
     if let Some(x) = g.as_ref() {
-        if x.relay == relay {
+        // No relay known this call (metadata not loaded yet): keep the
+        // running endpoint rather than restarting it relay-less, which
+        // would cut transfers in flight and strip the relay from offers.
+        if x.relay == relay || relay.is_none() {
             return Ok(x.clone());
         }
     }
@@ -801,6 +835,7 @@ pub async fn xfer_fetch(
     app: tauri::AppHandle,
     ticket: String,
     relay: Option<String>,
+    peers: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     use tauri::Emitter;
     let t = match Ticket::decode(&ticket) {
@@ -811,8 +846,9 @@ pub async fn xfer_fetch(
     let dir = crate::accounts_dir(&app).join("xfer-in");
     let hash = t.hash.clone();
     let mut last = 0u64;
+    let peers = peers.unwrap_or_default();
     let res = x
-        .fetch(&t, &dir, |done, size| {
+        .fetch_from(&t, &dir, &peers, |done, size| {
             if done == size || done - last >= 1024 * 1024 {
                 last = done;
                 let _ = app.emit("xfer-progress", serde_json::json!({ "hash": hash, "done": done, "size": size }));
@@ -916,6 +952,36 @@ async fn read_frame(r: &mut iroh035::endpoint::RecvStream) -> Result<Vec<u8>> {
     Ok(b)
 }
 
+/// Plaintext size of a file the composer is about to send (sealed uploads
+/// are VLTA ciphertext on disk), without reading it into the webview.
+#[tauri::command]
+pub async fn xfer_file_size(path: String) -> Result<u64, String> {
+    tokio::task::spawn_blocking(move || {
+        let key = attachment_key();
+        AttachmentReader::open(Path::new(&path), key.as_ref()).map(|r| r.len()).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Pre-send check: can this device offer a file right now? Starts the
+/// endpoint if needed and waits up to 4 s for it to reach its home relay.
+/// `{ready, relay, relayConnected, direct}`: `relayConnected` false with a
+/// relay means a receiver on another network can't reach us right now.
+#[tauri::command]
+pub async fn xfer_health(state: tauri::State<'_, XferState>, app: tauri::AppHandle, relay: Option<String>) -> Result<serde_json::Value, String> {
+    let x = ensure(&state, &app, relay).await?;
+    let relay_connected = match x.relay {
+        Some(_) => tokio::time::timeout(Duration::from_secs(4), x.endpoint.home_relay().initialized()).await.is_ok(),
+        None => false,
+    };
+    let direct = match tokio::time::timeout(Duration::from_secs(2), x.endpoint.node_addr()).await {
+        Ok(Ok(na)) => na.direct_addresses.len(),
+        _ => 0,
+    };
+    Ok(serde_json::json!({ "ready": true, "relay": x.relay, "relayConnected": relay_connected, "direct": direct }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -960,13 +1026,43 @@ mod tests {
     }
 
     #[test]
-    fn fetch_only_dials_our_own_advertised_relay() {
+    fn fetch_only_dials_our_own_or_the_senders_chatmail_relay() {
         let own = Some("https://iroh.relay.example/");
-        assert!(allowed_relay(Some("https://IROH.relay.example"), own).is_some(), "same relay, normalised");
-        assert!(allowed_relay(Some("https://use1-1.relay.n0.iroh.iroh.link./"), own).is_none(), "n0 never");
-        assert!(allowed_relay(Some("https://other.example/"), own).is_none(), "another server: direct only");
-        assert!(allowed_relay(Some("https://iroh.relay.example/"), None).is_none(), "we advertise none: direct only");
-        assert!(allowed_relay(None, own).is_none());
+        let none: &[String] = &[];
+        assert!(allowed_relay(Some("https://IROH.relay.example"), own, none).is_some(), "same relay, normalised");
+        assert!(allowed_relay(Some("https://use1-1.relay.n0.iroh.iroh.link./"), own, none).is_none(), "n0 never");
+        assert!(allowed_relay(Some("https://other.example/"), own, none).is_none(), "another server: direct only");
+        assert!(allowed_relay(Some("https://iroh.relay.example/"), None, none).is_none(), "we advertise none: direct only");
+        assert!(allowed_relay(None, own, none).is_none());
+        // The sender's own chatmail relay (their mail domain) is allowed:
+        // phones on two different relays still meet through the sender's.
+        let peer = vec!["Other.Example".to_string()];
+        assert!(allowed_relay(Some("https://other.example/"), own, &peer).is_some(), "sender's chatmail relay");
+        assert!(allowed_relay(Some("https://iroh.other.example"), None, &peer).is_some(), "iroh.<domain> form, even with no own relay");
+        assert!(allowed_relay(Some("http://other.example/"), own, &peer).is_none(), "plain http never");
+        assert!(allowed_relay(Some("https://evil.other.example.attacker.net/"), own, &peer).is_none(), "suffix tricks");
+        assert!(allowed_relay(Some("https://use1-1.relay.n0.iroh.iroh.link/"), own, &peer).is_none(), "still never n0");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn phones_on_two_relays_meet_through_the_senders_relay() {
+        let (_m1, url1, _s1) = iroh035::test_utils::run_relay_server().await.unwrap();
+        let (_m2, url2, _s2) = iroh035::test_utils::run_relay_server().await.unwrap();
+        let a = Xfer::start(skey(), Some(url1.to_string()), tmp("t8-a"), None).await.unwrap();
+        let b = Xfer::start(skey(), Some(url2.to_string()), tmp("t8-b"), None).await.unwrap();
+        b.set_connect_timeout(Duration::from_secs(8));
+        let src = tmp("src8");
+        let bytes = data(700_000, 8);
+        std::fs::write(src.join("x.bin"), &bytes).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), a.endpoint.home_relay().initialized()).await;
+        let mut t = a.offer(&src.join("x.bin"), None, DEFAULT_TTL).await.unwrap();
+        t.addrs.clear(); // 4G / CGNAT: no usable direct address
+        let refused = b.fetch(&t, &tmp("dst8a"), |_, _| {}).await;
+        assert!(matches!(refused, Err(FetchError::Unreachable(_))), "a foreign relay is not dialled by default");
+        let out = b.fetch_from(&t, &tmp("dst8b"), &[url1.to_string()], |_, _| {}).await.unwrap();
+        assert_eq!(std::fs::read(out).unwrap(), bytes);
+        a.close().await;
+        b.close().await;
     }
 
     #[test]

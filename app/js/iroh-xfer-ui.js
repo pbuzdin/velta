@@ -12,6 +12,7 @@
 import {
   createTransport, parseFileCard, parseResendRequest, resendRequestText, advertisedRelay, jsonStore,
   irohXferEnabled, THRESHOLD, routeLabel, CAPABILITY_KEY, peerCapabilityKey, emailReason,
+  planRoute, routeText, peerDomains, EMAIL_MAX,
 } from "./iroh-xfer.js";
 import { svg, P } from "./icons.js";
 import { fileUrl } from "./media.js";
@@ -48,7 +49,7 @@ function loadCards() {
 function saveCards() {
   const keep = {};
   for (const [h, st] of [...cardState].slice(-CARDS_MAX)) {
-    if (st.done || st.asked || st.error) keep[h] = { chatId: st.chatId, path: st.path, asked: st.asked, done: st.done, error: st.error, outgoing: st.outgoing || undefined };
+    if (st.done || st.asked || st.error) keep[h] = { chatId: st.chatId, path: st.path, asked: st.asked, done: st.done, error: st.error, outgoing: st.outgoing || undefined, size: st.size, dashFailed: st.dashFailed || undefined };
   }
   cardsStore().save(keep);
 }
@@ -87,6 +88,10 @@ export async function maybeSend({ chatId, path, name, size, oneToOne, contactId 
   const why = emailReason({ size, oneToOne, proven: can, enabled: irohXferEnabled(), available: !!(transport && env?.invoke) });
   if (why) { sink("info", `sent ${name} (${fmtSize(size)}) by email: ${why}`); return { handled: false }; }
   const r = await transport.send({ chatId, file: { path, name, size }, oneToOne, peerIsVelta: true });
+  if (r.route === "none") {
+    sink("error", `offer failed and ${name} (${fmtSize(size)}) is too big for email — not sent: ${r.error}`);
+    return { handled: true, failed: "too-big", msg: null };
+  }
   if (r.via === "offer-failed") sink("error", `offer failed — mailed instead: ${r.error}`);
   else if (r.via === "policy") sink("info", `sent ${name} (${fmtSize(size)}) by email: policy`);
   else if (r.route === "iroh") { cardState.set(r.hash, { outgoing: true, mine: true, chatId }); sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`); }
@@ -96,15 +101,24 @@ export async function maybeSend({ chatId, path, name, size, oneToOne, contactId 
 const safeFileUrl = (p) => { try { return fileUrl(p); } catch { return "#"; } };
 const ERRORS = {
   "too-big": () => t("Too big to send by email. Send it again when you are both online."),
+  "too-big-recv": () => t("Too large for email: ask the sender to resend while you are both online."),
+  interrupted: () => t("Velta Dash transfer interrupted."),
   "no-space": () => t("Not enough free space to receive this file."),
   "too-large": () => t("This file is too large to receive."),
   missing: () => t("The file is no longer available."),
 };
 function stateText(st) {
   if (st.error && ERRORS[st.error]) return ERRORS[st.error]();
-  if (st.asked && !st.done) return t("Asked for the email copy");
+  if (st.asked && !st.done) return st.dashFailed ? t("Couldn't fetch via Velta Dash: asked for the email copy") : t("Asked for the email copy");
   if (st.outgoing) return st.mailed ? t("Sent by email") : routeLabel("iroh");
-  return st.done ? t("Received") : st.asked ? t("Asked for the email copy") : t("Receiving file…");
+  if (st.done) return t("Received");
+  if (st.pct != null) return t("Fetching via Velta Dash {n}%", { n: st.pct });
+  if (st.receiving) return t("Waiting for sender…");
+  return t("Receiving file…");
+}
+/** Incoming card that failed over Dash and can try again (both online). */
+function canRetry(st) {
+  return !st.outgoing && !st.done && !st.receiving && !!env?.invoke && (st.error === "interrupted" || st.error === "too-big-recv");
 }
 /** The "ask" button shows on incoming cards not yet received or asked, and
  *  on outgoing cards on a device that has no copy (the sender's other
@@ -123,6 +137,7 @@ function routeBadgeHtml(st) {
   return `<span class="xfer-route" data-route="${r}">${r === "dash" ? svg(P.dash) : svg(P.mail)}<span>${escapeHtml(label)}</span></span>`;
 }
 function canAsk(st) {
+  if (st.error === "too-big-recv" || (st.size != null && st.size > EMAIL_MAX)) return false;
   return !st.path && !st.asked && !st.done && (!st.outgoing || !st.mine);
 }
 
@@ -135,11 +150,7 @@ export function xferCardHtml(text) {
   const card = parseFileCard(text);
   if (card) {
     const st = cardState.get(card.tk.hash) || {};
-    const actions = st.path
-      ? `<a class="xfer-open" href="${escapeAttr(safeFileUrl(st.path))}" target="_blank" rel="noopener">${escapeHtml(t("Open"))}</a>`
-      : canAsk(st) && cardState.has(card.tk.hash)
-        ? `<button type="button" class="xfer-ask btn-text" data-xfer-ask="${escapeAttr(card.tk.hash)}">${escapeHtml(t("Ask for the email copy"))}</button>`
-        : "";
+    const actions = actionsHtml(card.tk.hash, st);
     return `<span class="xfer-card" data-xfer="${escapeAttr(card.tk.hash)}"><span class="xfer-glyph">${escapeHtml((card.name.split(".").pop()?.[0] || "f").toUpperCase())}</span>` +
       `<span class="xfer-name">${escapeHtml(card.name)}<span class="xfer-meta">${escapeHtml(fmtSize(card.size))}</span></span>` +
       `<span class="xfer-state" role="status">${escapeHtml(stateText(st))}</span>${routeBadgeHtml(st)}${actions}</span>`;
@@ -148,6 +159,13 @@ export function xferCardHtml(text) {
   return null;
 }
 
+function actionsHtml(hash, st) {
+  if (st.path) return `<a class="xfer-open" href="${escapeAttr(safeFileUrl(st.path))}" target="_blank" rel="noopener">${escapeHtml(t("Open"))}</a>`;
+  let out = "";
+  if (canRetry(st)) out += `<button type="button" class="xfer-retry btn-text" data-xfer-retry="${escapeAttr(hash)}">${escapeHtml(t("Retry"))}</button>`;
+  if (canAsk(st) && cardState.has(hash)) out += `<button type="button" class="xfer-ask btn-text" data-xfer-ask="${escapeAttr(hash)}">${escapeHtml(t("Ask for the email copy"))}</button>`;
+  return out;
+}
 const escapeAttr = escapeHtml;
 function fmtSize(n) {
   return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
@@ -176,28 +194,71 @@ export function noteCard(chatId, text, outgoing) {
   if (card) {
     const hash = card.tk.hash;
     const known = cardState.get(hash);
-    if (known) { if (known.chatId == null) known.chatId = chatId; return; }
+    if (known) { if (known.chatId == null) known.chatId = chatId; if (!known.outgoing && !known.text) known.text = text; if (known.size == null) known.size = card.size; return; }
     if (outgoing) { cardState.set(hash, { outgoing: true, mine: transport.pending.has(hash), chatId }); return; }
-    const st = { outgoing: false, chatId };
+    const st = { outgoing: false, chatId, size: card.size, text };
     cardState.set(hash, st);
     const expired = Number(card.tk.exp) * 1000 <= Date.now();
-    if (!env.invoke && expired) return; // PWA, old card: the sender mails expired offers by itself; button stays
-    sink("info", env.invoke ? `fetching ${card.name} (${fmtSize(card.size)}) directly from the sender` : `asking for the email copy of ${card.name} (no iroh here)`);
-    if (env.invoke && card.size > 0) st.receiving = true;
-    transport.receive({ chatId, text }).then((r) => {
-      const cur = cardState.get(hash);
-      if (!cur) return;
-      cur.receiving = false;
-      if (r?.path) { cur.path = r.path; cur.done = true; sink("info", `received ${card.name} over iroh`); }
-      else if (r?.asked) { cur.asked = true; sink(r.code === "no-iroh" ? "info" : "error", `asked for the email copy (${r.error || r.code || "unknown"})`); }
-      else if (r?.code === "no-space" || r?.code === "too-large") { cur.error = r.code; sink("error", `fetch refused: ${r.error}`); }
-      else if (r?.error) sink("info", `fetch interrupted — will resume over iroh (${r.error})`);
-      saveCards();
-      refresh(hash);
-    }).catch((e) => { sink("error", `fetch crashed: ${e?.message || e}`); });
+    if (!env.invoke && expired) { if (card.size > EMAIL_MAX) st.error = "too-big-recv"; return; } // PWA, old card: the sender mails expired offers itself
+    startFetch(hash, 0);
     return;
   }
   if (parseResendRequest(text)) handleResend(chatId, text, outgoing);
+}
+
+/** Auto-retries (resume from the partial) after a broken or stalled
+ *  stream, then the card shows Retry. */
+export const RETRY_DELAYS_MS = [5000, 15000, 45000];
+const peerCache = new Map(); // chatId -> mail domains of the 1:1 contact
+async function peersOf(chatId) {
+  if (peerCache.has(chatId)) return peerCache.get(chatId);
+  let doms = [];
+  try {
+    const chat = await env.core?.getChat?.(chatId);
+    const c = chat?.contactId != null ? await env.core?.getContact?.(chat.contactId) : null;
+    doms = peerDomains([c?.addr, ...(c?.addrs || [])]);
+  } catch {}
+  peerCache.set(chatId, doms);
+  return doms;
+}
+function startFetch(hash, attempt) {
+  const st = cardState.get(hash);
+  if (!st || st.done || !st.text) return;
+  const name = parseFileCard(st.text)?.name || "file";
+  st.error = undefined;
+  st.receiving = !!env.invoke;
+  st.pct = undefined;
+  refresh(hash);
+  sink("info", env.invoke ? `fetching ${name} (${fmtSize(st.size)}) via Velta Dash${attempt ? ` (retry ${attempt})` : ""}` : `asking for the email copy of ${name} (no Dash here)`);
+  (async () => transport.receive({ chatId: st.chatId, text: st.text, peers: env.invoke ? await peersOf(st.chatId) : [] }))().then((r) => {
+    const cur = cardState.get(hash);
+    if (!cur) return;
+    cur.receiving = false;
+    cur.pct = undefined;
+    if (r?.path) { cur.path = r.path; cur.done = true; sink("info", `received ${name} via Velta Dash`); }
+    else if (r?.asked) { cur.asked = true; cur.dashFailed = r.code !== "no-iroh"; sink(r.code === "no-iroh" ? "info" : "error", `asked for the email copy (${r.error || r.code || "unknown"})`); }
+    else if (r?.tooBig) { cur.error = "too-big-recv"; sink("error", `Dash fetch failed and ${name} is too big for email (${r.error || r.code})`); }
+    else if (r?.code === "no-space" || r?.code === "too-large") { cur.error = r.code; sink("error", `fetch refused: ${r.error}`); }
+    else if (r?.error) {
+      if (attempt < RETRY_DELAYS_MS.length) {
+        sink("info", `fetch interrupted — resuming in ${RETRY_DELAYS_MS[attempt] / 1000} s (${r.error})`);
+        cur.receiving = true;
+        setTimeout(() => startFetch(hash, attempt + 1), RETRY_DELAYS_MS[attempt])?.unref?.();
+      } else { cur.error = "interrupted"; sink("error", `fetch interrupted ${attempt + 1} times — tap Retry (${r.error})`); }
+    }
+    saveCards();
+    refresh(hash);
+  }).catch((e) => {
+    const cur = cardState.get(hash);
+    if (cur) { cur.receiving = false; cur.error = "interrupted"; saveCards(); refresh(hash); }
+    sink("error", `fetch crashed: ${e?.message || e}`);
+  });
+}
+
+/** Card action: try the Dash fetch again (resumes the partial). */
+export function retryFetch(hash) {
+  const st = cardState.get(hash);
+  if (st && canRetry(st)) startFetch(hash, 0);
 }
 
 const resendSeen = new Set();
@@ -247,17 +308,9 @@ function refresh(hash) {
     const old = card.querySelector(".xfer-route");
     if (old) old.remove();
     if (badge) el?.insertAdjacentHTML("afterend", badge);
-    const ask = card.querySelector(".xfer-ask");
-    if (ask && !canAsk(st)) ask.remove();
-    if (st.path && !card.querySelector(".xfer-open")) {
-      const a = document.createElement("a");
-      a.className = "xfer-open";
-      a.href = safeFileUrl(st.path);
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.textContent = t("Open");
-      card.appendChild(a);
-    }
+    for (const old of card.querySelectorAll(".xfer-ask, .xfer-retry, .xfer-open")) old.remove();
+    const actions = actionsHtml(hash, st);
+    if (actions) card.insertAdjacentHTML("beforeend", actions);
   }
 }
 
@@ -266,6 +319,8 @@ function useAccount(id) {
   account = String(id ?? "0");
   selfChat = null;
   metaCache = { at: 0, value: null };
+  peerCache.clear();
+  health = { at: 0, value: null };
   resendSeen.clear();
   loadCards();
   transport?.setStore?.(jsonStore(`velta-xfer-pending:${account}`));
@@ -273,7 +328,7 @@ function useAccount(id) {
 
 /** Wire once from boot: shell handles + the composer's send hooks. In the
  *  PWA (no invoke) the transport has no iroh: cards ask for the email copy. */
-export function initXferUi({ core, invoke, sendText, sendFile, metadata }) {
+export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen }) {
   if (transport) return; // never re-init
   env = { core, invoke: invoke || null };
   metadataFn = metadata || (async () => null);
@@ -289,7 +344,7 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata }) {
     },
     iroh: invoke ? {
       offer: (path, relay, name) => invoke("xfer_offer", { path, relay, name }),
-      fetch: (ticket, relay) => invoke("xfer_fetch", { ticket, relay }),
+      fetch: (ticket, relay, peers) => invoke("xfer_fetch", { ticket, relay, peers: peers?.length ? peers : null }),
       withdraw: (hash) => invoke("xfer_withdraw", { hash }),
       status: (hashes) => invoke("xfer_status", { hashes }),
     } : null,
@@ -302,7 +357,13 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata }) {
   const onMsg = (e) => {
     const m = e?.detail?.msg;
     if (m && typeof m.text === "string") noteCard(m.chatId ?? e.detail.chatId, m.text, m.from === 1 || m.out === true);
+    if (m && e?.type === "incoming-msg" && !(m.from === 1 || m.out === true)) maybeEcho(m).catch(() => {});
   };
+  // Fetch progress from the shell: "Fetching via Velta Dash 34%".
+  const lis = listen || (typeof window !== "undefined" ? window.__TAURI__?.event?.listen?.bind(window.__TAURI__.event) : null);
+  if (invoke && lis) {
+    try { Promise.resolve(lis("xfer-progress", (ev) => xferProgressEvent(ev?.payload ?? ev))).catch(() => {}); } catch {}
+  }
   core?.addEventListener?.("incoming-msg", onMsg);
   core?.addEventListener?.("msg-updated", onMsg);
   core?.addEventListener?.("account-changed", (e) => { useAccount(e?.detail?.accountId ?? core.accountId); announce(); runSweep(); });
@@ -315,6 +376,8 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata }) {
     if (typeof setInterval === "function" && !sweepTimer) { sweepTimer = setInterval(runSweep, SWEEP_MS); sweepTimer?.unref?.(); }
   }
   if (typeof document !== "undefined") document.addEventListener("click", (e) => {
+    const retry = e.target.closest?.("[data-xfer-retry]");
+    if (retry) { retryFetch(retry.getAttribute("data-xfer-retry")); return; }
     const ask = e.target.closest?.("[data-xfer-ask]");
     if (!ask) return;
     const hash = ask.getAttribute("data-xfer-ask");
@@ -326,6 +389,71 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata }) {
 export function askForEmailCopy(hash) {
   const st = cardState.get(hash);
   return st && canAsk(st) ? askEmailCopy(hash, st) : Promise.resolve();
+}
+
+/** Shell progress event {hash, done, size}: percent on the card. */
+const lastPaint = new Map();
+export function xferProgressEvent(p) {
+  const st = p && cardState.get(p.hash);
+  if (!st || st.outgoing || st.done || !(Number(p.size) > 0)) return;
+  st.receiving = true;
+  st.pct = Math.min(99, Math.floor((Number(p.done) * 100) / Number(p.size)));
+  const now = Date.now();
+  if (now - (lastPaint.get(p.hash) || 0) < 250) return; // a few repaints a second
+  lastPaint.set(p.hash, now);
+  refresh(p.hash);
+}
+
+/**
+ * Capability echo (#470): proof is one-way — the header rides only on our
+ * normal messages, so a peer we only receive from never sees our badge.
+ * When a proven 1:1 peer's message arrives, answer once a week with an empty
+ * reaction: a hidden, encrypted message core stamps with the header.
+ */
+export const ECHO_EVERY_MS = 7 * 86400000;
+const echoing = new Set();
+async function maybeEcho(m) {
+  if (!env?.invoke || !irohXferEnabled() || !env.core?.clearReaction) return;
+  const contactId = Number(m.fromContact?.id ?? m.fromId);
+  if (!(contactId > 9) || m.id == null) return; // real contacts only (ids <= 9 are special)
+  const key = `velta-xfer-told:${account}:${contactId}`;
+  const told = Number(lsGet(key) || 0);
+  if (Date.now() - told < ECHO_EVERY_MS || echoing.has(key)) return;
+  echoing.add(key);
+  try {
+    const chat = await env.core.getChat?.(m.chatId);
+    if (chat?.chatType !== "Single" || Number(chat.contactId) !== contactId) return;
+    if (!await peerCanXfer(contactId)) return; // they run Dash: tell them we do too
+    await announce();
+    await env.core.clearReaction(m.id);
+    lsSet(key, String(Date.now()));
+    sink("info", `told contact ${contactId} this device runs Velta Dash`);
+  } finally { echoing.delete(key); }
+}
+function lsGet(k) { try { return globalThis.localStorage?.getItem(k) ?? null; } catch { return null; } }
+function lsSet(k, v) { try { globalThis.localStorage?.setItem(k, v); } catch {} }
+
+/**
+ * Pre-send route for the composer (#470): {route, reason, text}. A live
+ * check of the shell endpoint and its relay connection (cached 20 s) —
+ * Dash only when the receiver can actually reach this phone.
+ */
+let health = { at: 0, value: null };
+async function dashHealth() {
+  if (!env?.invoke) return null;
+  if (health.value && Date.now() - health.at < 20000) return health.value;
+  let v;
+  try { v = await env.invoke("xfer_health", { relay: advertisedRelay(await relayMeta()) }); }
+  catch (e) { v = { ready: false, relay: null, relayConnected: false, error: String(e?.message || e) }; }
+  health = { at: Date.now(), value: v };
+  return v;
+}
+export async function planSend({ size, oneToOne, contactId, peerName = "" }) {
+  const proven = oneToOne && !!env?.invoke && await peerCanXfer(contactId);
+  const base = { size, oneToOne, proven, enabled: irohXferEnabled(), available: !!(transport && env?.invoke) };
+  let plan = planRoute(base);
+  if (plan.route === "dash") plan = planRoute({ ...base, health: await dashHealth() });
+  return { ...plan, text: routeText(plan, peerName) };
 }
 
 /** Test hook: run one sweep now. */

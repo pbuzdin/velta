@@ -362,3 +362,158 @@ test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawe
   assert.match(ui, /new CustomEvent\("velta-dash"/);
   assert.doesNotMatch(ui, /Send large files directly/);
 });
+
+// --- #470 phone test (two Android phones, 4G): routes, caps, card states ---
+
+test("pre-send route: Dash when it can deliver, email under the cap, blocked over it", async () => {
+  const { planRoute, routeText, peerDomains } = await import("../app/js/iroh-xfer.js");
+  const big = THRESHOLD + 1, huge = EMAIL_MAX + 1;
+  const ok = { oneToOne: true, proven: true, enabled: true, available: true };
+  const up = { ready: true, relay: "https://relay.example/", relayConnected: true };
+  const down = { ready: true, relay: "https://relay.example/", relayConnected: false };
+  assert.equal(planRoute({ ...ok, size: huge, health: up }).route, "dash");
+  assert.equal(routeText(planRoute({ ...ok, size: huge, health: up }), "K"), "Velta Dash: direct to K");
+  // Relay not reachable from this phone: a receiver on 4G could not dial us.
+  assert.deepEqual(planRoute({ ...ok, size: big, health: down }), { route: "email", reason: "dash-down" });
+  assert.match(routeText(planRoute({ ...ok, size: big, health: down })), /^Velta Dash is unavailable right now: sending by email \(max 22 MB\)$/);
+  assert.deepEqual(planRoute({ ...ok, size: huge, health: down }), { route: "blocked", reason: "dash-down-too-big" });
+  assert.match(routeText(planRoute({ ...ok, size: huge, health: down })), /Too big for email \(max 22 MB\) and Velta Dash is unavailable/);
+  assert.equal(planRoute({ ...ok, size: huge, health: { ready: false } }).route, "blocked", "endpoint down");
+  // Not a Dash chat: the email cap is all there is.
+  assert.deepEqual(planRoute({ ...ok, proven: false, size: huge }), { route: "blocked", reason: "too-big" });
+  assert.equal(routeText(planRoute({ ...ok, oneToOne: false, size: huge })), "Too big to send by email (max 22 MB)");
+  assert.equal(planRoute({ ...ok, available: false, size: big }).route, "email", "PWA: email under the cap");
+  assert.equal(routeText(planRoute({ ...ok, size: 1000 })), "", "small files: nothing to say");
+  assert.deepEqual(peerDomains(["Bob@Relay.Example", "x@other.example", "junk", null]), ["relay.example", "other.example"]);
+});
+
+test("transport: never mails what the relay would bounce; never asks for an email copy over the cap", async () => {
+  const mailed = [];
+  const email = { sendFile: async (c, f) => mailed.push(["file", f.name]), sendText: async (c, t) => mailed.push(["text", t]) };
+  const failing = { offer: async () => { throw new Error("no relay"); }, fetch: async () => ({ error: "unreachable", code: "unreachable", email: true }) };
+  const tr = createTransport({ email, iroh: failing, relay: async () => null, enabled: () => true });
+  const r = await tr.send({ chatId: 5, file: { name: "film.mp4", size: EMAIL_MAX + 1, path: "/f" }, oneToOne: true, peerIsVelta: true });
+  assert.equal(r.route, "none");
+  assert.equal(r.tooBig, true);
+  assert.deepEqual(mailed, [], "no 133 MB email, so no card the receiver can't download");
+  const small = await tr.send({ chatId: 5, file: { name: "a.mp4", size: THRESHOLD + 1, path: "/a" }, oneToOne: true, peerIsVelta: true });
+  assert.equal(small.route, "email", "under the cap the email fallback still works");
+  mailed.length = 0;
+  const hugeCard = fileCardText({ name: "film.mp4", size: EMAIL_MAX + 1, ticket: enc({ ...tk, size: EMAIL_MAX + 1 }) });
+  const got = await tr.receive({ chatId: 5, text: hugeCard });
+  assert.equal(got.tooBig, true);
+  assert.deepEqual(mailed, [], "no RESEND the sender could not honour");
+  const pwa = createTransport({ email, iroh: null });
+  assert.equal((await pwa.receive({ chatId: 5, text: hugeCard })).tooBig, true);
+  assert.deepEqual(mailed, []);
+});
+
+test("receiver card: waiting, progress, resumes, then Retry; fetch may use the sender's relay", async () => {
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage ??= { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?states");
+  ui.RETRY_DELAYS_MS.splice(0, ui.RETRY_DELAYS_MS.length, 0, 0);
+  const core = fakeCore();
+  core.accountId = 31;
+  core.getChat = async (id) => ({ id, chatType: "Single", contactId: 12 });
+  core.getContact = async () => ({ id: 12, addr: "kay@their-relay.example" });
+  let release, fetchArgs = [], results = [];
+  const gate = new Promise((r) => { release = r; });
+  ui.initXferUi({
+    core,
+    invoke: async (cmd, args) => {
+      if (cmd !== "xfer_fetch") return null;
+      fetchArgs.push(args);
+      if (fetchArgs.length === 1) await gate;
+      return results.shift();
+    },
+    sendText: async () => ({ id: 1 }), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+  });
+  const H = "ef".repeat(32);
+  const card = fileCardText({ name: "v.mp4", size: tk.size, ticket: enc({ ...tk, hash: H }) });
+  results.push({ error: "stalled", code: "io", email: false }, { error: "stalled", code: "io", email: false }, { error: "stalled", code: "io", email: false });
+  core.msg(9, card);
+  await tick();
+  assert.match(ui.xferCardHtml(card), /Waiting for sender…/, "never a silent 'Downloading…'");
+  assert.deepEqual(fetchArgs[0].peers, ["their-relay.example"], "the receiver may dial the sender's own relay (4G: no direct path)");
+  ui.xferProgressEvent({ hash: H, done: 34, size: 100 });
+  assert.match(ui.xferCardHtml(card), /Fetching via Velta Dash 34%/);
+  release();
+  for (let i = 0; i < 10; i++) await tick();
+  assert.equal(fetchArgs.length, 3, "two quiet resumes");
+  assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./);
+  assert.match(ui.xferCardHtml(card), /data-xfer-retry/, "a clear action, not an endless spinner");
+  results.push({ path: "/acc/xfer-in/v.mp4" });
+  ui.retryFetch(H);
+  await tick();
+  assert.match(ui.xferCardHtml(card), /Received/);
+
+  // Over the email cap and Dash failed: say so, no ask button, Retry stays.
+  const H3 = "a1".repeat(32);
+  const huge = fileCardText({ name: "film.mp4", size: EMAIL_MAX + 1, ticket: enc({ ...tk, hash: H3, size: EMAIL_MAX + 1 }) });
+  results.push({ error: "unreachable", code: "unreachable", email: true });
+  core.msg(9, huge);
+  await tick(); await tick();
+  assert.match(ui.xferCardHtml(huge), /Too large for email: ask the sender to resend while you are both online\./);
+  assert.doesNotMatch(ui.xferCardHtml(huge), /xfer-ask/);
+  assert.match(ui.xferCardHtml(huge), /data-xfer-retry/);
+  // Under the cap: the card says Dash failed and the email copy was asked for.
+  const H4 = "b2".repeat(32);
+  const mid = fileCardText({ name: "m.mp4", size: tk.size, ticket: enc({ ...tk, hash: H4 }) });
+  results.push({ error: "unreachable", code: "unreachable", email: true });
+  core.msg(9, mid);
+  await tick(); await tick();
+  assert.match(ui.xferCardHtml(mid), /Couldn&#39;t fetch via Velta Dash: asked for the email copy|Couldn't fetch via Velta Dash: asked for the email copy/);
+});
+
+test("capability echo: after one message either way, BOTH phones show the Dash badge", async () => {
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage ??= { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  localStorage.removeItem("velta-iroh-xfer");
+  // Two phones; each sees the other as contact 20 in chat 40. Core patch #31
+  // (tested in core: test_velta_xfer_capability_echo) stamps every encrypted
+  // message — an empty reaction too — while ui.velta.xfer=1, and the
+  // receiver records ui.velta.xfer.peer.<id>. This net does the same.
+  const phone = (acct) => {
+    const core = fakeCore();
+    core.accountId = acct;
+    core.getChat = async (id) => ({ id, chatType: "Single", contactId: 20 });
+    core.sent = [];
+    return core;
+  };
+  const a = phone(41), b = phone(42);
+  let msgId = 100;
+  const deliver = (from, to, text, hidden = false) => {
+    if (from.config["ui.velta.xfer"] === "1") to.config["ui.velta.xfer.peer.20"] = String(Date.now());
+    if (!hidden) to.dispatchEvent(Object.assign(new Event("incoming-msg"), { detail: { chatId: 40, msg: { id: ++msgId, chatId: 40, text, from: 20, fromContact: { id: 20 } } } }));
+  };
+  for (const [me, peer] of [[a, b], [b, a]]) me.clearReaction = async () => { me.sent.push("echo"); deliver(me, peer, "", true); };
+  const uiA = await import("../app/js/iroh-xfer-ui.js?phoneA");
+  const uiB = await import("../app/js/iroh-xfer-ui.js?phoneB");
+  const init = (ui, core) => ui.initXferUi({ core, invoke: async () => null, sendText: async () => ({}), sendFile: async () => {}, metadata: async () => null, listen: async () => {} });
+  init(uiA, a); init(uiB, b);
+  await tick();
+  // Pavel's case: A wrote to B, so B already sees A's badge; A sees none.
+  deliver(a, b, "hi");
+  await tick();
+  assert.equal(await uiB.peerCanXfer(20), true, "B sees A's badge");
+  assert.equal(await uiA.peerCanXfer(20), true, "A sees B's badge too: B echoed on receipt");
+  assert.deepEqual(b.sent, ["echo"]);
+  assert.deepEqual(a.sent, [], "A has nothing to echo: B is already proven to A");
+  deliver(a, b, "again");
+  await tick();
+  assert.deepEqual(b.sent, ["echo"], "one echo a week, not one per message");
+
+  // The other direction on a fresh pair: B writes first, A echoes.
+  const c = phone(43), d = phone(44);
+  for (const [me, peer] of [[c, d], [d, c]]) me.clearReaction = async () => { me.sent.push("echo"); deliver(me, peer, "", true); };
+  const uiC = await import("../app/js/iroh-xfer-ui.js?phoneC");
+  const uiD = await import("../app/js/iroh-xfer-ui.js?phoneD");
+  init(uiC, c); init(uiD, d);
+  await tick();
+  deliver(d, c, "hello");
+  await tick();
+  assert.equal(await uiC.peerCanXfer(20) && await uiD.peerCanXfer(20), true, "both badges after one message the other way");
+});

@@ -84,6 +84,18 @@ function rememberMediaDims(accountId, msgId, w, h) {
 // app.js installs the avatar-profile opener (avoids a circular import);
 // invoked when a group message's sender avatar is tapped.
 let avatarProfileOpener = null;
+// #470: when a big email first showed as downloading (per account + msg).
+export const EMAIL_STALL_MS = 60000;
+export function inProgressSince(accountId, msgId, now = Date.now()) {
+  const key = `velta-dl-since:${accountId ?? 0}:${msgId}`;
+  try {
+    const v = Number(localStorage.getItem(key));
+    if (v > 0) return v;
+    localStorage.setItem(key, String(now));
+  } catch {}
+  return now;
+}
+
 export function setAvatarProfileOpener(fn) { avatarProfileOpener = fn; }
 
 // Video playback routes through the fullscreen lightbox (ui.js) - injected
@@ -126,7 +138,8 @@ import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealIte
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
-import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard } from "./iroh-xfer-ui.js";
+import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend } from "./iroh-xfer-ui.js";
+import { THRESHOLD as XFER_THRESHOLD, EMAIL_MAX as XFER_EMAIL_MAX } from "./iroh-xfer.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
 // Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
@@ -2606,7 +2619,7 @@ export class ChatView {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || t("Photo"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : size || t("Tap to download"))}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || t("Photo"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : size || t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "video") {
@@ -2627,7 +2640,7 @@ export class ChatView {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || t("Video"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : size || t("Tap to download"))}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || t("Video"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : size || t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "audio" || m.viewtype === "voice") {
@@ -2639,7 +2652,7 @@ export class ChatView {
         const label = m.viewtype === "voice" ? t("Voice message") : t("Audio");
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : t("Tap to download"))}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "webxdc") {
@@ -2656,7 +2669,7 @@ export class ChatView {
       const isDownloaded = m.downloadState === "Done";
       bubble += `<div class="msg-file${isDownloaded ? "" : " download-btn"}" role="button" data-act="${isDownloaded ? "open" : "download"}">
         <div class="file-ico">${ICO.download}</div>
-        <div><div class="file-name">${escapeHtml(m.fileName || t("File"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : (m.fileSize ? formatBytes(m.fileSize) : t("Tap to download")))}</div></div>
+        <div><div class="file-name">${escapeHtml(m.fileName || t("File"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : (m.fileSize ? formatBytes(m.fileSize) : t("Tap to download")))}</div></div>
       </div>`;
     } else if (m.viewtype === "vcard") {
       // Shared contact card, styled like the invite cards: avatar on the
@@ -3239,6 +3252,9 @@ export class ChatView {
       if (mediaAction) {
         e.stopPropagation();
         if (mediaAction.dataset.act === "download" && m.downloadState !== "InProgress") this._downloadMedia(m.id);
+        else if (mediaAction.dataset.act === "download" && Date.now() - inProgressSince(this.core?.accountId, m.id) > EMAIL_STALL_MS) {
+          toast(t("The full file has not arrived. It was probably too large for email: ask the sender to send it again with Velta Dash while you are both online."), 6000);
+        }
         else if (mediaAction.dataset.act === "open") this._openFile(m.filePath, m.fileName);
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
@@ -4557,21 +4573,22 @@ export class ChatView {
   // already-resolved URL string (videos — never read big files into RAM);
   // corePath is the core-readable path when one exists (picker), else null
   // (clipboard blobs are written to the uploads directory on send).
-  _setPendingMedia(kind, src, corePath = null, name = null) {
+  _setPendingMedia(kind, src, corePath = null, name = null, { size = null, viewtype = null } = {}) {
     this._clearPendingMedia();
     const owned = typeof src !== "string";
     this.pendingMedia = {
       kind, blob: owned ? src : null,
-      url: owned ? URL.createObjectURL(src) : src,
-      corePath, name,
+      url: owned && kind !== "file" ? URL.createObjectURL(src) : owned ? null : src,
+      corePath, name, size, viewtype,
     };
+    this.pendingMedia.planning = this._planPendingRoute(this.pendingMedia);
     this._renderMediaPreview();
     this._scheduleLinkPreview();
     document.getElementById("composer-input").focus(); // caption = input (#5)
   }
 
   _clearPendingMedia() {
-    if (this.pendingMedia?.blob) URL.revokeObjectURL(this.pendingMedia.url);
+    if (this.pendingMedia?.blob && this.pendingMedia.url) URL.revokeObjectURL(this.pendingMedia.url);
     this.pendingMedia = null;
     this._renderMediaPreview();
     this._scheduleLinkPreview();
@@ -4583,11 +4600,17 @@ export class ChatView {
     const name = document.getElementById("media-preview-name");
     const crop = document.getElementById("btn-media-crop");
     const pm = this.pendingMedia;
+    this._renderMediaRoute();
     if (!pm) { bar.hidden = true; thumb.replaceChildren(); thumb.classList.remove("ph-word"); name.textContent = ""; crop.hidden = true; return; }
     bar.hidden = false;
     thumb.replaceChildren();
     thumb.classList.remove("ph-word");
-    if (pm.kind === "video") {
+    if (pm.kind === "file") {
+      const glyph = document.createElement("span");
+      glyph.className = "xfer-glyph";
+      glyph.textContent = (String(pm.name || "f").split(".").pop()?.[0] || "f").toUpperCase();
+      thumb.append(glyph);
+    } else if (pm.kind === "video") {
       // Native first-frame thumb: preload=metadata + the #t fragment paints
       // frame 0 — no poster extraction (unstable, removed).
       const media = document.createElement("video");
@@ -4600,8 +4623,43 @@ export class ChatView {
       media.src = pm.url; media.alt = "";
       thumb.append(media);
     }
-    name.textContent = pm.name || (pm.kind === "video" ? t("Video") : t("Photo"));
+    name.textContent = pm.name || (pm.kind === "video" ? t("Video") : pm.kind === "file" ? t("File") : t("Photo"));
     crop.hidden = pm.kind !== "image";
+  }
+
+  // #470: which way the pending attachment will go, shown before Send —
+  // Velta Dash to this contact, email (with its size cap), or blocked when
+  // it is too big for email and Dash cannot deliver right now.
+  async _planPendingRoute(pm) {
+    try {
+      const chat = this.chat;
+      if (!chat || chat.isP2p) return; // Loop chats have their own transport
+      let size = pm.size ?? pm.blob?.size ?? null;
+      const invoke = tauriInvoke();
+      if (size == null && pm.corePath && invoke) size = await invoke("xfer_file_size", { path: pm.corePath }).catch(() => null);
+      if (size == null || this.pendingMedia !== pm) return;
+      pm.size = Number(size);
+      ensureXfer(this);
+      const plan = await xferPlanSend({
+        size: pm.size, oneToOne: chat.chatType === "Single",
+        contactId: chat.contactId ?? null, peerName: chat.name || "",
+      });
+      if (this.pendingMedia !== pm) return;
+      pm.plan = plan;
+      diagnosticsSink.append("info", `attachment route: ${plan.route} (${plan.reason}, ${pm.size} bytes)`);
+      this._renderMediaRoute();
+    } catch (e) {
+      diagnosticsSink.append("warning", `attachment route check failed: ${e?.message || e}`);
+    }
+  }
+
+  _renderMediaRoute() {
+    const el = document.getElementById("media-route");
+    if (!el) return;
+    const plan = this.pendingMedia?.plan;
+    el.textContent = plan?.text || "";
+    el.dataset.route = plan?.route || "";
+    el.hidden = !plan?.text;
   }
 
   // Tauri copies into the accounts dir. The wasm core reads the same memfs
@@ -4628,6 +4686,10 @@ export class ChatView {
   // Send the pending attachment with the composer text as its caption.
   async _sendPendingMedia(session) {
     const pm = this.pendingMedia;
+    if (pm?.planning) await pm.planning;
+    if (!this._isCurrent(session) || this.pendingMedia !== pm) return;
+    // Too big for email and Dash cannot deliver: keep it staged, say why.
+    if (pm.plan?.route === "blocked") { errToast(pm.plan.text); return; }
     const input = document.getElementById("composer-input");
     const text = input.value.trim();
     this._clearPendingMedia();
@@ -4664,7 +4726,25 @@ export class ChatView {
         filePath = await this._writeBlobForSend(stored, bytes);
         diagnosticsSink.append("info", `media: wrote ${bytes.length} bytes to ${filePath}`);
       }
-      const msg = await this._sendArchivedAware(session.chatId, { text: prefix + text, viewtype: pm.kind, file: filePath, filename, quoteId, quoteText });
+      if (pm.plan?.route === "dash") {
+        // #470: device-to-device; the caption follows as its own message.
+        const sent = await xferMaybeSend({
+          chatId: session.chatId, path: filePath, name: filename, size: pm.size,
+          oneToOne: true, contactId: this.chat?.contactId ?? null,
+        });
+        if (sent.failed) throw new Error(t("Too big for email (max {n} MB) and Velta Dash is unavailable right now", { n: Math.round(XFER_EMAIL_MAX / 1048576) }));
+        if (sent.handled) {
+          if (!this._isCurrent(session)) return;
+          if (sent.msg) this.appendOutgoing(sent.msg);
+          if (prefix + text) {
+            const cap = await this._sendArchivedAware(session.chatId, { text: prefix + text, quoteId, quoteText });
+            if (this._isCurrent(session) && cap) this.appendOutgoing(cap);
+          }
+          this.onChatsChanged();
+          return;
+        }
+      }
+      const msg = await this._sendArchivedAware(session.chatId, { text: prefix + text, viewtype: pm.viewtype || (pm.kind === "file" ? "file" : pm.kind), file: filePath, filename, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -5379,6 +5459,15 @@ export class ChatView {
       let viewtype = "file";
       if (["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
+      // #470: a big file stages like a video so the route (Velta Dash or
+      // email, or too big for both) shows before Send.
+      const size = await invoke("xfer_file_size", { path: resolved }).catch(() => null);
+      if (!this._isCurrent(session)) return;
+      if (size != null && Number(size) > XFER_THRESHOLD && !this.chat?.isP2p) {
+        if (viewtype === "video") this._setPendingMedia("video", fileUrl(resolved), resolved, name, { size: Number(size) });
+        else this._setPendingMedia("file", new Blob([]), resolved, name, { size: Number(size), viewtype });
+        return;
+      }
       const { quoteId, quoteText, prefix } = this._takeQuote();
       const msg = await this._sendArchivedAware(session.chatId, { text: prefix, viewtype, file: resolved, filename: name, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
@@ -5454,12 +5543,14 @@ export class ChatView {
       // fails, so a true return here always means delivered.
       if (!caption) {
         ensureXfer(this);
-        const bytes = await attachmentBytes(this.core, path);
+        // Plaintext size without reading a 100 MB file into memory.
+        const size = invoke ? Number(await invoke("xfer_file_size", { path }).catch(() => 0)) : 0;
         if (!this._isCurrent(session)) return false;
         const sent = await xferMaybeSend({
-          chatId: session.chatId, path, name, size: bytes.length,
+          chatId: session.chatId, path, name, size,
           oneToOne: this.chat?.chatType === "Single", contactId: this.chat?.contactId ?? null,
         });
+        if (sent.failed) throw new Error(t("Too big for email (max {n} MB) and Velta Dash is unavailable right now", { n: Math.round(XFER_EMAIL_MAX / 1048576) }));
         if (sent.handled) {
           if (!this._isCurrent(session)) return false;
           if (sent.msg) this.appendOutgoing(sent.msg);
@@ -5513,6 +5604,26 @@ export class ChatView {
       if (/cancel/i.test(text)) return;
       errToast(t("Couldn't save: ") + text);
     }
+  }
+
+  // #470: core keeps a big email in "InProgress" until its full copy
+  // arrives — forever when the sender's relay refused it (too big), so the
+  // card used to say "Downloading…" endlessly. After a minute say what is
+  // happening instead.
+  _inProgressLabel(m) {
+    const since = inProgressSince(this.core?.accountId, m.id);
+    if (Date.now() - since > EMAIL_STALL_MS) return t("Not arrived yet: it may be too large for email");
+    this._stallTimers ??= new Map();
+    if (!this._stallTimers.has(m.id)) {
+      const session = this._session;
+      this._stallTimers.set(m.id, setTimeout(async () => {
+        this._stallTimers.delete(m.id);
+        if (!this._isCurrent(session)) return;
+        const fresh = await this.core.getMessage(m.id).catch(() => null);
+        if (fresh && this._isCurrent(session)) this.onMsgUpdated(session.chatId, fresh);
+      }, EMAIL_STALL_MS - (Date.now() - since) + 500));
+    }
+    return t("Downloading…");
   }
 
   async _downloadMedia(msgId) {

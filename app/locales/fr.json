@@ -1763,5 +1763,18 @@
   "Direct connection refused: security check failed": "Connexion directe refusée : échec du contrôle de sécurité",
   "File too large for this browser (limit {n} MB)": "Fichier trop volumineux pour ce navigateur (limite {n} Mo)",
   "No direct connection. The network may isolate devices (guest Wi-Fi) or block peer-to-peer. Velta does not relay Loop traffic.": "Pas de connexion directe. Le réseau isole peut-être les appareils (Wi-Fi invité) ou bloque le pair-à-pair. Velta ne relaie pas le trafic Loop.",
-  "Direct connection closed": "Connexion directe fermée"
+  "Direct connection closed": "Connexion directe fermée",
+  "The full file has not arrived. It was probably too large for email: ask the sender to send it again with Velta Dash while you are both online.": "Le fichier complet n'est pas arrivé. Il était sans doute trop volumineux pour l'e-mail : demandez à l'expéditeur de le renvoyer avec Velta Dash quand vous êtes tous les deux en ligne.",
+  "Too big for email (max {n} MB) and Velta Dash is unavailable right now": "Trop volumineux pour l'e-mail (max. {n} Mo) et Velta Dash est indisponible pour le moment",
+  "Not arrived yet: it may be too large for email": "Pas encore arrivé : il est peut-être trop volumineux pour l'e-mail",
+  "Too large for email: ask the sender to resend while you are both online.": "Trop volumineux pour l'e-mail : demandez à l'expéditeur de le renvoyer quand vous êtes tous les deux en ligne.",
+  "Velta Dash transfer interrupted.": "Transfert Velta Dash interrompu.",
+  "Couldn't fetch via Velta Dash: asked for the email copy": "Échec de la réception via Velta Dash : copie par e-mail demandée",
+  "Fetching via Velta Dash {n}%": "Réception via Velta Dash {n} %",
+  "Waiting for sender…": "En attente de l'expéditeur…",
+  "Velta Dash: direct to {name} (same network only — your relay has no Dash relay)": "Velta Dash : en direct vers {name} (même réseau uniquement — votre relais n'a pas de relais Dash)",
+  "Velta Dash: direct to {name}": "Velta Dash : en direct vers {name}",
+  "Too big to send by email (max {n} MB)": "Trop volumineux pour l'envoi par e-mail (max. {n} Mo)",
+  "Velta Dash is unavailable right now: sending by email (max {n} MB)": "Velta Dash est indisponible pour le moment : envoi par e-mail (max. {n} Mo)",
+  "Sending by email (max {n} MB)": "Envoi par e-mail (max. {n} Mo)"
 }

@@ -482,9 +482,18 @@ default), `sec` (random per-ticket secret).
   with the #465 at-rest key when the profile has one. The copy is read
   through `AttachmentReader`, so sealed composer uploads go out as plaintext.
   `offers.json` (sealed, or 0600 without a key) keeps them across restarts.
-- The fetch only dials the relay our **own** transport advertises
-  (`allowed_relay`); a ticket naming any other relay is fetched over direct
+- The fetch dials the ticket's relay only when it is our **own** advertised
+  relay or the **sender's** chatmail relay: the app passes the sender
+  contact's mail domains as `peers`, and `allowed_relay` accepts
+  `https://<domain>` or `https://iroh.<domain>` for them (never n0, never
+  http, no suffix tricks). Two phones on different relays and on 4G (no
+  direct path) meet through the sender's relay. Any other relay: direct
   paths only.
+- A read that stays idle 30 s (`READ_IDLE`) ends the fetch as `Io("stalled")`
+  (partial kept), so a dead peer never leaves a card spinning.
+- `xfer_health(relay)` → `{ready, relay, relayConnected, direct}` (the
+  endpoint up and its home relay connected within 4 s); `xfer_file_size`
+  gives the plaintext size of a sealed upload without reading it in JS.
 - The receiver refuses tickets over 2 GiB and checks free space first
   (`TooLarge`, `NoSpace` — neither asks for email).
 - It resumes from `xfer/part/<hash>.part`, checks the SHA-256 at the end and
@@ -494,7 +503,7 @@ default), `sec` (random per-ticket secret).
   existing message, so they are not core blobs and are not in backups.
 - `identity.key` is sealed under the at-rest key, or 0600 without one.
 - Tauri commands: `xfer_offer`, `xfer_fetch`, `xfer_withdraw`,
-  `xfer_status`. Progress arrives as the `xfer-progress` event.
+  `xfer_status`, `xfer_health`, `xfer_file_size`. Progress arrives as the `xfer-progress` event.
 
 **Fallback.**
 - When `FetchError::wants_email()` is true, the receiver sends
@@ -509,20 +518,58 @@ default), `sec` (random per-ticket secret).
   sweep (boot, account switch, every 5 min) mails expired undelivered offers,
   withdraws delivered ones after an hour, and drops offers xfer.rs lost.
 - Files over `EMAIL_MAX` (22 MiB, chatmail's 30 MiB limit minus overhead)
-  are not mailed: the card shows "Too big to send by email".
-- A broken stream (`Io`) is retried over iroh and resumes from the partial.
+  are never mailed: not on a failed offer (`send` returns `route: "none"`
+  and the composer says why — nothing reaches the receiver), not from the
+  sweep, and the receiver never asks for an email copy of one (card: "Too
+  large for email: ask the sender to resend while you are both online",
+  with Retry).
+- A broken or stalled stream (`Io`) resumes over iroh by itself after 5 s and
+  15 s (`RETRY_DELAYS_MS`), then the card shows "Velta Dash transfer
+  interrupted." with Retry.
+
+**Composer (pre-send route, #470 phone test).** Every attachment path goes
+through the same policy: the pending strip (photos, videos, and picked files
+over 6 MB, which now stage too) shows a `#media-route` line from
+`planSend()` → `planRoute()` before Send:
+- "Velta Dash: direct to K" — Dash on, contact proven, endpoint up and its
+  relay connected (`xfer_health`, cached 20 s);
+- "Velta Dash is unavailable right now: sending by email (max 22 MB)";
+- "Too big for email (max 22 MB) and Velta Dash is unavailable right now" /
+  "Too big to send by email (max 22 MB)" — Send is refused, the file stays
+  staged.
+A Dash send mails the ticket card, then the caption as its own message.
+
+**Receiver card states.** "Waiting for sender…" → "Fetching via Velta Dash
+34%" (`xfer-progress`) → "Received"; or "Couldn't fetch via Velta Dash: asked
+for the email copy"; or the too-large / interrupted states above (Retry).
+
+**Plain email over the cap.** Core sends a big attachment as a small
+pre-message plus the full post-message. When the sender's relay refuses the
+post-message, the receiver's stub stays `InProgress` forever. After 60 s the
+bubble says "Not arrived yet: it may be too large for email" and a tap
+explains (`EMAIL_STALL_MS`, `inProgressSince`).
+
+**Badge convergence (capability echo).** Proof is one-way: the header rides
+only on our own normal messages. When a proven peer's 1:1 message arrives,
+the glue sends an empty reaction (`clearReaction`) at most once a week per
+contact (`velta-xfer-told:<account>:<contact>`): a hidden encrypted message
+core stamps with the header, so after one message in either direction both
+phones show the badge. Core test `test_velta_xfer_capability_echo`.
 - Core events (`incoming-msg`, `msg-updated`) feed the glue, so requests and
   cards are handled with the chat closed — for the selected account only.
 
 **Tests.**
-- `xfer.rs`, 13 tests, including: only our own relay is dialled; the hash
+- `xfer.rs`, 14 tests, including: only our own or the sender's chatmail
+  relay is dialled; phones on two relays meet through the sender's relay; the hash
   alone does not fetch; too-large tickets refused before connecting; offers
   survive a restart and rest sealed; keyless identity is 0600 and stale
   partials go.
 - `tests/iroh-xfer.test.mjs`: route, relay pick (camelCase), card codec,
   persisted pending + resend rules, sweep, PWA auto-ask, UI glue in Tauri
-  and PWA modes.
-- Core: `test_velta_xfer_capability` (patch #31).
+  and PWA modes, pre-send routes and the email cap, receiver card states,
+  and both phones converging on the badge.
+- Core: `test_velta_xfer_capability`, `test_velta_xfer_capability_echo`
+  (patch #31).
 
 **Not done yet:**
 - per-relay rate caps; reading the relay's real size limit;
