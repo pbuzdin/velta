@@ -101,6 +101,14 @@ crate build. On desktop, at the time of this research, core ran as the separate
 core never share an endpoint. As of 2026-11-22 desktop runs Velta's
 `velta-rpc-server` instead; they still do not share an endpoint (§8).
 
+Update (#469): Loop now depends on `iroh = "1.5"` plus `iroh-mdns-address-lookup`
+in both the Tauri shell and the KMP shim, while core keeps 0.35. Cargo builds
+the two semver-incompatible versions side by side without renaming. Without a
+relay the QUIC + TLS handshake still interoperates: a 0.35 endpoint and a 1.x
+Loop engine find each other over mDNS (1.x is set to 0.35's service name
+`iroh.local.swarm`; 1.x's default is `irohv1`), dial each other both ways and
+exchange stream data. Only the relay protocol broke (0.91).
+
 ### 1.2 Webxdc realtime channels (`core/src/peer_channels.rs`)
 
 Design notes at the top of the module (`peer_channels.rs:1-24`):

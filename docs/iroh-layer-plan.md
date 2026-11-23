@@ -246,9 +246,10 @@ shared with Loop. Reasons:
    Velta's node id is long-term and is bound to the profile's Velta key
    (§1.5).
 4. **The live data plane is Velta's engine, not core's gossip channel.**
-   Today that engine shares iroh 0.35 with core. Loop can take iroh 1.x as
-   its own dependency (#469), so the apps may ship two iroh copies until
-   core upgrades. The chatmail-relay live path may stay on 0.35 until
+   Loop runs on its own iroh 1.x (#469); core keeps 0.35, so Android and
+   the sidecar ship two iroh copies until core upgrades. On Loop's
+   relay-less direct paths 0.35 and 1.x peers still connect (tested, with
+   0.35's mDNS service name kept). The chatmail-relay live path may stay on 0.35 until
    chatmail relays publish 1.x endpoints.
 
 **What B costs:**
@@ -747,7 +748,7 @@ Estimates in working days for one developer familiar with p2p.rs.
 
 | # | Risk | Mitigation |
 |---|---|---|
-| R1 | iroh 0.35 end of life; the 1.x wire break splits peers (research §4, #469) | Loop upgrades first (#469) with a clear mixed-version message; link path waits for chatmail 1.x relays; never rely on n0 |
+| R1 | iroh 0.35 end of life; the 1.x relay wire break splits relayed peers (research §4, #469) | Loop is on 1.x (#469); direct LAN paths interoperate with 0.35 peers (test `iroh_1x_engine_interops_with_iroh_035_peers`); link path waits for chatmail 1.x relays; never rely on n0 |
 | R2 | Relay URL not exposed by JSON-RPC; some chatmail iroh relays are broken (#8490) | S1 derivation plus `/generate_204` probe; fall back to "linked (offline)"; propose an upstream `get_info` field |
 | R3 | Helper xdc confuses other-client users, or users delete it | clear page in the xdc; QR carrier as an alternative; option C/upstream later |
 | R4 | Dedup gaps: email copy never arrives, or the `rfc724Mid` lookup costs an RPC per message | lookup only in linked chats; "not yet received by email" marker; soak test |

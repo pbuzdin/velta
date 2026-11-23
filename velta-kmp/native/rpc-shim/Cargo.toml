@@ -46,15 +46,26 @@ serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 data-encoding = "2"
 getrandom = "0.2"
-socket2 = "0.5"
+# "all": core's iroh 0.35 (netwatch 0.5, BSD/macOS netmon) needs Type::RAW.
+# Loop's iroh 0.35 used to switch it on via discovery-local-network (#469).
+socket2 = { version = "0.5", features = ["all"] }
 # #259 step 2: the plaintext → SQLCipher migration opens account databases
 # directly (same bundled SQLCipher the core links).
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 # Velta Loop (#332): LAN discovery only. The engine never dials a relay.
-iroh = { version = "0.35", default-features = false, features = ["discovery-local-network"] }
+# #469: Loop runs on iroh 1.x; the core keeps its own iroh 0.35 (webxdc
+# realtime), so this crate links both copies until upstream core moves.
+iroh = { version = "1.5", default-features = false, features = ["tls-ring"] }
+# mDNS LAN discovery moved out of iroh in 1.x (n0's official crate).
+iroh-mdns-address-lookup = "0.6"
 # p2p media must ship plaintext: uploads copies are VLTA-encrypted with this
 # device key (same as the desktop fix, #448/#450).
 velta-attachment = { path = "../../../packages/attachment-crypto" }
 # JNI is the Android transport only; the desktop bin speaks stdio (#424).
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+
+[dev-dependencies]
+# #469: the mixed-version Loop test dials a 1.x engine from an iroh 0.35
+# endpoint (a released <= 1.5.x Velta). Same 0.35 the core already links.
+iroh035 = { package = "iroh", version = "0.35", default-features = false, features = ["discovery-local-network"] }

@@ -125,7 +125,7 @@ native/rpc-shim/ Rust crate, two artifacts (#424): the Android cdylib (in-proces
                  Android-gated). Cargo.lock is tracked (--locked).
                  size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
   native/rpc-shim/src/p2p.rs + p2p/ + loop_host.rs
-                 the Velta Loop engine (iroh 0.35, LAN discovery, no
+                 the Velta Loop engine (iroh 1.5, LAN discovery, no
                  relay — lifted from velta-app/src-tauri/src/p2p.rs,
                  Tauri stripped; media sends go through copy_plain —
                  blob sources are VLTA ciphertext under THIS device's

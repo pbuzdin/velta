@@ -3,7 +3,7 @@ name = "velta-app"
 version = "1.5.6"
 description = "Velta — Delta Chat client"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.91"
 # src/bin/p2p-hub.rs is a second binary (debug helper, see [[bin]] below);
 # without this key `cargo tauri dev` cannot decide what to run.
 default-run = "velta-app"
@@ -65,7 +65,11 @@ socks = "0.3"
 # Terminal QR rendering for the p2p-hub debug binary only.
 qrcode = { version = "0.14", default-features = false, optional = true }
 # Local-only P2P chat (p2p.rs): relay-less iroh with mDNS re-discovery on the LAN.
-iroh = { version = "0.35", default-features = false, features = ["discovery-local-network"] }
+# #469: Loop runs on iroh 1.x, decoupled from core's iroh 0.35 (webxdc
+# realtime). Android links both copies until upstream core moves to 1.x.
+iroh = { version = "1.5", default-features = false, features = ["tls-ring"] }
+# mDNS LAN discovery moved out of iroh in 1.x (n0's official crate).
+iroh-mdns-address-lookup = "0.6"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
 sha1 = "0.10"
 tempfile = "3"
@@ -123,6 +127,11 @@ windows = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 sha2 = "0.10"
+
+[dev-dependencies]
+# #469: the mixed-version Loop test dials a 1.x engine from an iroh 0.35
+# endpoint (a released <= 1.5.x Velta). Test-only; never linked into the app.
+iroh035 = { package = "iroh", version = "0.35", default-features = false, features = ["discovery-local-network"] }
 
 [profile.release]
 # panic = "unwind" so a panic during startup (e.g. in init_android_core or the
