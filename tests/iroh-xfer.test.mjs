@@ -85,12 +85,13 @@ test("transport: expired/unreachable fetch asks for the email copy; sender mails
     email: { sendFile: async () => {}, sendText: async (c, t) => sentB.push(t) },
     iroh: { fetch: async () => ({ error: "Expired", email: true }) } });
   await a.send({ chatId: 1, file: { name: "v.mkv", size: THRESHOLD * 2, path: "/v" }, oneToOne: true, peerIsVelta: true });
+  assert.equal(sentA[0][0], "text", "offered: the card is mailed, not the file");
   const r = await b.receive({ chatId: 1, text: sentA[0][1] });
   assert.equal(r.asked, true);
   assert.equal(sentB[0], resendRequestText(tk.hash));
-  assert.equal(await a.onResendRequest({ text: sentB[0] }), true);
+  assert.equal(await a.onResendRequest({ text: sentB[0] }), "v.mkv", "mails the pending file");
   assert.deepEqual(sentA.slice(1), [["withdraw", tk.hash], ["file", "v.mkv"]]);
-  assert.equal(await a.onResendRequest({ text: sentB[0] }), false, "only once");
+  assert.equal(await a.onResendRequest({ text: sentB[0] }), null, "only once");
   const c = createTransport({ enabled: () => true, email: { sendFile: async () => {}, sendText: async () => {} }, iroh: { fetch: async () => ({ error: "Io(reset)", email: false }) } });
   assert.equal((await c.receive({ chatId: 1, text: sentA[0][1] })).retry, true, "broken stream: resume over iroh, no email");
 });
@@ -164,4 +165,22 @@ test("ui glue: send routes, cards render, fetch states and the resend fallback",
   // Under threshold / group / non-Velta: the caller sends normally.
   const out2 = await ui.maybeSend({ chatId: 5, path: "C:/dl/small.txt", name: "small.txt", size: 100, oneToOne: true, peerAddr: peer });
   assert.equal(out2.handled, false);
+});
+
+test("transport reports why a file went by email (diagnostics glue)", async () => {
+  const { createTransport } = await import("../app/js/iroh-xfer.js");
+  const mailed = [];
+  const t = createTransport({ enabled: () => false,
+    email: { sendFile: async (c, f) => mailed.push(f.name), sendText: async () => {} }, iroh: null });
+  const off = await t.send({ chatId: 1, file: { name: "a.bin", size: THRESHOLD + 1, path: "/a" }, oneToOne: true, peerIsVelta: true });
+  assert.equal(off.route, "email");
+  assert.equal(off.via, "policy");
+  const t2 = createTransport({ enabled: () => true,
+    email: { sendFile: async (c, f) => mailed.push(f.name), sendText: async () => {} },
+    iroh: { offer: async () => { throw new Error("endpoint down"); } } });
+  const bad = await t2.send({ chatId: 1, file: { name: "b.bin", size: THRESHOLD + 1, path: "/b" }, oneToOne: true, peerIsVelta: true });
+  assert.equal(bad.route, "email");
+  assert.equal(bad.via, "offer-failed");
+  assert.match(String(bad.error), /endpoint down/);
+  assert.deepEqual(mailed, ["a.bin", "b.bin"]);
 });
