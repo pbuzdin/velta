@@ -732,11 +732,14 @@ their anchors include those patches' send-pin and paused-relay logic.
 
 ### 31. File-transfer capability header (#470, tracker #490)
 
-**Status: patched locally (quilt ops "#31 …", 4 ops, 4 files).** Encrypted
+**Status: patched locally (quilt ops "#31 …", 5 ops, 4 files).** Encrypted
 mail carries `Chat-Velta-Xfer: 1` when the UI key `ui.velta.xfer` is `1`
 (the Tauri shell sets it, KMP and the PWA do not). A signed message with the
 header from a key-contact stores `ui.velta.xfer.peer.<contact id>`
 (timestamp); a message without it never clears the mark. The app routes
 large 1:1 files over the iroh ticket path only to contacts with that mark,
 and every other recipient gets a normal email attachment. Velta-only, so
-nothing goes upstream.
+nothing goes upstream. The fifth op is a test only
+(`test_velta_xfer_capability_echo`): an empty reaction is an encrypted
+message, so it carries the header too; the app uses it to echo the
+capability back to a peer it has only received from.

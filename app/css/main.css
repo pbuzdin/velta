@@ -1755,6 +1755,10 @@ button.reaction-chip { font: inherit; color: inherit; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 .media-preview .icon-btn { margin-left: auto; }
+/* Velta Dash pre-send route (#470): which way the attachment will go.
+   Same tokens as .media-preview-name / .xfer-state (AA on the composer). */
+.media-route { font-size: var(--fs-2); color: var(--text-dim); max-width: 100%; }
+.media-route[data-route="blocked"] { color: var(--text); font-weight: 600; }
 .voice-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; }
 #voice-rec-label { flex: 1; font-size: 14px; }
 .lp-draft-body { flex: 1; min-width: 0; }

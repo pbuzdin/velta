@@ -127,6 +127,56 @@ export function dashExplainer(state) {
   return t("Velta Dash is off: files go by email.");
 }
 
+/**
+ * Pre-send route for one attachment (shown under the composer before Send):
+ *   {route: "dash"|"email"|"blocked", reason}
+ * `health`: the shell's xfer_health ({relayConnected, relay}) or null when
+ * not checked. Dash needs the endpoint up and, when a relay is advertised,
+ * connected to it (a receiver on another network dials through it).
+ */
+export function planRoute({ size, oneToOne, proven, enabled, available, health = null }) {
+  const n = Number(size) || 0;
+  const mailable = n <= EMAIL_MAX;
+  const dashWanted = available && enabled && oneToOne && proven && n > THRESHOLD;
+  if (dashWanted) {
+    const up = !health || (health.ready !== false && (!health.relay || health.relayConnected));
+    if (up) return { route: "dash", reason: health && !health.relay ? "direct-only" : "ok" };
+    return mailable ? { route: "email", reason: "dash-down" } : { route: "blocked", reason: "dash-down-too-big" };
+  }
+  if (!mailable) return { route: "blocked", reason: "too-big" };
+  return { route: "email", reason: n > THRESHOLD ? (emailReason({ size: n, oneToOne, proven, enabled, available }) || "policy") : "small" };
+}
+
+const MB = (n) => Math.round(n / 1048576);
+/** One line for the composer: what will happen when the user taps Send. */
+export function routeText(plan, peer = "") {
+  if (!plan) return "";
+  if (plan.route === "dash") {
+    return plan.reason === "direct-only"
+      ? t("Velta Dash: direct to {name} (same network only — your relay has no Dash relay)", { name: peer })
+      : t("Velta Dash: direct to {name}", { name: peer });
+  }
+  if (plan.route === "blocked") {
+    return plan.reason === "dash-down-too-big"
+      ? t("Too big for email (max {n} MB) and Velta Dash is unavailable right now", { n: MB(EMAIL_MAX) })
+      : t("Too big to send by email (max {n} MB)", { n: MB(EMAIL_MAX) });
+  }
+  if (plan.reason === "dash-down") return t("Velta Dash is unavailable right now: sending by email (max {n} MB)", { n: MB(EMAIL_MAX) });
+  if (plan.reason === "small") return "";
+  return t("Sending by email (max {n} MB)", { n: MB(EMAIL_MAX) });
+}
+
+/** Mail domains of a contact's addresses: chatmail serves its iroh relay at
+ *  https://<domain>, so a fetch may dial the sender's own relay. */
+export function peerDomains(addrs) {
+  const out = new Set();
+  for (const a of [].concat(addrs || [])) {
+    const d = String(a || "").split("@")[1]?.trim().toLowerCase();
+    if (d && /^[a-z0-9.-]+$/.test(d)) out.add(d);
+  }
+  return [...out];
+}
+
 /** Why a file over the threshold went by email, for the diagnostics log. */
 export function emailReason({ size, oneToOne, proven, enabled, available }) {
   if (!(Number(size) > THRESHOLD)) return null;
@@ -179,19 +229,33 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
       await email.sendText(chatId, fileCardText({ name: file.name, size: file.size, ticket }));
       return { route: "iroh", hash: tk.hash };
     } catch (error) {
-      await email.sendFile(chatId, file); // could not offer: mail it right away
+      // Could not offer: mail it right away — unless the relay would bounce
+      // it. Then nothing is sent (no dead card for the receiver) and the
+      // caller tells the user.
+      if (Number(file.size) > EMAIL_MAX) return { route: "none", via: "offer-failed", tooBig: true, error };
+      await email.sendFile(chatId, file);
       return { route: "email", via: "offer-failed", error };
     }
   }
   /** A received text: fetch a file card over iroh, or ask for the email copy
    *  (always in the PWA, which has no iroh). */
-  async function receive({ chatId, text }) {
+  async function receive({ chatId, text, peers = [] }) {
     const card = parseFileCard(text);
     if (!card) return null;
-    if (!iroh) { await email.sendText(chatId, resendRequestText(card.tk.hash)); return { route: "email", asked: true, code: "no-iroh" }; }
-    const r = await iroh.fetch(card.ticket, await relay());
+    // Asking for an email copy the relay would bounce helps nobody: say so.
+    const mailable = Number(card.size) <= EMAIL_MAX;
+    if (!iroh) {
+      if (!mailable) return { route: "none", tooBig: true, code: "no-iroh" };
+      await email.sendText(chatId, resendRequestText(card.tk.hash));
+      return { route: "email", asked: true, code: "no-iroh" };
+    }
+    const r = await iroh.fetch(card.ticket, await relay(), peers);
     if (r && r.path) return { route: "iroh", path: r.path };
-    if (r && r.email) { await email.sendText(chatId, resendRequestText(card.tk.hash)); return { route: "email", asked: true, error: r.error, code: r.code }; }
+    if (r && r.email) {
+      if (!mailable) return { route: "none", tooBig: true, error: r.error, code: r.code };
+      await email.sendText(chatId, resendRequestText(card.tk.hash));
+      return { route: "email", asked: true, error: r.error, code: r.code };
+    }
     return { route: "iroh", error: r?.error || "failed", code: r?.code, retry: true }; // broken stream / no space: no email
   }
   /** Mails one pending file to `toChat` (the stored copy when xfer.rs still

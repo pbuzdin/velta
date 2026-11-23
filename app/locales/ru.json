@@ -1763,5 +1763,18 @@
   "Direct connection refused: security check failed": "Прямое подключение отклонено: проверка безопасности не пройдена",
   "File too large for this browser (limit {n} MB)": "Файл слишком большой для этого браузера (предел {n} МБ)",
   "No direct connection. The network may isolate devices (guest Wi-Fi) or block peer-to-peer. Velta does not relay Loop traffic.": "Нет прямого подключения. Сеть может изолировать устройства (гостевой Wi-Fi) или блокировать прямые соединения. Velta не пересылает трафик Loop через серверы.",
-  "Direct connection closed": "Прямое подключение закрыто"
+  "Direct connection closed": "Прямое подключение закрыто",
+  "The full file has not arrived. It was probably too large for email: ask the sender to send it again with Velta Dash while you are both online.": "Файл целиком так и не пришёл. Вероятно, он слишком велик для почты: попросите отправителя прислать его снова через Velta Dash, когда вы оба будете в сети.",
+  "Too big for email (max {n} MB) and Velta Dash is unavailable right now": "Слишком большой для почты (макс. {n} МБ), а Velta Dash сейчас недоступен",
+  "Not arrived yet: it may be too large for email": "Ещё не пришёл: возможно, он слишком велик для почты",
+  "Too large for email: ask the sender to resend while you are both online.": "Слишком большой для почты: попросите отправителя переслать его, когда вы оба будете в сети.",
+  "Velta Dash transfer interrupted.": "Передача Velta Dash прервана.",
+  "Couldn't fetch via Velta Dash: asked for the email copy": "Не удалось получить через Velta Dash: запрошена копия по почте",
+  "Fetching via Velta Dash {n}%": "Получение через Velta Dash {n}%",
+  "Waiting for sender…": "Ожидание отправителя…",
+  "Velta Dash: direct to {name} (same network only — your relay has no Dash relay)": "Velta Dash: напрямую для {name} (только в одной сети — у вашего релея нет релея Dash)",
+  "Velta Dash: direct to {name}": "Velta Dash: напрямую для {name}",
+  "Too big to send by email (max {n} MB)": "Слишком большой для отправки по почте (макс. {n} МБ)",
+  "Velta Dash is unavailable right now: sending by email (max {n} MB)": "Velta Dash сейчас недоступен: отправка по почте (макс. {n} МБ)",
+  "Sending by email (max {n} MB)": "Отправка по почте (макс. {n} МБ)"
 }

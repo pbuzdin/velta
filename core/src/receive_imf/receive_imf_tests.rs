@@ -2810,6 +2810,49 @@ async fn test_velta_xfer_capability() -> Result<()> {
     Ok(())
 }
 
+/// Velta patch #31 (#470): the app echoes the capability with an empty
+/// reaction (a hidden message) to a proven peer's message, so a peer that
+/// only received from us still learns we run the transfer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_xfer_capability_echo() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let alice = &tcm.alice().await;
+    let bob = &tcm.bob().await;
+    let key = |c: ContactId| format!("ui.velta.xfer.peer.{}", c.to_u32());
+    tcm.send_recv_accept(alice, bob, "hi").await;
+    tcm.send_recv(bob, alice, "hi back").await;
+    alice.set_ui_config("ui.velta.xfer", Some("1")).await?;
+    bob.set_ui_config("ui.velta.xfer", Some("1")).await?;
+
+    let at_bob = tcm.send_recv(alice, bob, "big file soon").await;
+    assert!(
+        bob.get_ui_config(&key(at_bob.from_id)).await?.is_some(),
+        "bob sees alice's badge"
+    );
+    let bob_at_alice = alice.add_or_lookup_contact_id(bob).await;
+    assert_eq!(
+        alice.get_ui_config(&key(bob_at_alice)).await?,
+        None,
+        "one-way so far"
+    );
+
+    crate::reaction::send_reaction(bob, at_bob.id, "").await?;
+    let echo = bob.pop_sent_msg().await;
+    alice.recv_msg_hidden(&echo).await;
+    assert!(
+        alice.get_ui_config(&key(bob_at_alice)).await?.is_some(),
+        "both sides now see the badge"
+    );
+    let sent_at_alice = alice.get_last_msg().await;
+    assert!(
+        crate::reaction::get_msg_reactions(alice, sent_at_alice.id)
+            .await?
+            .is_empty(),
+        "no visible reaction"
+    );
+    Ok(())
+}
+
 /// Tests that user is notified about new incoming contact requests,
 /// but not about additional messages arriving in the contact request chat.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
