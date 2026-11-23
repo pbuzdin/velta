@@ -413,65 +413,93 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   `five_real_engines_form_a_group_and_chat`, the worst-case size check in
   groups.rs.
 
-## Automatic iroh file transfer (#470, engine + policy slice)
+## Automatic iroh file transfer (#470)
 
 `velta-app/src-tauri/src/xfer.rs` is the engine. It uses **iroh 0.35**
 (`iroh035`), the version core and chatmail relays' iroh relays speak.
-`app/js/iroh-xfer.js` holds the policy and the message formats.
+`app/js/iroh-xfer.js` holds the policy and the message formats;
+`app/js/iroh-xfer-ui.js` is the composer / bubble / core-event glue.
 
 **Rule.** An attachment goes over iroh only when all of these hold:
 - the chat is 1:1;
-- the contact is a Velta contact;
+- the contact has **proved** it runs Velta with the transfer (below);
 - the file is larger than 6 MB (`THRESHOLD`);
 - the setting `velta-iroh-xfer` is on (it is on by default);
 - the app runs in the Tauri shell.
 
-Anything else is mailed as a normal attachment.
+Anything else is mailed as a normal attachment. The relay domain is never
+used as a hint.
+
+**Capability (core patch #31, tracker #490).** The Tauri shell sets the
+account config `ui.velta.xfer` to `1` (or `0` when the setting is off). Core
+then adds `Chat-Velta-Xfer: 1` to its encrypted messages only. When core
+receives that header in an encrypted, signed message (`fingerprint` set), it
+stores the time in `ui.velta.xfer.peer.<contact id>`. `peerCanXfer` reads it.
+The PWA never announces.
 
 **Ticket** (`VXFER1:` + base64url JSON): `v`, `proto` (`iroh-0.35`),
 `node`, `relay`, `addrs`, `hash` (SHA-256), `size`, `name`, `exp` (24 h by
-default).
-- It travels in a small encrypted text message. The first line is readable;
-  the ticket is on the line after it.
-- `relay` is only the sending account's advertised iroh relay, taken from
-  `get_server_metadata` (`iroh_relay`). Without one, the endpoint runs with
+default), `sec` (random per-ticket secret).
+- It travels in a small encrypted text message. Two readable lines (the
+  second says the file follows by email, for Delta Chat and other apps),
+  then the ticket.
+- `relay` is the sending account's advertised iroh relay
+  (`get_server_metadata` → `irohRelay`). Without one, the endpoint runs with
   `RelayMode::Disabled` and uses direct paths only.
-- n0's relays are never used (`relay_mode_for`). Their 0.35 relays end on
-  2026-12-31.
+- n0's relays are never used (`relay_mode_for`).
 
 **Provider and fetch.**
-- ALPN `/velta/xfer/1`. One bi-stream per request: `{hash, offset}`, then a
-  header, then the bytes from `offset`.
-- The fetch resumes from `<name>.<hash8>.part`, checks the SHA-256 at the
-  end, and deletes the partial on a mismatch.
-- Received files land in `accounts/xfer-in/`.
-- Tauri commands: `xfer_offer`, `xfer_fetch`, `xfer_withdraw`. Progress
-  arrives as the `xfer-progress` event.
+- ALPN `/velta/xfer/1`. One bi-stream per request: `{hash, offset, sec}`,
+  then a header, then the bytes from `offset`. A wrong secret gets
+  "not offered": the hash alone fetches nothing.
+- Offers are stored copies under `app_local_data/xfer/out/<sha256>`, sealed
+  with the #465 at-rest key when the profile has one. The copy is read
+  through `AttachmentReader`, so sealed composer uploads go out as plaintext.
+  `offers.json` (sealed, or 0600 without a key) keeps them across restarts.
+- The fetch only dials the relay our **own** transport advertises
+  (`allowed_relay`); a ticket naming any other relay is fetched over direct
+  paths only.
+- The receiver refuses tickets over 2 GiB and checks free space first
+  (`TooLarge`, `NoSpace` — neither asks for email).
+- It resumes from `xfer/part/<hash>.part`, checks the SHA-256 at the end and
+  deletes the partial on a mismatch. Partials older than 3 days are removed.
+- Received files land in `accounts/xfer-in/`, sealed under the at-rest key
+  (the media server decrypts them). Core has no RPC to attach a file to an
+  existing message, so they are not core blobs and are not in backups.
+- `identity.key` is sealed under the at-rest key, or 0600 without one.
+- Tauri commands: `xfer_offer`, `xfer_fetch`, `xfer_withdraw`,
+  `xfer_status`. Progress arrives as the `xfer-progress` event.
 
 **Fallback.**
 - When `FetchError::wants_email()` is true, the receiver sends
-  `VXFER-RESEND:<hash>`. That covers an expired ticket, an unreachable sender
-  (no path, or no relay advertised), a withdrawn offer, a hash mismatch or
-  another iroh version.
-- The sender then withdraws the offer and mails the file
-  (`createTransport().onResendRequest`).
+  `VXFER-RESEND:<hash>`. That covers an expired ticket, an unreachable sender,
+  a withdrawn offer, a hash mismatch or another iroh version. The PWA (no
+  iroh) sends it at once for unexpired cards.
+- The sender honours it only from the chat the file went to, or from Saved
+  Messages (its own other device, which asks via the "Ask for the email
+  copy" button on an outgoing card it has no copy of). The file is mailed to
+  the chat that asked; a peer's request also withdraws the offer.
+- The pending list (`velta-xfer-pending:<account>`) survives restarts. A
+  sweep (boot, account switch, every 5 min) mails expired undelivered offers,
+  withdraws delivered ones after an hour, and drops offers xfer.rs lost.
+- Files over `EMAIL_MAX` (22 MiB, chatmail's 30 MiB limit minus overhead)
+  are not mailed: the card shows "Too big to send by email".
 - A broken stream (`Io`) is retried over iroh and resumes from the partial.
+- Core events (`incoming-msg`, `msg-updated`) feed the glue, so requests and
+  cards are handled with the chat closed — for the selected account only.
 
 **Tests.**
-- `xfer.rs`, 8 tests: route rule and no n0; the ticket codec; a direct fetch
-  of 7 MB with a hash check; resume, where only the rest is served; a hash
-  mismatch, after which the partial is gone; fallback on expired, other
-  protocol, withdrawn and unreachable; a fetch through a local iroh 0.35 relay
-  with no direct addresses; one ticket fetched by 3 devices.
-- `tests/iroh-xfer.test.mjs`: route, setting, relay pick, card codec,
-  `createTransport` send/receive/resend.
+- `xfer.rs`, 13 tests, including: only our own relay is dialled; the hash
+  alone does not fetch; too-large tickets refused before connecting; offers
+  survive a restart and rest sealed; keyless identity is 0600 and stale
+  partials go.
+- `tests/iroh-xfer.test.mjs`: route, relay pick (camelCase), card codec,
+  persisted pending + resend rules, sweep, PWA auto-ask, UI glue in Tauri
+  and PWA modes.
+- Core: `test_velta_xfer_capability` (patch #31).
 
 **Not done yet:**
-- wiring `createTransport` into the composer send path and the incoming
-  message renderer (file card UI, "which path" label, settings toggle);
-- Velta capability detection for `peerIsVelta`;
-- per-relay rate and size caps;
-- keeping offers across app restarts;
+- per-relay rate caps; reading the relay's real size limit;
 - Loop-only mode and the linked-chat live path (phases 2–3).
 ## PWA Loop over WebRTC (#468, engine slice)
 

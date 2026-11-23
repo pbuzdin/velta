@@ -2678,7 +2678,7 @@ export class ChatView {
       // #470: first render of an iroh file card kicks its fetch (incoming)
       // or the sender's email-out (peer asked for the email copy).
       ensureXfer(this);
-      xferNoteCard(m.chatId, bodyText, m.out === true);
+      xferNoteCard(m.chatId, bodyText, m.from === 1 || m.out === true);
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
       bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(bodyText, { mentions: this._mentionMembers })}`;
       if (langCard) bubble += langCardHtml(langCard, { esc: escapeHtml });
@@ -5436,20 +5436,16 @@ export class ChatView {
     }
     const sendFile = async (path, caption) => {
       const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
-      // >6 MB to a 1:1 Velta peer goes device-to-device over iroh (#470) when
-      // the setting is on; the transport mails the file itself if the offer
+      // >6 MB to a 1:1 contact that announced the transfer (core patch #31)
+      // goes device-to-device over iroh (#470) when the setting is on; the transport mails the file itself if the offer
       // fails, so a true return here always means delivered.
       if (!caption) {
         ensureXfer(this);
-        let peerAddr = null;
-        if (this.chat?.contactId != null && this.core?.getContact) {
-          try { peerAddr = (await this.core.getContact(this.chat.contactId))?.addr || null; } catch {}
-        }
         const bytes = await attachmentBytes(this.core, path);
         if (!this._isCurrent(session)) return false;
         const sent = await xferMaybeSend({
           chatId: session.chatId, path, name, size: bytes.length,
-          oneToOne: this.chat?.chatType === "Single", peerAddr,
+          oneToOne: this.chat?.chatType === "Single", contactId: this.chat?.contactId ?? null,
         });
         if (sent.handled) {
           if (!this._isCurrent(session)) return false;

@@ -56,6 +56,9 @@ pub enum HeaderDef {
     ContentType,
     ContentId,
     ChatVersion,
+    /// Velta patch (#31, #470): "1" = the sending client fetches iroh file
+    /// tickets (automatic large-file transfer).
+    ChatVeltaXfer,
     ChatGroupId,
     ChatGroupName,
     ChatGroupNameChanged,

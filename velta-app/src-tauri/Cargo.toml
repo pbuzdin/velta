@@ -106,6 +106,10 @@ jni = "0.21"
 # In-process Delta Chat core on Android.
 deltachat = { path = "../../core" }
 
+# xfer.rs: free-space check before a fetch (statvfs); already in the lock.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Desktop-only plugins for deep-link handling (custom URI scheme) and single-instance forwarding.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-deep-link = "2"
@@ -131,6 +135,8 @@ windows = { version = "0.59", features = [
     "Security_Cryptography",
     "Storage_Streams",
     "Win32_Foundation",
+    # xfer.rs: free-space check before a fetch (GetDiskFreeSpaceExW).
+    "Win32_Storage_FileSystem",
     "Win32_UI_WindowsAndMessaging",
 ] }
 sha2 = "0.10"

@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   THRESHOLD, chooseRoute, irohXferEnabled, setIrohXferEnabled, advertisedRelay, decodeTicket,
-  fileCardText, parseFileCard, resendRequestText, parseResendRequest,
+  fileCardText, parseFileCard, resendRequestText, parseResendRequest, createTransport, EMAIL_MAX, DELIVERED_GRACE_MS,
 } from "../app/js/iroh-xfer.js";
 
 const tk = { v: 1, proto: "iroh-0.35", node: "ab".repeat(32), relay: "https://iroh.relay.example/", addrs: [], hash: "cd".repeat(32), size: 7000000, name: "Фильм.mp4", exp: 4000000000 };
@@ -28,6 +28,9 @@ test("setting is on by default and can be turned off", () => {
 });
 
 test("relay: only the chatmail relay's advertised https iroh relay, else none", () => {
+  // get_server_metadata answers camelCase over JSON-RPC (irohRelay).
+  assert.equal(advertisedRelay({ "a@one.example": { irohRelay: "https://iroh.one.example/" } }), "https://iroh.one.example/");
+  assert.equal(advertisedRelay({ "a@one.example": { irohRelay: null } }), null);
   const md = { "a@one.example": { iroh_relay: "https://iroh.one.example/" }, "b@two.example": { iroh_relay: null } };
   assert.equal(advertisedRelay(md, "a@one.example"), "https://iroh.one.example/");
   assert.equal(advertisedRelay(md, "b@two.example"), null);
@@ -41,6 +44,7 @@ test("file card carries a readable line and the ticket (UTF-8 names)", () => {
   assert.deepEqual(decodeTicket(ticket), tk);
   const text = fileCardText({ name: tk.name, size: tk.size, ticket });
   assert.match(text.split("\n")[0], /Фильм\.mp4 · 6\.7 MB/);
+  assert.match(text.split("\n")[1], /follows by email/, "Delta Chat readers learn the file comes by email");
   const card = parseFileCard(text);
   assert.equal(card.ticket, ticket);
   assert.equal(card.size, tk.size);
@@ -89,82 +93,11 @@ test("transport: expired/unreachable fetch asks for the email copy; sender mails
   const r = await b.receive({ chatId: 1, text: sentA[0][1] });
   assert.equal(r.asked, true);
   assert.equal(sentB[0], resendRequestText(tk.hash));
-  assert.equal(await a.onResendRequest({ text: sentB[0] }), "v.mkv", "mails the pending file");
-  assert.deepEqual(sentA.slice(1), [["withdraw", tk.hash], ["file", "v.mkv"]]);
-  assert.equal(await a.onResendRequest({ text: sentB[0] }), null, "only once");
+  assert.deepEqual(await a.onResendRequest({ text: sentB[0], chatId: 1 }), { name: "v.mkv", chatId: 1 }, "mails the pending file");
+  assert.deepEqual(sentA.slice(1), [["file", "v.mkv"], ["withdraw", tk.hash]]);
+  assert.equal(await a.onResendRequest({ text: sentB[0], chatId: 1 }), null, "only once");
   const c = createTransport({ enabled: () => true, email: { sendFile: async () => {}, sendText: async () => {} }, iroh: { fetch: async () => ({ error: "Io(reset)", email: false }) } });
   assert.equal((await c.receive({ chatId: 1, text: sentA[0][1] })).retry, true, "broken stream: resume over iroh, no email");
-});
-
-test("ui glue: send routes, cards render, fetch states and the resend fallback", async () => {
-  const ui = await import("../app/js/iroh-xfer-ui.js");
-  const texts = [], files = [], offers = [];
-  let fetchResult = { path: "C:/xfer-in/abc.bin" };
-  ui.initXferUi({
-    core: {},
-    invoke: async (cmd, args) => {
-      if (cmd === "xfer_offer") { offers.push(args.path); const h = args.path.includes("big") ? "cd" : "ef"; return enc({ ...tk, hash: h.repeat(32), name: args.path.includes("big") ? "big.bin" : "other.bin", size: THRESHOLD + 1 }); }
-      if (cmd === "xfer_fetch") return fetchResult;
-      return null;
-    },
-    sendText: async (chatId, text) => texts.push({ chatId, text }),
-    sendFile: async (chatId, path, name) => files.push({ chatId, path, name }),
-    metadata: async () => ({ "a@relay.example": { iroh_relay: "https://iroh.relay.example/" } }),
-  });
-
-  // Sender: over threshold to a same-relay peer routes; the card is mailed.
-  const peer = "b@relay.example";
-  assert.equal(await ui.peerIsVelta(peer), true);
-  assert.equal(await ui.peerIsVelta("z@else.example"), false, "foreign relay is not a Velta peer (v1 heuristic)");
-  const out = await ui.maybeSend({ chatId: 5, path: "C:/dl/big.bin", name: "big.bin", size: THRESHOLD + 1, oneToOne: true, peerAddr: peer });
-  assert.equal(out.handled, true);
-  assert.equal(offers[0], "C:/dl/big.bin");
-  const cardText = texts[0].text;
-  assert.match(cardText, /^📎 big\.bin/);
-  assert.match(cardText, /^VXFER1:/m);
-
-  // Sender's bubble: outgoing card shows the iroh route, no actions.
-  ui.noteCard(5, cardText, true);
-  const outHtml = ui.xferCardHtml(cardText);
-  assert.match(outHtml, /Sent directly \(iroh\)/);
-  assert.doesNotMatch(outHtml, /xfer-ask|Received/);
-
-  // Receiver: first render kicks the fetch; success lands Open + Received.
-  // (A different device's offer carries its own hash — separate state entry.)
-  const rText = `📎 got.bin · 6.7 MB — sent directly from device to device\n${enc({ ...tk, hash: "aa".repeat(32), name: "got.bin" })}`;
-  ui.noteCard(9, rText, false);
-  await new Promise(r => setTimeout(r, 0));
-  await new Promise(r => setTimeout(r, 0));
-  const rHtml = ui.xferCardHtml(rText);
-  assert.match(rHtml, /Received/);
-  assert.match(rHtml, /xfer-open/);
-  assert.match(rHtml, /got\.bin/);
-
-  // Receiver: fetch that wants email sends the fallback request, label flips.
-  fetchResult = { error: "Expired", email: true };
-  const out3 = await ui.maybeSend({ chatId: 5, path: "C:/dl/other.bin", name: "other.bin", size: THRESHOLD + 1, oneToOne: true, peerAddr: peer });
-  assert.equal(out3.handled, true);
-  const t2 = enc({ ...tk, name: "late.bin", hash: "ef".repeat(32) });
-  const late = `📎 late.bin · 6.7 MB — sent directly from device to device\n${t2}`;
-  ui.noteCard(9, late, false);
-  await new Promise(r => setTimeout(r, 0));
-  await new Promise(r => setTimeout(r, 0));
-  assert.match(texts.at(-1).text, /^VXFER-RESEND:/);
-  assert.match(ui.xferCardHtml(late), /Asked for the email copy/);
-
-  // Sender: the fallback request mails the pending file exactly once.
-  assert.equal(await ui.xferCardHtml !== null, true);
-  const resend = resendRequestText("ef".repeat(32));
-  ui.noteCard(5, resend, false);
-  await new Promise(r => setTimeout(r, 0));
-  assert.deepEqual(files, [{ chatId: 5, path: "C:/dl/other.bin", name: "other.bin" }]);
-  ui.noteCard(5, resend, false);
-  await new Promise(r => setTimeout(r, 0));
-  assert.equal(files.length, 1, "only once");
-
-  // Under threshold / group / non-Velta: the caller sends normally.
-  const out2 = await ui.maybeSend({ chatId: 5, path: "C:/dl/small.txt", name: "small.txt", size: 100, oneToOne: true, peerAddr: peer });
-  assert.equal(out2.handled, false);
 });
 
 test("transport reports why a file went by email (diagnostics glue)", async () => {
@@ -183,4 +116,180 @@ test("transport reports why a file went by email (diagnostics glue)", async () =
   assert.equal(bad.via, "offer-failed");
   assert.match(String(bad.error), /endpoint down/);
   assert.deepEqual(mailed, ["a.bin", "b.bin"]);
+});
+
+const memStore = () => { let v = {}; return { load: () => JSON.parse(JSON.stringify(v)), save: (o) => { v = JSON.parse(JSON.stringify(o)); }, peek: () => v }; };
+const offerOf = (o = {}) => enc({ ...tk, sec: "s".repeat(32), ...o });
+
+test("pending offers survive a restart; resend honoured only from the chat or Saved Messages", async () => {
+  const store = memStore();
+  const log = [];
+  const iroh = {
+    offer: async () => offerOf(),
+    withdraw: async (h) => log.push(["withdraw", h]),
+    status: async (hs) => Object.fromEntries(hs.map((h) => [h, { size: tk.size, exp: tk.exp, delivered: false, path: "/xfer/out/" + h }])),
+  };
+  const email = { sendFile: async (c, f) => log.push(["file", c, f.path, f.name]), sendText: async () => {} };
+  const a = createTransport({ email, iroh, store, enabled: () => true });
+  await a.send({ chatId: 7, file: { name: "film.mkv", size: tk.size, path: "/uploads/u1" }, oneToOne: true, peerIsVelta: true });
+  assert.ok(store.peek()[tk.hash], "persisted on offer");
+
+  const b = createTransport({ email, iroh, store, enabled: () => true }); // app restarted
+  assert.ok(b.pending.has(tk.hash));
+  const req = resendRequestText(tk.hash);
+  assert.equal(await b.onResendRequest({ text: req, chatId: 99, selfChatId: 3 }), null, "a stranger's chat cannot pull the file");
+  assert.deepEqual(await b.onResendRequest({ text: req, chatId: 3, selfChatId: 3 }), { name: "film.mkv", chatId: 3 }, "own other device: mailed to Saved Messages");
+  assert.ok(b.pending.has(tk.hash), "the peer can still fetch or ask");
+  assert.equal(await b.onResendRequest({ text: req, chatId: 3, selfChatId: 3 }), null, "Saved Messages copy goes once");
+  assert.deepEqual(await b.onResendRequest({ text: req, chatId: 7, selfChatId: 3 }), { name: "film.mkv", chatId: 7 });
+  assert.deepEqual(log, [
+    ["file", 3, `/xfer/out/${tk.hash}`, "film.mkv"],
+    ["file", 7, `/xfer/out/${tk.hash}`, "film.mkv"],
+    ["withdraw", tk.hash],
+  ], "the stored copy is mailed under the original name, then withdrawn");
+  assert.equal(b.pending.size, 0);
+  assert.deepEqual(store.peek(), {}, "cleared on disk too");
+});
+
+test("sweep: expired offers go by email, delivered ones are withdrawn after the grace, too-big ones error", async () => {
+  let clock = 1_000_000_000_000;
+  const H = (c) => c.repeat(64);
+  const store = memStore();
+  const nowS = clock / 1000;
+  store.save({
+    [H("1")]: { chatId: 1, name: "late.bin", size: 10_000_000, exp: nowS - 1, path: "/u/late" },
+    [H("2")]: { chatId: 2, name: "got.bin", size: 10_000_000, exp: nowS + 3600 * 24, path: "/u/got" },
+    [H("3")]: { chatId: 3, name: "huge.bin", size: EMAIL_MAX + 1, exp: nowS - 1, path: "/u/huge" },
+    [H("4")]: { chatId: 4, name: "gone.bin", size: 10_000_000, exp: nowS + 60, path: "/u/gone" },
+    [H("5")]: { chatId: 5, name: "open.bin", size: 10_000_000, exp: nowS + 2 * 86400, path: "/u/open" },
+  });
+  const mailed = [], withdrawn = [];
+  const status = {
+    [H("1")]: { delivered: false, path: "/x/out/1" }, [H("2")]: { delivered: true, path: "/x/out/2" },
+    [H("3")]: { delivered: false, path: "/x/out/3" }, [H("4")]: null, [H("5")]: { delivered: false, path: "/x/out/5" },
+  };
+  const tr = createTransport({ store, now: () => clock,
+    email: { sendFile: async (c, f) => mailed.push([c, f.path, f.name]), sendText: async () => {} },
+    iroh: { status: async (hs) => Object.fromEntries(hs.map((h) => [h, status[h]])), withdraw: async (h) => withdrawn.push(h[0]) } });
+  const ev1 = await tr.sweep();
+  assert.deepEqual(ev1.map((e) => [e.name, e.action]).sort(), [["gone.bin", "missing"], ["huge.bin", "too-big"], ["late.bin", "mailed"]]);
+  assert.deepEqual(mailed, [[1, "/x/out/1", "late.bin"]], "only the expired, undelivered, mailable one");
+  assert.deepEqual(withdrawn.sort(), ["1", "3", "4"]);
+  assert.deepEqual(Object.keys(store.peek()).sort(), [H("2"), H("5")]);
+  clock += DELIVERED_GRACE_MS;
+  const ev2 = await tr.sweep();
+  assert.deepEqual(ev2.map((e) => [e.name, e.action]), [["got.bin", "withdrawn"]], "delivered: withdrawn once the receiver's devices had an hour");
+  assert.deepEqual(Object.keys(store.peek()), [H("5")], "an undelivered, unexpired offer stays");
+});
+
+test("PWA receiver (no iroh) asks for the email copy at once", async () => {
+  const sent = [];
+  const tr = createTransport({ email: { sendFile: async () => {}, sendText: async (c, t) => sent.push([c, t]) }, iroh: null });
+  const r = await tr.receive({ chatId: 4, text: fileCardText({ name: "a.bin", size: tk.size, ticket: offerOf() }) });
+  assert.equal(r.asked, true);
+  assert.deepEqual(sent, [[4, resendRequestText(tk.hash)]]);
+});
+
+function fakeCore(config = {}) {
+  const core = new EventTarget();
+  core.accountId = 1;
+  core.config = { ...config };
+  core.getConfig = async (k) => core.config[k] ?? null;
+  core.setConfig = async (k, v) => { core.config[k] = v; };
+  core.createChatByContactId = async (id) => (id === 1 ? 3 : 100 + id);
+  core.msg = (chatId, text, out = false) => core.dispatchEvent(Object.assign(new Event("incoming-msg"), { detail: { chatId, msg: { chatId, text, from: out ? 1 : 0 } } }));
+  return core;
+}
+const tick = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0)); };
+
+test("ui glue (Tauri): capability announce, proven peers only, events, own-device ask", async () => {
+  const ui = await import("../app/js/iroh-xfer-ui.js?tauri");
+  const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
+  const texts = [], files = [], calls = [];
+  const fetches = { [H2("aa")]: { path: "/acc/xfer-in/got.bin" }, [H2("bb")]: { error: "no space", code: "no-space", email: false } };
+  function H2(c) { return c.repeat(32); }
+  ui.initXferUi({
+    core,
+    invoke: async (cmd, args) => {
+      calls.push(cmd);
+      if (cmd === "xfer_offer") return offerOf({ hash: H2("cd"), name: args.name });
+      if (cmd === "xfer_fetch") return fetches[decodeTicket(args.ticket).hash];
+      if (cmd === "xfer_status") return {};
+      return null;
+    },
+    sendText: async (chatId, text) => { texts.push({ chatId, text }); return { id: texts.length }; },
+    sendFile: async (chatId, path, name) => files.push({ chatId, path, name }),
+    metadata: async () => ({ "me@relay.example": { irohRelay: "https://iroh.relay.example/" } }),
+  });
+  await tick();
+  assert.equal(core.config["ui.velta.xfer"], "1", "this device announces the transfer (core patch #31 adds the header)");
+
+  // Unknown contact (or Delta Chat): normal attachment, even on the same relay.
+  assert.equal((await ui.maybeSend({ chatId: 5, path: "/f", name: "f.bin", size: THRESHOLD + 1, oneToOne: true, contactId: 13 })).handled, false);
+  assert.equal(await ui.peerCanXfer(12), true);
+  const out = await ui.maybeSend({ chatId: 6, path: "/dl/big.bin", name: "big.bin", size: THRESHOLD + 1, oneToOne: true, contactId: 12 });
+  assert.equal(out.handled, true);
+  assert.match(texts[0].text, /^VXFER1:/m);
+  ui.noteCard(6, texts[0].text, true);
+  assert.match(ui.xferCardHtml(texts[0].text), /Sent directly \(iroh\)/);
+  assert.doesNotMatch(ui.xferCardHtml(texts[0].text), /xfer-ask/, "the sending device has the file: no ask button");
+
+  // A card arriving while its chat is closed is fetched from the core event.
+  const got = fileCardText({ name: "got.bin", size: tk.size, ticket: offerOf({ hash: H2("aa"), name: "got.bin" }) });
+  core.msg(9, got);
+  await tick();
+  assert.match(ui.xferCardHtml(got), /Received/);
+  assert.match(ui.xferCardHtml(got), /xfer-open/);
+  ui.noteCard(9, got, false);
+  assert.equal(calls.filter((c) => c === "xfer_fetch").length, 1, "rendering again does not fetch twice");
+
+  // No free space: a clear error, and no email request (the disk is the problem).
+  const full = fileCardText({ name: "full.bin", size: tk.size, ticket: offerOf({ hash: H2("bb"), name: "full.bin" }) });
+  core.msg(9, full);
+  await tick();
+  assert.match(ui.xferCardHtml(full), /Not enough free space/);
+  assert.equal(texts.filter((x) => /VXFER-RESEND/.test(x.text)).length, 0);
+
+  // The sender's other device sees the outgoing card without a copy: the
+  // ask goes to Saved Messages (chat 3), where the device with the offer
+  // answers it from the core event.
+  const mine = fileCardText({ name: "other.bin", size: tk.size, ticket: offerOf({ hash: H2("ee"), name: "other.bin" }) });
+  ui.noteCard(6, mine, true);
+  assert.match(ui.xferCardHtml(mine), /xfer-ask/);
+  await ui.askForEmailCopy(H2("ee"));
+  assert.deepEqual(texts.at(-1), { chatId: 3, text: resendRequestText(H2("ee")) });
+  assert.match(ui.xferCardHtml(mine), /Asked for the email copy/);
+
+  // This device holds big.bin's offer: a request for it from Saved Messages
+  // (its own other device, an outgoing message there) mails it there.
+  core.msg(3, resendRequestText(H2("cd")), true);
+  await tick();
+  assert.deepEqual(files, [{ chatId: 3, path: "/dl/big.bin", name: "big.bin" }]);
+  core.msg(77, resendRequestText(H2("cd")));
+  await tick();
+  assert.equal(files.length, 1, "another chat's request is ignored");
+  core.msg(6, resendRequestText(H2("cd")));
+  await tick();
+  assert.deepEqual(files.at(-1), { chatId: 6, path: "/dl/big.bin", name: "big.bin" }, "the peer's request mails it to the chat");
+  assert.ok(calls.includes("xfer_withdraw"));
+});
+
+test("ui glue (PWA): no iroh — cards ask for the email copy, nothing is offered", async () => {
+  const ui = await import("../app/js/iroh-xfer-ui.js?pwa");
+  const core = fakeCore({ "ui.velta.xfer.peer.12": "1" });
+  const texts = [];
+  ui.initXferUi({ core, invoke: null, sendText: async (chatId, text) => texts.push({ chatId, text }), sendFile: async () => {} });
+  await tick();
+  assert.equal(core.config["ui.velta.xfer"], undefined, "the PWA never announces the capability");
+  assert.equal((await ui.maybeSend({ chatId: 6, path: "/f", name: "f", size: THRESHOLD + 1, oneToOne: true, contactId: 12 })).handled, false);
+  const card = fileCardText({ name: "p.bin", size: tk.size, ticket: offerOf({ hash: "12".repeat(32), name: "p.bin" }) });
+  core.msg(8, card);
+  await tick();
+  assert.deepEqual(texts, [{ chatId: 8, text: resendRequestText("12".repeat(32)) }], "auto-requested");
+  assert.match(ui.xferCardHtml(card), /Asked for the email copy/);
+  const old = fileCardText({ name: "o.bin", size: tk.size, ticket: offerOf({ hash: "34".repeat(32), name: "o.bin", exp: 1000 }) });
+  core.msg(8, old);
+  await tick();
+  assert.equal(texts.length, 1, "expired cards: the sender mails those itself");
+  assert.match(ui.xferCardHtml(old), /xfer-ask/, "manual ask still available");
 });
