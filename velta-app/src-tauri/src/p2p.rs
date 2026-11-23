@@ -7087,6 +7087,177 @@ mod tests {
         engine.inner.lock().unwrap().peers[node].live.iter().find(|h| !h.tx.is_closed()).unwrap().credits.clone()
     }
 
+    // -- #454 follow-up: streamed 1:1 transfers -------------------------------
+
+    fn file_frames(frames: &[Frame]) -> (usize, usize, usize) {
+        let mut c = (0, 0, 0);
+        for f in frames {
+            match f {
+                Frame::FileBegin { .. } => c.0 += 1,
+                Frame::FileChunk { .. } => c.1 += 1,
+                Frame::FileEnd { .. } => c.2 += 1,
+                _ => {}
+            }
+        }
+        c
+    }
+
+    /// The 1:1 sender is bounded like the group one: with a session that does
+    /// not drain, only GROUP_FILE_CREDITS chunks are ever queued.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn one_to_one_file_stream_is_paced_by_session_credits() {
+        let (a, _rx) = start("pace11").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (_tb, mut rb) = attach_live(&a, b, 2);
+        let (path, data) = write_blob(&a, "big.bin", 1_000_000); // 11 chunks
+        let (id, _) = a.send_file(&b.to_string(), &path, "big.bin", "").unwrap();
+        until(10, "the first credits are used", || rb.len() > GROUP_FILE_CREDITS).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut all = drain(&mut rb);
+        assert_eq!(file_frames(&all), (1, GROUP_FILE_CREDITS, 0), "Begin + the credits, nothing more");
+        let credits = live_credits(&a, &b);
+        let mut guard = 0;
+        while !all.iter().any(|f| matches!(f, Frame::FileEnd { .. })) {
+            guard += 1;
+            assert!(guard < 400, "stream stalled");
+            credits.add_permits(GROUP_FILE_CREDITS);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            all.extend(drain(&mut rb));
+        }
+        assert_eq!(file_frames(&all), (1, 11, 1));
+        let mut got = Vec::new();
+        for f in &all {
+            if let Frame::FileChunk { id: fid, data } = f {
+                assert_eq!(fid, &id);
+                got.extend(BASE64.decode(data.as_bytes()).unwrap());
+            }
+        }
+        assert_eq!(got, data);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn either_side_can_cancel_a_one_to_one_file() {
+        let (a, a_ev) = start("cancel11").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (tb, mut rb) = attach_live(&a, b, 2);
+        let (path, _) = write_blob(&a, "c.bin", 1_000_000);
+        // Sender side: the stream stops and the peer is told.
+        let (id, _) = a.send_file(&b.to_string(), &path, "c.bin", "").unwrap();
+        until(10, "streaming", || rb.len() > GROUP_FILE_CREDITS).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = drain(&mut rb);
+        a.cancel_file(&b.to_string(), &id).unwrap();
+        live_credits(&a, &b).add_permits(100);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let frames = drain(&mut rb);
+        assert!(frames.iter().any(|f| matches!(f, Frame::FileCancel { id: c, .. } if c == &id)), "peer told: {:?}", frames.iter().map(|f| serde_json::to_string(f).unwrap().chars().take(60).collect::<String>()).collect::<Vec<_>>());
+        assert_eq!(file_frames(&frames).2, 0, "no FileEnd after a cancel");
+        assert!(file_frames(&frames).1 <= 1, "at most the chunk already holding a credit");
+        wait_for(&a_ev, 5, |e| e["kind"] == "file-progress" && e["id"] == id.as_str() && e["cancelled"] == true);
+        // Receiver side: a FileCancel from the peer drops the partial.
+        a.handle_frame(b, Frame::FileBegin { id: "in1".into(), ts: 1, name: "x.bin".into(), size: 10, mime: String::new(), caption: String::new() }, &tb);
+        a.handle_frame(b, Frame::FileChunk { id: "in1".into(), data: BASE64.encode(b"hello") }, &tb);
+        let partial = a.blobs_dir.join(b.to_string()).join("partial-in1");
+        assert!(partial.exists());
+        a.handle_frame(b, Frame::FileCancel { id: "in1".into(), reason: "user".into() }, &tb);
+        assert!(!partial.exists(), "partial removed");
+        assert!(a.rx_files.lock().unwrap().is_empty());
+        // And a FileCancel naming another peer's transfer does nothing.
+        let (id2, _) = a.send_file(&b.to_string(), &path, "c.bin", "").unwrap();
+        let other = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (to, _ro) = attach_live(&a, other, 2);
+        a.handle_frame(other, Frame::FileCancel { id: id2.clone(), reason: String::new() }, &to);
+        assert!(!a.out_files.lock().unwrap()[&id2].1.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn free_space_refusal_and_new_cap() {
+        assert!(MAX_FILE_BYTES > 2 * 1024 * 1024 * 1024, "no 2 GB cap any more");
+        let d = std::env::temp_dir();
+        assert!(require_space(&d, 1).is_ok());
+        let err = require_space(&d, u64::MAX / 2).unwrap_err().to_string();
+        assert!(err.contains("not enough free space"), "{err}");
+    }
+
+    fn rss_kb() -> u64 {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
+            .unwrap_or(0)
+    }
+
+    /// Real engines over iroh: a large file and a folder round-trip with the
+    /// process RSS staying flat. VELTA_BIG_TEST_MB scales the file (default
+    /// 192 MB; run with 2100+ to cover the old 2 GB cap by hand).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn large_file_and_folder_round_trip_with_flat_memory() {
+        use std::io::Write;
+        let mb: u64 = std::env::var("VELTA_BIG_TEST_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(192);
+        let (alice, alice_rx) = start("big-a").await;
+        let (bob, bob_rx) = start("big-b").await;
+        pair(&alice, &alice_rx, &bob).await;
+        let alice_id = alice.node_id().to_string();
+        // Large file, written in 1 MB steps (never whole in memory).
+        let src = bob.dir.join("big.bin");
+        {
+            let mut f = std::io::BufWriter::new(std::fs::File::create(&src).unwrap());
+            let block: Vec<u8> = (0..1024 * 1024).map(|i| (i * 7 % 251) as u8).collect();
+            for i in 0..mb {
+                let mut b = block.clone();
+                b[0] = i as u8;
+                f.write_all(&b).unwrap();
+            }
+        }
+        let size = mb * 1024 * 1024;
+        let base = rss_kb();
+        let peak = Arc::new(AtomicU64::new(base));
+        let stop = Arc::new(AtomicBool::new(false));
+        let sampler = {
+            let (peak, stop) = (peak.clone(), stop.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    peak.fetch_max(rss_kb(), Ordering::Relaxed);
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            })
+        };
+        let (bob2, src2) = (bob.clone(), src.to_string_lossy().to_string());
+        let aid = alice_id.clone();
+        tokio::task::spawn_blocking(move || bob2.send_file(&aid, &src2, "big.bin", "").unwrap()).await.unwrap();
+        let got = wait_for(&alice_rx, 600, |e| e["kind"] == "message" && e["file"]["name"] == "big.bin");
+        stop.store(true, Ordering::Relaxed);
+        sampler.join().unwrap();
+        assert_eq!(got["file"]["size"], size);
+        let out = std::path::PathBuf::from(got["file"]["path"].as_str().unwrap());
+        assert_eq!(std::fs::metadata(&out).unwrap().len(), size);
+        let grew_mb = peak.load(Ordering::Relaxed).saturating_sub(base) / 1024;
+        if base > 0 {
+            assert!(grew_mb < 64, "RSS grew {grew_mb} MB for a {mb} MB transfer: not streaming");
+        }
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_dir_all(bob.blobs_dir.join("self"));
+        // A folder: Rust zips it into the stored copy, Alice extracts it.
+        let folder = bob.dir.join("Holiday Фото");
+        std::fs::create_dir_all(folder.join("day 1/raw")).unwrap();
+        std::fs::create_dir_all(folder.join("empty")).unwrap();
+        std::fs::write(folder.join("day 1/a.jpg"), vec![1u8; 200_000]).unwrap();
+        std::fs::write(folder.join("day 1/raw/b.dng"), vec![2u8; 300_000]).unwrap();
+        std::fs::write(folder.join("notes ✓.txt"), "hi").unwrap();
+        let (bob3, f3, aid) = (bob.clone(), folder.to_string_lossy().to_string(), alice_id.clone());
+        let (_, _, name) = tokio::task::spawn_blocking(move || bob3.send_folder(&aid, &f3, "pics").unwrap()).await.unwrap();
+        assert!(name.ends_with(".zip"));
+        let got = wait_for(&alice_rx, 60, |e| e["kind"] == "message" && e["text"] == "pics");
+        let zip = std::path::PathBuf::from(got["file"]["path"].as_str().unwrap());
+        let dest = alice.dir.join("extracted");
+        let n = crate::loopzip::extract(&mut std::fs::File::open(&zip).unwrap(), &dest, |_, _| {}).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(std::fs::read(dest.join("day 1/raw/b.dng")).unwrap(), vec![2u8; 300_000]);
+        assert_eq!(std::fs::read_to_string(dest.join("notes ✓.txt")).unwrap(), "hi");
+        assert!(dest.join("empty").is_dir());
+        drop(bob_rx);
+    }
+
     fn group_file_frames(frames: &[Frame]) -> (usize, usize, usize) {
         let mut c = (0, 0, 0);
         for f in frames {

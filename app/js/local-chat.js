@@ -873,6 +873,33 @@ export async function lcRetryTransfer(chatId, msgId, memberId = null) {
   emitChanged();
 }
 
+// #454: cancels a 1:1 transfer in either direction. The engine tells the
+// peer; the bubble turns into the "cancelled" card on the progress event.
+export async function lcCancelTransfer(chatId, msgId) {
+  if (!String(chatId).startsWith(P2P_PREFIX) || !isTauri()) return;
+  const peerId = String(chatId).slice(P2P_PREFIX.length);
+  const msg = store.peers.get(peerId)?.msgs.find(x => x.id === msgId);
+  if (!msg) return;
+  await invoke()("p2p_cancel_file", { peerId, id: msg.engineId || msg.id });
+}
+
+// #454 follow-up: a picked folder goes as one zip that Rust builds from disk
+// (p2p_send_folder). The peer must be online, like any Loop file.
+export async function lcSendFolder(chatId, folder, caption = "") {
+  if (!String(chatId).startsWith(P2P_PREFIX) || !isTauri()) throw new Error("folders go over Velta Loop only");
+  const peerId = String(chatId).slice(P2P_PREFIX.length);
+  const p = peer(peerId);
+  const res = await invoke()("p2p_send_folder", { peerId, path: folder, caption })
+    .catch(err => { throw new Error(String(err?.message || err)); });
+  const msg = {
+    id: nowId(), engineId: res.id, ts: Date.now(), text: caption, out: true, acked: false,
+    file: { name: res.name, size: res.size || 0, mime: "application/zip", path: res.path },
+  };
+  p.msgs.push(msg);
+  emitChanged();
+  return mapMsg(p, msg);
+}
+
 // Sends queued media when a peer comes back online, oldest first.
 // Sequential: stop at the first failure — the peer may drop again mid-flush
 // and the rest stay queued for the next presence event.
@@ -915,6 +942,8 @@ export async function hubModel() {
 // ---------------- engine bridge (real Tauri shell) ----------------
 
 let engineHooked = false;
+// #454: transfer id -> { t, got, bps } for the speed shown on the bar.
+const speedOf = new Map();
 
 function engineInit() {
   if (engineHooked || !isTauri()) return;
@@ -927,9 +956,9 @@ function engineInit() {
       const msg = p.msgs.find(x => x.id === d.id || x.engineId === d.id);
       if (!msg) return;
       if (d.failed) {
-        // Session died mid-transfer; there is no resume — the bubble shows a
-        // Retry button (lcRetryTransfer re-sends from byte zero).
-        msg.transfer = { failed: true, pct: msg.transfer?.pct || 0, dir: d.dir };
+        // Session died, or either side cancelled (#454): the bubble shows
+        // why, and a Retry on the sending side (re-sends from byte zero).
+        msg.transfer = { failed: true, cancelled: !!d.cancelled, pct: msg.transfer?.pct || 0, dir: d.dir };
         emitChanged();
         return;
       }
@@ -940,9 +969,17 @@ function engineInit() {
       }
       if (d.size && msg.file && !msg.file.size) msg.file.size = d.size;
       const pct = d.size ? Math.min(100, Math.floor(d.got / d.size * 100)) : 0;
+      // #454: speed over a ~1 s window, kept off the store (not persisted).
+      const now = Date.now();
+      const sp = speedOf.get(d.id) || { t: now, got: d.got, bps: 0 };
+      if (now - sp.t >= 1000) {
+        sp.bps = Math.max(0, Math.round((d.got - sp.got) * 1000 / (now - sp.t)));
+        sp.t = now; sp.got = d.got;
+      }
+      speedOf.set(d.id, sp);
       // Re-render only on 2% steps — chunks arrive in rapid bursts.
-      if (!msg.transfer || pct - (msg.transfer.pct || 0) >= 2 || pct >= 100) {
-        msg.transfer = { pct, dir: d.dir };
+      if (!msg.transfer || pct - (msg.transfer.pct || 0) >= 2 || pct >= 100 || msg.transfer.bps !== sp.bps) {
+        msg.transfer = { pct, dir: d.dir, bps: sp.bps };
         emitChanged();
       }
     } else if (d.kind === "group-file-progress") {

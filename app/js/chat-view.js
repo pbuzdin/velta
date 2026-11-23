@@ -119,8 +119,7 @@ import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
-import { lcRetryTransfer } from "./local-chat.js";
-import { zipFolder } from "./folder-zip.js";
+import { lcRetryTransfer, lcCancelTransfer, lcSendFolder } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealItem } from "./text-only-mode.js";
@@ -2549,9 +2548,17 @@ export class ChatView {
       const pct = Math.max(0, Math.min(100, m.transfer.pct || 0));
       const head = `<div class="mfp-name">${escapeHtml(m.fileName || t("File"))}</div>`;
       if (m.transfer.failed) {
-        bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">${escapeHtml(t("Transfer interrupted"))}</div><button type="button" class="btn-text" data-act="lc-retry">${escapeHtml(t("Retry"))}</button></div>`;
+        // A cancelled receive has nothing to retry (the sender re-sends).
+        const why = m.transfer.cancelled ? t("Transfer cancelled") : t("Transfer interrupted");
+        const retry = m.transfer.dir === "recv" ? "" : `<button type="button" class="btn-text" data-act="lc-retry">${escapeHtml(t("Retry"))}</button>`;
+        bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">${escapeHtml(why)}</div>${retry}</div>`;
       } else {
-        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(t("Transfer"))}">${pct}%</progress><div class="mfp-pct">${pct}%</div></div>`;
+        // #454: speed next to the percentage, and Cancel on 1:1 transfers
+        // (group sends keep their per-member rows).
+        const speed = m.transfer.bps > 0 ? ` · ${formatBytes(m.transfer.bps)}/s` : "";
+        const cancel = this.chat?.isP2p && !this.chat?.isP2pGroup && !m.transfer.members
+          ? `<button type="button" class="btn-text" data-act="lc-cancel">${escapeHtml(t("Cancel"))}</button>` : "";
+        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(t("Transfer"))}">${pct}%</progress><div class="mfp-pct">${pct}%${escapeHtml(speed)}</div>${cancel}</div>`;
       }
     } else if (covered && COVERED_VIEWTYPES.has(m.viewtype)) {
       // Text-only mode (#300): the placeholder replaces the whole media branch
@@ -3233,6 +3240,9 @@ export class ChatView {
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
+        else if (mediaAction.dataset.act === "lc-cancel") {
+          lcCancelTransfer(m.chatId, m.id).catch(err => errToast(String(err?.message || err)));
+        }
         else if (mediaAction.dataset.act === "reveal") {
           // Text-only mode (#300): an explicit user action reveals exactly
           // this item, then rebuilds the row in place. Content that is not
@@ -5191,22 +5201,16 @@ export class ChatView {
     const invoke = tauriInvoke();
     if (!invoke) return;
     try {
-      const bytes = new Uint8Array(await invoke("read_media_bytes", { src: m.filePath }));
-      const { unzipToMap } = await import("./folder-zip.js");
-      const files = unzipToMap(bytes);
       const base = String(m.fileName || "folder.zip").replace(/\.zip$/i, "");
       // The user picks the destination; entries land under <dest>/<base>/<rel>.
-      // The shell composes the absolute paths (the renderer never does).
+      // Rust streams the archive entry by entry (paths and CRCs checked), so
+      // a multi-GB folder never sits in memory.
       const dir = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: t("Extract to…") } });
       const dest = (Array.isArray(dir) ? dir[0] : dir) || "";
       if (!dest) return;
       await invoke("allow_picked_path", { path: dest }).catch(e => rustLog(`allow_picked_path: ${e}`));
-      const entries = Object.entries(files).map(([rel, data]) => ({ rel, data }));
-      const wrote = await invoke("extract_zip_entries", {
-        dest,
-        base,
-        entries: entries.map(e => ({ rel: e.rel, data: Array.from(e.data) })),
-      });
+      toast(t("Extracting…"));
+      const wrote = await invoke("extract_zip_file", { src: m.filePath, dest, base });
       toast(t("Extracted {n} files", { n: wrote }));
       diagnosticsSink.append("info", `folder zip extracted: ${wrote} entries under ${base}/`);
     } catch (err) {
@@ -5215,10 +5219,10 @@ export class ChatView {
     }
   }
 
-  // #454: whole folder as one p2p transfer. The dialog picks the folder
-  // (directory open returns its path), the shell enumerates it (picked-path
-  // gate), the renderer zips entry by entry (folder-zip.js, STORE) and hands
-  // the archive to the normal local-chat send — the engine streams it.
+  // #454: whole folder as one p2p transfer. The dialog picks the folder,
+  // Rust walks it and writes a STORE zip straight into the stored copy
+  // (p2p_send_folder), then streams it like any file. Nothing is zipped or
+  // held in the renderer.
   async _sendFolder() {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
@@ -5234,32 +5238,10 @@ export class ChatView {
     const folder = (Array.isArray(picked) ? picked[0] : picked) || "";
     if (!folder || !this._isCurrent(session)) return;
     await invoke("allow_picked_path", { path: folder }).catch(e => rustLog(`allow_picked_path: ${e}`));
-    let entries;
+    toast(t("Packing the folder…"));
     try {
-      entries = await invoke("list_folder_files", { path: folder });
-    } catch (err) {
-      errToast(t("Couldn't read the folder: ") + (err?.message || err));
-      return;
-    }
-    if (!entries.length) { errToast(t("The folder is empty (hidden files are skipped)")); return; }
-    const folderName = String(folder).replace(/\\/g, "/").split("/").filter(Boolean).pop() || "folder";
-    try {
-      const blob = await zipFolder(entries, async (entry) => {
-        const bytes = await invoke("plugin:fs|read_file", { path: entry.path });
-        return new Uint8Array(bytes);
-      }, (done, total) => {
-        if (done % 10 === 0 || done === total) diagnosticsSink.append("info", `folder zip: ${done}/${total}`);
-      });
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      const filename = `${folderName}.zip`;
-      const filePath = await this._writeBlobForSend(filename, bytes);
-      // allow_picked_path for the staged archive: the engine's send_file
-      // copies it into blobs (copy_plain) before streaming.
-      await invoke("allow_picked_path", { path: filePath }).catch(e => rustLog(`allow_picked_path: ${e}`));
-      const msg = await this.core.sendMessage(session.chatId, {
-        text: "", viewtype: "file", file: filePath, filename,
-      });
-      if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); }
+      const msg = await lcSendFolder(session.chatId, folder, "");
+      if (this._isCurrent(session) && msg) { this.appendOutgoing(msg); this.onChatsChanged(); }
     } catch (err) {
       if (this._isCurrent(session)) errToast(t("Couldn't send the folder: ") + (err?.message || err));
       diagnosticsSink.append("error", `folder send failed: ${err?.message || err}`);
