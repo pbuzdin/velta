@@ -401,6 +401,66 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   `five_real_engines_form_a_group_and_chat`, the worst-case size check in
   groups.rs.
 
+## Automatic iroh file transfer (#470, engine + policy slice)
+
+`velta-app/src-tauri/src/xfer.rs` is the engine. It uses **iroh 0.35**
+(`iroh035`), the version core and chatmail relays' iroh relays speak.
+`app/js/iroh-xfer.js` holds the policy and the message formats.
+
+**Rule.** An attachment goes over iroh only when all of these hold:
+- the chat is 1:1;
+- the contact is a Velta contact;
+- the file is larger than 6 MB (`THRESHOLD`);
+- the setting `velta-iroh-xfer` is on (it is on by default);
+- the app runs in the Tauri shell.
+
+Anything else is mailed as a normal attachment.
+
+**Ticket** (`VXFER1:` + base64url JSON): `v`, `proto` (`iroh-0.35`),
+`node`, `relay`, `addrs`, `hash` (SHA-256), `size`, `name`, `exp` (24 h by
+default).
+- It travels in a small encrypted text message. The first line is readable;
+  the ticket is on the line after it.
+- `relay` is only the sending account's advertised iroh relay, taken from
+  `get_server_metadata` (`iroh_relay`). Without one, the endpoint runs with
+  `RelayMode::Disabled` and uses direct paths only.
+- n0's relays are never used (`relay_mode_for`). Their 0.35 relays end on
+  2026-12-31.
+
+**Provider and fetch.**
+- ALPN `/velta/xfer/1`. One bi-stream per request: `{hash, offset}`, then a
+  header, then the bytes from `offset`.
+- The fetch resumes from `<name>.<hash8>.part`, checks the SHA-256 at the
+  end, and deletes the partial on a mismatch.
+- Received files land in `accounts/xfer-in/`.
+- Tauri commands: `xfer_offer`, `xfer_fetch`, `xfer_withdraw`. Progress
+  arrives as the `xfer-progress` event.
+
+**Fallback.**
+- When `FetchError::wants_email()` is true, the receiver sends
+  `VXFER-RESEND:<hash>`. That covers an expired ticket, an unreachable sender
+  (no path, or no relay advertised), a withdrawn offer, a hash mismatch or
+  another iroh version.
+- The sender then withdraws the offer and mails the file
+  (`createTransport().onResendRequest`).
+- A broken stream (`Io`) is retried over iroh and resumes from the partial.
+
+**Tests.**
+- `xfer.rs`, 8 tests: route rule and no n0; the ticket codec; a direct fetch
+  of 7 MB with a hash check; resume, where only the rest is served; a hash
+  mismatch, after which the partial is gone; fallback on expired, other
+  protocol, withdrawn and unreachable; a fetch through a local iroh 0.35 relay
+  with no direct addresses; one ticket fetched by 3 devices.
+- `tests/iroh-xfer.test.mjs`: route, setting, relay pick, card codec,
+  `createTransport` send/receive/resend.
+
+**Not done yet:**
+- wiring `createTransport` into the composer send path and the incoming
+  message renderer (file card UI, "which path" label, settings toggle);
+- Velta capability detection for `peerIsVelta`;
+- per-relay rate and size caps;
+- keeping offers across app restarts;
+- Loop-only mode and the linked-chat live path (phases 2–3).
 ## PWA Loop over WebRTC (#468, engine slice)
 
 `app/js/webrtc-loop.js` is the PWA's Loop transport. Browsers can't use iroh's

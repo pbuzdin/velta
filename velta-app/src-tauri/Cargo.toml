@@ -54,7 +54,8 @@ data-encoding = "2"
 # fetch_page_title: best-effort <title> for the in-app browser bar.
 # socks-proxy: link previews go through the account proxy (SOCKS5).
 ureq = { version = "2", features = ["socks-proxy"] }
-socket2 = "0.5"
+# "all": xfer.rs's iroh 0.35 (netwatch 0.5, BSD/macOS netmon) needs Type::RAW.
+socket2 = { version = "0.5", features = ["all"] }
 # Large file (#138, lufi.rs): WebSocket over TLS through the account proxy.
 # Same versions ureq already links — no new crates in the lock.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -70,6 +71,12 @@ qrcode = { version = "0.14", default-features = false, optional = true }
 iroh = { version = "1.5", default-features = false, features = ["tls-ring"] }
 # mDNS LAN discovery moved out of iroh in 1.x (n0's official crate).
 iroh-mdns-address-lookup = "0.6"
+# #470: automatic iroh file transfer (xfer.rs) stays on iroh 0.35, the
+# version core and every chatmail relay's iroh relay speak today. Android
+# already links it through core; desktop gains this one copy. No n0 relays.
+iroh035 = { package = "iroh", version = "0.35", default-features = false }
+# xfer.rs: SHA-256 of offered and fetched files (already in the lock).
+sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
 sha1 = "0.10"
 tempfile = "3"
@@ -130,8 +137,8 @@ sha2 = "0.10"
 
 [dev-dependencies]
 # #469: the mixed-version Loop test dials a 1.x engine from an iroh 0.35
-# endpoint (a released <= 1.5.x Velta). Test-only; never linked into the app.
-iroh035 = { package = "iroh", version = "0.35", default-features = false, features = ["discovery-local-network"] }
+# endpoint (a released <= 1.5.x Velta); tests add mDNS to xfer.rs's 0.35.
+iroh035 = { package = "iroh", version = "0.35", default-features = false, features = ["discovery-local-network", "test-utils", "metrics"] }
 
 [profile.release]
 # panic = "unwind" so a panic during startup (e.g. in init_android_core or the

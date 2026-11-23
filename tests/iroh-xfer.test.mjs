@@ -1,0 +1,96 @@
+// #470: policy and message formats of the automatic iroh file transfer.
+// The transfer itself is tested in velta-app/src-tauri/src/xfer.rs.
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  THRESHOLD, chooseRoute, irohXferEnabled, setIrohXferEnabled, advertisedRelay, decodeTicket,
+  fileCardText, parseFileCard, resendRequestText, parseResendRequest,
+} from "../app/js/iroh-xfer.js";
+
+const tk = { v: 1, proto: "iroh-0.35", node: "ab".repeat(32), relay: "https://iroh.relay.example/", addrs: [], hash: "cd".repeat(32), size: 7000000, name: "Фильм.mp4", exp: 4000000000 };
+const enc = (o) => "VXFER1:" + Buffer.from(JSON.stringify(o), "utf8").toString("base64url");
+
+test("route: only 1:1, Velta peer, over 6 MB, setting on, Tauri", () => {
+  const base = { size: THRESHOLD + 1, oneToOne: true, peerIsVelta: true, enabled: true, available: true };
+  assert.equal(chooseRoute(base), "iroh");
+  assert.equal(chooseRoute({ ...base, size: THRESHOLD }), "email", "6 MB or less: email");
+  assert.equal(chooseRoute({ ...base, peerIsVelta: false }), "email", "Delta Chat contact: email");
+  assert.equal(chooseRoute({ ...base, oneToOne: false }), "email");
+  assert.equal(chooseRoute({ ...base, enabled: false }), "email");
+  assert.equal(chooseRoute({ ...base, available: false }), "email", "PWA: email");
+});
+
+test("setting is on by default and can be turned off", () => {
+  const m = new Map(); const s = { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) };
+  assert.equal(irohXferEnabled(s), true);
+  setIrohXferEnabled(false, s); assert.equal(irohXferEnabled(s), false);
+  setIrohXferEnabled(true, s); assert.equal(irohXferEnabled(s), true);
+});
+
+test("relay: only the chatmail relay's advertised https iroh relay, else none", () => {
+  const md = { "a@one.example": { iroh_relay: "https://iroh.one.example/" }, "b@two.example": { iroh_relay: null } };
+  assert.equal(advertisedRelay(md, "a@one.example"), "https://iroh.one.example/");
+  assert.equal(advertisedRelay(md, "b@two.example"), null);
+  assert.equal(advertisedRelay(md), "https://iroh.one.example/");
+  assert.equal(advertisedRelay({ x: { iroh_relay: "http://plain/" } }), null);
+  assert.equal(advertisedRelay(null), null);
+});
+
+test("file card carries a readable line and the ticket (UTF-8 names)", () => {
+  const ticket = enc(tk);
+  assert.deepEqual(decodeTicket(ticket), tk);
+  const text = fileCardText({ name: tk.name, size: tk.size, ticket });
+  assert.match(text.split("\n")[0], /Фильм\.mp4 · 6\.7 MB/);
+  const card = parseFileCard(text);
+  assert.equal(card.ticket, ticket);
+  assert.equal(card.size, tk.size);
+  assert.equal(parseFileCard("hello"), null);
+  assert.equal(decodeTicket(enc({ ...tk, hash: "x" })), null);
+  assert.equal(decodeTicket(enc({ ...tk, v: 2 })), null);
+});
+
+test("resend request round-trips and rejects junk", () => {
+  assert.equal(parseResendRequest(resendRequestText(tk.hash)), tk.hash);
+  assert.equal(parseResendRequest("VXFER-RESEND:zz"), null);
+});
+
+test("transport: big 1:1 Velta file goes as a ticket card, fetched over iroh", async () => {
+  const { createTransport } = await import("../app/js/iroh-xfer.js");
+  const log = [];
+  const ticket = enc(tk);
+  const email = { sendFile: async (c, f) => log.push(["mail-file", c, f.name]), sendText: async (c, t) => log.push(["mail-text", c, t]) };
+  const iroh = { offer: async (p, r) => { log.push(["offer", p, r]); return ticket; }, fetch: async () => ({ path: "/acc/xfer-in/x" }), withdraw: async (h) => log.push(["withdraw", h]) };
+  const tr = createTransport({ email, iroh, relay: async () => "https://iroh.one.example/", enabled: () => true });
+  const r = await tr.send({ chatId: 5, file: { name: "big.mp4", size: THRESHOLD + 10, path: "/tmp/big.mp4" }, oneToOne: true, peerIsVelta: true });
+  assert.equal(r.route, "iroh");
+  assert.deepEqual(log[0], ["offer", "/tmp/big.mp4", "https://iroh.one.example/"]);
+  assert.equal(log[1][0], "mail-text");
+  assert.ok(log[1][2].endsWith(ticket));
+  assert.ok(tr.pending.has(tk.hash));
+  const got = await tr.receive({ chatId: 5, text: log[1][2] });
+  assert.deepEqual(got, { route: "iroh", path: "/acc/xfer-in/x" });
+  const small = await tr.send({ chatId: 5, file: { name: "s.jpg", size: 100, path: "/tmp/s" }, oneToOne: true, peerIsVelta: true });
+  assert.equal(small.route, "email");
+  assert.deepEqual(log.at(-1), ["mail-file", 5, "s.jpg"]);
+});
+
+test("transport: expired/unreachable fetch asks for the email copy; sender mails it once", async () => {
+  const { createTransport } = await import("../app/js/iroh-xfer.js");
+  const ticket = enc(tk);
+  const sentA = [], sentB = [];
+  const a = createTransport({ enabled: () => true,
+    email: { sendFile: async (c, f) => sentA.push(["file", f.name]), sendText: async (c, t) => sentA.push(["text", t]) },
+    iroh: { offer: async () => ticket, withdraw: async (h) => sentA.push(["withdraw", h]) } });
+  const b = createTransport({ enabled: () => true,
+    email: { sendFile: async () => {}, sendText: async (c, t) => sentB.push(t) },
+    iroh: { fetch: async () => ({ error: "Expired", email: true }) } });
+  await a.send({ chatId: 1, file: { name: "v.mkv", size: THRESHOLD * 2, path: "/v" }, oneToOne: true, peerIsVelta: true });
+  const r = await b.receive({ chatId: 1, text: sentA[0][1] });
+  assert.equal(r.asked, true);
+  assert.equal(sentB[0], resendRequestText(tk.hash));
+  assert.equal(await a.onResendRequest({ text: sentB[0] }), true);
+  assert.deepEqual(sentA.slice(1), [["withdraw", tk.hash], ["file", "v.mkv"]]);
+  assert.equal(await a.onResendRequest({ text: sentB[0] }), false, "only once");
+  const c = createTransport({ enabled: () => true, email: { sendFile: async () => {}, sendText: async () => {} }, iroh: { fetch: async () => ({ error: "Io(reset)", email: false }) } });
+  assert.equal((await c.receive({ chatId: 1, text: sentA[0][1] })).retry, true, "broken stream: resume over iroh, no email");
+});
