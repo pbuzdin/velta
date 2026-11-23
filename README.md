@@ -185,6 +185,13 @@ preference persists across restarts. On first run the welcome screen offers
 "Enter local chat…" — it enables local chat and skips relay setup; enabling
 local chat again later brings the setup screen back.
 
+Stored local-chat media is **encrypted at rest** by default (#465): outgoing
+copies are sealed on store, received files are sealed once the transfer
+finishes — VLTA under this device's key, same as relay-chat media. The
+drawer toggle **"Encrypt stored media"** opts out per device (`velta-p2p-seal`);
+it only changes what hits the disk — transfers stay end-to-end encrypted
+either way. Already-stored files keep their state when you flip the toggle.
+
 **Local chats look like regular chats.** Each paired peer appears in the chat
 list and opens in the standard chat view (adapter: `app/js/local-chat.js`
 wraps the core, so the virtualized list, composer, drafts and read-tick
