@@ -13,6 +13,9 @@
          leaves the app. remoteMessaging has no Android 15 time cap. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <!-- #454: LoopTransferService keeps long Local chat transfers alive
+         (progress notification with Cancel); stops when they end. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- WAKE_LOCK: CallAudio's proximity lock during calls. CoreService
          holds no wake lock (it kept the CPU awake all day). Doze ignores wake locks;
          REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is the exemption that keeps
@@ -191,6 +194,11 @@
             android:name=".CoreService"
             android:exported="false"
             android:foregroundServiceType="remoteMessaging" />
+
+        <service
+            android:name=".LoopTransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- UnifiedPush connector: receives push events (endpoint
              registrations + wake-ups) from the user-chosen distributor app

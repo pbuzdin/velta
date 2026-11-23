@@ -705,6 +705,9 @@ impl Sink {
         match self {
             Sink::Tauri(app) => {
                 use tauri::Emitter;
+                // #454: long transfers keep a foreground service up.
+                #[cfg(target_os = "android")]
+                crate::saf::observe(&value);
                 let _ = app.emit("p2p-event", value);
             }
             Sink::Test(tx) => {
@@ -1167,40 +1170,68 @@ impl P2p {
         self.require_paired(&node_id)?;
         self.require_online(&node_id)?;
         let plan = crate::loopzip::FolderZip::plan(std::path::Path::new(folder))?;
-        if plan.len() > MAX_FILE_BYTES {
-            bail!("folder too large for local chat");
-        }
         let base = std::path::Path::new(folder)
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let safe = sanitize_name(&format!("{}.zip", if base.is_empty() { "folder" } else { &base }));
+        self.send_zip(peer_str, plan, &base, caption)
+    }
+
+    /// Sends a laid-out folder zip named `<base>.zip` (desktop walk or an
+    /// Android SAF tree listing).
+    pub fn send_zip(self: &Arc<Self>, peer_str: &str, plan: crate::loopzip::FolderZip, base: &str, caption: &str) -> Result<(String, PathBuf, String)> {
+        if plan.len() > MAX_FILE_BYTES {
+            bail!("folder too large for local chat");
+        }
+        let safe = sanitize_name(&format!("{}.zip", if base.is_empty() { "folder" } else { base }));
+        let len = plan.len();
+        let (id, path) = self
+            .send_reader(peer_str, &safe, len, plan.reader(), caption)
+            .map_err(|e| e.context("packing the folder"))?;
+        Ok((id, path, safe))
+    }
+
+    /// Sends `len` bytes read from `reader` as a file named `name`: they are
+    /// written once into the sender's stored copy (sealed at rest when
+    /// sealing is on), then streamed. Android uses it for `content://` picks
+    /// so a big file is not first copied into uploads/.
+    pub fn send_reader(self: &Arc<Self>, peer_str: &str, name: &str, len: u64, mut reader: impl std::io::Read, caption: &str) -> Result<(String, PathBuf)> {
+        let node_id = NodeId::from_str(peer_str)?;
+        self.require_paired(&node_id)?;
+        self.require_online(&node_id)?;
+        if len > MAX_FILE_BYTES {
+            bail!("file too large for local chat");
+        }
+        let safe = sanitize_name(name);
         let dest_dir = self.blobs_dir.join("self");
         std::fs::create_dir_all(&dest_dir)?;
-        require_space(&dest_dir, plan.len())?;
+        require_space(&dest_dir, len)?;
         let id = random_id();
         let dest = dest_dir.join(format!("{id}_{safe}"));
         let key = attachment_key();
         let written: Result<()> = (|| {
-            let mut reader = plan.reader();
+            use std::io::{Read, Write};
             let mut out = std::io::BufWriter::with_capacity(256 * 1024, std::fs::File::create(&dest)?);
+            // Exactly `len` bytes: a source that grows is cut, one that
+            // shrinks fails (the announced size must hold).
+            let mut limited = (&mut reader).take(len);
             match key.as_ref().filter(|_| seal_media()) {
-                Some(key) => velta_attachment::encrypt(key, &mut reader, plan.len(), &mut out)?,
+                Some(key) => velta_attachment::encrypt(key, &mut limited, len, &mut out)?,
                 None => {
-                    std::io::copy(&mut reader, &mut out)?;
+                    if std::io::copy(&mut limited, &mut out)? != len {
+                        bail!("the source ended early");
+                    }
                 }
             }
-            use std::io::Write;
             out.flush()?;
             out.get_ref().sync_all()?;
             Ok(())
         })();
         if let Err(e) = written {
             let _ = std::fs::remove_file(&dest);
-            return Err(e.context("packing the folder"));
+            return Err(e);
         }
-        let (id, path) = self.stream_stored(node_id, id, dest, plan.len(), safe.clone(), caption)?;
-        Ok((id, path, safe))
+        self.stream_stored(node_id, id, dest, len, safe, caption)
     }
 
     fn require_online(self: &Arc<Self>, node_id: &NodeId) -> Result<()> {
@@ -4863,6 +4894,82 @@ pub async fn p2p_send_folder(
     Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": name, "size": size }))
 }
 
+/// #454 Android: sends a folder picked with `saf_pick_tree` as one streamed
+/// zip (same reply as `p2p_send_folder`).
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn p2p_send_tree(
+    state: tauri::State<'_, P2pState>,
+    peer_id: String,
+    uri: String,
+    caption: String,
+) -> Result<serde_json::Value, String> {
+    crate::saf::check_picked(&uri)?;
+    let engine = engine(&state).map_err(|e| e.to_string())?;
+    let (id, stored, name) = tauri::async_runtime::spawn_blocking(move || {
+        let (base, listing) = crate::saf::list_tree(&uri)?;
+        let plan = crate::loopzip::FolderZip::from_listing(listing)?;
+        engine.send_zip(&peer_id, plan, &base, &caption)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))?;
+    let size = std::fs::metadata(&stored).map(|m| m.len()).unwrap_or(0);
+    Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": name, "size": size }))
+}
+
+/// #454 Android: sends a `content://` file picked in the system picker,
+/// read once straight into the stored copy (no uploads/ copy first).
+/// Returns `{id, path, name, size}`.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn p2p_send_content_uri(
+    state: tauri::State<'_, P2pState>,
+    peer_id: String,
+    uri: String,
+    caption: String,
+) -> Result<serde_json::Value, String> {
+    if !uri.starts_with("content://") {
+        return Err("not a content URI".into());
+    }
+    let engine = engine(&state).map_err(|e| e.to_string())?;
+    let (id, stored, name, size) = tauri::async_runtime::spawn_blocking(move || {
+        let (name, size) = crate::saf::describe(&uri)?;
+        let reader = crate::saf::open_read(&uri)?;
+        let (id, stored) = engine.send_reader(&peer_id, &name, size, reader, &caption)?;
+        anyhow::Ok((id, stored, name, size))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))?;
+    Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": sanitize_name(&name), "size": size }))
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn p2p_send_tree(peer_id: String, uri: String, caption: String) -> Result<serde_json::Value, String> {
+    let _ = (peer_id, uri, caption);
+    Err("folder trees are Android-only".into())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn p2p_send_content_uri(peer_id: String, uri: String, caption: String) -> Result<serde_json::Value, String> {
+    let _ = (peer_id, uri, caption);
+    Err("content URIs are Android-only".into())
+}
+
+/// #454 Android: the transfer notification's Cancel.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn cancel_many(app: &tauri::AppHandle, pairs: &[(String, String)]) {
+    use tauri::Manager;
+    let Some(state) = app.try_state::<P2pState>() else { return };
+    let Ok(engine) = engine(&state) else { return };
+    for (peer, id) in pairs {
+        let _ = engine.cancel_file(peer, id);
+    }
+}
+
 /// #454: resumes an interrupted 1:1 send from what the receiver holds.
 #[tauri::command]
 pub fn p2p_resume_file(state: tauri::State<'_, P2pState>, peer_id: String, id: String) -> Result<(), String> {
@@ -7471,7 +7578,10 @@ mod tests {
         let out = std::path::PathBuf::from(got["file"]["path"].as_str().unwrap());
         assert_eq!(std::fs::metadata(&out).unwrap().len(), size);
         let grew_mb = peak.load(Ordering::Relaxed).saturating_sub(base) / 1024;
-        if base > 0 {
+        // RSS is process-wide: other tests running in parallel inflate it,
+        // so the bound is only checked when the run was sized on purpose
+        // (VELTA_BIG_TEST_MB, run alone).
+        if base > 0 && std::env::var("VELTA_BIG_TEST_MB").is_ok() {
             assert!(grew_mb < 64, "RSS grew {grew_mb} MB for a {mb} MB transfer: not streaming");
         }
         let _ = std::fs::remove_file(&src);

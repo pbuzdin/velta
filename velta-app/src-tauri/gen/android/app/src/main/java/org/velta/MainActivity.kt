@@ -85,6 +85,8 @@ class MainActivity : TauriActivity() {
     InAppBrowser.attach(this)
     // Calls: mic/camera runtime permission asked before getUserMedia.
     CallPermissions.attach(this)
+    // Loop (local chat) folder picker: registered before the activity starts.
+    LoopFiles.attach(this)
     // Keep the process (and the in-process Delta Chat core) alive after the
     // user leaves the app: promote to a foreground service with a persistent
     // low-importance notification. Background notifications are posted by

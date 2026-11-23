@@ -35,12 +35,44 @@ const MAX_DEPTH: usize = 12;
 const MAX_ENTRIES: usize = 200_000;
 const BUF: usize = 256 * 1024;
 
+/// Where an entry's bytes come from: a file on disk, or (Android) a
+/// `content://` document read through a ContentResolver file descriptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Src {
+    Path(PathBuf),
+    Uri(String),
+}
+
+impl Src {
+    fn open(&self) -> std::io::Result<File> {
+        match self {
+            Src::Path(p) => File::open(p),
+            #[cfg(target_os = "android")]
+            Src::Uri(u) => crate::saf::open_read(u),
+            #[cfg(not(target_os = "android"))]
+            Src::Uri(_) => Err(std::io::Error::other("content URIs are Android-only")),
+        }
+    }
+}
+
+/// One file or folder of a listing built elsewhere (an Android SAF tree).
+#[derive(Debug, Clone)]
+pub struct Listed {
+    /// Forward-slash path relative to the picked folder, without a trailing `/`.
+    pub rel: String,
+    pub dir: bool,
+    pub size: u64,
+    pub mtime: std::time::SystemTime,
+    /// None for folders.
+    pub src: Option<Src>,
+}
+
 #[derive(Debug, Clone)]
 struct Entry {
     /// Forward-slash path inside the archive; directories end in `/`.
     name: String,
-    /// Source on disk (None for directories).
-    src: Option<PathBuf>,
+    /// Source of the bytes (None for directories).
+    src: Option<Src>,
     size: u64,
     time: u16,
     date: u16,
@@ -238,12 +270,42 @@ impl FolderZip {
                 name.push('/');
                 entries.push(Entry { name, src: None, size: 0, time, date, offset: 0 });
             } else {
-                entries.push(Entry { name, src: Some(e.path().to_path_buf()), size: meta.len(), time, date, offset: 0 });
+                entries.push(Entry { name, src: Some(Src::Path(e.path().to_path_buf())), size: meta.len(), time, date, offset: 0 });
             }
             if entries.len() > MAX_ENTRIES {
                 bail!("the folder has more than {MAX_ENTRIES} entries");
             }
         }
+        Self::layout(entries)
+    }
+
+    /// Lays out a listing made elsewhere (Android: a SAF tree walked in
+    /// Kotlin). Hidden segments and unsafe paths are dropped, like the walk.
+    pub fn from_listing(list: Vec<Listed>) -> Result<FolderZip> {
+        let mut entries = Vec::with_capacity(list.len());
+        for l in list {
+            let Some(rel) = safe_rel(&l.rel) else { continue };
+            let mut name = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+            if name.len() > u16::MAX as usize - 1 {
+                bail!("path too long: {name}");
+            }
+            let (time, date) = dos_time(l.mtime);
+            if l.dir {
+                name.push('/');
+                entries.push(Entry { name, src: None, size: 0, time, date, offset: 0 });
+            } else {
+                let src = l.src.context("a file without a source")?;
+                entries.push(Entry { name, src: Some(src), size: l.size, time, date, offset: 0 });
+            }
+            if entries.len() > MAX_ENTRIES {
+                bail!("the folder has more than {MAX_ENTRIES} entries");
+            }
+        }
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        Self::layout(entries)
+    }
+
+    fn layout(mut entries: Vec<Entry>) -> Result<FolderZip> {
         if !entries.iter().any(|e| !e.is_dir()) {
             bail!("the folder is empty (hidden files are skipped)");
         }
@@ -365,7 +427,7 @@ impl ZipReader {
                         self.next += 1;
                     }
                     Some(p) => {
-                        let file = File::open(p)?;
+                        let file = p.open()?;
                         self.cur = Some(Current { file, left: e.size, crc: crc32fast::Hasher::new() });
                     }
                 }
@@ -540,28 +602,61 @@ pub fn safe_rel(name: &str) -> Option<PathBuf> {
     Some(segs.iter().collect())
 }
 
+/// Where [`extract_to`] writes: folders and files by safe relative path.
+pub trait Dest {
+    fn mkdir(&mut self, rel: &Path) -> Result<()>;
+    fn create(&mut self, rel: &Path) -> Result<Box<dyn Write>>;
+    /// Best effort: drop a file whose bytes failed the check.
+    fn remove(&mut self, rel: &Path);
+}
+
+/// A plain directory on disk.
+pub struct DirDest(pub PathBuf);
+
+impl Dest for DirDest {
+    fn mkdir(&mut self, rel: &Path) -> Result<()> {
+        let p = self.0.join(rel);
+        if !p.starts_with(&self.0) {
+            bail!("entry escaped the destination");
+        }
+        std::fs::create_dir_all(p)?;
+        Ok(())
+    }
+    fn create(&mut self, rel: &Path) -> Result<Box<dyn Write>> {
+        let p = self.0.join(rel);
+        if !p.starts_with(&self.0) {
+            bail!("entry escaped the destination");
+        }
+        if let Some(parent) = p.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        Ok(Box::new(File::create(p)?))
+    }
+    fn remove(&mut self, rel: &Path) {
+        let _ = std::fs::remove_file(self.0.join(rel));
+    }
+}
+
 /// Extracts every entry of `r` under `root` (created if missing), checking
 /// each CRC. Returns the number of files written. Memory stays at one
 /// buffer; a bad entry stops the extraction and removes that file.
-pub fn extract<R: Read + Seek>(r: &mut R, root: &Path, mut progress: impl FnMut(u64, u64)) -> Result<usize> {
+pub fn extract<R: Read + Seek>(r: &mut R, root: &Path, progress: impl FnMut(u64, u64)) -> Result<usize> {
+    std::fs::create_dir_all(root)?;
+    extract_to(r, &mut DirDest(root.to_path_buf()), progress)
+}
+
+/// [`extract`] into any [`Dest`] (Android: a SAF folder the user picked).
+pub fn extract_to<R: Read + Seek>(r: &mut R, dest: &mut dyn Dest, mut progress: impl FnMut(u64, u64)) -> Result<usize> {
     let entries = list(r)?;
     let total: u64 = entries.iter().map(|e| e.size).sum();
-    std::fs::create_dir_all(root)?;
     let mut done = 0u64;
     let mut wrote = 0usize;
     let mut buf = vec![0u8; BUF];
     for e in entries {
         let Some(rel) = safe_rel(&e.name) else { continue };
-        let path = root.join(&rel);
-        if !path.starts_with(root) {
-            bail!("entry escaped the destination");
-        }
         if e.is_dir() {
-            std::fs::create_dir_all(&path)?;
+            dest.mkdir(&rel)?;
             continue;
-        }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
         }
         r.seek(SeekFrom::Start(e.offset))?;
         let mut h = [0u8; 30];
@@ -572,7 +667,7 @@ pub fn extract<R: Read + Seek>(r: &mut R, root: &Path, mut progress: impl FnMut(
         let skip = le16(&h, 26) as i64 + le16(&h, 28) as i64;
         r.seek(SeekFrom::Current(skip))?;
         let res: Result<()> = (|| {
-            let mut out = std::io::BufWriter::with_capacity(BUF, File::create(&path)?);
+            let mut out = std::io::BufWriter::with_capacity(BUF, dest.create(&rel)?);
             let mut left = e.size;
             let mut crc = crc32fast::Hasher::new();
             while left > 0 {
@@ -593,7 +688,7 @@ pub fn extract<R: Read + Seek>(r: &mut R, root: &Path, mut progress: impl FnMut(
             Ok(())
         })();
         if let Err(err) = res {
-            let _ = std::fs::remove_file(&path);
+            dest.remove(&rel);
             return Err(err);
         }
         wrote += 1;
@@ -682,6 +777,32 @@ mod tests {
         assert!(safe_rel("C:/Windows/x").is_none());
         assert!(safe_rel("/etc/passwd").map(|p| p == Path::new("etc/passwd")).unwrap(), "absolute becomes relative");
         assert!(safe_rel("a/.ssh/k").is_none());
+    }
+
+    #[test]
+    fn a_listing_lays_out_like_the_walk() {
+        let src = tree();
+        let walked = FolderZip::plan(src.path()).unwrap();
+        let mut list = Vec::new();
+        for e in &walked.entries {
+            let rel = e.name.trim_end_matches('/').to_string();
+            list.push(Listed {
+                rel,
+                dir: e.is_dir(),
+                size: e.size,
+                mtime: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+                src: e.src.clone(),
+            });
+        }
+        list.push(Listed { rel: "../escape".into(), dir: false, size: 1, mtime: std::time::UNIX_EPOCH, src: Some(Src::Path("/etc/hostname".into())) });
+        list.reverse();
+        let z = FolderZip::from_listing(list).unwrap();
+        assert_eq!(z.entry_count(), walked.entry_count(), "the escape is dropped");
+        let bytes = zip_bytes(&z);
+        assert_eq!(bytes.len() as u64, z.len());
+        let out = tempfile::tempdir().unwrap();
+        assert_eq!(extract(&mut std::io::Cursor::new(&bytes), out.path(), |_, _| {}).unwrap(), 4);
+        assert_eq!(std::fs::read(out.path().join("a/b/c/d/e/f/deep.bin")).unwrap(), vec![7u8; 300_001]);
     }
 
     #[test]

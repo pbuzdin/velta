@@ -4,4 +4,13 @@
     <string name="bg_syncing">Vos messages restent à jour</string>
     <string name="bg_not_syncing">Pas de synchronisation en arrière-plan. Touchez pour ouvrir Velta</string>
     <string name="bg_sending">Envoi d\'un message</string>
+    <!-- #454 LoopTransferService -->
+    <string name="loop_transfer_channel">Transferts du chat local</string>
+    <plurals name="loop_transfer_title">
+        <item quantity="one">Transfert de %d fichier</item>
+        <item quantity="many">Transfert de %d fichiers</item>
+        <item quantity="other">Transfert de %d fichiers</item>
+    </plurals>
+    <string name="loop_transfer_progress">%1$s sur %2$s</string>
+    <string name="loop_transfer_cancel">Annuler</string>
 </resources>
