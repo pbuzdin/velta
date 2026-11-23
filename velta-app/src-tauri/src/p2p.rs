@@ -115,6 +115,17 @@ enum Frame {
     FileBegin { id: String, ts: u64, name: String, size: u64, mime: String, #[serde(default)] caption: String },
     FileChunk { id: String, data: String },
     FileEnd { id: String },
+    /// #454: "stop this 1:1 transfer" from either side (cancel, or a
+    /// receiver refusing it, e.g. for free space). A 1.5.x peer skips it as
+    /// an unknown frame; protocol-2 sessions only.
+    FileCancel { id: String, #[serde(default)] reason: String },
+    /// #454 resume, sender -> receiver: "how much of `id` do you hold?"
+    /// Sent before re-streaming an interrupted transfer; protocol 2 only.
+    FileQuery { id: String, size: u64 },
+    /// Receiver -> sender: "I hold the first `have` bytes of `id`" (0: start
+    /// over with a FileBegin). The sender then streams the rest as plain
+    /// FileChunks and a FileEnd.
+    FileResume { id: String, have: u64 },
     /// Session keepalive / opening frame.
     Ping,
     // -- Group frames: protocol 2 sessions only, never sent on a v1 session --
@@ -280,10 +291,28 @@ struct FileRx {
 }
 
 /// Cap for one local-chat media transfer.
-// #454: the 1:1 path streams from disk now, so the cap is a sanity bound
-// (2 GB), not a RAM guard. The receiver still discards torn partials by
-// the size check on FileEnd.
-const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+// #454: the 1:1 path streams from disk with session credits, so this is a
+// sanity bound, not a RAM guard: the real limit is free space, checked by
+// both ends before a byte is written (see `require_space`). Releases up to
+// 1.5.x still refuse anything over 2 GB. The receiver discards torn
+// partials by the size check on FileEnd.
+const MAX_FILE_BYTES: u64 = 1 << 40;
+/// Head room kept free on top of a transfer (the OS, the database, logs).
+const FREE_SPACE_MARGIN: u64 = 256 * 1024 * 1024;
+/// How long a resuming sender waits for the receiver's FileResume before
+/// starting over (an older receiver never answers).
+const RESUME_WAIT: Duration = Duration::from_secs(5);
+
+/// Refuses a write of `bytes` into `dir` that would leave less than
+/// [`FREE_SPACE_MARGIN`] free. Unknown free space (an odd filesystem) passes.
+fn require_space(dir: &std::path::Path, bytes: u64) -> Result<()> {
+    if let Some(free) = crate::xfer::free_space(dir) {
+        if free < bytes.saturating_add(FREE_SPACE_MARGIN) {
+            bail!("not enough free space ({} MB needed, {} MB free)", (bytes + FREE_SPACE_MARGIN) >> 20, free >> 20);
+        }
+    }
+    Ok(())
+}
 // V-10/#67: a peer must not pin memory/fds with many parallel inbound
 // transfers on top of the per-file 2 GB cap. Global bound across peers
 // keeps the whole engine bounded too.
@@ -504,6 +533,15 @@ struct LiveHandle {
     credits: Arc<tokio::sync::Semaphore>,
 }
 
+/// #454: an outgoing 1:1 transfer that lost its session mid-stream.
+#[derive(Debug, Clone)]
+struct Paused {
+    node: NodeId,
+    path: PathBuf,
+    size: u64,
+    begin: Frame,
+}
+
 /// How this device knows a peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PeerKind {
@@ -687,6 +725,15 @@ pub struct P2p {
     /// keying by id alone let one paired peer clobber (or finish) another
     /// peer's transfer that happened to use the same id.
     rx_files: Mutex<HashMap<(NodeId, String), FileRx>>,
+    /// #454: outgoing 1:1 streams by transfer id; set to stop one.
+    out_files: Mutex<HashMap<String, (NodeId, Arc<AtomicBool>)>>,
+    /// #454: interrupted outgoing 1:1 transfers, resumed when the peer's
+    /// next session opens (or on Retry). In memory: a restart re-sends.
+    paused: Mutex<HashMap<String, Paused>>,
+    /// Pending FileQuery answers by transfer id.
+    resume_waiters: Mutex<HashMap<String, (NodeId, tokio::sync::oneshot::Sender<u64>)>>,
+    /// (bytes already there, size) of resumed sends, for the progress events.
+    resume_base: Mutex<HashMap<String, (u64, u64)>>,
     /// Outgoing group media by transfer id.
     group_xfers: Mutex<HashMap<String, GroupXfer>>,
     endpoint: Endpoint,
@@ -791,6 +838,10 @@ impl P2p {
             dir,
             blobs_dir,
             rx_files: Mutex::new(HashMap::new()),
+            out_files: Mutex::new(HashMap::new()),
+            paused: Mutex::new(HashMap::new()),
+            resume_waiters: Mutex::new(HashMap::new()),
+            resume_base: Mutex::new(HashMap::new()),
             group_xfers: Mutex::new(HashMap::new()),
             endpoint,
             secret,
@@ -1082,7 +1133,6 @@ impl P2p {
         name: &str,
         caption: &str,
     ) -> Result<(String, PathBuf)> {
-        const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
         let node_id = NodeId::from_str(peer_str)?;
         // Before the file is copied anywhere: only paired devices get 1:1 media.
         self.require_paired(&node_id)?;
@@ -1091,93 +1141,97 @@ impl P2p {
             bail!("not a file");
         }
         if meta.len() > MAX_FILE_BYTES {
-            bail!("file too large for local chat (cap 2 GB)");
+            bail!("file too large for local chat");
         }
+        self.require_online(&node_id)?;
         let safe = sanitize_name(name);
-        let mime = mime_for(&safe);
-
-        // Sender keeps a copy under blobs so the UI (and the transfer) read
-        // from one canonical location that the media pipeline may serve.
+        // Sender keeps a copy under blobs so the UI (and the transfer, and a
+        // Retry) read from one canonical location the media pipeline serves.
         let dest_dir = self.blobs_dir.join("self");
         std::fs::create_dir_all(&dest_dir)?;
+        require_space(&dest_dir, meta.len())?;
         let id = random_id();
         let dest = dest_dir.join(format!("{id}_{safe}"));
         let key = attachment_key();
-        let seal = seal_media();
-        let size = store_outgoing(std::path::Path::new(src), &dest, key.as_ref(), seal)
+        let size = store_outgoing(std::path::Path::new(src), &dest, key.as_ref(), seal_media())
             .with_context(|| "copy into blobs dir".to_string())?;
+        self.stream_stored(node_id, id, dest, size, safe, caption)
+    }
 
-        let ts = now_ms();
-        // #454: hand the session write path a BOUNDED channel and stream the
-        // chunks from disk on a worker task — the old path built every frame
-        // in RAM first (a 256 MB file = ~340 MB of frames held at once). The
-        // task takes the tx clone; a mid-send session death closes the
-        // receiver, the task's sends fail, and the peer discards its torn
-        // partial by the size check on FileEnd (which then never arrives).
-        let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel::<Frame>(64);
-        let begin = Frame::FileBegin {
-            id: id.clone(),
-            ts: now_ms(),
-            name: safe.clone(),
-            size,
-            mime: mime.clone(),
-            caption: caption.to_string(),
+    /// #454 follow-up: sends a whole folder as one `.zip`. Rust walks the
+    /// folder and writes a STORE zip straight into the sender's stored copy
+    /// (sealed at rest like any Loop blob), one buffer at a time, then the
+    /// copy streams like a file. No renderer zip, no archive in memory.
+    pub fn send_folder(self: &Arc<Self>, peer_str: &str, folder: &str, caption: &str) -> Result<(String, PathBuf, String)> {
+        let node_id = NodeId::from_str(peer_str)?;
+        self.require_paired(&node_id)?;
+        self.require_online(&node_id)?;
+        let plan = crate::loopzip::FolderZip::plan(std::path::Path::new(folder))?;
+        if plan.len() > MAX_FILE_BYTES {
+            bail!("folder too large for local chat");
+        }
+        let base = std::path::Path::new(folder)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let safe = sanitize_name(&format!("{}.zip", if base.is_empty() { "folder" } else { &base }));
+        let dest_dir = self.blobs_dir.join("self");
+        std::fs::create_dir_all(&dest_dir)?;
+        require_space(&dest_dir, plan.len())?;
+        let id = random_id();
+        let dest = dest_dir.join(format!("{id}_{safe}"));
+        let key = attachment_key();
+        let written: Result<()> = (|| {
+            let mut reader = plan.reader();
+            let mut out = std::io::BufWriter::with_capacity(256 * 1024, std::fs::File::create(&dest)?);
+            match key.as_ref().filter(|_| seal_media()) {
+                Some(key) => velta_attachment::encrypt(key, &mut reader, plan.len(), &mut out)?,
+                None => {
+                    std::io::copy(&mut reader, &mut out)?;
+                }
+            }
+            use std::io::Write;
+            out.flush()?;
+            out.get_ref().sync_all()?;
+            Ok(())
+        })();
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&dest);
+            return Err(e.context("packing the folder"));
+        }
+        let (id, path) = self.stream_stored(node_id, id, dest, plan.len(), safe.clone(), caption)?;
+        Ok((id, path, safe))
+    }
+
+    fn require_online(self: &Arc<Self>, node_id: &NodeId) -> Result<()> {
+        let online = {
+            let inner = self.inner.lock().unwrap();
+            inner.peers.get(node_id).is_some_and(|p| p.live.iter().any(|h| !h.tx.is_closed()))
         };
-        let (chunk_tx, chunk_rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, std::io::Error>>(64);
-        {
-            let file = open_plain(&dest, key.as_ref()).map_err(|e| {
-                let _ = std::fs::remove_file(&dest);
-                e
-            })?;
-            std::thread::Builder::new()
-                .name("p2p-file-read".into())
-                .spawn(move || {
-                    use std::io::Read;
-                    let mut reader = std::io::BufReader::with_capacity(CHUNK_RAW, file);
-                    let mut buf = vec![0u8; CHUNK_RAW];
-                    loop {
-                        match reader.read(&mut buf) {
-                            Ok(0) => break,
-                            Ok(n) => {
-                                if chunk_tx.send(Ok(buf[..n].to_vec())).is_err() {
-                                    return; // consumer gone (session died)
-                                }
-                            }
-                            Err(e) => {
-                                let _ = chunk_tx.send(Err(e));
-                                return;
-                            }
-                        }
-                    }
-                })
-                .ok();
+        if !online {
+            self.clone().trigger_connect(*node_id);
+            bail!("peer is offline — media can't be queued yet, send text instead");
         }
-        {
-            // Frame-builder task: FileBegin, chunks (read errors abort the
-            // transfer mid-stream — the peer's size check cleans up), FileEnd.
-            let id = id.clone();
-            std::thread::Builder::new()
-                .name("p2p-file-frames".into())
-                .spawn(move || {
-                    let _ = frame_tx.send(begin);
-                    for chunk in chunk_rx {
-                        match chunk {
-                            Ok(data) => {
-                                if frame_tx.send(Frame::FileChunk { id: id.clone(), data: BASE64.encode(&data) }).is_err() {
-                                    return;
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("[p2p] file read failed mid-send: {e}");
-                                return; // no FileEnd: receiver discards the partial
-                            }
-                        }
-                    }
-                    let _ = frame_tx.send(Frame::FileEnd { id });
-                })
-                .ok();
-        }
-        let now_online = {
+        Ok(())
+    }
+
+    /// Streams a stored copy (plaintext size `size`) to the peer's live
+    /// session and records the outgoing message. The chunks are paced by the
+    /// session's credits (#454): at most [`GROUP_FILE_CREDITS`] chunks wait
+    /// in the session queue, so memory stays flat however big the file is or
+    /// slow the link. The old path queued every frame up front.
+    fn stream_stored(
+        self: &Arc<Self>,
+        node_id: NodeId,
+        id: String,
+        dest: PathBuf,
+        size: u64,
+        safe: String,
+        caption: &str,
+    ) -> Result<(String, PathBuf)> {
+        let mime = mime_for(&safe);
+        let ts = now_ms();
+        let link = {
             let mut inner = self.inner.lock().unwrap();
             let peer = inner
                 .peers
@@ -1185,45 +1239,185 @@ impl P2p {
                 .filter(|p| p.kind == PeerKind::Paired)
                 .ok_or_else(|| anyhow!("unknown peer"))?;
             peer.live.retain(|h| !h.tx.is_closed());
-            let mut sent_now = false;
-            if let Some(handle) = peer.live.first() {
-                // Pump the streamed frames; the unbounded session channel
-                // takes them as fast as the writer can serialize.
-                for f in frame_rx {
-                    if handle.tx.send(f).is_err() {
-                        sent_now = false;
-                        break;
-                    }
-                    sent_now = true;
-                }
-            }
-            let stored = StoredMsg {
-                id: id.clone(),
-                ts,
-                dir: "out".into(),
-                state: if sent_now { "sent" } else { "queued" }.into(),
-                text: caption.to_string(),
-                reply_to: None,
-                reply_text: None,
-                file: Some(StoredFile {
-                    name: safe,
-                    size,
-                    mime,
-                    path: dest.to_string_lossy().to_string(),
-                }),
-            };
-            if !sent_now {
-                bail!("peer is offline — media can't be queued yet, send text instead");
-            }
-            peer.msgs.push(stored.clone());
-            drop(inner);
-            self.persist_messages(&node_id, &[stored]);
-            sent_now
+            peer.live.first().map(|h| FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id })
         };
-        if !now_online {
+        let Some(link) = link else {
             self.clone().trigger_connect(node_id);
+            bail!("peer is offline — media can't be queued yet, send text instead");
+        };
+        let stored = StoredMsg {
+            id: id.clone(),
+            ts,
+            dir: "out".into(),
+            state: "sent".into(),
+            text: caption.to_string(),
+            reply_to: None,
+            reply_text: None,
+            file: Some(StoredFile { name: safe.clone(), size, mime: mime.clone(), path: dest.to_string_lossy().to_string() }),
+        };
+        {
+            let mut inner = self.inner.lock().unwrap();
+            if let Some(peer) = inner.peers.get_mut(&node_id) {
+                peer.msgs.push(stored.clone());
+            }
         }
+        self.persist_messages(&node_id, &[stored]);
+        let begin = Frame::FileBegin { id: id.clone(), ts: now_ms(), name: safe, size, mime, caption: caption.to_string() };
+        self.spawn_stream(Paused { node: node_id, path: dest.clone(), size, begin }, id.clone(), link, false);
         Ok((id, dest))
+    }
+
+    /// Runs one outgoing stream on its own task. With `resume`, it first asks
+    /// the receiver what it holds (FileQuery) and continues from there; a
+    /// peer that does not answer within [`RESUME_WAIT`] gets the whole file.
+    /// A stream that dies with its session (not cancelled) is parked in
+    /// `paused` and resumes when the peer's next session opens.
+    fn spawn_stream(self: &Arc<Self>, job: Paused, id: String, link: FileLink, resume: bool) {
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.out_files.lock().unwrap().insert(id.clone(), (job.node, cancel.clone()));
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut from = 0u64;
+            if resume {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                this.resume_waiters.lock().unwrap().insert(id.clone(), (job.node, tx));
+                if link.tx.send(Frame::FileQuery { id: id.clone(), size: job.size }).is_ok() {
+                    if let Ok(Ok(have)) = tokio::time::timeout(RESUME_WAIT, rx).await {
+                        from = have.min(job.size);
+                    }
+                }
+                this.resume_waiters.lock().unwrap().remove(&id);
+            }
+            if from > 0 {
+                this.resume_base.lock().unwrap().insert(id.clone(), (from, job.size));
+            }
+            let begin = (from == 0).then(|| job.begin.clone());
+            let res = this.stream_one(&id, &job.path, job.size, from, begin, &link, &cancel).await;
+            this.out_files.lock().unwrap().remove(&id);
+            this.resume_base.lock().unwrap().remove(&id);
+            if let Err(e) = res {
+                let cancelled = cancel.load(Ordering::Relaxed);
+                if !cancelled && link.tx.is_closed() {
+                    this.paused.lock().unwrap().insert(id.clone(), job.clone());
+                }
+                this.sink.emit(json!({
+                    "kind": "file-progress", "peerId": job.node.to_string(), "id": id, "dir": "send",
+                    "failed": true, "cancelled": cancelled, "reason": format!("{e:#}"),
+                }));
+            }
+        });
+    }
+
+    /// #454: resumes an interrupted outgoing transfer (Retry, or the peer's
+    /// session came back). Errors when there is nothing to resume, so the UI
+    /// can fall back to a fresh send.
+    pub fn resume_file(self: &Arc<Self>, peer_str: &str, id: &str) -> Result<()> {
+        let node_id = NodeId::from_str(peer_str)?;
+        let job = {
+            let p = self.paused.lock().unwrap();
+            p.get(id).filter(|j| j.node == node_id).cloned().context("nothing to resume")?
+        };
+        let link = {
+            let inner = self.inner.lock().unwrap();
+            inner.peers.get(&node_id).and_then(|p| p.live.iter().find(|h| !h.tx.is_closed())).map(|h| (FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id }, h.proto))
+        };
+        let Some((link, proto)) = link else {
+            self.clone().trigger_connect(node_id);
+            bail!("peer is offline");
+        };
+        self.paused.lock().unwrap().remove(id);
+        // Protocol 1 peers don't know FileQuery: start over right away.
+        self.spawn_stream(job, id.to_string(), link, proto >= 2);
+        Ok(())
+    }
+
+    /// Resumes every parked transfer to `node` (its session just opened).
+    fn resume_paused(self: &Arc<Self>, node: NodeId) {
+        let ids: Vec<String> = self.paused.lock().unwrap().iter().filter(|(_, j)| j.node == node).map(|(i, _)| i.clone()).collect();
+        for id in ids {
+            let _ = self.resume_file(&node.to_string(), &id);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn stream_one(&self, id: &str, path: &std::path::Path, size: u64, from: u64, begin: Option<Frame>, link: &FileLink, cancel: &AtomicBool) -> Result<()> {
+        use std::io::{Read, Seek};
+        const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
+        let closed = || anyhow!("session closed");
+        let mut f = open_plain(path, attachment_key().as_ref()).context("open the stored copy")?;
+        if from > 0 {
+            f.seek(std::io::SeekFrom::Start(from))?;
+        }
+        if let Some(begin) = begin {
+            link.tx.send(begin).map_err(|_| closed())?;
+        }
+        let mut buf = vec![0u8; CHUNK_RAW];
+        let mut total = from;
+        loop {
+            let mut n = 0;
+            while n < buf.len() {
+                let r = f.read(&mut buf[n..])?;
+                if r == 0 {
+                    break;
+                }
+                n += r;
+            }
+            if n == 0 {
+                break;
+            }
+            total += n as u64;
+            if total > size {
+                bail!("the file changed while sending");
+            }
+            let permit = link.credits.acquire().await.map_err(|_| closed())?;
+            permit.forget();
+            if cancel.load(Ordering::Relaxed) {
+                link.credits.add_permits(1);
+                bail!("cancelled");
+            }
+            link.tx.send(Frame::FileChunk { id: id.to_string(), data: BASE64.encode(&buf[..n]) }).map_err(|_| closed())?;
+        }
+        if total != size {
+            bail!("the file changed while sending");
+        }
+        link.tx.send(Frame::FileEnd { id: id.to_string() }).map_err(|_| closed())?;
+        Ok(())
+    }
+
+    /// #454: stops a 1:1 transfer from either end. The sender stops reading;
+    /// the receiver drops its partial. The peer is told with a `FileCancel`
+    /// frame (a peer that does not know it skips it; a dropped send still
+    /// fails its size check there).
+    pub fn cancel_file(&self, peer_str: &str, id: &str) -> Result<()> {
+        let node_id = NodeId::from_str(peer_str)?;
+        let mut hit = false;
+        if let Some((_, flag)) = self.out_files.lock().unwrap().get(id).filter(|(n, _)| *n == node_id) {
+            flag.store(true, Ordering::Relaxed);
+            hit = true;
+        }
+        if self.paused.lock().unwrap().remove(id).is_some() {
+            hit = true;
+        }
+        if let Some(t) = self.rx_files.lock().unwrap().remove(&(node_id, id.to_string())) {
+            let _ = std::fs::remove_file(&t.partial);
+            hit = true;
+            self.sink.emit(json!({
+                "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
+                "failed": true, "cancelled": true,
+            }));
+        }
+        if !hit {
+            bail!("no such transfer");
+        }
+        if let Some(tx) = self.live_tx(&node_id) {
+            let _ = tx.send(Frame::FileCancel { id: id.to_string(), reason: "cancelled".into() });
+        }
+        Ok(())
+    }
+
+    fn live_tx(&self, node_id: &NodeId) -> Option<mpsc::UnboundedSender<Frame>> {
+        let inner = self.inner.lock().unwrap();
+        inner.peers.get(node_id)?.live.iter().find(|h| h.proto >= 2 && !h.tx.is_closed()).map(|h| h.tx.clone())
     }
 
     /// Removes a paired device: closes its sessions, deletes the pairing,
@@ -1576,6 +1770,8 @@ impl P2p {
         // Right after the opening Ping: tell the peer where each shared group
         // stands (protocol 2 sessions only).
         self.group_session_open(node_id, &tx);
+        // #454: carry on with transfers the last session dropped.
+        self.resume_paused(node_id);
         let mut group_window = (std::time::Instant::now(), 0u32);
         // Keepalive: without traffic QUIC idles out after IDLE_TIMEOUT and the
         // peer shows offline even though both engines are healthy.
@@ -1603,7 +1799,11 @@ impl P2p {
                             }
                             if let Frame::FileChunk { id, data } = &frame {
                                 let decoded = data.len() * 3 / 4;
-                                let e = send_progress.entry(id.clone()).or_insert((0u64, 0u64));
+                                // A resumed send has no FileBegin: start at what
+                                // the receiver already held.
+                                let e = send_progress
+                                    .entry(id.clone())
+                                    .or_insert_with(|| self.resume_base.lock().unwrap().get(id).copied().unwrap_or((0, 0)));
                                 e.0 += decoded as u64;
                                 self.sink.emit(json!({
                                     "kind": "file-progress", "peerId": node_id.to_string(),
@@ -1626,6 +1826,8 @@ impl P2p {
                             // Group media: a chunk on the wire hands its credit
                             // back to the streaming task and moves the progress.
                             match &frame {
+                                // #454: 1:1 chunks are paced by the same credits.
+                                Frame::FileChunk { .. } => credits.add_permits(1),
                                 Frame::GroupFileChunk { id, data, .. } => {
                                     credits.add_permits(1);
                                     self.group_file_wrote(node_id, id, (data.len() * 3 / 4) as u64);
@@ -1791,6 +1993,66 @@ impl P2p {
                     "reply_text": reply_text,
                 }));
             }
+            Frame::FileQuery { id, size } => {
+                // Resume: keep the partial up to what is really on disk.
+                let have = {
+                    let mut rx = self.rx_files.lock().unwrap();
+                    let key = (node_id, id.clone());
+                    match rx.get_mut(&key) {
+                        Some(t) if t.gid.is_none() && t.size == size => {
+                            let on_disk = std::fs::metadata(&t.partial).map(|m| m.len()).unwrap_or(0);
+                            let have = on_disk.min(t.got);
+                            let ok = std::fs::OpenOptions::new().write(true).open(&t.partial).and_then(|f| f.set_len(have)).is_ok();
+                            if ok {
+                                t.got = have;
+                                have
+                            } else {
+                                rx.remove(&key);
+                                0
+                            }
+                        }
+                        Some(t) if t.gid.is_none() => {
+                            let _ = std::fs::remove_file(&t.partial);
+                            rx.remove(&key);
+                            0
+                        }
+                        _ => 0,
+                    }
+                };
+                if is_safe_transfer_id(&id) {
+                    let _ = tx.send(Frame::FileResume { id, have });
+                }
+            }
+            Frame::FileResume { id, have } => {
+                let mut w = self.resume_waiters.lock().unwrap();
+                if w.get(&id).is_some_and(|(n, _)| *n == node_id) {
+                    if let Some((_, reply)) = w.remove(&id) {
+                        let _ = reply.send(have);
+                    }
+                }
+            }
+            Frame::FileCancel { id, reason } => {
+                let out = self.out_files.lock().unwrap().get(&id).filter(|(n, _)| *n == node_id).map(|(_, f)| f.clone());
+                if let Some(flag) = out {
+                    flag.store(true, Ordering::Relaxed);
+                    self.sink.emit(json!({
+                        "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "send",
+                        "failed": true, "cancelled": true, "reason": reason,
+                    }));
+                }
+                let rx = self.rx_files.lock().unwrap().remove(&(node_id, id.clone()));
+                if let Some(t) = rx {
+                    if t.gid.is_some() {
+                        self.rx_files.lock().unwrap().insert((node_id, id), t);
+                        return;
+                    }
+                    let _ = std::fs::remove_file(&t.partial);
+                    self.sink.emit(json!({
+                        "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
+                        "failed": true, "cancelled": true, "reason": reason,
+                    }));
+                }
+            }
             Frame::FileBegin { id, ts, name, size, mime, caption } => {
                 // The transfer id becomes part of the partial file's path, so a
                 // peer-supplied id must be a plain token (ours are random_id()
@@ -1803,10 +2065,7 @@ impl P2p {
                     return;
                 }
                 if size > MAX_FILE_BYTES {
-                    self.sink.emit(json!({
-                        "kind": "error", "peerId": node_id.to_string(),
-                        "message": format!("rejected file: {} bytes over the cap", size),
-                    }));
+                    self.refuse_file(node_id, &id, &format!("rejected file: {} bytes over the cap", size), tx);
                     return;
                 }
                 // V-10/#67: concurrency limits on top of the size cap.
@@ -1818,15 +2077,19 @@ impl P2p {
                     let for_peer = rx.keys().filter(|(n, _)| *n == node_id).count();
                     if for_peer >= MAX_INBOUND_FILES_PER_PEER || rx.len() >= MAX_INBOUND_FILES_TOTAL {
                         drop(rx);
-                        self.sink.emit(json!({
-                            "kind": "error", "peerId": node_id.to_string(),
-                            "message": "rejected file: too many concurrent transfers",
-                        }));
+                        self.refuse_file(node_id, &id, "rejected file: too many concurrent transfers", tx);
                         return;
                     }
                 }
                 let dir = self.blobs_dir.join(node_id.to_string());
                 let _ = std::fs::create_dir_all(&dir);
+                // #454: the limit is free space. Sealing at rest writes a
+                // second copy before the plaintext goes, so it needs twice.
+                let need = if seal_media() && attachment_key().is_some() { size.saturating_mul(2) } else { size };
+                if let Err(e) = require_space(&dir, need) {
+                    self.refuse_file(node_id, &id, &format!("rejected file: {e}"), tx);
+                    return;
+                }
                 let partial = dir.join(format!("partial-{id}"));
                 match std::fs::File::create(&partial) {
                     Ok(_) => {
@@ -3303,6 +3566,17 @@ impl P2p {
         fresh
     }
 
+    /// #454: refuses an inbound 1:1 file. The UI hears why; a protocol-2
+    /// peer gets a `FileCancel` so its sender stops instead of streaming
+    /// into the void (a 1.5.x sender ignores it and fails on its own).
+    fn refuse_file(&self, from: NodeId, id: &str, why: &str, tx: &FrameTx) {
+        self.sink.emit(json!({ "kind": "error", "peerId": from.to_string(), "message": why }));
+        let v2 = self.inner.lock().unwrap().peers.get(&from).is_some_and(|p| p.live.iter().any(|h| h.proto >= 2 && h.tx.same_channel(tx)));
+        if v2 && is_safe_transfer_id(id) {
+            let _ = tx.send(Frame::FileCancel { id: id.to_string(), reason: why.to_string() });
+        }
+    }
+
     /// A 1:1 typing hint from a paired peer on a protocol-2 session.
     fn on_typing(&self, from: NodeId, on: bool, tx: &FrameTx) {
         let mut guard = self.inner.lock().unwrap();
@@ -4566,6 +4840,39 @@ pub async fn p2p_send_file(
     .await
     .map_err(|e| e.to_string())??;
     Ok(serde_json::json!({ "id": id, "path": stored_path.to_string_lossy() }))
+}
+
+/// #454 follow-up: sends a picked folder as one STORE zip built in Rust.
+/// Returns `{id, path, name, size}`.
+#[tauri::command]
+pub async fn p2p_send_folder(
+    state: tauri::State<'_, P2pState>,
+    app: tauri::AppHandle,
+    peer_id: String,
+    path: String,
+    caption: String,
+) -> Result<serde_json::Value, String> {
+    crate::picked::check(&app, std::path::Path::new(&path))?;
+    let engine = engine(&state).map_err(|e| e.to_string())?;
+    let (id, stored, name) = tauri::async_runtime::spawn_blocking(move || {
+        engine.send_folder(&peer_id, &path, &caption).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let size = std::fs::metadata(&stored).map(|m| m.len()).unwrap_or(0);
+    Ok(serde_json::json!({ "id": id, "path": stored.to_string_lossy(), "name": name, "size": size }))
+}
+
+/// #454: resumes an interrupted 1:1 send from what the receiver holds.
+#[tauri::command]
+pub fn p2p_resume_file(state: tauri::State<'_, P2pState>, peer_id: String, id: String) -> Result<(), String> {
+    engine(&state).map_err(|e| e.to_string())?.resume_file(&peer_id, &id).map_err(|e| e.to_string())
+}
+
+/// #454: cancels a 1:1 transfer in either direction.
+#[tauri::command]
+pub fn p2p_cancel_file(state: tauri::State<'_, P2pState>, peer_id: String, id: String) -> Result<(), String> {
+    engine(&state).map_err(|e| e.to_string())?.cancel_file(&peer_id, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -6924,6 +7231,271 @@ mod tests {
 
     fn live_credits(engine: &Arc<P2p>, node: &NodeId) -> Arc<tokio::sync::Semaphore> {
         engine.inner.lock().unwrap().peers[node].live.iter().find(|h| !h.tx.is_closed()).unwrap().credits.clone()
+    }
+
+    // -- #454 follow-up: streamed 1:1 transfers -------------------------------
+
+    fn file_frames(frames: &[Frame]) -> (usize, usize, usize) {
+        let mut c = (0, 0, 0);
+        for f in frames {
+            match f {
+                Frame::FileBegin { .. } => c.0 += 1,
+                Frame::FileChunk { .. } => c.1 += 1,
+                Frame::FileEnd { .. } => c.2 += 1,
+                _ => {}
+            }
+        }
+        c
+    }
+
+    /// The 1:1 sender is bounded like the group one: with a session that does
+    /// not drain, only GROUP_FILE_CREDITS chunks are ever queued.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn one_to_one_file_stream_is_paced_by_session_credits() {
+        let (a, _rx) = start("pace11").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (_tb, mut rb) = attach_live(&a, b, 2);
+        let (path, data) = write_blob(&a, "big.bin", 1_000_000); // 11 chunks
+        let (id, _) = a.send_file(&b.to_string(), &path, "big.bin", "").unwrap();
+        until(10, "the first credits are used", || rb.len() > GROUP_FILE_CREDITS).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut all = drain(&mut rb);
+        assert_eq!(file_frames(&all), (1, GROUP_FILE_CREDITS, 0), "Begin + the credits, nothing more");
+        let credits = live_credits(&a, &b);
+        let mut guard = 0;
+        while !all.iter().any(|f| matches!(f, Frame::FileEnd { .. })) {
+            guard += 1;
+            assert!(guard < 400, "stream stalled");
+            credits.add_permits(GROUP_FILE_CREDITS);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            all.extend(drain(&mut rb));
+        }
+        assert_eq!(file_frames(&all), (1, 11, 1));
+        let mut got = Vec::new();
+        for f in &all {
+            if let Frame::FileChunk { id: fid, data } = f {
+                assert_eq!(fid, &id);
+                got.extend(BASE64.decode(data.as_bytes()).unwrap());
+            }
+        }
+        assert_eq!(got, data);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn either_side_can_cancel_a_one_to_one_file() {
+        let (a, a_ev) = start("cancel11").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (tb, mut rb) = attach_live(&a, b, 2);
+        let (path, _) = write_blob(&a, "c.bin", 1_000_000);
+        // Sender side: the stream stops and the peer is told.
+        let (id, _) = a.send_file(&b.to_string(), &path, "c.bin", "").unwrap();
+        until(10, "streaming", || rb.len() > GROUP_FILE_CREDITS).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = drain(&mut rb);
+        a.cancel_file(&b.to_string(), &id).unwrap();
+        live_credits(&a, &b).add_permits(100);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let frames = drain(&mut rb);
+        assert!(frames.iter().any(|f| matches!(f, Frame::FileCancel { id: c, .. } if c == &id)), "peer told: {:?}", frames.iter().map(|f| serde_json::to_string(f).unwrap().chars().take(60).collect::<String>()).collect::<Vec<_>>());
+        assert_eq!(file_frames(&frames).2, 0, "no FileEnd after a cancel");
+        assert!(file_frames(&frames).1 <= 1, "at most the chunk already holding a credit");
+        wait_for(&a_ev, 5, |e| e["kind"] == "file-progress" && e["id"] == id.as_str() && e["cancelled"] == true);
+        // Receiver side: a FileCancel from the peer drops the partial.
+        a.handle_frame(b, Frame::FileBegin { id: "in1".into(), ts: 1, name: "x.bin".into(), size: 10, mime: String::new(), caption: String::new() }, &tb);
+        a.handle_frame(b, Frame::FileChunk { id: "in1".into(), data: BASE64.encode(b"hello") }, &tb);
+        let partial = a.blobs_dir.join(b.to_string()).join("partial-in1");
+        assert!(partial.exists());
+        a.handle_frame(b, Frame::FileCancel { id: "in1".into(), reason: "user".into() }, &tb);
+        assert!(!partial.exists(), "partial removed");
+        assert!(a.rx_files.lock().unwrap().is_empty());
+        // And a FileCancel naming another peer's transfer does nothing.
+        let (id2, _) = a.send_file(&b.to_string(), &path, "c.bin", "").unwrap();
+        let other = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (to, _ro) = attach_live(&a, other, 2);
+        a.handle_frame(other, Frame::FileCancel { id: id2.clone(), reason: String::new() }, &to);
+        assert!(!a.out_files.lock().unwrap()[&id2].1.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn free_space_refusal_and_new_cap() {
+        assert!(MAX_FILE_BYTES > 2 * 1024 * 1024 * 1024, "no 2 GB cap any more");
+        let d = std::env::temp_dir();
+        assert!(require_space(&d, 1).is_ok());
+        let err = require_space(&d, u64::MAX / 2).unwrap_err().to_string();
+        assert!(err.contains("not enough free space"), "{err}");
+    }
+
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_interrupted_send_resumes_from_what_the_receiver_holds() {
+        let (a, _ev) = start("resume-s").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (_tb, rb) = attach_live(&a, b, 2);
+        let (path, data) = write_blob(&a, "r.bin", 1_000_000);
+        let (id, _) = a.send_file(&b.to_string(), &path, "r.bin", "").unwrap();
+        until(10, "streaming", || rb.len() > GROUP_FILE_CREDITS).await;
+        // The session dies mid-stream.
+        let credits = live_credits(&a, &b);
+        drop(rb);
+        credits.close();
+        until(10, "parked for resume", || a.paused.lock().unwrap().contains_key(&id)).await;
+        // A new session: the sender asks first, then streams only the rest.
+        let (tb2, mut rb2) = attach_live(&a, b, 2);
+        a.resume_file(&b.to_string(), &id).unwrap();
+        until(10, "FileQuery sent", || rb2.len() >= 1).await;
+        let q = drain(&mut rb2);
+        assert!(matches!(&q[0], Frame::FileQuery { id: qid, size } if qid == &id && *size == 1_000_000), "{q:?}");
+        a.handle_frame(b, Frame::FileResume { id: id.clone(), have: 500_000 }, &tb2);
+        let credits = live_credits(&a, &b);
+        let mut all = Vec::new();
+        let mut guard = 0;
+        while !all.iter().any(|f| matches!(f, Frame::FileEnd { .. })) {
+            guard += 1;
+            assert!(guard < 400, "stream stalled");
+            credits.add_permits(GROUP_FILE_CREDITS);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            all.extend(drain(&mut rb2));
+        }
+        assert_eq!(file_frames(&all).0, 0, "no FileBegin on a resume");
+        let mut got = Vec::new();
+        for f in &all {
+            if let Frame::FileChunk { data, .. } = f {
+                got.extend(BASE64.decode(data.as_bytes()).unwrap());
+            }
+        }
+        assert_eq!(got, data[500_000..], "exactly the missing tail");
+        assert!(a.paused.lock().unwrap().is_empty());
+        assert!(a.resume_file(&b.to_string(), &id).is_err(), "nothing left to resume");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_receiver_answers_resume_queries_and_finishes_the_file() {
+        let (a, ev) = start("resume-r").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (tb, mut rb) = attach_live(&a, b, 2);
+        let data: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        a.handle_frame(b, Frame::FileBegin { id: "rr".into(), ts: 1, name: "rr.bin".into(), size: data.len() as u64, mime: String::new(), caption: String::new() }, &tb);
+        a.handle_frame(b, Frame::FileChunk { id: "rr".into(), data: BASE64.encode(&data[..100_000]) }, &tb);
+        // A torn tail on disk past what was counted is cut off.
+        let partial = a.blobs_dir.join(b.to_string()).join("partial-rr");
+        {
+            use std::io::Write;
+            std::fs::OpenOptions::new().append(true).open(&partial).unwrap().write_all(b"torn").unwrap();
+        }
+        a.handle_frame(b, Frame::FileQuery { id: "rr".into(), size: data.len() as u64 }, &tb);
+        let r = drain(&mut rb);
+        assert!(r.iter().any(|f| matches!(f, Frame::FileResume { id, have } if id == "rr" && *have == 100_000)), "{r:?}");
+        assert_eq!(std::fs::metadata(&partial).unwrap().len(), 100_000);
+        a.handle_frame(b, Frame::FileChunk { id: "rr".into(), data: BASE64.encode(&data[100_000..]) }, &tb);
+        a.handle_frame(b, Frame::FileEnd { id: "rr".into() }, &tb);
+        let m = wait_for(&ev, 5, |e| e["kind"] == "message" && e["id"] == "rr");
+        assert_eq!(std::fs::read(m["file"]["path"].as_str().unwrap()).unwrap(), data);
+        // Unknown transfer or a different size: start over.
+        a.handle_frame(b, Frame::FileQuery { id: "nope".into(), size: 5 }, &tb);
+        assert!(drain(&mut rb).iter().any(|f| matches!(f, Frame::FileResume { id, have } if id == "nope" && *have == 0)));
+    }
+
+    /// A peer that never answers the query (an older build) gets the whole
+    /// file again after RESUME_WAIT, with a fresh FileBegin.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn resume_without_an_answer_starts_over() {
+        let (a, _ev) = start("resume-old").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let (_tb, rb) = attach_live(&a, b, 2);
+        let (path, _) = write_blob(&a, "o.bin", 1_000_000);
+        let (id, _) = a.send_file(&b.to_string(), &path, "o.bin", "").unwrap();
+        until(10, "streaming", || rb.len() > GROUP_FILE_CREDITS).await;
+        let credits = live_credits(&a, &b);
+        drop(rb);
+        credits.close();
+        until(10, "parked", || a.paused.lock().unwrap().contains_key(&id)).await;
+        let (_tb2, mut rb2) = attach_live(&a, b, 2);
+        a.resume_file(&b.to_string(), &id).unwrap();
+        tokio::time::sleep(RESUME_WAIT + Duration::from_millis(500)).await;
+        live_credits(&a, &b).add_permits(100);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let all = drain(&mut rb2);
+        assert!(matches!(all[0], Frame::FileQuery { .. }));
+        assert_eq!(file_frames(&all), (1, 11, 1), "query, then the whole file");
+    }
+
+    fn rss_kb() -> u64 {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
+            .unwrap_or(0)
+    }
+
+    /// Real engines over iroh: a large file and a folder round-trip with the
+    /// process RSS staying flat. VELTA_BIG_TEST_MB scales the file (default
+    /// 192 MB; run with 2100+ to cover the old 2 GB cap by hand).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn large_file_and_folder_round_trip_with_flat_memory() {
+        use std::io::Write;
+        let mb: u64 = std::env::var("VELTA_BIG_TEST_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(192);
+        let (alice, alice_rx) = start("big-a").await;
+        let (bob, bob_rx) = start("big-b").await;
+        pair(&alice, &alice_rx, &bob).await;
+        let alice_id = alice.node_id().to_string();
+        // Large file, written in 1 MB steps (never whole in memory).
+        let src = bob.dir.join("big.bin");
+        {
+            let mut f = std::io::BufWriter::new(std::fs::File::create(&src).unwrap());
+            let block: Vec<u8> = (0..1024 * 1024).map(|i| (i * 7 % 251) as u8).collect();
+            for i in 0..mb {
+                let mut b = block.clone();
+                b[0] = i as u8;
+                f.write_all(&b).unwrap();
+            }
+        }
+        let size = mb * 1024 * 1024;
+        let base = rss_kb();
+        let peak = Arc::new(AtomicU64::new(base));
+        let stop = Arc::new(AtomicBool::new(false));
+        let sampler = {
+            let (peak, stop) = (peak.clone(), stop.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    peak.fetch_max(rss_kb(), Ordering::Relaxed);
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            })
+        };
+        let (bob2, src2) = (bob.clone(), src.to_string_lossy().to_string());
+        let aid = alice_id.clone();
+        tokio::task::spawn_blocking(move || bob2.send_file(&aid, &src2, "big.bin", "").unwrap()).await.unwrap();
+        let got = wait_for(&alice_rx, 600, |e| e["kind"] == "message" && e["file"]["name"] == "big.bin");
+        stop.store(true, Ordering::Relaxed);
+        sampler.join().unwrap();
+        assert_eq!(got["file"]["size"], size);
+        let out = std::path::PathBuf::from(got["file"]["path"].as_str().unwrap());
+        assert_eq!(std::fs::metadata(&out).unwrap().len(), size);
+        let grew_mb = peak.load(Ordering::Relaxed).saturating_sub(base) / 1024;
+        if base > 0 {
+            assert!(grew_mb < 64, "RSS grew {grew_mb} MB for a {mb} MB transfer: not streaming");
+        }
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_dir_all(bob.blobs_dir.join("self"));
+        // A folder: Rust zips it into the stored copy, Alice extracts it.
+        let folder = bob.dir.join("Holiday Фото");
+        std::fs::create_dir_all(folder.join("day 1/raw")).unwrap();
+        std::fs::create_dir_all(folder.join("empty")).unwrap();
+        std::fs::write(folder.join("day 1/a.jpg"), vec![1u8; 200_000]).unwrap();
+        std::fs::write(folder.join("day 1/raw/b.dng"), vec![2u8; 300_000]).unwrap();
+        std::fs::write(folder.join("notes ✓.txt"), "hi").unwrap();
+        let (bob3, f3, aid) = (bob.clone(), folder.to_string_lossy().to_string(), alice_id.clone());
+        let (_, _, name) = tokio::task::spawn_blocking(move || bob3.send_folder(&aid, &f3, "pics").unwrap()).await.unwrap();
+        assert!(name.ends_with(".zip"));
+        let got = wait_for(&alice_rx, 60, |e| e["kind"] == "message" && e["text"] == "pics");
+        let zip = std::path::PathBuf::from(got["file"]["path"].as_str().unwrap());
+        let dest = alice.dir.join("extracted");
+        let n = crate::loopzip::extract(&mut std::fs::File::open(&zip).unwrap(), &dest, |_, _| {}).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(std::fs::read(dest.join("day 1/raw/b.dng")).unwrap(), vec![2u8; 300_000]);
+        assert_eq!(std::fs::read_to_string(dest.join("notes ✓.txt")).unwrap(), "hi");
+        assert!(dest.join("empty").is_dir());
+        drop(bob_rx);
     }
 
     fn group_file_frames(frames: &[Frame]) -> (usize, usize, usize) {

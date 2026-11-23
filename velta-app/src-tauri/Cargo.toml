@@ -35,6 +35,8 @@ tauri-build = { version = "2", features = [] }
 # #454: folder transfer — the shell walks a picked folder so the
 # renderer can zip it entry by entry (folder-zip.js, STORE entries).
 walkdir = "2"
+# loopzip.rs (#454): CRC-32 for the Rust-side STORE zips. Already in the lock.
+crc32fast = "1"
 tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 # Gzip sniff/decompress for PWA-produced backup tars (prep_backup).
 flate2 = "1"

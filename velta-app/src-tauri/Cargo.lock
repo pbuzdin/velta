@@ -10190,6 +10190,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "argon2",
+ "crc32fast",
  "data-encoding",
  "deltachat",
  "deltachat-jsonrpc",
