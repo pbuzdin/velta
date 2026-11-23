@@ -1739,6 +1739,7 @@
   "Send folder…": "Отправить папку…",
   "Transfer cancelled": "Передача отменена",
   "Packing the folder…": "Упаковка папки…",
+  "Couldn't open the folder picker": "Не удалось открыть выбор папки",
   "Extracting…": "Извлечение…",
   "Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network.": "Локальный чат выключен. Включите его, чтобы связываться с устройствами рядом и использовать локальные группы — всё остаётся в вашей сети.",
   "Turn on local chat": "Включить локальный чат",

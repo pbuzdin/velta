@@ -897,14 +897,30 @@ export async function lcCancelTransfer(chatId, msgId) {
 // #454 follow-up: a picked folder goes as one zip that Rust builds from disk
 // (p2p_send_folder). The peer must be online, like any Loop file.
 export async function lcSendFolder(chatId, folder, caption = "") {
-  if (!String(chatId).startsWith(P2P_PREFIX) || !isTauri()) throw new Error("folders go over Velta Loop only");
+  return sendStreamed(chatId, "p2p_send_folder", { path: folder }, caption, "application/zip");
+}
+
+// #454 Android: a folder picked with saf_pick_tree (a content:// tree URI),
+// zipped and streamed by Rust like lcSendFolder.
+export async function lcSendTree(chatId, tree, caption = "") {
+  return sendStreamed(chatId, "p2p_send_tree", { uri: tree }, caption, "application/zip");
+}
+
+// #454 Android: a content:// file from the system picker, read once by Rust
+// straight into the stored copy (no uploads/ copy first).
+export async function lcSendContentUri(chatId, uri, caption = "") {
+  return sendStreamed(chatId, "p2p_send_content_uri", { uri }, caption, "");
+}
+
+async function sendStreamed(chatId, cmd, args, caption, mime) {
+  if (!String(chatId).startsWith(P2P_PREFIX) || !isTauri()) throw new Error("this goes over Velta Loop only");
   const peerId = String(chatId).slice(P2P_PREFIX.length);
   const p = peer(peerId);
-  const res = await invoke()("p2p_send_folder", { peerId, path: folder, caption })
+  const res = await invoke()(cmd, { peerId, ...args, caption })
     .catch(err => { throw new Error(String(err?.message || err)); });
   const msg = {
     id: nowId(), engineId: res.id, ts: Date.now(), text: caption, out: true, acked: false,
-    file: { name: res.name, size: res.size || 0, mime: "application/zip", path: res.path },
+    file: { name: res.name, size: res.size || 0, mime, path: res.path },
   };
   p.msgs.push(msg);
   emitChanged();

@@ -119,7 +119,7 @@ import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
-import { lcRetryTransfer, lcCancelTransfer, lcSendFolder } from "./local-chat.js";
+import { lcRetryTransfer, lcCancelTransfer, lcSendFolder, lcSendTree, lcSendContentUri } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealItem } from "./text-only-mode.js";
@@ -5205,12 +5205,22 @@ export class ChatView {
       // The user picks the destination; entries land under <dest>/<base>/<rel>.
       // Rust streams the archive entry by entry (paths and CRCs checked), so
       // a multi-GB folder never sits in memory.
-      const dir = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: t("Extract to…") } });
-      const dest = (Array.isArray(dir) ? dir[0] : dir) || "";
-      if (!dest) return;
-      await invoke("allow_picked_path", { path: dest }).catch(e => rustLog(`allow_picked_path: ${e}`));
-      toast(t("Extracting…"));
-      const wrote = await invoke("extract_zip_file", { src: m.filePath, dest, base });
+      let wrote;
+      if (isAndroid()) {
+        // Android has no directory dialog in the plugin: the system folder
+        // picker (SAF tree) and a SAF writer on the Rust side.
+        const tree = await invoke("saf_pick_tree");
+        if (!tree) return;
+        toast(t("Extracting…"));
+        wrote = await invoke("extract_zip_to_tree", { src: m.filePath, tree, base });
+      } else {
+        const dir = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: t("Extract to…") } });
+        const dest = (Array.isArray(dir) ? dir[0] : dir) || "";
+        if (!dest) return;
+        await invoke("allow_picked_path", { path: dest }).catch(e => rustLog(`allow_picked_path: ${e}`));
+        toast(t("Extracting…"));
+        wrote = await invoke("extract_zip_file", { src: m.filePath, dest, base });
+      }
       toast(t("Extracted {n} files", { n: wrote }));
       diagnosticsSink.append("info", `folder zip extracted: ${wrote} entries under ${base}/`);
     } catch (err) {
@@ -5228,19 +5238,27 @@ export class ChatView {
     if (!this._isCurrent(session) || !this.chat) return;
     const invoke = tauriInvoke();
     if (!invoke) { errToast(t("Sending a folder needs the Velta app")); return; }
+    const android = isAndroid();
     let picked;
     try {
-      picked = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false } });
+      // Android: the system folder picker returns a SAF tree URI that Rust
+      // lists and reads through the ContentResolver.
+      picked = android
+        ? await invoke("saf_pick_tree")
+        : await invoke("plugin:dialog|open", { options: { directory: true, multiple: false } });
     } catch (err) {
       diagnosticsSink.append("warning", `folder picker failed: ${err?.message || err}`);
+      if (android && this._isCurrent(session)) errToast(t("Couldn't open the folder picker"));
       return;
     }
     const folder = (Array.isArray(picked) ? picked[0] : picked) || "";
     if (!folder || !this._isCurrent(session)) return;
-    await invoke("allow_picked_path", { path: folder }).catch(e => rustLog(`allow_picked_path: ${e}`));
+    if (!android) await invoke("allow_picked_path", { path: folder }).catch(e => rustLog(`allow_picked_path: ${e}`));
     toast(t("Packing the folder…"));
     try {
-      const msg = await lcSendFolder(session.chatId, folder, "");
+      const msg = android
+        ? await lcSendTree(session.chatId, folder, "")
+        : await lcSendFolder(session.chatId, folder, "");
       if (this._isCurrent(session) && msg) { this.appendOutgoing(msg); this.onChatsChanged(); }
     } catch (err) {
       if (this._isCurrent(session)) errToast(t("Couldn't send the folder: ") + (err?.message || err));
@@ -5315,6 +5333,16 @@ export class ChatView {
       // ContentResolver first (resolve_content_uri in lib.rs). The resolved
       // path carries the real display name, which the type detection needs
       // (the raw content id has no extension).
+      // #454: a generic file into a Loop chat streams straight from the
+      // content:// URI (Rust reads it once into the stored copy), so a
+      // multi-GB pick is not first copied into uploads/.
+      if (kind === "file" && this.chat?.isP2p && !this.chat?.isP2pGroup && /^content:\/\//.test(picked)) {
+        const { prefix } = this._takeQuote();
+        const msg = await lcSendContentUri(session.chatId, picked, prefix || "");
+        if (!this._isCurrent(session)) return;
+        if (msg) { this.appendOutgoing(msg); this.onChatsChanged(); }
+        return;
+      }
       let resolved;
       if (/^content:\/\//.test(picked)) {
         resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()), encrypt: true });

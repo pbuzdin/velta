@@ -1739,6 +1739,7 @@
   "Send folder…": "Envoyer un dossier…",
   "Transfer cancelled": "Transfert annulé",
   "Packing the folder…": "Préparation du dossier…",
+  "Couldn't open the folder picker": "Impossible d'ouvrir le sélecteur de dossiers",
   "Extracting…": "Extraction…",
   "Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network.": "Le chat local est désactivé. Activez-le pour jumeler les appareils proches et utiliser les groupes locaux — tout reste sur votre réseau.",
   "Turn on local chat": "Activer le chat local",
