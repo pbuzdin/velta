@@ -1,15 +1,27 @@
 //! #470: automatic iroh file transfer for Velta ↔ Velta 1:1 chats.
 //!
-//! An attachment over [`THRESHOLD`] to a Velta contact is not mailed. The
-//! sender keeps the file, offers it here and mails a small end-to-end
+//! An attachment over [`THRESHOLD`] to a contact that proved it runs Velta
+//! with this transfer (core patch #31, `Chat-Velta-Xfer`) is not mailed. The
+//! sender stores a copy, offers it here and mails a small end-to-end
 //! encrypted message carrying a [`Ticket`] (node id, SHA-256, size, expiry,
-//! iroh protocol version, the sender's iroh relay). The receiver fetches it
-//! over iroh: direct when reachable, otherwise through the chatmail relay's
-//! advertised iroh relay. Fetches are chunked, resumable (`.part` file) and
-//! hash-verified. Every failure that the email path can fix (expired ticket,
-//! sender unreachable, other iroh version) is a [`FetchError`] whose
-//! [`FetchError::wants_email`] is true: the caller then asks the sender to
-//! re-send the file as a normal attachment.
+//! a random per-ticket secret, iroh protocol version, the sender's iroh
+//! relay). The receiver fetches it over iroh: direct when reachable,
+//! otherwise through the chatmail relay's advertised iroh relay. Fetches are
+//! chunked, resumable (`.part` file) and hash-verified. Every failure that
+//! the email path can fix (expired ticket, sender unreachable, other iroh
+//! version) is a [`FetchError`] whose [`FetchError::wants_email`] is true: the
+//! caller then asks the sender to re-send the file as a normal attachment.
+//!
+//! At rest (#465 parity): the offered copy, the received file, the offer
+//! list and the endpoint key are sealed with the profile's attachment key
+//! (VLTA) when there is one; keyless profiles keep plaintext files readable
+//! only by this user. Only the in-flight `.part` is plaintext (resume appends
+//! to it); it lives in app-private storage and is removed when the fetch ends
+//! or after [`PART_MAX_AGE`].
+//!
+//! Offers survive restarts (`offers.json`): a receiver can still fetch after
+//! the sender's app restarted, and the UI re-sends undelivered files by email
+//! once their ticket expires.
 //!
 //! iroh version: 0.35, the one core and every chatmail relay's iroh relay
 //! speak today (relays broke wire compatibility in 0.91). The ticket names
@@ -17,11 +29,12 @@
 //!
 //! Relays: ONLY the relay the chatmail server advertises. With none
 //! advertised the endpoint runs with relays disabled (direct paths only) and
-//! an unreachable sender falls back to email. n0's public relays are never
-//! used: their 0.35 relays shut down on 2026-12-31.
+//! an unreachable sender falls back to email. A ticket naming another relay
+//! is fetched direct-only. n0's public relays are never used.
 
 use std::{
     collections::HashMap,
+    io::{Read, Seek, SeekFrom, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
@@ -36,16 +49,26 @@ use data_encoding::{BASE64URL_NOPAD, HEXLOWER};
 use iroh035::{endpoint::Connection, Endpoint, NodeAddr, NodeId, RelayMap, RelayMode, RelayUrl, SecretKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
+use velta_attachment::{AttachmentKey, AttachmentReader};
 
 /// Attachments strictly larger than this go over iroh (6 MB).
 pub const THRESHOLD: u64 = 6 * 1024 * 1024;
+/// Largest file a receiver accepts (the Loop engine's bound, p2p.rs).
+pub const MAX_FILE: u64 = 2 * 1024 * 1024 * 1024;
 pub const ALPN: &[u8] = b"/velta/xfer/1";
 pub const TICKET_PREFIX: &str = "VXFER1:";
 /// The iroh wire this build speaks for transfers.
 pub const IROH_PROTO: &str = "iroh-0.35";
 /// Default ticket lifetime (the sender re-sends by email after this).
 pub const DEFAULT_TTL: Duration = Duration::from_secs(24 * 3600);
+/// Leftover `.part` files older than this are deleted at start.
+pub const PART_MAX_AGE: Duration = Duration::from_secs(3 * 24 * 3600);
+/// Offers expired longer than this are forgotten by [`Xfer::sweep`] (the UI
+/// mails or withdraws them well before).
+const OFFER_KEEP: u64 = 7 * 24 * 3600;
+/// Free space kept on top of the bytes a fetch needs.
+const SPACE_MARGIN: u64 = 32 * 1024 * 1024;
 const CHUNK: usize = 256 * 1024;
 const MAX_REQ: usize = 1024;
 
@@ -69,6 +92,11 @@ pub struct Ticket {
     pub name: String,
     /// Expiry, Unix seconds.
     pub exp: u64,
+    /// Random per-ticket secret the provider checks (hex). Knowing the
+    /// node id and the file's hash is not enough to fetch it. Empty only in
+    /// tickets from builds before it existed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sec: String,
 }
 
 impl Ticket {
@@ -85,11 +113,14 @@ impl Ticket {
         if t.hash.len() != 64 || HEXLOWER.decode(t.hash.as_bytes()).is_err() {
             bail!("bad hash");
         }
+        if t.sec.len() > 128 {
+            bail!("bad secret");
+        }
         t.node.parse::<NodeId>().context("bad node id")?;
         if let Some(r) = &t.relay {
             r.parse::<RelayUrl>().context("bad relay url")?;
         }
-        if t.name.is_empty() || t.name.len() > 255 || t.name.contains(['/', '\\', '\0']) || t.name == ".." {
+        if t.name.is_empty() || t.name.len() > 255 || t.name.contains(['/', '\\', '\0']) || t.name == ".." || t.name == "." {
             bail!("bad file name");
         }
         Ok(t)
@@ -105,19 +136,39 @@ pub enum FetchError {
     OtherProto(String),
     /// No path to the sender (offline, isolated network, no relay advertised).
     Unreachable(String),
-    /// The sender no longer offers this file (deleted, restarted, expired there).
+    /// The sender no longer offers this file (deleted, expired there, or the
+    /// ticket's secret did not match).
     NotOffered,
     /// The bytes did not hash to the ticket; the partial is deleted.
     HashMismatch,
+    /// The ticket announces more than [`MAX_FILE`].
+    TooLarge,
+    /// Not enough free disk space for the file (bytes needed).
+    NoSpace(u64),
     /// Local I/O or a broken stream; retrying resumes from the `.part`.
     Io(String),
 }
 
 impl FetchError {
     /// True when the email fallback (sender re-sends as an attachment) is the
-    /// right answer. Io errors resume over iroh instead.
+    /// right answer. Io errors resume over iroh instead; a full disk needs
+    /// the user, not another copy.
     pub fn wants_email(&self) -> bool {
-        !matches!(self, FetchError::Io(_))
+        !matches!(self, FetchError::Io(_) | FetchError::NoSpace(_))
+    }
+
+    /// Short machine code for the UI.
+    pub fn code(&self) -> &'static str {
+        match self {
+            FetchError::Expired => "expired",
+            FetchError::OtherProto(_) => "proto",
+            FetchError::Unreachable(_) => "unreachable",
+            FetchError::NotOffered => "not-offered",
+            FetchError::HashMismatch => "hash",
+            FetchError::TooLarge => "too-large",
+            FetchError::NoSpace(_) => "no-space",
+            FetchError::Io(_) => "io",
+        }
     }
 }
 
@@ -135,6 +186,17 @@ pub fn relay_mode_for(relay: Option<&str>) -> Result<RelayMode> {
     })
 }
 
+/// The relay a fetch may dial: the ticket's relay only when it is the one
+/// our own chatmail transport advertises. Anything else (another server,
+/// n0) is ignored and the fetch runs direct-only.
+pub fn allowed_relay(ticket_relay: Option<&str>, own: Option<&str>) -> Option<RelayUrl> {
+    let norm = |s: &str| s.trim().trim_end_matches('/').to_ascii_lowercase();
+    match (ticket_relay, own) {
+        (Some(t), Some(o)) if norm(t) == norm(o) => t.parse().ok(),
+        _ => None,
+    }
+}
+
 /// Route decision for one attachment (the JS side mirrors it in iroh-xfer.js).
 pub fn use_iroh(enabled: bool, size: u64, one_to_one: bool, peer_is_velta: bool) -> bool {
     enabled && one_to_one && peer_is_velta && size > THRESHOLD
@@ -144,10 +206,16 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Request {
     hash: String,
     offset: u64,
+    #[serde(default)]
+    sec: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -159,16 +227,140 @@ struct Response {
     size: u64,
 }
 
-struct Offer {
-    path: PathBuf,
-    size: u64,
-    exp: u64,
+/// One open offer; persisted in `offers.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Offer {
+    /// The stored copy (`out/<hash>`, VLTA when the profile has a key).
+    pub path: PathBuf,
+    /// Plaintext size.
+    pub size: u64,
+    pub exp: u64,
+    pub sec: String,
+    #[serde(default)]
+    pub name: String,
+    /// Unix seconds of the first complete delivery, 0 = none yet.
+    #[serde(default)]
+    pub delivered: u64,
+}
+
+/// Writes `bytes` to `path` atomically: VLTA under `key`, else plaintext.
+/// tempfile creates the file owner-only (0600 on Unix).
+fn write_private(path: &Path, bytes: &[u8], key: Option<&AttachmentKey>) -> Result<()> {
+    let dir = path.parent().context("no parent dir")?;
+    std::fs::create_dir_all(dir)?;
+    let mut tmp = tempfile::Builder::new().prefix(".tmp-").tempfile_in(dir)?;
+    match key {
+        Some(k) => velta_attachment::encrypt(k, &mut std::io::Cursor::new(bytes), bytes.len() as u64, tmp.as_file_mut())?,
+        None => tmp.as_file_mut().write_all(bytes)?,
+    }
+    tmp.as_file().sync_all()?;
+    tmp.persist(path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+fn read_private(path: &Path, key: Option<&AttachmentKey>) -> Result<Vec<u8>> {
+    AttachmentReader::open(path, key)?.read_all()
+}
+
+/// Hashes everything read through it.
+struct HashingReader<'a, R> {
+    inner: &'a mut R,
+    h: Sha256,
+    n: u64,
+}
+
+impl<R: Read> Read for HashingReader<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.h.update(&buf[..n]);
+        self.n += n as u64;
+        Ok(n)
+    }
+}
+
+/// Copies `src` (plaintext or a VLTA upload) into `out_dir/<sha256>`, sealed
+/// under `key` when set. Returns (hash, plaintext size, stored path).
+fn store_copy(src: &Path, out_dir: &Path, key: Option<&AttachmentKey>) -> Result<(String, u64, PathBuf)> {
+    let mut reader = AttachmentReader::open(src, key).with_context(|| format!("opening {}", src.display()))?;
+    let len = reader.len();
+    std::fs::create_dir_all(out_dir)?;
+    let mut tmp = tempfile::Builder::new().prefix(".offer-").tempfile_in(out_dir)?;
+    let mut hr = HashingReader { inner: &mut reader, h: Sha256::new(), n: 0 };
+    match key {
+        Some(k) => velta_attachment::encrypt(k, &mut hr, len, tmp.as_file_mut())?,
+        None => {
+            std::io::copy(&mut hr, tmp.as_file_mut())?;
+        }
+    }
+    if hr.n != len {
+        bail!("file changed while it was copied");
+    }
+    tmp.as_file().sync_all()?;
+    let hash = HEXLOWER.encode(&hr.h.finalize());
+    let dest = out_dir.join(&hash);
+    tmp.persist(&dest).map_err(|e| e.error)?;
+    Ok((hash, len, dest))
+}
+
+/// Moves a verified `.part` to `out_dir/<name>` (unique), sealing it under
+/// `key` when set. The plaintext partial is removed either way.
+fn finish_received(part: &Path, out_dir: &Path, name: &str, key: Option<&AttachmentKey>) -> Result<PathBuf> {
+    std::fs::create_dir_all(out_dir)?;
+    let out = unique_path(out_dir, name);
+    match key {
+        Some(k) => {
+            let r = velta_attachment::encrypt_file(k, part, &out);
+            let _ = std::fs::remove_file(part);
+            if let Err(e) = r {
+                let _ = std::fs::remove_file(&out);
+                return Err(e);
+            }
+        }
+        None => {
+            if std::fs::rename(part, &out).is_err() {
+                std::fs::copy(part, &out)?;
+                let _ = std::fs::remove_file(part);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Bytes the user may still write under `dir`, if the platform says.
+#[cfg(unix)]
+pub fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `c` is a valid NUL-terminated path and `s` a writable statvfs.
+    if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    Some((s.f_bavail as u64).saturating_mul(s.f_frsize as u64))
+}
+
+#[cfg(windows)]
+pub fn free_space(dir: &Path) -> Option<u64> {
+    use windows::{core::HSTRING, Win32::Storage::FileSystem::GetDiskFreeSpaceExW};
+    let mut avail = 0u64;
+    // SAFETY: the out pointer is a live u64; the other outputs are not requested.
+    unsafe { GetDiskFreeSpaceExW(&HSTRING::from(dir.as_os_str()), Some(&mut avail as *mut u64), None, None) }.ok()?;
+    Some(avail)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn free_space(_dir: &Path) -> Option<u64> {
+    None
 }
 
 /// One transfer endpoint: offers files (provider) and fetches tickets.
 pub struct Xfer {
     endpoint: Endpoint,
     relay: Option<String>,
+    /// State dir: `offers.json`, `out/` (stored copies), `part/` (fetches).
+    dir: PathBuf,
+    key: Option<AttachmentKey>,
     offers: Mutex<HashMap<String, Offer>>,
     /// Bytes streamed out by the provider (tests check resume with it).
     pub served: AtomicU64,
@@ -177,8 +369,9 @@ pub struct Xfer {
 
 impl Xfer {
     /// Binds an endpoint that uses `relay` (the chatmail relay's advertised
-    /// iroh relay) or no relay at all.
-    pub async fn start(secret: SecretKey, relay: Option<String>) -> Result<Arc<Xfer>> {
+    /// iroh relay) or no relay at all, with its state in `dir`. Offers saved
+    /// by an earlier run are served again; stale partials are removed.
+    pub async fn start(secret: SecretKey, relay: Option<String>, dir: PathBuf, key: Option<AttachmentKey>) -> Result<Arc<Xfer>> {
         let builder = Endpoint::builder()
             .secret_key(secret)
             .alpns(vec![ALPN.to_vec()])
@@ -190,10 +383,18 @@ impl Xfer {
             .bind()
             .await
             .context("binding transfer endpoint")?;
+        std::fs::create_dir_all(&dir)?;
+        let offers = match read_private(&dir.join("offers.json"), key.as_ref()) {
+            Ok(b) => serde_json::from_slice(&b).unwrap_or_default(),
+            Err(_) => HashMap::new(),
+        };
+        clean_parts(&dir.join("part"), PART_MAX_AGE);
         let x = Arc::new(Xfer {
             endpoint,
             relay,
-            offers: Mutex::new(HashMap::new()),
+            dir,
+            key,
+            offers: Mutex::new(offers),
             served: AtomicU64::new(0),
             connect_timeout_ms: AtomicU64::new(20_000),
         });
@@ -211,17 +412,38 @@ impl Xfer {
         self.endpoint.node_id()
     }
 
-    /// Offers `path` and returns its ticket (valid for `ttl`).
-    pub async fn offer(&self, path: &Path, ttl: Duration) -> Result<Ticket> {
-        let size = tokio::fs::metadata(path).await?.len();
-        let hash = sha256_file(path, None).await?;
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+    fn persist(&self) {
+        let bytes = {
+            let o = self.offers.lock().unwrap();
+            serde_json::to_vec(&*o).unwrap_or_default()
+        };
+        if let Err(e) = write_private(&self.dir.join("offers.json"), &bytes, self.key.as_ref()) {
+            eprintln!("xfer: saving offers failed: {e:#}");
+        }
+    }
+
+    /// Stores a copy of `path` and offers it; returns its ticket (valid for
+    /// `ttl`). `name` is the file name the receiver sees.
+    pub async fn offer(&self, path: &Path, name: Option<&str>, ttl: Duration) -> Result<Ticket> {
+        let src = path.to_path_buf();
+        let out_dir = self.dir.join("out");
+        let key = self.key.clone();
+        let (hash, size, stored) = tokio::task::spawn_blocking(move || store_copy(&src, &out_dir, key.as_ref())).await??;
+        let name = name
+            .map(str::to_string)
+            .or_else(|| path.file_name().and_then(|n| n.to_str()).map(str::to_string))
+            .unwrap_or_else(|| "file".into());
         let exp = now() + ttl.as_secs();
+        let sec = HEXLOWER.encode(&crate::random_bytes::<16>());
         let addrs = match tokio::time::timeout(Duration::from_secs(5), self.endpoint.node_addr()).await {
             Ok(Ok(na)) => na.direct_addresses.into_iter().collect(),
             _ => Vec::new(),
         };
-        self.offers.lock().unwrap().insert(hash.clone(), Offer { path: path.to_path_buf(), size, exp });
+        self.offers.lock().unwrap().insert(
+            hash.clone(),
+            Offer { path: stored, size, exp, sec: sec.clone(), name: name.clone(), delivered: 0 },
+        );
+        self.persist();
         Ok(Ticket {
             v: 1,
             proto: IROH_PROTO.into(),
@@ -232,21 +454,42 @@ impl Xfer {
             size,
             name,
             exp,
+            sec,
         })
     }
 
-    /// Stops offering a file (all receivers fetched it, or it expired).
+    /// Stops offering a file (delivered, mailed, or expired) and deletes the
+    /// stored copy.
     pub fn withdraw(&self, hash: &str) {
-        self.offers.lock().unwrap().remove(hash);
+        let gone = self.offers.lock().unwrap().remove(hash);
+        if let Some(o) = gone {
+            let _ = std::fs::remove_file(&o.path);
+            self.persist();
+        }
     }
 
-    /// Drops expired offers; returns how many went.
+    /// The open offer for `hash`, if any.
+    pub fn status(&self, hash: &str) -> Option<Offer> {
+        self.offers.lock().unwrap().get(hash).cloned()
+    }
+
+    /// Forgets offers that expired more than a week ago (the UI handles
+    /// fresh expiries: it mails undelivered files, then withdraws them).
+    /// Returns how many went.
     pub fn sweep(&self) -> usize {
         let t = now();
-        let mut o = self.offers.lock().unwrap();
-        let before = o.len();
-        o.retain(|_, v| v.exp > t);
-        before - o.len()
+        let dropped: Vec<Offer> = {
+            let mut o = self.offers.lock().unwrap();
+            let keys: Vec<String> = o.iter().filter(|(_, v)| v.exp + OFFER_KEEP <= t).map(|(k, _)| k.clone()).collect();
+            keys.iter().filter_map(|k| o.remove(k)).collect()
+        };
+        for o in &dropped {
+            let _ = std::fs::remove_file(&o.path);
+        }
+        if !dropped.is_empty() {
+            self.persist();
+        }
+        dropped.len()
     }
 
     async fn accept_loop(self: Arc<Self>) {
@@ -261,47 +504,61 @@ impl Xfer {
         }
     }
 
-    /// Provider side: one request per bi stream, `{hash, offset}` → header +
-    /// the file from `offset`.
+    /// Provider side: one request per bi stream, `{hash, offset, sec}` →
+    /// header + the plaintext from `offset`. A wrong secret looks exactly
+    /// like an unknown file.
     async fn serve(&self, conn: Connection) -> Result<()> {
         loop {
             let Ok((mut send, mut recv)) = conn.accept_bi().await else { return Ok(()) };
             let req: Request = serde_json::from_slice(&read_frame(&mut recv).await?)?;
             let offer = {
                 let o = self.offers.lock().unwrap();
-                o.get(&req.hash).map(|o| (o.path.clone(), o.size, o.exp))
+                o.get(&req.hash).filter(|o| ct_eq(o.sec.as_bytes(), req.sec.as_bytes())).cloned()
             };
-            let resp = match offer {
+            let resp = match &offer {
                 None => Response { ok: false, err: "not-offered".into(), size: 0 },
-                Some((_, _, exp)) if exp <= now() => Response { ok: false, err: "expired".into(), size: 0 },
-                Some((_, size, _)) if req.offset > size => Response { ok: false, err: "range".into(), size },
-                Some((_, size, _)) => Response { ok: true, err: String::new(), size },
+                Some(o) if o.exp <= now() => Response { ok: false, err: "expired".into(), size: 0 },
+                Some(o) if req.offset > o.size => Response { ok: false, err: "range".into(), size: o.size },
+                Some(o) => Response { ok: true, err: String::new(), size: o.size },
             };
             write_frame(&mut send, &serde_json::to_vec(&resp)?).await?;
             if resp.ok {
-                let (path, ..) = offer.unwrap();
-                let mut f = tokio::fs::File::open(&path).await?;
-                f.seek(std::io::SeekFrom::Start(req.offset)).await?;
-                let mut buf = vec![0u8; CHUNK];
-                loop {
-                    let n = f.read(&mut buf).await?;
-                    if n == 0 {
-                        break;
+                let o = offer.unwrap();
+                let mut rx = spawn_reader(o.path.clone(), self.key.clone(), req.offset);
+                let mut sent = req.offset;
+                while let Some(chunk) = rx.recv().await {
+                    let chunk = chunk?;
+                    send.write_all(&chunk).await?;
+                    sent += chunk.len() as u64;
+                    self.served.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+                }
+                if sent == o.size {
+                    let first = {
+                        let mut m = self.offers.lock().unwrap();
+                        match m.get_mut(&req.hash) {
+                            Some(e) if e.delivered == 0 => {
+                                e.delivered = now();
+                                true
+                            }
+                            _ => false,
+                        }
+                    };
+                    if first {
+                        self.persist();
                     }
-                    send.write_all(&buf[..n]).await?;
-                    self.served.fetch_add(n as u64, Ordering::Relaxed);
                 }
             }
             send.finish()?;
         }
     }
 
-    /// Fetches `ticket` into `dir/<name>`, resuming a `<name>.<hash8>.part`
-    /// left by an interrupted run. `progress(done, size)` is called per chunk.
+    /// Fetches `ticket` into `out_dir/<name>` (sealed when the profile has a
+    /// key), resuming a `.part` left by an interrupted run. `progress(done,
+    /// size)` is called per chunk.
     pub async fn fetch(
         &self,
         ticket: &Ticket,
-        dir: &Path,
+        out_dir: &Path,
         mut progress: impl FnMut(u64, u64),
     ) -> std::result::Result<PathBuf, FetchError> {
         if ticket.proto != IROH_PROTO {
@@ -310,12 +567,30 @@ impl Xfer {
         if ticket.exp <= now() {
             return Err(FetchError::Expired);
         }
+        if ticket.size > MAX_FILE {
+            return Err(FetchError::TooLarge);
+        }
         let io = |e: anyhow::Error| FetchError::Io(format!("{e:#}"));
+        let part_dir = self.dir.join("part");
+        tokio::fs::create_dir_all(&part_dir).await.map_err(|e| io(e.into()))?;
+        let part = part_dir.join(format!("{}.part", ticket.hash));
+        let mut offset = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
+        if offset > ticket.size {
+            let _ = tokio::fs::remove_file(&part).await;
+            offset = 0;
+        }
+        // The rest of the partial, plus the sealed copy written next to it.
+        let need = (ticket.size - offset) + if self.key.is_some() { ticket.size } else { 0 } + SPACE_MARGIN;
+        let _ = tokio::fs::create_dir_all(out_dir).await;
+        for d in [part_dir.as_path(), out_dir] {
+            if free_space(d).is_some_and(|free| free < need) {
+                return Err(FetchError::NoSpace(need));
+            }
+        }
+
         let node: NodeId = ticket.node.parse().map_err(|_| FetchError::Unreachable("bad node id".into()))?;
         let mut addr = NodeAddr::new(node).with_direct_addresses(ticket.addrs.iter().copied());
-        if let Some(r) = &ticket.relay {
-            // The sender's relay is reachable only if it is the kind we allow.
-            let url: RelayUrl = r.parse().map_err(|_| FetchError::Unreachable("bad relay url".into()))?;
+        if let Some(url) = allowed_relay(ticket.relay.as_deref(), self.relay.as_deref()) {
             addr = addr.with_relay_url(url);
         }
         let conn = match tokio::time::timeout(Duration::from_millis(self.connect_timeout_ms.load(Ordering::Relaxed)), self.endpoint.connect(addr, ALPN)).await {
@@ -324,28 +599,25 @@ impl Xfer {
             Err(_) => return Err(FetchError::Unreachable("timed out".into())),
         };
 
-        tokio::fs::create_dir_all(dir).await.map_err(|e| io(e.into()))?;
-        let part = dir.join(format!("{}.{}.part", ticket.name, &ticket.hash[..8]));
-        let mut offset = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
-        if offset > ticket.size {
-            let _ = tokio::fs::remove_file(&part).await;
-            offset = 0;
-        }
         let (mut send, mut recv) = conn.open_bi().await.map_err(|e| io(e.into()))?;
-        write_frame(&mut send, &serde_json::to_vec(&Request { hash: ticket.hash.clone(), offset }).unwrap())
-            .await
-            .map_err(io)?;
+        let req = Request { hash: ticket.hash.clone(), offset, sec: ticket.sec.clone() };
+        write_frame(&mut send, &serde_json::to_vec(&req).unwrap()).await.map_err(io)?;
         send.finish().map_err(|e| io(e.into()))?;
         let resp: Response = serde_json::from_slice(&read_frame(&mut recv).await.map_err(io)?)
             .map_err(|e| io(e.into()))?;
         if !resp.ok {
-            return Err(match resp.err.as_str() {
+            let e = match resp.err.as_str() {
                 "expired" => FetchError::Expired,
                 "not-offered" => FetchError::NotOffered,
                 other => FetchError::Io(other.to_string()),
-            });
+            };
+            if e.wants_email() {
+                let _ = tokio::fs::remove_file(&part).await;
+            }
+            return Err(e);
         }
         if resp.size != ticket.size {
+            let _ = tokio::fs::remove_file(&part).await;
             return Err(FetchError::HashMismatch);
         }
         let mut f = tokio::fs::OpenOptions::new()
@@ -385,13 +657,66 @@ impl Xfer {
             let _ = tokio::fs::remove_file(&part).await;
             return Err(FetchError::HashMismatch);
         }
-        let out = unique_path(dir, &ticket.name);
-        tokio::fs::rename(&part, &out).await.map_err(|e| io(e.into()))?;
-        Ok(out)
+        let (part2, out_dir2, name, key) = (part.clone(), out_dir.to_path_buf(), ticket.name.clone(), self.key.clone());
+        tokio::task::spawn_blocking(move || finish_received(&part2, &out_dir2, &name, key.as_ref()))
+            .await
+            .map_err(|e| FetchError::Io(e.to_string()))?
+            .map_err(io)
     }
 
     pub async fn close(&self) {
         self.endpoint.close().await;
+    }
+}
+
+/// Reads the plaintext of `path` from `offset` on a blocking thread.
+fn spawn_reader(path: PathBuf, key: Option<AttachmentKey>, offset: u64) -> tokio::sync::mpsc::Receiver<std::io::Result<Vec<u8>>> {
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    tokio::task::spawn_blocking(move || {
+        let mut r = match AttachmentReader::open(&path, key.as_ref()) {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = tx.blocking_send(Err(std::io::Error::other(e.to_string())));
+                return;
+            }
+        };
+        if let Err(e) = r.seek(SeekFrom::Start(offset)) {
+            let _ = tx.blocking_send(Err(e));
+            return;
+        }
+        loop {
+            let mut buf = vec![0u8; CHUNK];
+            match r.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    buf.truncate(n);
+                    if tx.blocking_send(Ok(buf)).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.blocking_send(Err(e));
+                    break;
+                }
+            }
+        }
+    });
+    rx
+}
+
+/// Deletes `.part` files under `dir` older than `max_age`.
+fn clean_parts(dir: &Path, max_age: Duration) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let old = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= max_age);
+        if old {
+            let _ = std::fs::remove_file(e.path());
+        }
     }
 }
 
@@ -403,19 +728,32 @@ pub struct XferState {
     inner: tokio::sync::Mutex<Option<Arc<Xfer>>>,
 }
 
-fn load_or_create_key(dir: &Path) -> Result<SecretKey> {
+/// The endpoint's secret key: sealed under the attachment key when the
+/// profile has one (older plaintext keys are re-sealed), otherwise a
+/// plaintext file readable only by this user.
+fn load_or_create_key(dir: &Path, key: Option<&AttachmentKey>) -> Result<SecretKey> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join("identity.key");
-    if let Ok(hex) = std::fs::read_to_string(&path) {
-        let b: [u8; 32] = HEXLOWER
-            .decode(hex.trim().as_bytes())?
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("bad transfer key"))?;
-        return Ok(SecretKey::from_bytes(&b));
+    if let Ok(raw) = read_private(&path, key) {
+        if let Ok(b) = HEXLOWER.decode(String::from_utf8_lossy(&raw).trim().as_bytes()) {
+            if let Ok(b) = <[u8; 32]>::try_from(b) {
+                let sealed = velta_attachment::is_encrypted(&path).unwrap_or(false);
+                if key.is_some() && !sealed {
+                    write_private(&path, HEXLOWER.encode(&b).as_bytes(), key)?;
+                }
+                return Ok(SecretKey::from_bytes(&b));
+            }
+        }
     }
+    // Missing, unreadable (sealed under a key we no longer have) or corrupt:
+    // a new node id. Open tickets then fail over to email.
     let b: [u8; 32] = crate::random_bytes();
-    std::fs::write(&path, HEXLOWER.encode(&b))?;
+    write_private(&path, HEXLOWER.encode(&b).as_bytes(), key)?;
     Ok(SecretKey::from_bytes(&b))
+}
+
+fn attachment_key() -> Option<AttachmentKey> {
+    crate::ATTACHMENT_KEY.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 async fn ensure(state: &XferState, app: &tauri::AppHandle, relay: Option<String>) -> Result<Arc<Xfer>, String> {
@@ -427,36 +765,36 @@ async fn ensure(state: &XferState, app: &tauri::AppHandle, relay: Option<String>
         }
     }
     let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("xfer");
-    let key = load_or_create_key(&dir).map_err(|e| e.to_string())?;
-    let new = Xfer::start(key, relay).await.map_err(|e| format!("{e:#}"))?;
-    if let Some(old) = g.replace(new.clone()) {
-        // Same key, new relay: carry the open offers over.
-        let moved: Vec<(String, Offer)> = old.offers.lock().unwrap().drain().collect();
-        new.offers.lock().unwrap().extend(moved);
-        old.close().await;
+    let key = attachment_key();
+    let secret = load_or_create_key(&dir, key.as_ref()).map_err(|e| e.to_string())?;
+    if let Some(old) = g.take() {
+        old.close().await; // its offers are on disk; the new endpoint loads them
     }
+    let new = Xfer::start(secret, relay, dir, key).await.map_err(|e| format!("{e:#}"))?;
+    *g = Some(new.clone());
     Ok(new)
 }
 
 /// Offers a file for an iroh transfer; returns the ticket string to mail.
 /// `relay` is the chatmail relay's advertised iroh relay (get_server_metadata),
-/// or null for direct paths only.
+/// or null for direct paths only. `name` is the name the receiver sees.
 #[tauri::command]
 pub async fn xfer_offer(
     state: tauri::State<'_, XferState>,
     app: tauri::AppHandle,
     path: String,
     relay: Option<String>,
+    name: Option<String>,
     ttl_secs: Option<u64>,
 ) -> Result<String, String> {
     let x = ensure(&state, &app, relay).await?;
     x.sweep();
     let ttl = ttl_secs.map(Duration::from_secs).unwrap_or(DEFAULT_TTL);
-    Ok(x.offer(Path::new(&path), ttl).await.map_err(|e| format!("{e:#}"))?.encode())
+    Ok(x.offer(Path::new(&path), name.as_deref(), ttl).await.map_err(|e| format!("{e:#}"))?.encode())
 }
 
 /// Fetches a ticket into the accounts dir. Returns `{path}` on success, or
-/// `{error, email}` where `email: true` means "ask the sender to mail it".
+/// `{error, code, email}` where `email: true` means "ask the sender to mail it".
 #[tauri::command]
 pub async fn xfer_fetch(
     state: tauri::State<'_, XferState>,
@@ -467,7 +805,7 @@ pub async fn xfer_fetch(
     use tauri::Emitter;
     let t = match Ticket::decode(&ticket) {
         Ok(t) => t,
-        Err(e) => return Ok(serde_json::json!({ "error": format!("{e:#}"), "email": true })),
+        Err(e) => return Ok(serde_json::json!({ "error": format!("{e:#}"), "code": "bad-ticket", "email": true })),
     };
     let x = ensure(&state, &app, relay).await?;
     let dir = crate::accounts_dir(&app).join("xfer-in");
@@ -483,17 +821,50 @@ pub async fn xfer_fetch(
         .await;
     Ok(match res {
         Ok(p) => serde_json::json!({ "path": p.to_string_lossy() }),
-        Err(e) => serde_json::json!({ "error": e.to_string(), "email": e.wants_email() }),
+        Err(e) => serde_json::json!({ "error": e.to_string(), "code": e.code(), "email": e.wants_email() }),
     })
 }
 
-/// Stops offering a file (every known receiver has it, or it was mailed).
+/// Stops offering a file (delivered, mailed, or expired) and deletes the
+/// stored copy.
 #[tauri::command]
-pub async fn xfer_withdraw(state: tauri::State<'_, XferState>, hash: String) -> Result<(), String> {
-    if let Some(x) = state.inner.lock().await.as_ref() {
-        x.withdraw(&hash);
-    }
+pub async fn xfer_withdraw(
+    state: tauri::State<'_, XferState>,
+    app: tauri::AppHandle,
+    hash: String,
+    relay: Option<String>,
+) -> Result<(), String> {
+    let x = match state.inner.lock().await.as_ref() {
+        Some(x) => x.clone(),
+        None => ensure(&state, &app, relay).await?,
+    };
+    x.withdraw(&hash);
     Ok(())
+}
+
+/// State of open offers for the UI's resend loop: `{hash: {size, exp,
+/// delivered, path} | null}`. `path` is the stored copy to mail when a
+/// ticket expires undelivered. Starts the endpoint (serving the saved
+/// offers again) if it is not running yet.
+#[tauri::command]
+pub async fn xfer_status(
+    state: tauri::State<'_, XferState>,
+    app: tauri::AppHandle,
+    hashes: Vec<String>,
+    relay: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let x = match state.inner.lock().await.as_ref() {
+        Some(x) => x.clone(),
+        None => ensure(&state, &app, relay).await?,
+    };
+    let mut out = serde_json::Map::new();
+    for h in hashes {
+        let v = x.status(&h).map(|o| {
+            serde_json::json!({ "size": o.size, "exp": o.exp, "delivered": o.delivered, "path": o.path.to_string_lossy() })
+        });
+        out.insert(h, v.unwrap_or(serde_json::Value::Null));
+    }
+    Ok(serde_json::Value::Object(out))
 }
 
 fn unique_path(dir: &Path, name: &str) -> PathBuf {
@@ -510,6 +881,7 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
 
 /// SHA-256 of a file (the first `limit` bytes if set), lowercase hex.
 pub async fn sha256_file(path: &Path, limit: Option<u64>) -> Result<String> {
+    use tokio::io::AsyncReadExt;
     let mut f = tokio::fs::File::open(path).await?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; CHUNK];
@@ -559,9 +931,20 @@ mod tests {
         (0..n).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed)).collect()
     }
 
-    async fn pair() -> (Arc<Xfer>, Arc<Xfer>) {
-        let key = || SecretKey::from_bytes(&crate::random_bytes());
-        (Xfer::start(key(), None).await.unwrap(), Xfer::start(key(), None).await.unwrap())
+    fn akey(b: u8) -> AttachmentKey {
+        AttachmentKey::from_db_key(&format!("x'{}'", format!("{b:02x}").repeat(32))).unwrap().unwrap()
+    }
+
+    fn skey() -> SecretKey {
+        SecretKey::from_bytes(&crate::random_bytes())
+    }
+
+    async fn node(tag: &str, key: Option<AttachmentKey>) -> Arc<Xfer> {
+        Xfer::start(skey(), None, tmp(tag), key).await.unwrap()
+    }
+
+    async fn pair(tag: &str) -> (Arc<Xfer>, Arc<Xfer>) {
+        (node(&format!("{tag}-a"), None).await, node(&format!("{tag}-b"), None).await)
     }
 
     #[test]
@@ -577,6 +960,16 @@ mod tests {
     }
 
     #[test]
+    fn fetch_only_dials_our_own_advertised_relay() {
+        let own = Some("https://iroh.relay.example/");
+        assert!(allowed_relay(Some("https://IROH.relay.example"), own).is_some(), "same relay, normalised");
+        assert!(allowed_relay(Some("https://use1-1.relay.n0.iroh.iroh.link./"), own).is_none(), "n0 never");
+        assert!(allowed_relay(Some("https://other.example/"), own).is_none(), "another server: direct only");
+        assert!(allowed_relay(Some("https://iroh.relay.example/"), None).is_none(), "we advertise none: direct only");
+        assert!(allowed_relay(None, own).is_none());
+    }
+
+    #[test]
     fn ticket_round_trip_and_validation() {
         let t = Ticket {
             v: 1,
@@ -588,51 +981,78 @@ mod tests {
             size: 7_000_000,
             name: "film.mp4".into(),
             exp: 4_000_000_000,
+            sec: "cd".repeat(16),
         };
         let s = t.encode();
         assert!(s.starts_with(TICKET_PREFIX));
         assert_eq!(Ticket::decode(&s).unwrap(), t);
         for bad in [
             Ticket { name: "../x".into(), ..t.clone() },
+            Ticket { name: ".".into(), ..t.clone() },
             Ticket { hash: "zz".repeat(32), ..t.clone() },
             Ticket { v: 2, ..t.clone() },
             Ticket { relay: Some("::".into()), ..t.clone() },
+            Ticket { sec: "x".repeat(200), ..t.clone() },
         ] {
             assert!(Ticket::decode(&bad.encode()).is_err(), "{bad:?}");
         }
         assert!(Ticket::decode("VELTAP2P1:abc").is_err());
+        // Tickets from builds before the secret still decode.
+        let old = Ticket { sec: String::new(), ..t.clone() };
+        assert!(!old.encode().is_empty() && Ticket::decode(&old.encode()).unwrap().sec.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fetches_directly_and_verifies_the_hash() {
-        let (a, b) = pair().await;
+        let (a, b) = pair("t1").await;
         let src = tmp("src1");
         let bytes = data(7 * 1024 * 1024 + 333, 1);
         std::fs::write(src.join("big.bin"), &bytes).unwrap();
-        let t = Ticket::decode(&a.offer(&src.join("big.bin"), DEFAULT_TTL).await.unwrap().encode()).unwrap();
+        let t = Ticket::decode(&a.offer(&src.join("big.bin"), None, DEFAULT_TTL).await.unwrap().encode()).unwrap();
         assert!(t.size > THRESHOLD);
         assert_eq!(t.relay, None);
+        assert_eq!(t.sec.len(), 32, "a fresh random secret per ticket");
         let dst = tmp("dst1");
         let mut last = 0;
         let out = b.fetch(&t, &dst, |d, _| last = d).await.unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), bytes);
         assert_eq!(last, t.size);
         assert_eq!(out.file_name().unwrap(), "big.bin");
+        assert_eq!(std::fs::read_dir(b.dir.join("part")).unwrap().count(), 0, "no partial left");
+        assert!(a.status(&t.hash).unwrap().delivered > 0, "the provider saw a complete delivery");
+        a.close().await;
+        b.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_hash_alone_does_not_fetch_a_file() {
+        let (a, b) = pair("t7").await;
+        let src = tmp("src7");
+        std::fs::write(src.join("s.bin"), data(100_000, 9)).unwrap();
+        let t = a.offer(&src.join("s.bin"), None, DEFAULT_TTL).await.unwrap();
+        let dst = tmp("dst7");
+        for sec in [String::new(), "00".repeat(16)] {
+            let e = b.fetch(&Ticket { sec, ..t.clone() }, &dst, |_, _| {}).await.unwrap_err();
+            assert_eq!(e, FetchError::NotOffered, "wrong or missing secret looks like no offer");
+        }
+        assert_eq!(a.served.load(Ordering::Relaxed), 0);
+        assert!(b.fetch(&t, &dst, |_, _| {}).await.is_ok());
         a.close().await;
         b.close().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn interrupted_fetch_resumes_from_the_part_file() {
-        let (a, b) = pair().await;
+        let (a, b) = pair("t2").await;
         let src = tmp("src2");
         let bytes = data(3 * 1024 * 1024, 2);
         std::fs::write(src.join("r.bin"), &bytes).unwrap();
-        let t = a.offer(&src.join("r.bin"), DEFAULT_TTL).await.unwrap();
+        let t = a.offer(&src.join("r.bin"), None, DEFAULT_TTL).await.unwrap();
         let dst = tmp("dst2");
         // An earlier run got the first 1 MB, then the link dropped.
         let have = 1024 * 1024;
-        std::fs::write(dst.join(format!("r.bin.{}.part", &t.hash[..8])), &bytes[..have]).unwrap();
+        std::fs::create_dir_all(b.dir.join("part")).unwrap();
+        std::fs::write(b.dir.join("part").join(format!("{}.part", t.hash)), &bytes[..have]).unwrap();
         let out = b.fetch(&t, &dst, |_, _| {}).await.unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), bytes);
         assert_eq!(a.served.load(Ordering::Relaxed), (bytes.len() - have) as u64, "only the rest was sent");
@@ -642,26 +1062,52 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn hash_mismatch_is_rejected_and_the_partial_deleted() {
-        let (a, b) = pair().await;
+        let (a, b) = pair("t3").await;
         let src = tmp("src3");
         std::fs::write(src.join("h.bin"), data(512 * 1024, 3)).unwrap();
-        let t = a.offer(&src.join("h.bin"), DEFAULT_TTL).await.unwrap();
-        std::fs::write(src.join("h.bin"), data(512 * 1024, 4)).unwrap(); // same size, other bytes
+        let t = a.offer(&src.join("h.bin"), None, DEFAULT_TTL).await.unwrap();
+        // The source may change freely now (a copy is offered); corrupt the copy.
+        std::fs::write(a.status(&t.hash).unwrap().path, data(512 * 1024, 4)).unwrap();
         let dst = tmp("dst3");
         assert_eq!(b.fetch(&t, &dst, |_, _| {}).await.unwrap_err(), FetchError::HashMismatch);
         assert_eq!(std::fs::read_dir(&dst).unwrap().count(), 0, "nothing left behind");
+        assert_eq!(std::fs::read_dir(b.dir.join("part")).unwrap().count(), 0, "no partial either");
         a.close().await;
         b.close().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn too_large_tickets_are_refused_before_connecting() {
+        let b = node("t8", None).await;
+        let t = Ticket {
+            v: 1,
+            proto: IROH_PROTO.into(),
+            node: skey().public().to_string(),
+            relay: None,
+            addrs: vec![],
+            hash: "ab".repeat(32),
+            size: MAX_FILE + 1,
+            name: "huge.bin".into(),
+            exp: now() + 60,
+            sec: "cd".repeat(16),
+        };
+        let e = b.fetch(&t, &tmp("dst8"), |_, _| {}).await.unwrap_err();
+        assert_eq!(e, FetchError::TooLarge);
+        assert!(e.wants_email());
+        assert!(!FetchError::NoSpace(1).wants_email(), "a full disk needs the user");
+        #[cfg(unix)]
+        assert!(free_space(&std::env::temp_dir()).is_some());
+        b.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn expired_withdrawn_unreachable_and_other_proto_fall_back_to_email() {
-        let (a, b) = pair().await;
+        let (a, b) = pair("t4").await;
         let src = tmp("src4");
         std::fs::write(src.join("e.bin"), data(1000, 5)).unwrap();
         let dst = tmp("dst4");
 
-        let t = a.offer(&src.join("e.bin"), DEFAULT_TTL).await.unwrap();
+        let t = a.offer(&src.join("e.bin"), None, DEFAULT_TTL).await.unwrap();
         let e = b.fetch(&Ticket { exp: 1, ..t.clone() }, &dst, |_, _| {}).await.unwrap_err();
         assert_eq!(e, FetchError::Expired);
         assert!(e.wants_email());
@@ -669,21 +1115,77 @@ mod tests {
         let e = b.fetch(&Ticket { proto: "iroh-1".into(), ..t.clone() }, &dst, |_, _| {}).await.unwrap_err();
         assert!(matches!(e, FetchError::OtherProto(_)) && e.wants_email());
 
+        let stored = a.status(&t.hash).unwrap().path;
         a.withdraw(&t.hash);
+        assert!(!stored.exists(), "withdraw deletes the stored copy");
         let e = b.fetch(&t, &dst, |_, _| {}).await.unwrap_err();
         assert_eq!(e, FetchError::NotOffered);
         assert!(e.wants_email());
 
         // Sender offline: no relay advertised, so no path at all (no n0).
-        let gone = a.offer(&src.join("e.bin"), DEFAULT_TTL).await.unwrap();
+        let gone = a.offer(&src.join("e.bin"), None, DEFAULT_TTL).await.unwrap();
         a.close().await;
         b.set_connect_timeout(Duration::from_secs(3));
-        let b2 = b;
-        let e = b2.fetch(&gone, &dst, |_, _| {}).await.unwrap_err();
+        let e = b.fetch(&gone, &dst, |_, _| {}).await.unwrap_err();
         assert!(matches!(e, FetchError::Unreachable(_)), "{e:?}");
         assert!(e.wants_email());
         assert!(!FetchError::Io("x".into()).wants_email(), "a broken stream resumes over iroh");
-        b2.close().await;
+        b.close().await;
+    }
+
+    /// Offers survive a restart of the sender's app, sealed at rest.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn offers_survive_a_restart_and_rest_sealed() {
+        let dir = tmp("t9-a");
+        let k = akey(0x11);
+        let secret = load_or_create_key(&dir, Some(&k)).unwrap();
+        assert!(velta_attachment::is_encrypted(&dir.join("identity.key")).unwrap(), "identity key sealed");
+        assert_eq!(load_or_create_key(&dir, Some(&k)).unwrap().public(), secret.public(), "stable node id");
+        let a = Xfer::start(secret.clone(), None, dir.clone(), Some(k.clone())).await.unwrap();
+        // The composer's uploads copy is VLTA ciphertext: the receiver must
+        // get the plaintext.
+        let src = tmp("src9");
+        let bytes = data(2 * 1024 * 1024 + 5, 11);
+        std::fs::write(src.join("plain.bin"), &bytes).unwrap();
+        velta_attachment::encrypt_file(&k, &src.join("plain.bin"), &src.join("upload.bin")).unwrap();
+        let t = a.offer(&src.join("upload.bin"), Some("photo.raw"), DEFAULT_TTL).await.unwrap();
+        assert_eq!(t.name, "photo.raw");
+        assert_eq!(t.size, bytes.len() as u64, "plaintext size, not the VLTA size");
+        assert!(velta_attachment::is_encrypted(&dir.join("offers.json")).unwrap(), "offer list sealed");
+        assert!(velta_attachment::is_encrypted(&a.status(&t.hash).unwrap().path).unwrap(), "stored copy sealed");
+        a.close().await;
+        drop(a);
+
+        let a2 = Xfer::start(secret, None, dir.clone(), Some(k.clone())).await.unwrap();
+        let t2 = Ticket { addrs: a2.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect(), ..t.clone() };
+        let b = node("t9-b", Some(akey(0x22))).await;
+        let out = b.fetch(&t2, &tmp("dst9"), |_, _| {}).await.unwrap();
+        assert!(velta_attachment::is_encrypted(&out).unwrap(), "received file sealed under the receiver's key");
+        assert_eq!(AttachmentReader::open(&out, Some(&akey(0x22))).unwrap().read_all().unwrap(), bytes);
+        assert!(a2.status(&t.hash).unwrap().delivered > 0);
+        a2.close().await;
+        drop(a2);
+        let a3 = Xfer::start(skey(), None, dir, Some(k)).await.unwrap();
+        assert!(a3.status(&t.hash).unwrap().delivered > 0, "delivery is remembered");
+        a3.close().await;
+        b.close().await;
+    }
+
+    #[test]
+    fn keyless_identity_is_owner_only_and_stale_parts_go() {
+        let dir = tmp("t10");
+        load_or_create_key(&dir, None).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join("identity.key")).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "owner-only: {mode:o}");
+        }
+        let parts = dir.join("part");
+        std::fs::create_dir_all(&parts).unwrap();
+        std::fs::write(parts.join("x.part"), b"old").unwrap();
+        clean_parts(&parts, Duration::ZERO);
+        assert_eq!(std::fs::read_dir(&parts).unwrap().count(), 0);
     }
 
     /// Across networks: no direct address in the ticket, so the bytes must go
@@ -693,15 +1195,14 @@ mod tests {
     async fn fetches_through_the_advertised_relay_without_direct_addresses() {
         let (_map, url, _server) = iroh035::test_utils::run_relay_server().await.unwrap();
         let relay = Some(url.to_string());
-        let key = || SecretKey::from_bytes(&crate::random_bytes());
-        let a = Xfer::start(key(), relay.clone()).await.unwrap();
-        let b = Xfer::start(key(), relay.clone()).await.unwrap();
+        let a = Xfer::start(skey(), relay.clone(), tmp("t6-a"), None).await.unwrap();
+        let b = Xfer::start(skey(), relay.clone(), tmp("t6-b"), None).await.unwrap();
         let src = tmp("src6");
         let bytes = data(1024 * 1024 + 7, 7);
         std::fs::write(src.join("via.bin"), &bytes).unwrap();
         // Let the provider register with its home relay first.
         let _ = tokio::time::timeout(Duration::from_secs(10), a.endpoint.home_relay().initialized()).await;
-        let mut t = a.offer(&src.join("via.bin"), DEFAULT_TTL).await.unwrap();
+        let mut t = a.offer(&src.join("via.bin"), None, DEFAULT_TTL).await.unwrap();
         assert_eq!(t.relay, relay, "the ticket names the advertised relay");
         t.addrs.clear();
         let out = b.fetch(&t, &tmp("dst6"), |_, _| {}).await.unwrap();
@@ -712,14 +1213,13 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn the_same_ticket_serves_several_devices_until_withdrawn() {
-        let key = || SecretKey::from_bytes(&crate::random_bytes());
-        let a = Xfer::start(key(), None).await.unwrap();
+        let a = node("t5", None).await;
         let src = tmp("src5");
         let bytes = data(200_000, 6);
         std::fs::write(src.join("m.bin"), &bytes).unwrap();
-        let t = a.offer(&src.join("m.bin"), DEFAULT_TTL).await.unwrap();
+        let t = a.offer(&src.join("m.bin"), None, DEFAULT_TTL).await.unwrap();
         for i in 0..3 {
-            let d = Xfer::start(key(), None).await.unwrap();
+            let d = node(&format!("t5-{i}"), None).await;
             let out = d.fetch(&t, &tmp(&format!("dst5-{i}")), |_, _| {}).await.unwrap();
             assert_eq!(std::fs::read(out).unwrap(), bytes);
             d.close().await;
