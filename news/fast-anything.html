@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>We profiled Velta's web layer for the 5% worth rewriting — Velta</title>
+  <meta name="description" content="We ran the fast-anything experiment on Velta: profile the JavaScript layer, port the hot functions to Rust, verify they behave identically. The numbers taught us three things about V8, about language-rewrite promises, and about why our web layer has nothing to port.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Engineering</p>
+    <h1>We profiled Velta's web layer for the 5% worth rewriting</h1>
+    <p><time>23 November 2026</time> · 5 min read</p>
+    <p>There is a popular promise in tooling right now: don't rewrite your app in Rust — profile it, find the 5% that's slow, port just those functions, and prove the ports behave identically. We liked the shape of that promise enough to run it against Velta's web layer with <a href="https://github.com/EL4CTEO/fast-anything">fast-anything</a>: the markdown renderer, the message-history pipeline, and the folder-zip engine. Here is everything it found, including the part it refused to do.</p>
+    <div class="body">
+<h2>The setup</h2>
+<p>Velta's desktop app is a build-less web UI in a system WebView, with the messaging core linked in-process as Rust. That already matters for this experiment: the heavy lifting — encryption, the network stacks, the database, the transfer engine — is not JavaScript. What remains in JS is interface glue: renderers, formatters, pagers. Exactly the layer where "rewrite the slow 5%" should have nothing to say. We wanted that confirmed with instruments, not vibes.</p>
+<p>fast-anything's loop is: run your app under a profiler, rank functions by time spent × portability, record real calls to the hot ones, generate a one-function Rust crate, verify the port replays every recorded call bit-identically (plus derived edge cases — NaN, empties, non-ASCII, much larger inputs), and bench original against port. If the port is correct but slower, it refuses to enable it. We fed it three real workloads: the markdown renderer that builds every message bubble, the paging and timestamp functions that run on chat open and scroll, and the STORE zip engine behind folder transfers.</p>
+<h2>The numbers</h2>
+<ul>
+<li><strong>Markdown bodies:</strong> 0.36 ms per message. A 2000-message open spends 33 ms rendering every body it will ever show. Nothing to port.</li>
+<li><strong>Timestamps</strong> (time, day separators, <code>&lt;time&gt;</code> tags): 5.8 µs per row. Nothing to port.</li>
+<li><strong>Paging windows</strong> (which slice of a 100,000-message history to fetch next): 101 µs per decision — an <code>indexOf</code> linear scan over the id array. A Rust port verified bit-identical on 800 calls and then measured <strong>177× slower per call</strong>: every call marshals the whole 100,000-string array across the language boundary. The tool declined to enable it and said so.</li>
+<li><strong>CRC-32</strong> (the checksum inside folder zips): V8's JIT already runs the textbook table-driven loop at ~600 MB/s, and a faithful naive Rust port ties it at 1.0×. Replacing the algorithm instead of the language — slicing-by-8, eight bytes per step — gave a verified bit-identical port at <strong>4.5× per call</strong>, about 2.7 GB/s.</li>
+</ul>
+<h2>Three things the experiment taught</h2>
+<p><strong>V8 is genuinely good at hot numeric loops.</strong> The textbook CRC in JavaScript is memory-bound on table lookups, and the JIT keeps up with naive Rust byte for byte. "Rewrite it in Rust" bought nothing until we rewrote the <em>algorithm</em> — and a better algorithm in JavaScript would have bought the same 4.5×. The win was never about the language.</p>
+<p><strong>The boundary is the bill.</strong> Crossing from JavaScript into Rust with 100,000 strings costs 8 ms — 80× the work itself. For functions called with small arguments thousands of times, a port is a pessimization wearing an optimization costume. The only ports that pay carry large, chunky work per crossing.</p>
+<p><strong>Velta's web layer has nothing to port, and that is the finding.</strong> Every hot path we could name is either DOM-shaped (the interface), already native (the core), or so cheap that the profiler needs a magnifying glass. The slow parts of a messenger are not the parts you can port: they are what gets fetched, when, and over which network — which is where our current performance work actually lives.</p>
+<h2>What we keep</h2>
+<ul>
+<li><strong>Method:</strong> profile with instruments before touching anything; we will reuse this harness on future workloads.</li>
+<li><strong>A verified slicing-by-8 CRC</strong> on the shelf — if folder transfers ever feel slow on giant folders, the right integration is a Tauri command that zips in the shell, and the hard numbers to justify it already exist.</li>
+<li><strong>Respect</strong> for a tool that verifies its claims and publishes its failures alongside its wins. The "177× slower, declined to enable" verdict is worth more than a hundred benchmark banners.</li>
+</ul>
+<p>The next performance work you will notice in Velta is not a language rewrite. It is a second device that finishes catching up before you have put the phone down — that work is scoped and next on the bench.</p>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=9"></script>
+</body>
+</html>
