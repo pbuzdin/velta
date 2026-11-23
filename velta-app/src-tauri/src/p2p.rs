@@ -1167,40 +1167,68 @@ impl P2p {
         self.require_paired(&node_id)?;
         self.require_online(&node_id)?;
         let plan = crate::loopzip::FolderZip::plan(std::path::Path::new(folder))?;
-        if plan.len() > MAX_FILE_BYTES {
-            bail!("folder too large for local chat");
-        }
         let base = std::path::Path::new(folder)
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let safe = sanitize_name(&format!("{}.zip", if base.is_empty() { "folder" } else { &base }));
+        self.send_zip(peer_str, plan, &base, caption)
+    }
+
+    /// Sends a laid-out folder zip named `<base>.zip` (desktop walk or an
+    /// Android SAF tree listing).
+    pub fn send_zip(self: &Arc<Self>, peer_str: &str, plan: crate::loopzip::FolderZip, base: &str, caption: &str) -> Result<(String, PathBuf, String)> {
+        if plan.len() > MAX_FILE_BYTES {
+            bail!("folder too large for local chat");
+        }
+        let safe = sanitize_name(&format!("{}.zip", if base.is_empty() { "folder" } else { base }));
+        let len = plan.len();
+        let (id, path) = self
+            .send_reader(peer_str, &safe, len, plan.reader(), caption)
+            .map_err(|e| e.context("packing the folder"))?;
+        Ok((id, path, safe))
+    }
+
+    /// Sends `len` bytes read from `reader` as a file named `name`: they are
+    /// written once into the sender's stored copy (sealed at rest when
+    /// sealing is on), then streamed. Android uses it for `content://` picks
+    /// so a big file is not first copied into uploads/.
+    pub fn send_reader(self: &Arc<Self>, peer_str: &str, name: &str, len: u64, mut reader: impl std::io::Read, caption: &str) -> Result<(String, PathBuf)> {
+        let node_id = NodeId::from_str(peer_str)?;
+        self.require_paired(&node_id)?;
+        self.require_online(&node_id)?;
+        if len > MAX_FILE_BYTES {
+            bail!("file too large for local chat");
+        }
+        let safe = sanitize_name(name);
         let dest_dir = self.blobs_dir.join("self");
         std::fs::create_dir_all(&dest_dir)?;
-        require_space(&dest_dir, plan.len())?;
+        require_space(&dest_dir, len)?;
         let id = random_id();
         let dest = dest_dir.join(format!("{id}_{safe}"));
         let key = attachment_key();
         let written: Result<()> = (|| {
-            let mut reader = plan.reader();
+            use std::io::{Read, Write};
             let mut out = std::io::BufWriter::with_capacity(256 * 1024, std::fs::File::create(&dest)?);
+            // Exactly `len` bytes: a source that grows is cut, one that
+            // shrinks fails (the announced size must hold).
+            let mut limited = (&mut reader).take(len);
             match key.as_ref().filter(|_| seal_media()) {
-                Some(key) => velta_attachment::encrypt(key, &mut reader, plan.len(), &mut out)?,
+                Some(key) => velta_attachment::encrypt(key, &mut limited, len, &mut out)?,
                 None => {
-                    std::io::copy(&mut reader, &mut out)?;
+                    if std::io::copy(&mut limited, &mut out)? != len {
+                        bail!("the source ended early");
+                    }
                 }
             }
-            use std::io::Write;
             out.flush()?;
             out.get_ref().sync_all()?;
             Ok(())
         })();
         if let Err(e) = written {
             let _ = std::fs::remove_file(&dest);
-            return Err(e.context("packing the folder"));
+            return Err(e);
         }
-        let (id, path) = self.stream_stored(node_id, id, dest, plan.len(), safe.clone(), caption)?;
-        Ok((id, path, safe))
+        self.stream_stored(node_id, id, dest, len, safe, caption)
     }
 
     fn require_online(self: &Arc<Self>, node_id: &NodeId) -> Result<()> {
