@@ -153,6 +153,22 @@ native/rpc-shim/ Rust crate, two artifacts (#424): the Android cdylib (in-proces
                  `start_core` before `VELTA_DB_KEY` is set — see the
                  encryption bullet below.
 composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
+baselineprofile/ Android-only test module (#507): startup Baseline Profile
+                 generator + startup / chat-list / history macrobenchmarks.
+                 Manual, needs a device (API 28+): generate with
+                 `:composeApp:generateReleaseBaselineProfile`, measure with
+                 `:baselineprofile:connectedBenchmarkAndroidTest` against the
+                 `benchmark` buildType (release-like, debug-signed). Sign in
+                 on the target device first or the scrolls run over the splash.
+                 ⚠️ `:baselineprofile:assemble` needs a CONNECTED device
+                 (the plugin wires profile collection into it) — a
+                 device-less gate compiles the variants instead:
+                 `:baselineprofile:compileBenchmarkReleaseKotlin
+                 :baselineprofile:compileNonMinifiedReleaseKotlin`.
+                 BaselineProfileRule lives in
+                 `androidx.benchmark:benchmark-macro-junit4`
+                 (`androidx.benchmark.macro.junit4`) — there is no
+                 `androidx.baselineprofile:baselineprofile` artifact.
 composeApp/keystore.properties — release signing (gitignored; absent → debug-key fallback)
 ```
 
@@ -204,7 +220,26 @@ cd ~/velta-kmp-build/velta-kmp
 ```
 
 Full local gate = desktopTest + assembleDebug + desktop package, then CI green
-(`gh run list --workflow build-kmp.yml`). The `shim` job in `build-kmp.yml`
+(`gh run list --workflow build-kmp.yml`). Since #507 the `build` job also
+assembles the minified release APK (debug-key fallback signing) and uploads
+`velta-kmp-arm64-release-apk` — FPS numbers only count on that artifact, not
+on debug builds. Compose compiler stability reports/metrics land in
+`composeApp/build/compose_reports|compose_metrics` on every compile;
+`composeApp/compose_stability.conf` marks the kotlinx.serialization JSON tree
+stable (MessageObject.reactions). #507 also routed single-message events to
+per-id refetches: MsgsChanged/MsgDelivered/MsgFailed/MsgRead/
+MsgReadCountChanged/MsgDeleted/ReactionsChanged/IncomingReaction/IncomingMsg
+with a real msgId swap just that message into the loaded window (requested
+ids missing from the response = deleted → row drops; ids past the newest
+loaded message append); msgId 0/absent falls back to the full window reload.
+The last window load / targeted update is one `chatLoadJob` — a newer one
+cancels the older so a slow response cannot overwrite fresher rows. Decoded
+bitmaps ride a 48 MB LRU (`ImageMemory` in ui/Media.kt, path + size-bucket
+keys) — use `rememberCachedImage`/`cachedImage`, never bare `decodeImage`,
+in composition. Identity fingerprints cache per chat (`identityCache`,
+cleared on ContactsChanged); UI reloads pause between Android onStop/onStart
+(`uiReloadsPaused`, NOT `uiVisible` — desktop never sets the latter) and
+replay as one flush on resume. The `shim` job in `build-kmp.yml`
 reuses the #369 native-lib cache for the LTO `.so` when inputs are
 unchanged; cache keys are recorded BEFORE rust-cache restores
 `core/target/` (details: `docs/agents/release-ci.md`). The real-binary IT needs

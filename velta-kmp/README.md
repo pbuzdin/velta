@@ -51,8 +51,17 @@ set. Debug APKs are signed with the shared `composeApp/debug.keystore`
 and take epoch minutes at build time as versionCode — one clock for CI
 and local builds, so the newest build installs over any older one; ABI
 splits keep the phone APK ~28 MB, and every CI APK carries the core shim
-(#334). See [docs/PHASES.md](docs/PHASES.md) for the per-phase ledger
-and what's left. Android webxdc runs from the core's blobs in a
+(#334). CI also builds a minified, debug-signed release APK
+(`velta-kmp-arm64-release-apk`) — judge FPS only on that artifact, debug
+Compose is far slower (#507). Performance work in #507: decoded bitmaps
+ride a shared 48 MB LRU cache at display size instead of full-size decodes
+on the UI thread, message events refetch just the named message instead of
+the loaded window (with `@Immutable` models so unchanged bubbles skip
+recomposition), identity fingerprints and UI reloads are cached/paused
+sensibly, and a `:baselineprofile` module holds the startup Baseline
+Profile generator plus chat-list/history scroll macrobenchmarks (manual,
+device required). See [docs/PHASES.md](docs/PHASES.md) for the per-phase
+ledger and what's left. Android webxdc runs from the core's blobs in a
 WebView. Desktop does not run those apps. The Tauri sandbox server is
 not part of this client.
 

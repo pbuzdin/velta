@@ -58,6 +58,9 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
     }
 
     val requests = CopyOnWriteArrayList<String>()
+    /** Live per-test overrides, consulted before the static script — for
+     * flows where a later call must answer differently (#507 update tests). */
+    val dynamic = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var onLine: ((String) -> Unit)? = null
     var closed = false
         private set
@@ -71,7 +74,7 @@ class ScriptedRpcTransport(private val script: Map<String, String>) : RpcTranspo
         val obj = Json.parseToJsonElement(line).jsonObject
         val id = obj["id"]!!.jsonPrimitive.content
         val method = obj["method"]!!.jsonPrimitive.content
-        val scripted = script[method] ?: DEFAULT_ANSWERS[method] ?: return
+        val scripted = dynamic[method] ?: script[method] ?: DEFAULT_ANSWERS[method] ?: return
         if (scripted.startsWith("ERROR:")) {
             onLine?.invoke(
                 """{"id":$id,"error":{"code":-1,"message":"${scripted.removePrefix("ERROR:")}"}}""",

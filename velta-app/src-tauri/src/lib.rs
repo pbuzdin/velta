@@ -1460,6 +1460,22 @@ fn media_cors(origin: Option<&str>) -> Result<Option<String>, ()> {
     }
 }
 
+fn app_local_data_dir(app: &tauri::AppHandle) -> PathBuf {
+    use tauri::path::BaseDirectory;
+    app.path()
+        .resolve(".", BaseDirectory::AppLocalData)
+        .unwrap_or_else(|_| log_dir().join(".."))
+}
+
+// Files the blobfile/media servers may serve: anything under the app-local
+// data root -- account blobs AND uploads/ (staged composer attachments live
+// there, a SIBLING of accounts/, which is why scoping to accounts_dir alone
+// 404'd every #504 video preview; read_media_bytes already scopes this wide).
+// Never anything outside the root.
+fn media_scope_allows(root_canon: &Path, fpath_canon: &Path) -> bool {
+    fpath_canon.starts_with(root_canon)
+}
+
 // "bytes=a-b" | "bytes=a-" | "bytes=-n" → inclusive (start, end)
 fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     let rest = header.trim().strip_prefix("bytes=")?;
@@ -1537,23 +1553,27 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
         None => b,
     };
 
-    // Only serve files that live inside the accounts directory (blobs,
-    // uploads) -- never anything else on the filesystem. Canonicalize both
-    // sides: on Android the core reports blobs under /data/user/0 (a symlink
-    // to /data/data), so a raw prefix check would wrongly reject everything.
-    let accounts = accounts_dir(app);
-    let accounts_canon = std::fs::canonicalize(&accounts).unwrap_or(accounts.clone());
+    // Only serve files that live inside the app-local data root -- account
+    // blobs AND uploads/ (staged composer attachments; a sibling of accounts/,
+    // see media_scope_allows). Canonicalize both sides: on Android the core
+    // reports blobs under /data/user/0 (a symlink to /data/data), so a raw
+    // prefix check would wrongly reject everything.
+    let root = app_local_data_dir(app);
+    let root_canon = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
     let fpath = std::path::Path::new(&file);
     let fpath_canon = fpath.canonicalize().unwrap_or_else(|_| fpath.to_path_buf());
     log(&format!(
-        "blobfile check: accounts_canon={} file_canon={}",
-        accounts_canon.display(),
+        "blobfile check: root_canon={} file_canon={}",
+        root_canon.display(),
         fpath_canon.display()
     ));
-    if !fpath_canon.starts_with(&accounts_canon) {
+    if !media_scope_allows(&root_canon, &fpath_canon) {
         log("blobfile FORBIDDEN");
         return not_found("forbidden");
     }
+    // serve_thumbnail keeps its cache at <root>/thumbs (it joins the param's
+    // parent), so hand it the accounts dir under this root.
+    let accounts = root.join("accounts");
     let serve_path = fpath_canon.to_string_lossy().to_string();
 
     let meta = match std::fs::metadata(&serve_path) {
@@ -2750,7 +2770,7 @@ fn install_update(_path: String) -> Result<(), String> {
     Err("in-app APK updates are Android-only".into())
 }
 
-fn start_media_server(accounts: PathBuf) {
+fn start_media_server(root: PathBuf) {
     std::thread::Builder::new()
         .name("media-http".into())
         .spawn(move || {
@@ -2782,14 +2802,14 @@ fn start_media_server(accounts: PathBuf) {
                     eprintln!("[media] connection limit reached; dropping one");
                     continue;
                 }
-                let accounts = accounts.clone();
+                let root = root.clone();
                 std::thread::spawn(move || {
                     let _slot = MediaConnectionSlot;
                     // Connection-level diagnostics reach logcat via stderr.
                     let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
                     eprintln!("[media] accept from {peer}");
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        serve_media_connection(&mut stream, &accounts);
+                        serve_media_connection(&mut stream, &root);
                     }));
                     if result.is_err() {
                         eprintln!("[media] serve_media_connection PANICKED for {peer}");
@@ -2801,7 +2821,7 @@ fn start_media_server(accounts: PathBuf) {
         .ok();
 }
 
-fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) {
+fn serve_media_connection(stream: &mut std::net::TcpStream, root: &PathBuf) {
     use std::io::{Read, Seek, SeekFrom, Write};
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
 
@@ -2885,12 +2905,15 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
     let file = percent_decode(enc_path);
     eprintln!("[media] request {file} range={range:?}");
 
-    let accounts_canon = std::fs::canonicalize(accounts).unwrap_or_else(|_| accounts.clone());
+    let root_canon = std::fs::canonicalize(root).unwrap_or_else(|_| root.clone());
     let fpath = std::path::Path::new(&file);
     let fpath_canon = fpath.canonicalize().unwrap_or_else(|_| fpath.to_path_buf());
-    if !fpath_canon.starts_with(&accounts_canon) {
+    if !media_scope_allows(&root_canon, &fpath_canon) {
         return not_found();
     }
+    // load_thumbnail keeps its thumb cache at <root>/thumbs (it joins the
+    // param's parent), so hand it the accounts dir under this root.
+    let accounts = root.join("accounts");
     let serve_path = fpath_canon.to_string_lossy().to_string();
     let meta = match std::fs::metadata(&serve_path) {
         Ok(m) if m.is_file() => m,
@@ -2915,7 +2938,7 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
         None
     };
     if let Some(w) = thumb_w {
-        if let Some(data) = load_thumbnail(accounts, &serve_path, &meta, w) {
+        if let Some(data) = load_thumbnail(&accounts, &serve_path, &meta, w) {
             let head = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nAccept-Ranges: bytes\r\n{cors}Content-Length: {}\r\nConnection: close\r\n\r\n",
                 data.len()
@@ -5695,7 +5718,9 @@ pub fn run() {
                 *MEDIA_TOKEN.lock().unwrap() = {
                     data_encoding::HEXLOWER.encode(&random_bytes::<16>())
                 };
-                start_media_server(accounts_dir(app.handle()));
+                // The serve root is the app-local data dir, not accounts_dir:
+                // staged composer attachments live in uploads/, a sibling.
+                start_media_server(app_local_data_dir(app.handle()));
             }
 
             log("setup started");
@@ -6267,6 +6292,29 @@ mod link_preview_proxy_tests {
         let agent = link_preview_agent(Some(&format!("socks5://127.0.0.1:{port}"))).unwrap();
         assert!(agent.get("https://example.com/").call().is_err());
         assert_eq!(seen.join().unwrap(), 5, "SOCKS version byte");
+    }
+}
+
+#[cfg(test)]
+mod media_scope_tests {
+    use super::media_scope_allows;
+
+    #[test]
+    fn serves_uploads_sibling_of_accounts() {
+        // uploads/ is a SIBLING of accounts/ under the app-local root; the
+        // #504 video preview broke because the gates scoped to accounts only.
+        let root = std::path::Path::new("C:/appdata");
+        assert!(media_scope_allows(root, std::path::Path::new("C:/appdata/accounts/x/dc.db-blobs/v.mp4")));
+        assert!(media_scope_allows(root, std::path::Path::new("C:/appdata/uploads/123-clip.mp4")));
+    }
+
+    #[test]
+    fn rejects_outside_root() {
+        let root = std::path::Path::new("C:/appdata");
+        assert!(!media_scope_allows(root, std::path::Path::new("C:/other/file.mp4")));
+        assert!(!media_scope_allows(root, std::path::Path::new("C:/appdata-other/file.mp4")));
+        // ../ escapes are resolved by the canonicalize() that runs before
+        // this gate; starts_with() is purely lexical.
     }
 }
 

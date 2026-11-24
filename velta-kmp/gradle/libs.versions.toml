@@ -15,6 +15,12 @@ zxing = "3.5.3"
 camerax = "1.4.1"
 androidxActivityCompose = "1.11.0"
 androidxBrowser = "1.8.0"
+# #507 measurement: baseline profiles + macrobenchmarks (manual runs, not CI).
+baselineprofile = "1.4.1"
+profileinstaller = "1.4.1"
+macrobenchmark = "1.4.1"
+uiautomator = "2.3.0"
+androidxTestRunner = "1.6.2"
 compileSdk = "36"
 # 26: java.time (used for timestamp formatting) without desugaring.
 minSdk = "26"
@@ -32,6 +38,10 @@ zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
 camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
+androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
+androidx-benchmark-macro-junit4 = { module = "androidx.benchmark:benchmark-macro-junit4", version.ref = "macrobenchmark" }
+androidx-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
@@ -39,3 +49,6 @@ composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMul
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidTest = { id = "com.android.test", version.ref = "agp" }
+kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile" }

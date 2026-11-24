@@ -168,11 +168,18 @@ test("v2 rejects tampering, unknown keys and inconsistent expiry before installa
 });
 
 test("Veltar's Python helper produces envelopes accepted by the PWA", async () => {
+  // Windows PATH often resolves `python3` to the Microsoft Store alias stub
+  // (exit 9009); probe for the first interpreter that actually runs.
+  const python = [["python3"], ["python"], ["py", "-3"]].find(
+    cmd => spawnSync(cmd[0], [...cmd.slice(1), "--version"], { encoding: "utf8" }).status === 0,
+  );
+  assert.ok(python, "no working Python interpreter on PATH");
   const dir = mkdtempSync(join(tmpdir(), "velta-pwa-signer-"));
   const pem = join(dir, "signing-key.pem");
   writeFileSync(pem, privateKey.export({ format: "pem", type: "pkcs8" }));
   const helper = fileURLToPath(new URL("../scripts/relay-invite/pwa_onboarding.py", import.meta.url));
-  const result = spawnSync("python3", [
+  const result = spawnSync(python[0], [
+    ...python.slice(1),
     helper, "mint", "--private-key", pem, "--key-id", "test", "--token", TOK,
     "--proxy", registry.proxy, "--relay", "alpha=mail.example.org", "--relay", "fast=fast.example.org",
     "--pwa-url", "https://velta.cc/web",

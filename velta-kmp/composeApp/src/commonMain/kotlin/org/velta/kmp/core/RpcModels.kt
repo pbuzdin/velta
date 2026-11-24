@@ -1,5 +1,6 @@
 package org.velta.kmp.core
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
 /**
@@ -22,6 +23,7 @@ data class Account(
 }
 
 /** `ChatListItemFetchResult::ChatListItem` (tagged `kind`), error variants dropped. */
+@Immutable
 @Serializable
 data class ChatListItem(
     val kind: String = "ChatListItem",
@@ -54,6 +56,7 @@ data class ChatListItem(
 )
 
 /** `MessageLoadResult::Message` (tagged `kind` = "message", enum-level camelCase); `loadingError` is dropped. */
+@Immutable // #507: lets Compose skip unchanged bubbles; `reactions` compares structurally.
 @Serializable
 data class MessageObject(
     val kind: String = "message",
@@ -101,6 +104,7 @@ data class MessageObject(
 
 /** Core `MessageQuote` (message.rs): JustText carries only the text;
  * WithMessage adds the author + metadata (camelCase via serde rename_all). */
+@Immutable
 @Serializable
 data class MessageQuote(
     val kind: String = "JustText",
@@ -113,6 +117,7 @@ data class MessageQuote(
 )
 
 /** DC contact (camelCase) — used for sender names in group chats. */
+@Immutable
 @Serializable
 data class Contact(
     val id: Long = 0,

@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 
 /**
@@ -871,7 +872,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         val result = client.call("get_next_event_batch", timeoutMs = EVENT_BATCH_BUDGET_MS)
         val arr = result as? JsonArray ?: return emptyList()
         return arr.map { el ->
-            client.json.decodeFromString(CoreEvent.serializer(), el.toString())
+            client.json.decodeFromJsonElement(CoreEvent.serializer(), el)
         }
     }
 
