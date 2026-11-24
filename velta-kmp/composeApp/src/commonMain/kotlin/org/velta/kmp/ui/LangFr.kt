@@ -653,6 +653,7 @@ internal object LangFr {
         "tap to accept" to "touchez pour accepter",
         "this profile" to "ce profil",
         "unknown" to "inconnu",
+        "unknown error" to "erreur inconnue",
         "your new relay" to "votre nouveau relais",
         "your personal space" to "votre espace personnel",
         "{actor} invited you to a {group} group" to "{actor} vous invite dans le groupe {group}",

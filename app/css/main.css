@@ -1809,6 +1809,24 @@ button.reaction-chip { font: inherit; color: inherit; }
    Same tokens as .media-preview-name / .xfer-state (AA on the composer). */
 .media-route { font-size: var(--fs-2); color: var(--text-dim); max-width: 100%; }
 .media-route[data-route="blocked"] { color: var(--text); font-weight: 600; }
+/* Busy ring for every Dash wait (#470): the route check and the offer in the
+   composer, waiting for the sender / fetching on a received card, and Send
+   itself. The .btn-loading ring in currentColor, so it carries the label's
+   or icon's own AA colour (tests/bubble-label-contrast.test.mjs). */
+.media-route.is-busy::before,
+.xfer-state.is-busy::before {
+  content: ""; display: inline-block; width: .9em; height: .9em; margin-right: 6px; vertical-align: -.12em;
+  border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite;
+}
+.send-btn.is-busy { cursor: progress; }
+.send-btn.is-busy svg { display: none; }
+.send-btn.is-busy::before {
+  content: ""; width: var(--ico-3); height: var(--ico-3);
+  border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .media-route.is-busy::before, .xfer-state.is-busy::before, .send-btn.is-busy::before { animation-duration: 2.4s; }
+}
 .voice-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; }
 #voice-rec-label { flex: 1; font-size: 14px; }
 .lp-draft-body { flex: 1; min-width: 0; }

@@ -141,10 +141,28 @@ export function planRoute({ size, oneToOne, proven, enabled, available, health =
   if (dashWanted) {
     const up = !health || (health.ready !== false && (!health.relay || health.relayConnected));
     if (up) return { route: "dash", reason: health && !health.relay ? "direct-only" : "ok" };
-    return mailable ? { route: "email", reason: "dash-down" } : { route: "blocked", reason: "dash-down-too-big" };
+    const why = dashDownWhy(health);
+    return mailable ? { route: "email", reason: "dash-down", why } : { route: "blocked", reason: "dash-down-too-big", why };
   }
   if (!mailable) return { route: "blocked", reason: "too-big" };
   return { route: "email", reason: n > THRESHOLD ? (emailReason({ size: n, oneToOne, proven, enabled, available }) || "policy") : "small" };
+}
+
+/** Why Dash is down, from xfer_health: "timeout" (the endpoint did not
+ *  answer), "relay" (up, but not connected to the Dash relay a receiver on
+ *  another network dials) or "error" (the endpoint could not start). */
+export function dashDownWhy(health) {
+  if (!health) return null;
+  if (health.error === "timeout") return "timeout";
+  if (health.ready === false) return "error";
+  if (health.relay && !health.relayConnected) return "relay";
+  return null;
+}
+function whyText(why) {
+  if (why === "timeout") return t("it is not responding");
+  if (why === "relay") return t("it can't reach your Dash relay");
+  if (why === "error") return t("it couldn't start");
+  return t("it is offline");
 }
 
 const MB = (n) => Math.round(n / 1048576);
@@ -158,12 +176,22 @@ export function routeText(plan, peer = "") {
   }
   if (plan.route === "blocked") {
     return plan.reason === "dash-down-too-big"
-      ? t("Too big for email (max {n} MB) and Velta Dash is unavailable right now", { n: MB(EMAIL_MAX) })
+      ? t("Can't send: Velta Dash is unavailable ({why}) and the file is too big for email (max {n} MB)", { why: whyText(plan.why), n: MB(EMAIL_MAX) })
       : t("Too big to send by email (max {n} MB)", { n: MB(EMAIL_MAX) });
   }
-  if (plan.reason === "dash-down") return t("Velta Dash is unavailable right now: sending by email (max {n} MB)", { n: MB(EMAIL_MAX) });
+  if (plan.reason === "dash-down") return t("Velta Dash is unavailable ({why}): sending by email (max {n} MB)", { why: whyText(plan.why), n: MB(EMAIL_MAX) });
   if (plan.reason === "small") return "";
   return t("Sending by email (max {n} MB)", { n: MB(EMAIL_MAX) });
+}
+
+/** The error for a Dash send that failed with a file too big for email:
+ *  says Dash failed (and how), not just "too big". `error`: what the offer
+ *  threw ("rpc timeout: xfer_offer" when the shell never answered). */
+export function offerFailedText(error) {
+  const msg = String(error?.message || error || "");
+  return /rpc timeout/i.test(msg)
+    ? t("Velta Dash didn't respond in time, and the file is too big for email (max {n} MB). Nothing was sent.", { n: MB(EMAIL_MAX) })
+    : t("Velta Dash couldn't prepare the file ({error}), and it is too big for email (max {n} MB). Nothing was sent.", { error: msg || t("unknown error"), n: MB(EMAIL_MAX) });
 }
 
 /** Mail domains of a contact's addresses: chatmail serves its iroh relay at
@@ -221,7 +249,7 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
     const route = chooseRoute({ size: file.size, oneToOne, peerIsVelta, enabled: enabled(), available: !!iroh });
     if (route === "email") { await email.sendFile(chatId, file); return { route, via: "policy" }; }
     try {
-      const ticket = await iroh.offer(file.path, await relay(), file.name);
+      const ticket = await iroh.offer(file.path, await relay(), file.name, file.size);
       const tk = decodeTicket(ticket);
       if (!tk) throw new Error("bad ticket");
       pending.set(tk.hash, { chatId, name: file.name, size: file.size, exp: tk.exp, path: file.path });

@@ -653,6 +653,7 @@ internal object LangRu {
         "tap to accept" to "нажмите, чтобы принять",
         "this profile" to "этот профиль",
         "unknown" to "неизвестно",
+        "unknown error" to "неизвестная ошибка",
         "your new relay" to "ваш новый релей",
         "your personal space" to "ваше личное пространство",
         "{actor} invited you to a {group} group" to "{actor} приглашает вас в группу {group}",
