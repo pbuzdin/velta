@@ -2610,7 +2610,12 @@ private fun ChatListRow(
                     }
                     Icon(
                         glyph,
-                        contentDescription = null,
+                        contentDescription = when (state) {
+                            "pending" -> L.t("Sending")
+                            "failed" -> L.t("Failed")
+                            "delivered" -> L.t("Delivered")
+                            else -> "Read" // not a web-pack key
+                        },
                         modifier = Modifier.size(16.dp),
                         tint = when (state) {
                             "failed" -> Velta.tokens.danger
@@ -4924,7 +4929,7 @@ private fun StickerPicker(
                                         if (bitmap != null) {
                                             Image(
                                                 bitmap,
-                                                contentDescription = null,
+                                                contentDescription = L.t("Sticker"),
                                                 modifier = Modifier.size(64.dp),
                                                 contentScale = ContentScale.Fit,
                                             )
@@ -5035,11 +5040,12 @@ private fun Modifier.gestureSkip(model: AppModel): Modifier = pointerInput(Unit)
 /** A bubble tap target with no ripple (stable media/file cards). The
  *  bubble's own gesture loop consumes long-press and select taps, so
  *  those never reach here. */
-private fun Modifier.tapOpens(onTap: () -> Unit): Modifier = composed {
+private fun Modifier.tapOpens(label: String? = null, onTap: () -> Unit): Modifier = composed {
     clickable(
         interactionSource = remember { MutableInteractionSource() },
         indication = null,
         role = androidx.compose.ui.semantics.Role.Button,
+        onClickLabel = label,
         onClick = onTap,
     )
 }
@@ -5395,12 +5401,12 @@ private fun MessageBubble(
                     } else when (message.viewType) {
                         // Web .msg-video: #101010 band with a play button and
                         // size/duration chips; a tap hands the file to the system player.
-                        "Video" -> Box(Modifier.tapOpens { model.tapVideo(message) }) { VideoCard(message, tokens) }
+                        "Video" -> Box(Modifier.tapOpens(L.t("Video")) { model.tapVideo(message) }) { VideoCard(message, tokens) }
                         // Web .msg-audio: stable's own player bar (audio-player.js).
                         "Audio", "Voice" -> AudioBubble(model, message, tokens)
                         // Web .msg-file: 44px accent circle + name + size; a tap opens it.
-                        "File" -> Box(Modifier.tapOpens { model.openMessageFile(message) }) { FileCard(message, tokens) }
-                        "Webxdc" -> Box(Modifier.tapOpens { model.openWebxdc(message.id, message.fileName ?: message.viewType) }) { FileCard(message, tokens) }
+                        "File" -> Box(Modifier.tapOpens(message.fileName) { model.openMessageFile(message) }) { FileCard(message, tokens) }
+                        "Webxdc" -> Box(Modifier.tapOpens(message.fileName ?: message.viewType) { model.openWebxdc(message.id, message.fileName ?: message.viewType) }) { FileCard(message, tokens) }
                         else -> {}
                     }
                     if (message.text.isNotBlank()) {
@@ -5563,7 +5569,15 @@ private fun MessageBubble(
                                 Spacer(Modifier.size(3.dp))
                                 Icon(
                                     glyph,
-                                    contentDescription = null,
+                                    // #515: the tick is the ONLY carrier of the
+                                    // delivery state — announce it.
+                                    contentDescription = when (message.state) {
+                                        20 -> L.t("Sending")
+                                        24 -> L.t("Failed")
+                                        26 -> L.t("Delivered")
+                                        28 -> "Read" // not a web-pack key
+                                        else -> null
+                                    },
                                     modifier = Modifier.size(14.dp),
                                     tint = when (message.state) {
                                         28 -> tokens.ticksRead
@@ -5860,7 +5874,7 @@ private fun AudioBubble(model: AppModel, message: MessageObject, tokens: VeltaTo
     }
     val ready = (message.downloadState ?: "Done") == "Done" && message.file != null
     if (!ready || model.audioEngine == null) {
-        Box(Modifier.tapOpens { model.toggleAudio(message) }) { AudioCard(message, tokens) }
+        Box(Modifier.tapOpens(if (message.viewType == "Voice") L.t("Voice message") else L.t("Audio")) { model.toggleAudio(message) }) { AudioCard(message, tokens) }
         return
     }
     val now = model.audioNow?.takeIf { it.msgId == message.id }
@@ -5874,9 +5888,11 @@ private fun AudioBubble(model: AppModel, message: MessageObject, tokens: VeltaTo
             .gestureSkip(model)
             .widthIn(min = 240.dp, max = 320.dp)
             .fillMaxWidth()
-            .height(40.dp)
-            .background(Color(0x2E000000), RoundedCornerShape(20.dp))
-            .padding(start = 4.dp, end = 10.dp)
+            // #515: 48dp so the play button's touch target meets the minimum
+            // (was 40 with a 32dp button).
+            .height(48.dp)
+            .background(Color(0x2E000000), RoundedCornerShape(24.dp))
+            .padding(start = 8.dp, end = 12.dp)
             .semantics { contentDescription = label },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
