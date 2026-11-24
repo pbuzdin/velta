@@ -27,6 +27,7 @@ import org.velta.kmp.ui.catchUpDecision
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import java.nio.file.Files
 import kotlin.test.assertTrue
 
 /** #358 Background delivery: periodic catch-up (stable BackgroundFetchJob). */
@@ -212,21 +213,27 @@ class BackgroundRulesTest {
     @Test
     fun scheduledFetchStartsAHeadlessCore() = runBlocking {
         val transport = ScriptedRpcTransport(answers())
+        val dir = Files.createTempDirectory("velta-kmp-bg-fetch-").toFile()
         val platform = object : CorePlatform {
-            override fun accountsDir(): String = "/tmp/velta-kmp-bg-fetch-test"
+            override fun accountsDir(): String = dir.absolutePath
             override fun spawnRpcServer(accountsDir: String): RpcTransport = transport
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             // No connect() first: the job wakes a process with no UI.
             val model = AppModel(platform, scope)
-            assertTrue(model.catchUpFetch("scheduled"))
+            val ok = model.catchUpFetch("scheduled")
+            assertTrue(
+                ok,
+                "status=${model.status} connected=${model.connected} requests=${transport.requests}",
+            )
             val fetchIdx = transport.requests.indexOfFirst { "\"background_fetch\"" in it }
-            assertTrue(fetchIdx >= 0, "fetched")
+            assertTrue(fetchIdx >= 0, "fetched: ${transport.requests}")
             assertTrue(transport.requests[fetchIdx].contains("15"), transport.requests[fetchIdx])
             assertTrue(transport.requests.lastIndexOf(transport.requests.last { "\"start_io_for_all_accounts\"" in it }) < fetchIdx)
         } finally {
             scope.cancel()
+            dir.deleteRecursively()
         }
     }
 

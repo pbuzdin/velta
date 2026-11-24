@@ -187,3 +187,7 @@ tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask>().configureEach {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
 }
+
+dependencies {
+    add("testImplementation", "junit:junit:4.13.2")
+}
