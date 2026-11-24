@@ -79,15 +79,6 @@ kotlin {
                 implementation(libs.zxing.core)
             }
         }
-        // The custom jvmCommon dependsOn edges disable the default KMP
-        // hierarchy, so androidUnitTest must be wired by hand or it compiles
-        // without androidMain / jvmCommon on the classpath.
-        val androidUnitTest by getting {
-            dependsOn(androidMain.get())
-            dependencies {
-                implementation(kotlin("test"))
-            }
-        }
     }
 }
 
@@ -171,6 +162,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+    // AGP's unit-test classpath includes the debug compilation (androidMain
+    // + jvmCommon). The KMP androidUnitTest source set is in the test tree
+    // and cannot dependsOn androidMain (different source-set trees).
+    sourceSets {
+        getByName("test") {
+            java.srcDir("src/androidUnitTest/kotlin")
+        }
+    }
 }
 
 compose.resources {
@@ -195,4 +194,8 @@ tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask>().configureEach {
     testLogging {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
+}
+
+dependencies {
+    add("testImplementation", kotlin("test"))
 }
