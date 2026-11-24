@@ -2189,6 +2189,9 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
 // overlay and reuses the current entry — history.back() is async, so
 // back-then-push would race and lose it.
 let lightboxEl = null, lightboxOnKey = null;
+// Keyboard users land back on what opened the lightbox (e.g. the composer's
+// video preview button) instead of the page body.
+let lightboxReturn = null;
 
 function teardownLightbox(consumeEntry) {
   if (!lightboxEl) return;
@@ -2197,6 +2200,9 @@ function teardownLightbox(consumeEntry) {
   document.removeEventListener("keydown", lightboxOnKey, true);
   lightboxOnKey = null;
   el.remove();
+  const back = lightboxReturn;
+  lightboxReturn = null;
+  if (back?.isConnected && typeof back.focus === "function") { try { back.focus({ preventScroll: true }); } catch {} }
   if (consumeEntry && history.state?.velta === "lightbox") history.back();
 }
 
@@ -2334,6 +2340,7 @@ function savedVideoRate() {
 export function openVideoLightbox(src, caption = "") {
   closeAllPopups();
   teardownLightbox(false);
+  lightboxReturn = document.activeElement;
   const rate = savedVideoRate();
   const overlay = document.createElement("div");
   overlay.className = "lightbox lightbox-video";
@@ -2356,6 +2363,7 @@ export function openVideoLightbox(src, caption = "") {
   video.playbackRate = rate;
   video.src = src;
   lightboxEl = overlay;
+  try { video.focus({ preventScroll: true }); } catch {}
   if (history.state?.velta !== "lightbox") history.pushState({ velta: "lightbox" }, "");
 
   // Ignore a currentTime under 1s. A pause before the resume seek would

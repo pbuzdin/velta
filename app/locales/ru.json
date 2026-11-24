@@ -1777,5 +1777,8 @@
   "Checking how to send…": "Уточняю способ отправки…",
   "Too big to send by email (max {n} MB)": "Слишком большой для отправки по почте (макс. {n} МБ)",
   "Velta Dash is unavailable right now: sending by email (max {n} MB)": "Velta Dash сейчас недоступен: отправка по почте (макс. {n} МБ)",
-  "Sending by email (max {n} MB)": "Отправка по почте (макс. {n} МБ)"
+  "Sending by email (max {n} MB)": "Отправка по почте (макс. {n} МБ)",
+  "Play video: {name}": "Воспроизвести видео: {name}",
+  "Preview video": "Просмотреть видео",
+  "Drop one file at a time": "Перетаскивайте по одному файлу"
 }

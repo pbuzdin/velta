@@ -1837,6 +1837,30 @@ object VeltaIcons {
         }.build()
     }
 
+    /** app/js/icons.js P.previewPlay — house style: 24 grid, stroke 2, round caps. */
+    val previewPlay: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "VeltaIcons.PreviewPlay",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathData {
+        moveTo(8.0f, 5.5f)
+        verticalLineToRelative(13.0f)
+        lineToRelative(10.0f, -6.5f)
+        close()
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     /** app/js/icons.js P.lockOpen — house style: 24 grid, stroke 2, round caps. */
     val lockOpen: ImageVector by lazy {
         ImageVector.Builder(

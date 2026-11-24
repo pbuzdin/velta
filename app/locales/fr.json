@@ -1777,5 +1777,8 @@
   "Checking how to send…": "Vérification du mode d'envoi…",
   "Too big to send by email (max {n} MB)": "Trop volumineux pour l'envoi par e-mail (max. {n} Mo)",
   "Velta Dash is unavailable right now: sending by email (max {n} MB)": "Velta Dash est indisponible pour le moment : envoi par e-mail (max. {n} Mo)",
-  "Sending by email (max {n} MB)": "Envoi par e-mail (max. {n} Mo)"
+  "Sending by email (max {n} MB)": "Envoi par e-mail (max. {n} Mo)",
+  "Play video: {name}": "Lire la vidéo : {name}",
+  "Preview video": "Aperçu de la vidéo",
+  "Drop one file at a time": "Déposez un seul fichier à la fois"
 }
