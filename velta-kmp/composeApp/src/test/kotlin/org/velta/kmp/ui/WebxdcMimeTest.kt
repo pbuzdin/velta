@@ -1,7 +1,7 @@
 package org.velta.kmp.ui
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.junit.Assert.assertEquals
+import org.junit.Test
 
 /** Android Webxdc asset serving: MIME types for files inside the .xdc. */
 class WebxdcMimeTest {

@@ -189,5 +189,5 @@ tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask>().configureEach {
 }
 
 dependencies {
-    add("testImplementation", kotlin("test"))
+    add("testImplementation", "junit:junit:4.13.2")
 }
