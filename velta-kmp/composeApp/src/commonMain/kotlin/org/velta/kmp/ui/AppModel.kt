@@ -4368,6 +4368,12 @@ class AppModel(
                 voicePath = path
                 voiceRec = VoiceRec(chat.chatId, clockMillis())
             } catch (t: Throwable) {
+                // Reset BEFORE the toast: an observer reacting to the toast
+                // (test or UI) must find the model restartable — with the
+                // reset only in finally, a fast startVoice() after the toast
+                // hit the voiceStarting guard and silently did nothing (CI
+                // flake in voiceRecordingCancelDeniedAndEmpty).
+                voiceStarting = false
                 showToast(voiceStartError(t.message ?: t.toString()), 4000)
             } finally {
                 voiceStarting = false

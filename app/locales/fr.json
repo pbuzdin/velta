@@ -308,6 +308,7 @@
   "unknown server": "serveur inconnu",
   "Add DNS tunnel?": "Ajouter un tunnel DNS ?",
   "Replace": "Remplacer",
+  "Resize photos to 2k": "Redimensionner les photos en 2k",
   "Enable": "Activer",
   "Disable": "Désactiver",
   "Relay paused — it stops sending and fetching (fetch stops at the next reconnect)": "Relais en pause — il n'envoie plus et ne récupère plus (la récupération s'arrête à la prochaine reconnexion)",
