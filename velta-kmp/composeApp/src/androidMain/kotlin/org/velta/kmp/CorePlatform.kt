@@ -1,5 +1,6 @@
 package org.velta.kmp
 
+import org.velta.kmp.core.Diag
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
@@ -68,7 +69,7 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
             val code = RpcShim.startLoopOnce(accountsDir)
             if (code <= 0) null else JniLoopTransport()
         } catch (t: Throwable) {
-            println("velta-kmp: loop start threw: $t")
+            Diag.w("loop start threw: $t")
             null
         }
     }
@@ -78,7 +79,7 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
         try {
             RpcShim.stopLoopOnce()
         } catch (t: Throwable) {
-            println("velta-kmp: loop stop threw: $t")
+            Diag.w("loop stop threw: $t")
         }
     }
 
@@ -147,20 +148,20 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
 
     private fun openShim(accountsDir: String, dbKey: String): RpcTransport? {
         if (!RpcShim.available) {
-            println("velta-kmp: rpc shim not packaged — build native/rpc-shim for this ABI (see README)")
+            Diag.w("rpc shim not packaged — build native/rpc-shim for this ABI (see README)")
             return null
         }
         if (dbKey.length == 64) liveDek = dbKey.lowercase()
         return try {
             val code = RpcShim.startCoreOnce(accountsDir, dbKey)
             if (code <= 0) {
-                println("velta-kmp: shim failed to start the core (code=$code)")
+                Diag.w("shim failed to start the core (code=$code)")
                 null
             } else {
                 JniRpcTransport()
             }
         } catch (t: Throwable) {
-            println("velta-kmp: shim start threw: $t")
+            Diag.w("shim start threw: $t")
             null
         }
     }

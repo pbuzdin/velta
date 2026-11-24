@@ -1,5 +1,6 @@
 package org.velta.kmp
 
+import org.velta.kmp.core.Diag
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -102,7 +103,7 @@ class MainActivity : FragmentActivity() {
                 }
                 model.onAttachmentPicked(staged.absolutePath, displayName)
             } catch (t: Throwable) {
-                println("velta-kmp: attachment staging failed: $t")
+                Diag.w("attachment staging failed: $t")
             }
         }
     }
@@ -253,7 +254,7 @@ class MainActivity : FragmentActivity() {
                 }
 
                 override fun onAuthenticationError(code: Int, errString: CharSequence) {
-                    println("velta-kmp: auth prompt error $code: $errString")
+                    Diag.w("auth prompt error $code: $errString")
                     val userCancelled = code == BiometricPrompt.ERROR_USER_CANCELED ||
                         code == BiometricPrompt.ERROR_NEGATIVE_BUTTON ||
                         code == BiometricPrompt.ERROR_CANCELED
@@ -438,7 +439,7 @@ class MainActivity : FragmentActivity() {
                     } ?: continue
                     items += org.velta.kmp.ui.ShareItem(file = staged.absolutePath, name = displayName)
                 } catch (t: Throwable) {
-                    println("velta-kmp: share staging failed: $t")
+                    Diag.w("share staging failed: $t")
                 }
             }
             model.receiveShare(items)

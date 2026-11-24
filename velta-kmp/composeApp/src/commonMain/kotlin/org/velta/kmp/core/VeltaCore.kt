@@ -69,7 +69,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         )
         return (result as? JsonArray)?.mapNotNull { element ->
             runCatching { client.json.decodeFromString(Contact.serializer(), element.toString()) }
-                .onFailure { println("velta-kmp: contact decode failed: $it") }
+                .onFailure { Diag.w("contact decode failed: $it") }
                 .getOrNull()
         } ?: emptyList()
     }
@@ -211,7 +211,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         return (result as? JsonArray)?.mapNotNull { element ->
             runCatching {
                 client.json.decodeFromString(Account.serializer(), element.toString())
-            }.onFailure { println("velta-kmp: account decode failed: $it") }.getOrNull()
+            }.onFailure { Diag.w("account decode failed: $it") }.getOrNull()
         } ?: emptyList()
     }
 
@@ -238,7 +238,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
         val transports = (rawTransports as? JsonArray)?.mapNotNull { element ->
             runCatching {
                 client.json.decodeFromString(TransportLogin.serializer(), element.toString())
-            }.onFailure { println("velta-kmp: transport decode failed: $it") }.getOrNull()
+            }.onFailure { Diag.w("transport decode failed: $it") }.getOrNull()
         } ?: emptyList()
 
         val metaByAddr: Map<String, ServerMetadata> = runCatching {
@@ -246,7 +246,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
             (meta as? JsonObject)?.mapNotNull { (addr, value) ->
                 val parsed = runCatching {
                     client.json.decodeFromString(ServerMetadata.serializer(), value.toString())
-                }.onFailure { println("velta-kmp: metadata decode failed for $addr: $it") }.getOrNull()
+                }.onFailure { Diag.w("metadata decode failed for $addr: $it") }.getOrNull()
                     ?: return@mapNotNull null
                 addr to parsed
             }?.toMap()
@@ -901,7 +901,7 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable, CallCore {
                 } catch (t: Throwable) {
                     failures++
                     if (failures >= 5) {
-                        println("velta-kmp: event loop stopping after $failures consecutive failures: $t")
+                        Diag.w("event loop stopping after $failures consecutive failures: $t")
                         onStopped()
                         break
                     }

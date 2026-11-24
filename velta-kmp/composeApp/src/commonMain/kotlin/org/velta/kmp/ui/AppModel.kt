@@ -14,6 +14,7 @@ import org.velta.kmp.core.ChatListItem
 import org.velta.kmp.core.Contact
 import org.velta.kmp.core.CoreEvent
 import org.velta.kmp.core.CorePlatform
+import org.velta.kmp.core.Diag
 import org.velta.kmp.core.MessageObject
 import org.velta.kmp.core.RpcClient
 import org.velta.kmp.core.RpcTransport
@@ -58,6 +59,8 @@ class AppModel(
         data object Accounts : Screen
         data object Join : Screen
         data object Settings : Screen
+        /** Settings → Diagnostics: the Diag ring buffer (#516). */
+        data object Diagnostics : Screen
         data class Chat(val chatId: Long, val title: String, val isGroup: Boolean) : Screen
         data class Profile(val chatId: Long, val title: String) : Screen
         /** A running webxdc app (P3a runtime): WebView hosts the archive. */
@@ -163,7 +166,7 @@ class AppModel(
             } catch (t: Throwable) {
                 // A failed get_contacts must NOT become "no bots".
                 if (contactBots == null || contactBotsAcct != id) contactBotsError = t.message ?: t.toString()
-                println("velta-kmp: contacts failed: $t")
+                Diag.w("contacts failed: $t")
             } finally {
                 contactsLoading = false
             }
@@ -199,11 +202,11 @@ class AppModel(
      *  media_quality, mdns_enabled. */
     private suspend fun syncPerAccountPrefs(veltaCore: VeltaCore, id: Long) {
         runCatching { veltaCore.setConfig(id, "download_limit", downloadLimit) }
-            .onFailure { println("velta-kmp: download_limit sync failed: $it") }
+            .onFailure { Diag.w("download_limit sync failed: $it") }
         runCatching { veltaCore.setConfig(id, "media_quality", mediaQuality) }
-            .onFailure { println("velta-kmp: media_quality sync failed: $it") }
+            .onFailure { Diag.w("media_quality sync failed: $it") }
         runCatching { veltaCore.setConfig(id, "mdns_enabled", if (readReceipts) "1" else "0") }
-            .onFailure { println("velta-kmp: mdns_enabled sync failed: $it") }
+            .onFailure { Diag.w("mdns_enabled sync failed: $it") }
     }
 
     fun onSetDownloadLimit(value: String) {
@@ -283,7 +286,7 @@ class AppModel(
         val id = accountId ?: return
         scope.launch {
             runCatching { veltaCore.setConfig(id, "mdns_enabled", if (on) "1" else "0") }
-                .onFailure { println("velta-kmp: mdns_enabled sync failed: $it") }
+                .onFailure { Diag.w("mdns_enabled sync failed: $it") }
         }
     }
 
@@ -333,7 +336,7 @@ class AppModel(
                 loadChats()
                 chats.firstOrNull { it.id == chatId }?.let { openChat(it) }
             } catch (t: Throwable) {
-                println("velta-kmp: open contact chat failed: $t")
+                Diag.w("open contact chat failed: $t")
             }
         }
     }
@@ -472,7 +475,7 @@ class AppModel(
                     ?: info?.addr?.takeIf { it.isNotBlank() }
                     ?: ""
                 if (inviteName.isBlank()) {
-                    println("velta-kmp: invite card name empty — accountInfo failed or blank (info=${info != null})")
+                    Diag.w("invite card name empty — accountInfo failed or blank (info=${info != null})")
                 }
                 if (inviteColor == null) {
                     inviteColor = runCatching { veltaCore.contact(id, 1).color }.getOrNull()
@@ -506,7 +509,7 @@ class AppModel(
                 archivedChats = veltaCore.chatlistItems(id, ids)
                     .sortedWith(compareByDescending<ChatListItem> { it.isPinned }.thenByDescending { it.lastUpdated ?: 0L })
             } catch (t: Throwable) {
-                println("velta-kmp: archived chats failed: $t")
+                Diag.w("archived chats failed: $t")
             }
         }
     }
@@ -590,7 +593,7 @@ class AppModel(
                 loadChats()
                 chats.firstOrNull { it.id == chatId }?.let { openChat(it) }
             } catch (t: Throwable) {
-                println("velta-kmp: create group failed: $t")
+                Diag.w("create group failed: $t")
             }
         }
     }
@@ -605,7 +608,7 @@ class AppModel(
                 loadChats()
                 chats.firstOrNull { it.id == chatId }?.let { openChat(it) }
             } catch (t: Throwable) {
-                println("velta-kmp: create channel failed: $t")
+                Diag.w("create channel failed: $t")
             }
         }
     }
@@ -666,7 +669,7 @@ class AppModel(
         readHere = readHere + skipped
         scope.launch {
             runCatching { veltaCore.marknoticedChat(id, chat.chatId) }
-                .onFailure { println("velta-kmp: marknoticed failed: $it") }
+                .onFailure { Diag.w("marknoticed failed: $it") }
         }
     }
 
@@ -1153,7 +1156,7 @@ class AppModel(
             } catch (t: Throwable) {
                 val message = t.message ?: t.toString()
                 joinError = message
-                println("velta-kmp: join error: $message")
+                Diag.w("join error: $message")
                 // The relay cap is not a dead end: send the user to the relay
                 // manager where a slot can be freed, with the reason attached.
                 if (message.contains("maximum number of relays", ignoreCase = true)) {
@@ -1414,7 +1417,7 @@ class AppModel(
             transport = spawned
             val client = RpcClient(
                 spawned,
-                log = { line -> println("velta-kmp: $line") },
+                log = { line -> Diag.w("$line") },
                 onDead = { onCoreDead() },
             )
             val veltaCore = VeltaCore(client)
@@ -1436,7 +1439,7 @@ class AppModel(
                 )
 
                 resumeSession(veltaCore)
-                println("velta-kmp: connect ok — core $coreVersion, ${modelAccountsSummary()}")
+                Diag.i("connect ok — core $coreVersion, ${modelAccountsSummary()}")
             } catch (t: Throwable) {
                 status = "connect failed: ${t.message}"
                 // Drop the half-built connection so a retry starts clean. On
@@ -1463,7 +1466,7 @@ class AppModel(
         core = null
         transport = null
         status = "core connection lost"
-        println("velta-kmp: core connection lost — reconnecting")
+        Diag.w("core connection lost — reconnecting")
         scope.launch {
             delay(2000)
             connect()
@@ -1481,7 +1484,7 @@ class AppModel(
         status = "core stopped"
         platform.stopRpcServer()
         platform.dropDek()
-        println("velta-kmp: core stopped (shutdownCore)")
+        Diag.w("core stopped (shutdownCore)")
     }
 
     private fun loopNow(): Long = loopEpoch.elapsedNow().inWholeMilliseconds
@@ -1525,7 +1528,7 @@ class AppModel(
             } catch (c: kotlinx.coroutines.CancellationException) {
                 throw c
             } catch (t: Throwable) {
-                println("velta-kmp: loop: $t")
+                Diag.w("loop: $t")
                 loopOn = false
                 loopToast()
             }
@@ -1544,7 +1547,7 @@ class AppModel(
         } catch (c: kotlinx.coroutines.CancellationException) {
             throw c
         } catch (t: Throwable) {
-            println("velta-kmp: loop: $t")
+            Diag.w("loop: $t")
             failLoopStart()
         }
     }
@@ -1560,7 +1563,7 @@ class AppModel(
         val transport = platform.openLoop(platform.accountsDir()) ?: return false
         val client = RpcClient(
             transport,
-            log = { line -> println("velta-kmp: loop $line") },
+            log = { line -> Diag.w("loop $line") },
             onDead = { if (!loopStopping) onLoopDead() },
         )
         val loop = VeltaLoop(client)
@@ -1577,7 +1580,7 @@ class AppModel(
             platform.closeLoop()
             throw c
         } catch (t: Throwable) {
-            println("velta-kmp: loop start failed: $t")
+            Diag.w("loop start failed: $t")
             loopClient = null
             loop.close()
             platform.closeLoop()
@@ -1599,7 +1602,7 @@ class AppModel(
             } catch (c: kotlinx.coroutines.CancellationException) {
                 throw c
             } catch (t: Throwable) {
-                println("velta-kmp: loop events: $t")
+                Diag.w("loop events: $t")
             }
         }
     }
@@ -1657,7 +1660,7 @@ class AppModel(
                 } catch (c: kotlinx.coroutines.CancellationException) {
                     throw c
                 } catch (t: Throwable) {
-                    println("velta-kmp: loop refresh: $t")
+                    Diag.w("loop refresh: $t")
                 }
             }
         }
@@ -1737,7 +1740,7 @@ class AppModel(
             } catch (c: kotlinx.coroutines.CancellationException) {
                 throw c
             } catch (t: Throwable) {
-                println("velta-kmp: loop history: $t")
+                Diag.w("loop history: $t")
             }
         }
     }
@@ -2116,7 +2119,7 @@ class AppModel(
             // Write the choice back (the fallback may not be the core's
             // selected id) and arm mail. A failure must not hide the local list.
             runCatching { veltaCore.selectAccount(account.id) }
-                .onFailure { println("velta-kmp: selectAccount on resume failed: $it") }
+                .onFailure { Diag.w("selectAccount on resume failed: $it") }
             startMailIoQuiet(veltaCore, account.id, "startIo on resume failed")
             // Sequential on purpose: the chat list is loaded BEFORE the screen
             // switches, so resume never flashes an empty list.
@@ -2286,7 +2289,7 @@ class AppModel(
     fun log(line: String) {
         val stamp = formatTimestamp(wallClockSeconds())
         appLog = (appLog + "$stamp $line").takeLast(200)
-        println("velta-kmp: $line")
+        Diag.w("$line")
     }
 
     private fun addStep(text: String) {
@@ -2347,7 +2350,7 @@ class AppModel(
                 } catch (c: kotlinx.coroutines.CancellationException) {
                     throw c
                 } catch (t: Throwable) {
-                    println("velta-kmp: select previous account failed: $t")
+                    Diag.w("select previous account failed: $t")
                 }
                 accountId = back
                 screen = Screen.ChatList
@@ -2399,7 +2402,7 @@ class AppModel(
         } catch (c: kotlinx.coroutines.CancellationException) {
             throw c
         } catch (t: Throwable) {
-            println("velta-kmp: select previous account failed: $t")
+            Diag.w("select previous account failed: $t")
         }
     }
 
@@ -2754,7 +2757,7 @@ class AppModel(
             // Archived count for the list-end link row (web getChatListIds archived:true).
             loadArchivedChats()
         } catch (t: Throwable) {
-            println("velta-kmp: refreshChats failed: $t")
+            Diag.w("refreshChats failed: $t")
         } finally {
             chatsLoading = false
         }
@@ -2789,7 +2792,7 @@ class AppModel(
                 map[item.id] = fpr
                 synchronized(identityCache) { identityCache[item.id] = fpr }
             } catch (t: Throwable) {
-                println("velta-kmp: identity for chat ${item.id} failed: $t")
+                Diag.w("identity for chat ${item.id} failed: $t")
             }
         }
         if (this.accountId == accountId) identities = map // not a late write after a switch
@@ -2831,7 +2834,7 @@ class AppModel(
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
-                println("velta-kmp: storage $chatId failed: $t")
+                Diag.w("storage $chatId failed: $t")
                 publishStorage(epoch, "—")
             }
         }
@@ -2875,7 +2878,7 @@ class AppModel(
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
-                println("velta-kmp: chats in common failed: $t")
+                Diag.w("chats in common failed: $t")
                 synchronized(profileGate) {
                     if (profileEpoch == epoch) commonCount = "—"
                 }
@@ -2944,7 +2947,7 @@ class AppModel(
             try {
                 veltaCore.setContactBlocked(id, cid, !p.blocked)
             } catch (t: Throwable) {
-                println("velta-kmp: block failed: $t")
+                Diag.w("block failed: $t")
                 return@launch
             }
             loadProfile(p.chatId)
@@ -3033,7 +3036,7 @@ class AppModel(
         } catch (t: kotlinx.coroutines.CancellationException) {
             throw t
         } catch (t: Throwable) {
-            println("velta-kmp: profile $chatId failed: $t")
+            Diag.w("profile $chatId failed: $t")
         } finally {
             profileLoading = false
         }
@@ -3132,7 +3135,7 @@ class AppModel(
                 try {
                     veltaCore.marknoticedChat(id, item.id)
                 } catch (t: Throwable) {
-                    println("velta-kmp: marknoticed failed: $t")
+                    Diag.w("marknoticed failed: $t")
                 }
             }
         }
@@ -3212,7 +3215,7 @@ class AppModel(
                     veltaCore.removeDraft(id, chat.chatId)
                 }
             } catch (t: Throwable) {
-                println("velta-kmp: draft save failed: $t")
+                Diag.w("draft save failed: $t")
             }
         }
     }
@@ -3337,7 +3340,7 @@ class AppModel(
             try {
                 relays = veltaCore.relayCards(id)
             } catch (t: Throwable) {
-                println("velta-kmp: refreshRelays failed: $t")
+                Diag.w("refreshRelays failed: $t")
             } finally {
                 relaysLoading = false
             }
@@ -3387,7 +3390,7 @@ class AppModel(
             try {
                 accounts = veltaCore.allAccounts()
             } catch (t: Throwable) {
-                println("velta-kmp: refreshAccounts failed: $t")
+                Diag.w("refreshAccounts failed: $t")
             } finally {
                 accountsLoading = false
             }
@@ -3413,7 +3416,7 @@ class AppModel(
         } catch (c: kotlinx.coroutines.CancellationException) {
             throw c
         } catch (t: Throwable) {
-            println("velta-kmp: $why: $t")
+            Diag.w("$why: $t")
         }
     }
 
@@ -3465,7 +3468,7 @@ class AppModel(
         } catch (c: kotlinx.coroutines.CancellationException) {
             throw c
         } catch (t: Throwable) {
-            println("velta-kmp: selectAccount failed: $t")
+            Diag.w("selectAccount failed: $t")
             false
         }
         if (selectedOk && syncOnlyActive && prev != null && prev != id) {
@@ -3474,14 +3477,14 @@ class AppModel(
             } catch (c: kotlinx.coroutines.CancellationException) {
                 throw c
             } catch (t: Throwable) {
-                println("velta-kmp: stopIo on switch failed: $t")
+                Diag.w("stopIo on switch failed: $t")
             }
             try {
                 veltaCore.startIo(id)
             } catch (c: kotlinx.coroutines.CancellationException) {
                 throw c
             } catch (t: Throwable) {
-                println("velta-kmp: startIo on switch failed: $t")
+                Diag.w("startIo on switch failed: $t")
             }
         }
         // Caches reset BEFORE accountId flips: observers that see the new
@@ -3499,7 +3502,7 @@ class AppModel(
         try {
             accountAddr = veltaCore.accountInfo(id).addr
         } catch (t: Throwable) {
-            println("velta-kmp: accountInfo failed: $t")
+            Diag.w("accountInfo failed: $t")
         }
         syncPerAccountPrefs(veltaCore, id)
         loadChats()
@@ -3660,9 +3663,9 @@ class AppModel(
             try {
                 ensureConnected()
                 core?.setPushDeviceToken(token)
-                println("velta-kmp: push endpoint registered")
+                Diag.w("push endpoint registered")
             } catch (t: Throwable) {
-                println("velta-kmp: push endpoint registration failed: $t")
+                Diag.w("push endpoint registration failed: $t")
             }
         }
     }
@@ -3700,7 +3703,7 @@ class AppModel(
         if (!maybeNetworkDue(available, connected, now, lastMaybeNetworkMs)) return
         lastMaybeNetworkMs = now
         val veltaCore = core ?: return
-        scope.launch { runCatching { veltaCore.maybeNetwork() }.onFailure { println("velta-kmp: maybe_network failed: $it") } }
+        scope.launch { runCatching { veltaCore.maybeNetwork() }.onFailure { Diag.w("maybe_network failed: $it") } }
     }
 
     /** Platform-injected Build.MANUFACTURER (battery prompt's dontkillmyapp link). */
@@ -3738,7 +3741,7 @@ class AppModel(
     fun refreshPush() {
         val bridge = pushBridge ?: return
         pushStatus = runCatching { bridge.status() }.getOrElse {
-            println("velta-kmp: push status failed: $it")
+            Diag.w("push status failed: $it")
             PushStatus()
         }
         if (connected) refreshRelays()
@@ -3780,7 +3783,7 @@ class AppModel(
     suspend fun catchUpFetch(reason: String): Boolean {
         val decision = catchUpDecision(platform.isAppLocked(), connected, backgroundConnection, uiVisible)
         if (decision != CatchUp.Fetch) {
-            println("velta-kmp: $reason fetch skipped ($decision)")
+            Diag.w("$reason fetch skipped ($decision)")
             return false
         }
         return try {
@@ -3789,18 +3792,18 @@ class AppModel(
             val mailId = accountId
             if (mailId != null) startMailIo(veltaCore, mailId) else veltaCore.startIoForAllAccounts()
             veltaCore.backgroundFetch(BackgroundPolicy.FETCH_SECS)
-            println("velta-kmp: $reason fetch done")
+            Diag.w("$reason fetch done")
             true
         } catch (t: kotlinx.coroutines.CancellationException) {
             throw t
         } catch (t: Throwable) {
-            println("velta-kmp: $reason fetch failed: $t")
+            Diag.w("$reason fetch failed: $t")
             false
         }
     }
 
     fun onPushUnregistered() {
-        println("velta-kmp: push unregistered — re-register on next start")
+        Diag.w("push unregistered — re-register on next start")
     }
 
     // ---- App lock (P4, phase 4 port) — the UI side ----
@@ -4023,6 +4026,8 @@ class AppModel(
     private var lastCallAudio = false
 
     init {
+        // #516: the diagnostics ring buffer stamps entries with real time.
+        Diag.clockSeconds = { wallClockSeconds() }
         // Audio focus + mic FGS follow the call state (survives screens).
         scope.launch {
             androidx.compose.runtime.snapshotFlow { calls.state is CallState.Active }.collect { active ->
@@ -4569,7 +4574,7 @@ class AppModel(
                 veltaCore.sendReaction(id, message.id, plan.send)
                 reloadOpenChat()
             } catch (t: Throwable) {
-                println("velta-kmp: react failed: $t")
+                Diag.w("react failed: $t")
             }
         }
     }
@@ -5025,7 +5030,7 @@ class AppModel(
             try {
                 block(veltaCore, id)
             } catch (t: Throwable) {
-                println("velta-kmp: chat action failed: $t")
+                Diag.w("chat action failed: $t")
                 if (errorPrefix != null && accountId == id) showToast(errorPrefix + (t.message ?: t.toString()), 4000)
             } finally {
                 if (accountId == id) refreshChats()
@@ -5450,7 +5455,7 @@ class AppModel(
                     }
                 }
             } catch (t: Throwable) {
-                println("velta-kmp: share failed: $t")
+                Diag.w("share failed: $t")
                 if (accountId == id) showToast(L.t("Couldn't share: ") + (t.message ?: t.toString()), 4000)
             } finally {
                 flushShares()
@@ -5516,16 +5521,29 @@ class AppModel(
         val id = accountId ?: return
         if (jumpInFlight) return
         jumpInFlight = true
+        chatLoading = true
         scope.launch {
-            chatLoading = true
+            // #511: clear jumpInFlight BEFORE the state an observer reacts
+            // to (toast / jump flash) — a reaction inside the old window was
+            // silently dropped (the d9a98860 voiceStarting pattern). The
+            // finally stays as the backstop for the early returns.
             try {
                 val ids = veltaCore.messageIds(id, chat.chatId).sorted()
                 if (!stillOn(id, chat.chatId)) return@launch
                 val loadedFrom = if (loadedForChatId == chat.chatId) loadedFromIdx else ids.size
                 when (val plan = jumpPlan(ids, loadedFrom, msgId)) {
-                    JumpPlan.Gone -> showToast(L.t("Message is no longer in this chat's history"))
-                    JumpPlan.TooFar -> showToast(L.t("Message is higher up in history — scroll up to load it"))
-                    JumpPlan.Loaded -> if (chatMessages.any { it.id == msgId }) landJump(msgId)
+                    JumpPlan.Gone -> {
+                        jumpInFlight = false
+                        showToast(L.t("Message is no longer in this chat's history"))
+                    }
+                    JumpPlan.TooFar -> {
+                        jumpInFlight = false
+                        showToast(L.t("Message is higher up in history — scroll up to load it"))
+                    }
+                    JumpPlan.Loaded -> {
+                        jumpInFlight = false
+                        if (chatMessages.any { it.id == msgId }) landJump(msgId)
+                    }
                     is JumpPlan.LoadFrom -> {
                         val older = veltaCore.messages(id, ids.subList(plan.from, loadedFrom))
                         if (!stillOn(id, chat.chatId)) return@launch
@@ -5537,10 +5555,12 @@ class AppModel(
                         loadedFromIdx = plan.from
                         hasMoreMessages = plan.from > 0
                         if (chat.isGroup) loadSenderNames(veltaCore, id, older)
+                        jumpInFlight = false
                         landJump(msgId)
                     }
                 }
             } catch (t: Throwable) {
+                jumpInFlight = false
                 if (stillOn(id, chat.chatId)) showToast(L.t("Couldn't load history: ") + (t.message ?: t.toString()), 4000)
             } finally {
                 chatLoading = false
@@ -5755,6 +5775,14 @@ class AppModel(
         screen = Screen.ChatList
     }
 
+    fun openDiagnostics() {
+        screen = Screen.Diagnostics
+    }
+
+    fun backFromDiagnostics() {
+        screen = Screen.Settings
+    }
+
     private fun loadChatMembers(chatId: Long) {
         val veltaCore = core
         val id = accountId
@@ -5772,7 +5800,7 @@ class AppModel(
                 }
                 if (accountId == id) chatMembers = chatMembers + (chatId to members)
             } catch (t: Throwable) {
-                println("velta-kmp: chat members for $chatId failed: $t")
+                Diag.w("chat members for $chatId failed: $t")
             } finally {
                 if (accountId == id) chatMembersLoading = false
             }
@@ -5790,7 +5818,7 @@ class AppModel(
                 val packs = veltaCore.getStickers(id)
                 if (accountId == id) stickerPacks = packs
             } catch (t: Throwable) {
-                println("velta-kmp: stickers failed: $t")
+                Diag.w("stickers failed: $t")
             }
         }
     }
@@ -5837,9 +5865,10 @@ class AppModel(
         val veltaCore = core
         val id = accountId
         if (veltaCore == null || id == null) return
+        chatLoading = true // sync: loadOlderMessages' guard must see it before this call returns (#511)
         chatLoadJob?.cancel() // #507: a slow earlier load must not overwrite a newer one
         chatLoadJob = scope.launch {
-            chatLoading = true
+            val self = kotlinx.coroutines.currentCoroutineContext()[Job]
             try {
                 val ids = veltaCore.messageIds(id, chatId).sorted()
                 // Preserve history the user already pulled in for THIS chat;
@@ -5873,9 +5902,12 @@ class AppModel(
                 refreshReplyCounts(chatId)
                 if (isGroup) loadSenderNames(veltaCore, id, messages)
             } catch (t: Throwable) {
-                println("velta-kmp: loadMessages failed: $t")
+                Diag.w("loadMessages failed: $t")
             } finally {
-                chatLoading = false
+                // Only the CURRENT load clears the flag: a cancelled older
+                // load's late finally must not switch off its successor's
+                // spinner/guard (#511).
+                if (chatLoadJob === self) chatLoading = false
             }
         }
     }
@@ -5902,7 +5934,7 @@ class AppModel(
                 hasMoreMessages = from > 0
                 if (current.isGroup) loadSenderNames(veltaCore, id, older)
             } catch (t: Throwable) {
-                println("velta-kmp: loadOlderMessages failed: $t")
+                Diag.w("loadOlderMessages failed: $t")
             } finally {
                 loadingOlder = false
             }
@@ -6054,7 +6086,7 @@ class AppModel(
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
-                println("velta-kmp: applyMessageUpdates failed: $t")
+                Diag.w("applyMessageUpdates failed: $t")
             }
         }
     }
@@ -6343,7 +6375,7 @@ class AppModel(
             } catch (t: Throwable) {
                 synchronized(seenSent) { seenSent.removeAll(fresh.toSet()) }
                 readHere = readHere - fresh.toSet()
-                println("velta-kmp: markseen failed: $t")
+                Diag.w("markseen failed: $t")
             }
         }
     }
@@ -6369,7 +6401,7 @@ class AppModel(
             val item = chats.firstOrNull { it.id == wanted.chatId }
                 ?: archivedChats.firstOrNull { it.id == wanted.chatId }
                 ?: runCatching { veltaCore.chatlistItems(id, listOf(wanted.chatId)).firstOrNull() }.getOrNull()
-            if (item != null) openChat(item) else println("velta-kmp: notification chat ${wanted.chatId} not found")
+            if (item != null) openChat(item) else Diag.w("notification chat ${wanted.chatId} not found")
         }
     }
 

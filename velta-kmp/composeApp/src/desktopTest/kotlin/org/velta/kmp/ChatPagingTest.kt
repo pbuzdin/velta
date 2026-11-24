@@ -156,4 +156,42 @@ class ChatPagingTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun aGoneJumpToastLeavesTheNextJumpUnblocked() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
+                "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "get_chatlist_entries" to "[5]",
+                "get_chatlist_items_by_entries" to
+                    """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
+                "select_account" to "null",
+                "start_io_for_all_accounts" to "null",
+                "get_message_ids" to allIds(),
+                "get_messages" to allMessages(),
+            ),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val model = AppModel(scriptedPlatform(transport), scope)
+        try {
+            model.connect()
+            withTimeout(10_000) { while (model.screen != AppModel.Screen.ChatList) yield() }
+            model.openChat(model.chats.first())
+            awaitState { model.chatMessages.isNotEmpty() && !model.chatLoading }
+
+            // #511: the guard must already be cleared when the toast (the
+            // observable outcome) is visible — a jump issued in reaction to
+            // it used to be silently dropped until the finally ran.
+            val idCalls = transport.requests.count { "\"get_message_ids\"" in it }
+            model.jumpToMessage(999_999)
+            awaitState { model.toast != null }
+            model.jumpToMessage(999_998)
+            awaitRequests(transport, "get_message_ids", idCalls + 1)
+        } finally {
+            scope.cancel()
+        }
+    }
 }

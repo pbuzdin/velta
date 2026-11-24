@@ -146,6 +146,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import org.velta.kmp.core.ChatListItem
+import org.velta.kmp.core.Diag
 import org.velta.kmp.core.MessageObject
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -226,6 +227,7 @@ fun App(model: AppModel) {
                         ChatStack(model, current as? AppModel.Screen.Chat)
                     AppModel.Screen.Relays -> RelaysScreen(model)
                     AppModel.Screen.Settings -> SettingsScreen(model)
+                    AppModel.Screen.Diagnostics -> DiagnosticsScreen(model)
                     AppModel.Screen.Accounts -> AccountsScreen(model)
                     AppModel.Screen.Join -> JoinScreen(model)
                     is AppModel.Screen.Profile -> ProfileScreen(model, current)
@@ -2068,8 +2070,11 @@ internal fun relayBarState(connectivity: Int?): String = when {
 
 /**
  * The web sidebar's bottom action bar (.list-bar, index.html:60-79, #329):
- * solid bgSidebar + 1dp top border, stretch-aligned 46dp buttons (icons at
- * --ico-4 = 22dp), gap 6, padding 8/10/10. Chats/Contacts/Calls/QR toggle
+ * solid bgSidebar + 1dp top border, stretch-aligned buttons (icons at
+ * --ico-4 = 22dp), gap 6, padding 8/10/8. Buttons are 48dp — the web's
+ * 46dp sits under the 48dp minimum touch target (#515); the 2dp comes off
+ * the bottom padding so the bar keeps its 64dp height. Chats/Contacts/
+ * Calls/QR toggle
  * their side views (web setListView: the active button gets accent ink +
  * 2dp inset bottom accent line, top corners squared); "+" is the accent
  * square (.bar-accent, #109: never a tab). Menu opens the profile drawer
@@ -2080,7 +2085,7 @@ private fun ListBar(model: AppModel, menuOpen: Boolean, onMenu: () -> Unit, modi
     Column(modifier.fillMaxWidth().background(Velta.tokens.bgSidebar)) {
         HorizontalDivider(color = Velta.tokens.border)
         Row(
-            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp),
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             BarViewButton(VeltaIcons.chats, L.t("Chats"), "chats", model)
@@ -2090,7 +2095,7 @@ private fun ListBar(model: AppModel, menuOpen: Boolean, onMenu: () -> Unit, modi
             Box(
                 Modifier
                     .weight(1f)
-                    .height(46.dp)
+                    .height(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Velta.tokens.accent)
                     .clickable { model.toggleListView(if (model.listView == "new") "chats" else "new") },
@@ -2101,7 +2106,7 @@ private fun ListBar(model: AppModel, menuOpen: Boolean, onMenu: () -> Unit, modi
             Box(
                 Modifier
                     .weight(1f)
-                    .height(46.dp)
+                    .height(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .clickable(onClick = onMenu),
                 contentAlignment = Alignment.Center,
@@ -2261,7 +2266,7 @@ private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: Strin
     Box(
         Modifier
             .weight(1f)
-            .height(46.dp)
+            .height(48.dp)
             .clip(
                 if (active) {
                     RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
@@ -2984,6 +2989,10 @@ private fun SettingsScreen(model: AppModel) {
                         else model.showToast(L.t("Enter a plain hostname, e.g. mirror.example.org"))
                     }) { Text(L.t("Add")) }
                 }
+            }
+            // #516: the in-app diagnostics buffer — support reports without adb.
+            SettingsDetails("Diagnostics", "${Diag.snapshot().size}") {
+                TextButton(onClick = { model.openDiagnostics() }) { Text("Show log") }
             }
             // Stable drawer-foot version row (.drawer-ver).
             Text(

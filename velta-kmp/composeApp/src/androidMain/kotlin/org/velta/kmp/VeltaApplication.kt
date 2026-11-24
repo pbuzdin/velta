@@ -1,5 +1,6 @@
 package org.velta.kmp
 
+import org.velta.kmp.core.Diag
 import android.app.Application
 import android.net.ConnectivityManager
 import android.net.Network
@@ -16,7 +17,7 @@ class VeltaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         org.velta.kmp.ui.EditScratch.dir = java.io.File(cacheDir, "edits")
-        if (!RpcShim.available) println("velta-kmp: core shim not loaded at process start")
+        if (!RpcShim.available) Diag.w("core shim not loaded at process start")
         AppHolder.obtain(this)
         registerNetworkCallback()
     }
@@ -34,7 +35,7 @@ class VeltaApplication : Application() {
                 }
             })
         } catch (t: RuntimeException) {
-            println("velta-kmp: network callback not registered: $t")
+            Diag.w("network callback not registered: $t")
         }
     }
 }

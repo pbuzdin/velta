@@ -117,6 +117,18 @@ composeApp/src/
                  event loop; `LoopPairDialog` / `LoopNewGroupDialog`
                  cover pairing approval and `p2p_group_create`
                  (GROUP_MAX_OTHERS 4, name ≤64).
+  ui/DiagnosticsScreen.kt + core/Diag.kt
+                 #516: in-app diagnostics. `Diag` is a 300-entry ring
+                 buffer (core, java-free; clock injected by AppModel init)
+                 that ALSO prints the historic `velta-kmp: …` stdout line —
+                 every former println in commonMain + androidMain now goes
+                 through it, so logcat greps keep working AND failures are
+                 visible in Settings → Diagnostics (share/copy/clear, no
+                 adb needed). New failure logging: `Diag.w("…")`, never
+                 bare println. Guard-flag rule (#511): clear a
+                 launch-serializing flag BEFORE writing the state an
+                 observer reacts to (toast/flash), and only the CURRENT
+                 chatLoadJob clears chatLoading.
 native/rpc-shim/ Rust crate, two artifacts (#424): the Android cdylib (in-process
                  core, JSON Lines over JNI, #357) AND the desktop sidecar bin
                  `velta-rpc-server` (stdio, framing byte-compatible with
@@ -338,8 +350,10 @@ never run Gradle on the Windows side.
   ChatsView CONTAINER, not the LazyColumn — empty categories render the
   empty-state Box instead of a list and the gestures must survive.
 - Chat-list bottom action bar (`ListBar`, .list-bar port, #329 COMPLETE):
-  solid bgSidebar + 1dp top border, IN-FLOW (not glass), stretch 46dp
-  buttons, icons at --ico-4 = 22dp. Chats/Contacts/Calls/QR toggle side
+  solid bgSidebar + 1dp top border, IN-FLOW (not glass), stretch 48dp
+  buttons (#515: the web's 46dp sits under the 48dp minimum touch target;
+  the 2dp comes off the row's bottom padding, bar height unchanged),
+  icons at --ico-4 = 22dp. Chats/Contacts/Calls/QR toggle side
   views via `AppModel.toggleListView` (web setListView: tapping the
   active view returns to chats; active = accent ink + 2dp inset bottom
   accent line, top corners squared); "+" = the .bar-accent square (accent

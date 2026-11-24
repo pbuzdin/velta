@@ -116,6 +116,7 @@ internal object LangFr {
         "Check" to "Vérifier",
         "Claiming your invite on {host}" to "Activation de votre invitation sur {host}",
         "Classic KMP" to "KMP classique",
+        "Clear" to "Effacer",
         "Clear history" to "Effacer l'historique",
         "Close" to "Fermer",
         "Close menu" to "Fermer le menu",

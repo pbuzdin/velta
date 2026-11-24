@@ -116,6 +116,7 @@ internal object LangRu {
         "Check" to "Проверить",
         "Claiming your invite on {host}" to "Активация приглашения на {host}",
         "Classic KMP" to "Классическая KMP",
+        "Clear" to "Очистить",
         "Clear history" to "Очистить историю",
         "Close" to "Закрыть",
         "Close menu" to "Закрыть меню",

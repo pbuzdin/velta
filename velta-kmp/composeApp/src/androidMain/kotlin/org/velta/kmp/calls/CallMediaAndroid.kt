@@ -1,5 +1,6 @@
 package org.velta.kmp.calls
 
+import org.velta.kmp.core.Diag
 import org.velta.kmp.ui.CallMedia
 
 import android.content.Context
@@ -302,7 +303,7 @@ class CallMediaAndroid(
             capturing = true
             return true
         } catch (t: Throwable) {
-            println("velta-kmp: camera start failed: " + t)
+            Diag.w("camera start failed: " + t)
             stopVideo()
             return false
         }

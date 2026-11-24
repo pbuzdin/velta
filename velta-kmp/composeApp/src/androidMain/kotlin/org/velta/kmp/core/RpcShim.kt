@@ -14,7 +14,7 @@ object RpcShim {
             System.loadLibrary("velta_rpc_shim")
             true
         } catch (t: Throwable) {
-            println("velta-kmp: libvelta_rpc_shim.so not available: $t")
+            Diag.w("libvelta_rpc_shim.so not available: $t")
             false
         }
     }
@@ -109,7 +109,7 @@ object RpcShim {
             stopLoop()
             true
         } catch (t: UnsatisfiedLinkError) {
-            println("velta-kmp: loop symbols missing: $t")
+            Diag.w("loop symbols missing: $t")
             false
         }
         loopSymbols = ok

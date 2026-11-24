@@ -1,5 +1,6 @@
 package org.velta.kmp.calls
 
+import org.velta.kmp.core.Diag
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -34,7 +35,7 @@ class CallForegroundService : Service() {
                 startForeground(NOTIFICATION_ID, buildNotification())
             }
         } catch (t: RuntimeException) {
-            println("velta-kmp: call service start refused: $t")
+            Diag.w("call service start refused: $t")
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -73,7 +74,7 @@ class CallForegroundService : Service() {
                     Intent(context, CallForegroundService::class.java).putExtra(EXTRA_VIDEO, video),
                 )
             } catch (t: RuntimeException) {
-                println("velta-kmp: call service start refused: $t")
+                Diag.w("call service start refused: $t")
             }
         }
 

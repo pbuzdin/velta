@@ -40,7 +40,7 @@ class VeltaForegroundService : Service() {
         } catch (t: RuntimeException) {
             // Android 12+: ForegroundServiceStartNotAllowedException (e.g. a
             // sticky restart from the background). Don't crash the app.
-            println("velta-kmp: foreground start refused: $t")
+            Diag.w("foreground start refused: $t")
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -64,7 +64,7 @@ class VeltaForegroundService : Service() {
     /** Android 15 time-limited types end here; stop cleanly instead of the
      * system's crash. remoteMessaging has no limit, so this is a guard. */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        println("velta-kmp: foreground service timeout (type $fgsType)")
+        Diag.w("foreground service timeout (type $fgsType)")
         stopSelf(startId)
     }
 
@@ -153,7 +153,7 @@ class VeltaForegroundService : Service() {
             } catch (t: RuntimeException) {
                 // Background-start restrictions (Android 12+): sync then
                 // resumes when the app is next opened.
-                println("velta-kmp: foreground service start refused: $t")
+                Diag.w("foreground service start refused: $t")
             }
         }
 
