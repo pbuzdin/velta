@@ -1,4 +1,4 @@
-package org.velta.kmp
+package org.velta.kmp.ui
 
 /** MIME type used when the Android Webxdc WebView serves a file from the .xdc. */
 fun mimeFor(path: String): String {

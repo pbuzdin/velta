@@ -1,4 +1,4 @@
-package org.velta.kmp
+package org.velta.kmp.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
