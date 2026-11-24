@@ -141,3 +141,34 @@ test("a ready offer mails the Dash card and clears the strip", async () => {
   assert.match(sent[0].text, /VXFER1:/);
   assert.equal(node("btn-send").classList.contains("is-busy"), false);
 });
+
+test("pasted videos and photos show their route line too", async () => {
+  const realURL = URL.createObjectURL, realRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = () => "blob:velta/x";
+  URL.revokeObjectURL = () => {};
+  try {
+    for (const [type, name, kind] of [["video/mp4", "clip.mp4", "video"], ["image/png", "shot.png", "image"]]) {
+      const prev = view.pendingMedia;
+      const file = { size: BIG, type, name };
+      await node("composer-input").fire("paste", {
+        preventDefault() {},
+        clipboardData: { items: [{ kind: "file", type, getAsFile: () => file }], files: [], getData: () => "" },
+      });
+      const pm = await staged(prev);
+      assert.equal(pm.kind, kind);
+      assert.equal(pm.size, BIG);
+      assert.match(node("media-route").textContent, /50(\.0)? MB · Velta Dash: direct to Kay/, `${kind} paste`);
+      view._clearPendingMedia();
+    }
+  } finally { URL.createObjectURL = realURL; URL.revokeObjectURL = realRevoke; }
+});
+
+test("a dropped big video gets its size and route line from the shell", async () => {
+  const prev = view.pendingMedia;
+  sh.drop({ payload: { paths: ["/home/p/big-trip.mkv"] } });
+  const pm = await staged(prev);
+  assert.equal(pm.kind, "video");
+  assert.equal(pm.size, BIG, "size read via xfer_file_size, the video is never loaded");
+  assert.match(node("media-route").textContent, /50(\.0)? MB · Velta Dash: direct to Kay/);
+  view._clearPendingMedia();
+});
