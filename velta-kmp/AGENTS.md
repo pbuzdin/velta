@@ -160,6 +160,15 @@ baselineprofile/ Android-only test module (#507): startup Baseline Profile
                  `:baselineprofile:connectedBenchmarkAndroidTest` against the
                  `benchmark` buildType (release-like, debug-signed). Sign in
                  on the target device first or the scrolls run over the splash.
+                 ⚠️ `:baselineprofile:assemble` needs a CONNECTED device
+                 (the plugin wires profile collection into it) — a
+                 device-less gate compiles the variants instead:
+                 `:baselineprofile:compileBenchmarkReleaseKotlin
+                 :baselineprofile:compileNonMinifiedReleaseKotlin`.
+                 BaselineProfileRule lives in
+                 `androidx.benchmark:benchmark-macro-junit4`
+                 (`androidx.benchmark.macro.junit4`) — there is no
+                 `androidx.baselineprofile:baselineprofile` artifact.
 composeApp/keystore.properties — release signing (gitignored; absent → debug-key fallback)
 ```
 
