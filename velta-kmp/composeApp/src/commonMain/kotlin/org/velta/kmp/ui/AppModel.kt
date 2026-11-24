@@ -2761,17 +2761,33 @@ class AppModel(
     }
 
     /** Fetches each 1:1 peer's fingerprint for the identity matrix tiles.
-     * Sequential is fine: a handful of chats, two small RPCs each. */
+     * #507: the result is cached per chat — a peer's key changes only with
+     * ContactsChanged (cache cleared there), not with every list reload. */
+    private val identityCache = HashMap<Long, String>()
+    private var identityCacheAccount: Long? = null
+
     private suspend fun loadIdentities(accountId: Long, items: List<ChatListItem>) {
         val veltaCore = core ?: return
+        synchronized(identityCache) {
+            if (identityCacheAccount != accountId) {
+                identityCache.clear()
+                identityCacheAccount = accountId
+            }
+        }
         val map = HashMap<Long, String>()
         for (item in items) {
             if (item.isGroup || item.isSelfTalk || item.isDeviceTalk) continue
+            val cached = synchronized(identityCache) { identityCache[item.id] }
+            if (cached != null) {
+                map[item.id] = cached
+                continue
+            }
             try {
                 val cid = veltaCore.chatContactIds(accountId, item.id).firstOrNull() ?: continue
                 val info = veltaCore.contactEncryptionInfo(accountId, cid) ?: continue
                 val fpr = identityFingerprintFromEncrInfo(info, contactName = item.name) ?: continue
                 map[item.id] = fpr
+                synchronized(identityCache) { identityCache[item.id] = fpr }
             } catch (t: Throwable) {
                 println("velta-kmp: identity for chat ${item.id} failed: $t")
             }
@@ -5508,7 +5524,9 @@ class AppModel(
                         val older = veltaCore.messages(id, ids.subList(plan.from, loadedFrom))
                         if (!stillOn(id, chat.chatId)) return@launch
                         pendingPrependCount = older.size
-                        chatMessages = (older + chatMessages).distinctBy { it.id }.sortedBy { it.sortTimestamp ?: it.timestamp }
+                        // The page sits entirely before the loaded window and
+                        // both are time-ordered — sort the page, not the list (#507).
+                        chatMessages = (older.sortedBy { it.sortTimestamp ?: it.timestamp } + chatMessages).distinctBy { it.id }
                         loadedForChatId = chat.chatId
                         loadedFromIdx = plan.from
                         hasMoreMessages = plan.from > 0
@@ -5871,7 +5889,8 @@ class AppModel(
                 val from = (loadedFromIdx - MESSAGE_PAGE_SIZE).coerceAtLeast(0)
                 val older = veltaCore.messages(id, ids.subList(from, loadedFromIdx))
                 pendingPrependCount = older.size
-                chatMessages = (older + chatMessages).sortedBy { it.sortTimestamp ?: it.timestamp }
+                // Page-before-window prepend: sort the page only (#507).
+                chatMessages = older.sortedBy { it.sortTimestamp ?: it.timestamp } + chatMessages
                 loadedFromIdx = from
                 hasMoreMessages = from > 0
                 if (current.isGroup) loadSenderNames(veltaCore, id, older)
@@ -5912,6 +5931,11 @@ class AppModel(
     private var dirtyHead = false
     private var reloadJob: Job? = null
 
+    /** #507: Android onStop pauses UI reloads (desktop never sets this);
+     * dirt is dropped and replayed as ONE reload on the next onStart. */
+    private var uiReloadsPaused = false
+    private var reloadWhileHidden = false
+
     /** [chatId] null = every chat (core uses 0 / absent for "many"). */
     private fun scheduleChatReload(chatId: Long?, listOnly: Boolean = false, head: Boolean = false) {
         synchronized(reloadLock) {
@@ -5937,6 +5961,10 @@ class AppModel(
             dirtyHead = false
             reloadJob = null
             s
+        }
+        if (uiReloadsPaused) {
+            synchronized(reloadLock) { reloadWhileHidden = true }
+            return
         }
         when (val current = screen) {
             is Screen.Chat -> {
@@ -6021,6 +6049,7 @@ class AppModel(
             "ContactsChanged", "IncomingMsgBunch" -> if (forCurrent) {
                 // Names/avatars may change in any chat (sender names are
                 // re-resolved on every group load; the head re-reads).
+                if (event.kind == "ContactsChanged") synchronized(identityCache) { identityCache.clear() }
                 scheduleChatReload(null, head = event.kind == "ContactsChanged")
             }
             "CallEnded" -> if (forCurrent) chatId?.let { recordCallEnded(it) }
@@ -6172,6 +6201,7 @@ class AppModel(
     fun onAppForeground(visible: Boolean) {
         appInForeground = visible
         uiVisible = visible
+        uiReloadsPaused = !visible
         if (!visible) {
             hiddenAtMillis = if (!locked && autoLockMins > 0 && lockRootOn()) clockMillis() else null
             scheduleSendingCheck()
@@ -6186,9 +6216,19 @@ class AppModel(
             return
         }
         if (locked) return
-        val current = screen as? Screen.Chat ?: return
+        val missed = synchronized(reloadLock) {
+            reloadWhileHidden.also { reloadWhileHidden = false }
+        }
+        val current = screen as? Screen.Chat
+        if (current == null) {
+            if (missed && screen is Screen.ChatList) scope.launch { loadChats() }
+            return
+        }
         accountId?.let { notifier?.cancel(it, current.chatId) }
-        loadMessages(current.chatId, current.isGroup)
+        // A reload missed while hidden goes through the flush (messages + head);
+        // otherwise the direct reload marks the visible rows seen as before.
+        if (missed) scheduleChatReload(current.chatId, head = true)
+        else loadMessages(current.chatId, current.isGroup)
     }
 
     /**

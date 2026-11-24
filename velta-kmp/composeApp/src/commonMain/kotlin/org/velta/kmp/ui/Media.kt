@@ -31,6 +31,60 @@ import kotlin.math.roundToInt
 expect fun decodeImage(path: String): ImageBitmap?
 
 /**
+ * Decoded-bitmap memory cache (#507): avatars, quote thumbs, stickers and
+ * bubble media were decoded at full size on every composition. LRU by
+ * estimated bytes, keyed by path + size bucket; blob paths are content-
+ * addressed, so entries never go stale. Failed decodes are not cached —
+ * a file that appears later (media gate download) must decode fresh.
+ */
+private object ImageMemory {
+    private const val MAX_BYTES = 48 * 1024 * 1024
+    private val map = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {}
+    private var bytes = 0
+
+    private fun cost(b: ImageBitmap) = b.width * b.height * 4
+
+    @Synchronized
+    fun get(key: String): ImageBitmap? = map[key]
+
+    @Synchronized
+    fun put(key: String, bmp: ImageBitmap) {
+        map.put(key, bmp)?.let { bytes -= cost(it) }
+        bytes += cost(bmp)
+        val it = map.entries.iterator()
+        while (bytes > MAX_BYTES && map.size > 1 && it.hasNext()) {
+            bytes -= cost(it.next().value)
+            it.remove()
+        }
+    }
+}
+
+/** Round up to a shared bucket so nearby display sizes hit the same entry. */
+private fun imageBucket(px: Int): Int =
+    listOf(256, 512, 768, 1024, 1536, 2048).firstOrNull { px <= it } ?: 4096
+
+/** Cached, sampled (decodeImageScaled), off the caller's thread. */
+suspend fun cachedImage(path: String, maxSidePx: Int): ImageBitmap? {
+    val key = "${imageBucket(maxSidePx)}:$path"
+    ImageMemory.get(key)?.let { return it }
+    val bmp = withContext(Dispatchers.IO) { decodeImageScaled(path, imageBucket(maxSidePx)) } ?: return null
+    ImageMemory.put(key, bmp)
+    return bmp
+}
+
+/** Composition-side [cachedImage]: the cached value at once, else null until the decode lands. */
+@Composable
+fun rememberCachedImage(path: String?, maxSidePx: Int): ImageBitmap? {
+    if (path == null) return null
+    val bucket = imageBucket(maxSidePx)
+    var bmp by remember(path, bucket) { mutableStateOf(ImageMemory.get("$bucket:$path")) }
+    LaunchedEffect(path, bucket) {
+        if (bmp == null) bmp = cachedImage(path, bucket)
+    }
+    return bmp
+}
+
+/**
  * Web .msg-image/.msg-video (main.css margin 2px -5px 5px).
  * Horizontal: 5dp past the bubble's 10dp padding. The child is measured
  * with +10dp of width and shifted left.
@@ -70,13 +124,13 @@ fun MediaFromDisk(
     sticker: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    var bitmap by remember(path) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(path) {
-        bitmap = withContext(Dispatchers.IO) { decodeImage(path) }
-    }
-    val tokens = Velta.tokens
     val maxW = if (sticker) 175.dp else 320.dp
     val maxH = if (sticker) 175.dp else 450.dp
+    val maxSidePx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        maxOf(maxW, maxH).roundToPx()
+    }
+    val bitmap = rememberCachedImage(path, maxSidePx)
+    val tokens = Velta.tokens
     val decoded = bitmap
     if (decoded != null) {
         Image(

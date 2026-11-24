@@ -158,6 +158,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
@@ -2415,7 +2416,7 @@ internal fun AvatarTile(
     val special = kind == "saved" || kind == "device"
     val cells = if (!special && kind == "single") identityFpr?.let { identityCells(it) } else null
     val photo = avatarPath?.takeIf { it.isNotBlank() }
-    val photoBitmap = photo?.let { path -> remember(path) { decodeImage(path) } }
+    val photoBitmap = rememberCachedImage(photo, 256)
     val tileColor = colorHex?.takeIf { it.startsWith("#") }?.let { runCatching { Accent.toColor(it) }.getOrNull() }
         ?: prismTileColor(name)
     Box(
@@ -3319,6 +3320,14 @@ private fun ChatScreen(
     onCommit: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    // #507: the row list was rebuilt by chatRows() in composition, in three
+    // effects and per scroll frame in the seen-watermark flow below. Build it
+    // once per message-window change; effects that must observe live state
+    // mid-flight (quote jump) still recompute from model.chatMessages.
+    val rows = remember(model.chatMessages, model.unreadLineId) {
+        chatRows(model.chatMessages, model.unreadLineId)
+    }
+    val messageIds = remember(model.chatMessages) { model.chatMessages.map { it.id } }
     // Paging (#223): near the top (oldest end) fetch the page before the
     // loaded window; a prepend is compensated so the viewport stays anchored.
     val nearOlderEnd by remember {
@@ -3342,7 +3351,6 @@ private fun ChatScreen(
         model.pendingJumpToId = null
     }
     LaunchedEffect(model.chatMessages.size) {
-        val rows = chatRows(model.chatMessages, model.unreadLineId)
         if (rows.isEmpty()) return@LaunchedEffect
         val added = model.pendingPrependCount
         if (added > 0) {
@@ -3371,25 +3379,26 @@ private fun ChatScreen(
     // Stable _checkSeen: seen is a WATERMARK — the lowest row that counts as
     // seen (fully on screen, or a tall row filling the upper half) marks
     // every loaded message up to it. Nothing while the open position settles.
+    val liveRows by rememberUpdatedState(rows)
+    val liveIds by rememberUpdatedState(messageIds)
     LaunchedEffect(chat.chatId) {
         snapshotFlow {
-            val rows = chatRows(model.chatMessages, model.unreadLineId)
+            val r = liveRows
             val info = listState.layoutInfo
             val watermark = if (model.openScroll != null) null else info.visibleItemsInfo
                 .lastOrNull { item ->
-                    rows.getOrNull(item.index) is ChatRow.Message &&
+                    r.getOrNull(item.index) is ChatRow.Message &&
                         rowCountsAsSeen(item.offset, item.offset + item.size, info.viewportStartOffset + info.beforeContentPadding, info.viewportEndOffset - info.afterContentPadding)
                 }
-                ?.let { (rows[it.index] as ChatRow.Message).message.id }
-            seenThrough(model.chatMessages.map { it.id }, watermark) to model.appInForeground
-        }.collect { (ids, _) -> model.onMessagesVisible(ids) }
+                ?.let { (r[it.index] as ChatRow.Message).message.id }
+            seenThrough(liveIds, watermark) to model.appInForeground
+        }.distinctUntilChanged().collect { (ids, _) -> model.onMessagesVisible(ids) }
     }
 
     // Opening position (stable open): the "Unread messages" line at the top
     // of the history, or the newest message.
     LaunchedEffect(model.openScroll) {
         val target = model.openScroll ?: return@LaunchedEffect
-        val rows = chatRows(model.chatMessages, model.unreadLineId)
         if (rows.isNotEmpty()) {
             val idx = when (target) {
                 is OpenScroll.Unread -> rows.indexOf(ChatRow.UnreadSep).takeIf { it >= 0 }
@@ -3443,8 +3452,10 @@ private fun ChatScreen(
             } else false
         },
         content = {
-        val rows = chatRows(model.chatMessages, model.unreadLineId)
         val historyTokens = withBubbleRadius(Velta.tokens, model.bubbleRadius)
+        // #507: per-row member lookups scanned the whole member list.
+        val chatMembers = model.chatMembers[chat.chatId].orEmpty()
+        val membersById = remember(chatMembers) { chatMembers.associateBy { it.id } }
         CompositionLocalProvider(LocalVeltaTokens provides historyTokens) {
         LazyColumn(
             modifier = Modifier
@@ -3525,7 +3536,17 @@ private fun ChatScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            items(rows, key = { it.key }) { row ->
+            items(
+                rows,
+                key = { it.key },
+                contentType = { row ->
+                    when (row) {
+                        is ChatRow.Header -> "header"
+                        ChatRow.UnreadSep -> "unread"
+                        is ChatRow.Message -> if (row.message.isInfo) "service" else "bubble"
+                    }
+                },
+            ) { row ->
                 when (row) {
                     is ChatRow.Header -> DayHeader(row.text)
                     ChatRow.UnreadSep -> UnreadSeparator()
@@ -3533,13 +3554,12 @@ private fun ChatScreen(
                     // not bubbles.
                     is ChatRow.Message if row.message.isInfo -> ServiceMessage(row.message)
                     is ChatRow.Message -> {
-                        val members = model.chatMembers[chat.chatId].orEmpty()
                         MessageBubble(
                             message = row.message,
                             sender = if (chat.isGroup && row.message.fromId != 1L) {
                                 senderFace(
                                     row.message.sender,
-                                    members.find { it.id == row.message.fromId },
+                                    membersById[row.message.fromId],
                                     null,
                                     L.t("Unknown"),
                                     model.senderNames[row.message.fromId],
@@ -3547,7 +3567,7 @@ private fun ChatScreen(
                             } else {
                                 null
                             },
-                            members = members,
+                            members = chatMembers,
                             model = model,
                         )
                     }
@@ -4884,7 +4904,7 @@ private fun StickerPicker(
                             ) {
                                 items(stickers.size) { idx ->
                                     val path = stickers[idx]
-                                    val bitmap = remember(path) { decodeImage(path) }
+                                    val bitmap = rememberCachedImage(path, 256)
                                     Box(
                                         Modifier
                                             .padding(6.dp)
@@ -5311,8 +5331,7 @@ private fun MessageBubble(
                                     .fillMaxHeight()
                                     .background(tokens.accent),
                             )
-                            val quoteImage = quote.image?.takeIf { it.isNotBlank() }
-                                ?.let { path -> remember(path) { decodeImage(path) } }
+                            val quoteImage = rememberCachedImage(quote.image?.takeIf { it.isNotBlank() }, 256)
                             if (quoteImage != null) {
                                 Image(
                                     quoteImage,
@@ -5376,20 +5395,25 @@ private fun MessageBubble(
                         else -> {}
                     }
                     if (message.text.isNotBlank()) {
-                        val annotated = markdownAnnotated(
-                            message.text,
-                            accent = if (outgoing) quoteName else tokens.accent,
-                            codeBackground = quoteBg,
-                            textColor = tokens.text,
-                            members = members,
-                            quoteBar = if (outgoing) tokens.quoteNameOut else tokens.accent,
-                            quoteInk = if (outgoing) tokens.outLink else tokens.textDim,
-                        )
+                        val annotated = remember(message.text, outgoing, quoteName, quoteBg, tokens, members) {
+                            markdownAnnotated(
+                                message.text,
+                                accent = if (outgoing) quoteName else tokens.accent,
+                                codeBackground = quoteBg,
+                                textColor = tokens.text,
+                                members = members,
+                                quoteBar = if (outgoing) tokens.quoteNameOut else tokens.accent,
+                                quoteInk = if (outgoing) tokens.outLink else tokens.textDim,
+                            )
+                        }
                         var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                         var expanded by remember(message.id, message.text) { mutableStateOf(false) }
                         // Latch while collapsed: once open, hasVisualOverflow goes false.
                         var overLines by remember(message.id, message.text) { mutableStateOf(false) }
                         val fontPx = model.msgFont
+                        val textLocale = remember(message.text, model.lang) {
+                            LocaleList(Locale(detectTextLang(message.text, hyphenFallback(model.lang))))
+                        }
                         Text(
                             annotated,
                             fontSize = fontPx.sp,
@@ -5398,9 +5422,7 @@ private fun MessageBubble(
                             overflow = TextOverflow.Ellipsis,
                             style = TextStyle(
                                 hyphens = if (model.hyphensOn) Hyphens.Auto else Hyphens.None,
-                                localeList = LocaleList(
-                                    Locale(detectTextLang(message.text, hyphenFallback(model.lang))),
-                                ),
+                                localeList = textLocale,
                             ),
                             onTextLayout = { layout ->
                                 textLayout = layout
