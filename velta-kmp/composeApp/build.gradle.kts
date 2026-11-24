@@ -79,6 +79,11 @@ kotlin {
                 implementation(libs.zxing.core)
             }
         }
+        val androidUnitTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
     }
 }
 

@@ -1442,9 +1442,13 @@ class AppModel(
                 // Drop the half-built connection so a retry starts clean. On
                 // Android the in-process session survives a dropped client.
                 // A dead session clears `running` and the retry starts a new one.
+                // connected may already be true (set after the handshake,
+                // before resumeSession); clear it or ensureConnected will
+                // treat this as success and catchUpFetch will see a null core.
                 client.close()
                 core = null
                 transport = null
+                connected = false
             } finally {
                 connecting = false
             }
@@ -3888,13 +3892,16 @@ class AppModel(
         if (!lockRootOn()) locked = false
     }
 
-    /** connect() + wait for the handshake; for non-UI entry points. */
+    /** connect() + wait until the attempt has settled; for non-UI entry points.
+     *  `connected` flips true after the handshake, before resumeSession. A
+     *  later failure tears the core down. Wait for `connecting` to clear so
+     *  catchUpFetch does not start (or return false) mid-attempt. */
     private suspend fun ensureConnected() {
-        if (!connected) {
-            connect()
-            kotlinx.coroutines.withTimeout(30_000) {
-                while (!connected) kotlinx.coroutines.delay(200)
-            }
+        if (core != null && connected) return
+        if (!connecting) connect()
+        kotlinx.coroutines.withTimeout(30_000) {
+            while (connecting) kotlinx.coroutines.delay(200)
+            if (core == null || !connected) error(status.ifBlank { "connect failed" })
         }
     }
 
