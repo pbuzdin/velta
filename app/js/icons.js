@@ -82,6 +82,7 @@ export const P = {
   avatarStar: '<path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor" stroke="none"/>',
   device: '<rect x="5" y="3" width="14" height="18" rx="2.5"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor" stroke="none"/>',
   videoPlay: '<path d="M6.5 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>',
+  previewPlay: '<path d="M8 5.5v13l10-6.5z"/>', // outline play (composer video preview)
   lockOpen: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.6-1.7"/>',
   wifi: '<path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor" stroke="none"/>',
   failedMark: '<path d="M12 4v9"/><circle cx="12" cy="18.8" r="2" fill="currentColor" stroke="none"/>',

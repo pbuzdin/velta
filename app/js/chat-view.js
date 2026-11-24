@@ -141,6 +141,7 @@ import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
 import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend } from "./iroh-xfer-ui.js";
 import { THRESHOLD as XFER_THRESHOLD, EMAIL_MAX as XFER_EMAIL_MAX } from "./iroh-xfer.js";
+import { probeVideo, playLabel } from "./composer-video.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
 // Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
@@ -4372,6 +4373,15 @@ export class ChatView {
         this._setPendingMedia("image", file);
         return;
       }
+      // A pasted video stages with its preview; the File stays disk-backed
+      // (the preview streams it through a blob: URL).
+      const vid = items.find(i => i.kind === "file" && i.type.startsWith("video/"))?.getAsFile()
+        || [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("video/"));
+      if (vid) {
+        e.preventDefault();
+        this._setPendingMedia("video", vid, null, vid.name || null);
+        return;
+      }
       const pasted = e.clipboardData?.getData?.("text/plain") || "";
       const { text, changed } = stripTrackingText(pasted);
       if (!changed) return;
@@ -4457,7 +4467,13 @@ export class ChatView {
       popAbove(document.getElementById("btn-commands"), menu);
     });
     document.getElementById("btn-send-later").addEventListener("click", () => this._sendLater());
+    this._bindFileDrop();
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
+    // Replace: the same picker again; cancelling keeps the staged file.
+    document.getElementById("btn-media-replace").addEventListener("click", () => {
+      const pm = this.pendingMedia;
+      if (pm && (pm.kind === "video" || pm.kind === "image")) this._sendAttachment(pm.kind);
+    });
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
       const pm = this.pendingMedia;
       if (!pm || pm.kind !== "image" || !pm.blob) return;
@@ -4592,6 +4608,7 @@ export class ChatView {
   }
 
   _clearPendingMedia() {
+    this.pendingMedia?.probe?.cancel();
     if (this.pendingMedia?.blob && this.pendingMedia.url) URL.revokeObjectURL(this.pendingMedia.url);
     this.pendingMedia = null;
     this._renderMediaPreview();
@@ -4603,25 +4620,21 @@ export class ChatView {
     const thumb = document.getElementById("media-preview-thumb");
     const name = document.getElementById("media-preview-name");
     const crop = document.getElementById("btn-media-crop");
+    const replace = document.getElementById("btn-media-replace");
     const pm = this.pendingMedia;
     this._renderMediaRoute();
-    if (!pm) { bar.hidden = true; thumb.replaceChildren(); thumb.classList.remove("ph-word"); name.textContent = ""; crop.hidden = true; return; }
+    thumb.classList.remove("ph-word", "is-video");
+    if (!pm) { bar.hidden = true; thumb.replaceChildren(); name.textContent = ""; crop.hidden = true; replace.hidden = true; return; }
     bar.hidden = false;
     thumb.replaceChildren();
-    thumb.classList.remove("ph-word");
     if (pm.kind === "file") {
       const glyph = document.createElement("span");
       glyph.className = "xfer-glyph";
       glyph.textContent = (String(pm.name || "f").split(".").pop()?.[0] || "f").toUpperCase();
       thumb.append(glyph);
     } else if (pm.kind === "video") {
-      // Native first-frame thumb: preload=metadata + the #t fragment paints
-      // frame 0 — no poster extraction (unstable, removed).
-      const media = document.createElement("video");
-      media.muted = true; media.playsInline = true;
-      media.preload = "metadata";
-      media.src = pm.url + (pm.url.includes("#") ? "" : "#t=0.1");
-      thumb.append(media);
+      thumb.classList.add("is-video");
+      thumb.append(this._composerVideoCard(pm));
     } else {
       const media = document.createElement("img");
       media.src = pm.url; media.alt = "";
@@ -4629,6 +4642,55 @@ export class ChatView {
     }
     name.textContent = pm.name || (pm.kind === "video" ? t("Video") : pm.kind === "file" ? t("File") : t("Photo"));
     crop.hidden = pm.kind !== "image";
+    replace.hidden = pm.kind !== "image" && pm.kind !== "video";
+  }
+
+  // Staged video: a button that plays it in Velta's own lightbox player,
+  // with the first frame as its poster, the duration, and a loader while the
+  // frame is painted. The file streams over its range-capable URL
+  // (composer-video.js) — never read into memory, Dash-sized files too.
+  _composerVideoCard(pm) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "mp-video";
+    card.setAttribute("aria-busy", "true");
+    card.innerHTML = `<span class="mp-video-glyph">${svg(P.video)}</span>`
+      + `<span class="mp-spinner" aria-hidden="true"></span>`
+      + `<span class="mp-play" aria-hidden="true">${svg(P.previewPlay)}</span>`
+      + `<span class="mp-dur" aria-hidden="true" hidden></span>`;
+    const label = (dur) => {
+      card.setAttribute("aria-label", playLabel(t, pm.name, dur));
+      card.title = t("Preview video");
+    };
+    label("");
+    card.addEventListener("click", () => {
+      if (this.pendingMedia !== pm) return;
+      openVideoLightbox(pm.playUrl || pm.url, pm.name || t("Video"));
+    });
+    if (!pm.probe) {
+      const urls = [pm.url];
+      if (pm.corePath) urls.push(mediaFallbackUrl(pm.corePath));
+      pm.probe = probeVideo(urls);
+    }
+    pm.probe.promise.then((r) => {
+      if (this.pendingMedia !== pm || !card.isConnected) return;
+      pm.playUrl = r.src;
+      card.setAttribute("aria-busy", "false");
+      card.classList.add("ready");
+      if (r.poster) {
+        r.poster.className = "mp-poster";
+        r.poster.setAttribute("aria-hidden", "true");
+        card.querySelector(".mp-video-glyph").replaceWith(r.poster);
+      } else {
+        diagnosticsSink.append("warning", `composer video: no poster frame for ${pm.name || "video"}`);
+      }
+      const dur = r.duration > 0 ? formatDuration(r.duration) : "";
+      const badge = card.querySelector(".mp-dur");
+      badge.textContent = dur;
+      badge.hidden = !dur;
+      label(dur);
+    });
+    return card;
   }
 
   // #470: which way the pending attachment will go, shown before Send —
@@ -5507,6 +5569,52 @@ export class ChatView {
       diagnosticsSink.append("error", `send ${kind} failed: ${err.message || err}`);
       errToast(t("Could not send file: ") + (err.message || err), 4000);
       console.error(err);
+    }
+  }
+
+  // Desktop drag-and-drop: Tauri hands the dropped paths to the page as
+  // tauri://drag-drop (the WebView never sees the files). One file stages in
+  // the attachment strip like a pick: videos and photos with their preview,
+  // anything else as a file row; nothing is sent until Send.
+  _bindFileDrop() {
+    const listen = window.__TAURI__?.event?.listen;
+    if (typeof listen !== "function" || isAndroid()) return;
+    listen("tauri://drag-drop", (ev) => this._stageDroppedFiles(ev?.payload?.paths)).catch(() => {});
+  }
+
+  async _stageDroppedFiles(paths) {
+    const session = this._session;
+    const invoke = tauriInvoke();
+    if (!invoke || !this._isCurrent(session) || !this.chat || this.readOnly) return;
+    const list = (Array.isArray(paths) ? paths : []).filter(p => typeof p === "string" && p);
+    if (!list.length) return;
+    if (list.length > 1) { toast(t("Drop one file at a time")); return; }
+    const picked = list[0];
+    try {
+      // The drop is the user's consent, as with the picker (V-07/#65).
+      await invoke("allow_picked_path", { path: picked }).catch(e => rustLog(`allow_picked_path: ${e}`));
+      const resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
+      if (!this._isCurrent(session)) return;
+      const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
+      const ext = extOf(resolved).toLowerCase();
+      const images = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+      if (["mp4", "mov", "mkv", "avi", "webm", "m4v"].includes(ext)) {
+        this._setPendingMedia("video", fileUrl(resolved), resolved, name);
+      } else if (images[ext]) {
+        const bytes = await attachmentBytes(this.core, resolved);
+        if (!this._isCurrent(session)) return;
+        this._setPendingMedia("image", new Blob([bytes], { type: images[ext] }), resolved, name);
+      } else {
+        const size = await invoke("xfer_file_size", { path: resolved }).catch(() => null);
+        if (!this._isCurrent(session)) return;
+        const viewtype = ["mp3", "m4a", "ogg", "wav", "flac"].includes(ext) ? "audio" : "file";
+        this._setPendingMedia("file", new Blob([]), resolved, name, { size: size == null ? null : Number(size), viewtype });
+      }
+      diagnosticsSink.append("info", `drop: staged ${name}`);
+    } catch (err) {
+      if (!this._isCurrent(session)) return;
+      diagnosticsSink.append("error", `drop failed: ${err?.message || err}`);
+      errToast(t("Could not send file: ") + (err?.message || err), 4000);
     }
   }
 

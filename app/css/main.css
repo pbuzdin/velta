@@ -64,6 +64,11 @@
   --call-fg-dim: var(--text-dim);
   --call-video-fg: #f2f2f5; /* over the remote video scrim, every theme */
   --call-scrim: color-mix(in srgb, #0b0b10 55%, transparent);
+  /* Badges and the play disc drawn over a video frame (the composer's video
+     preview): fixed dark scrim + light ink in every theme, because the frame
+     under them can be any color. AA is checked against a white frame. */
+  --media-scrim: rgba(11, 11, 16, .86);
+  --media-on-scrim: #f2f2f5;
   --call-btn: color-mix(in srgb, var(--text) 22%, var(--bg-chat));
   --call-btn-on: var(--text);
   --call-btn-on-fg: var(--bg-chat);
@@ -1762,6 +1767,43 @@ button.reaction-chip { font: inherit; color: inherit; }
   font-size: 13.5px; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
+.media-preview-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.media-preview-actions .btn-text { padding: 6px 10px; }
+/* Staged video: 16:9 poster button that plays in Velta's lightbox. The box
+   drops overflow: hidden so the focus ring draws outside, on the strip. */
+#media-preview-thumb.is-video { width: 128px; height: 72px; overflow: visible; background: none; }
+.mp-video {
+  position: relative; width: 100%; height: 100%; padding: 0; border: 0;
+  border-radius: 8px; overflow: hidden; cursor: pointer;
+  display: grid; place-items: center;
+  background: var(--bg-hover); color: var(--text-dim);
+}
+.mp-video .mp-poster { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mp-video-glyph svg { width: 28px; height: 28px; }
+.mp-play {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 34px; height: 34px; border-radius: 50%; padding: 8px 7px 8px 9px;
+  background: var(--media-scrim); color: var(--media-on-scrim);
+  display: none;
+}
+.mp-play svg { width: 100%; height: 100%; }
+.mp-video.ready .mp-play { display: block; }
+.mp-dur {
+  position: absolute; right: 4px; bottom: 4px;
+  background: var(--media-scrim); color: var(--media-on-scrim);
+  border-radius: 4px; font-size: 11px; line-height: 1; padding: 3px 4px;
+  font-variant-numeric: tabular-nums;
+}
+.mp-dur[hidden] { display: none; }
+/* Loader while the first frame is painted. */
+.mp-spinner {
+  position: absolute; top: 50%; left: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px;
+  border: 2px solid var(--text-dim); border-right-color: transparent; border-radius: 50%;
+  animation: ticks-spin .8s linear infinite;
+}
+.mp-video[aria-busy="true"] .mp-video-glyph { visibility: hidden; }
+.mp-video[aria-busy="false"] .mp-spinner { display: none; }
+@media (prefers-reduced-motion: reduce) { .mp-spinner { animation-duration: 2.4s; } }
 .media-preview .icon-btn { margin-left: auto; }
 /* Velta Dash pre-send route (#470): which way the attachment will go.
    Same tokens as .media-preview-name / .xfer-state (AA on the composer). */
