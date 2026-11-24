@@ -319,4 +319,6 @@ test("HEIC picks are converted on Android, and elsewhere count as photos only wh
   assert.match(kt, /else Bitmap\.CompressFormat\.JPEG/, "a photo becomes JPEG; transparency needs PNG");
   assert.match(kt, /bitmap\.compress\(format, 95, out\)/, "full quality: the crop and the Send-time budget work on the whole picture");
   assert.match(kt, /Build\.VERSION_CODES\.P/, "Android 8 and older cannot decode HEIC: the original is sent");
+  assert.match(kt, /MAX_PIXELS = 24_000_000L/, "a 108 or 200 megapixel shot is sampled down before it is decoded");
+  assert.match(kt, /catch \(_: OutOfMemoryError\)/, "a failed decode sends the original instead of crashing");
 });
