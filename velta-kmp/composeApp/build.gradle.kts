@@ -162,14 +162,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    // AGP's unit-test classpath includes the debug compilation (androidMain
-    // + jvmCommon). The KMP androidUnitTest source set is in the test tree
-    // and cannot dependsOn androidMain (different source-set trees).
-    sourceSets {
-        getByName("test") {
-            java.srcDir("src/androidUnitTest/kotlin")
-        }
-    }
 }
 
 compose.resources {
