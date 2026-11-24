@@ -61,7 +61,7 @@ function loadCards() {
 function saveCards() {
   const keep = {};
   for (const [h, st] of [...cardState].slice(-CARDS_MAX)) {
-    if (st.done || st.asked || st.error) keep[h] = { chatId: st.chatId, path: st.path, asked: st.asked, done: st.done, error: st.error, outgoing: st.outgoing || undefined, size: st.size, dashFailed: st.dashFailed || undefined };
+    if (st.done || st.asked || st.error) keep[h] = { chatId: st.chatId, path: st.path, asked: st.asked, done: st.done, error: st.error, outgoing: st.outgoing || undefined, size: st.size, name: st.name || undefined, dashFailed: st.dashFailed || undefined };
   }
   cardsStore().save(keep);
 }
@@ -111,7 +111,12 @@ export async function maybeSend({ chatId, path, name, size, oneToOne, contactId 
     return { handled: true, fellBack: true, msg: hooks?.lastSent?.() || null };
   }
   else if (r.via === "policy") sink("info", `sent ${name} (${fmtSize(size)}) by email: policy`);
-  else if (r.route === "iroh") { cardState.set(r.hash, { outgoing: true, mine: true, chatId }); sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`); }
+  else if (r.route === "iroh") {
+    // The sender has the bytes: keep the staged path so the outgoing card
+    // previews (and opens in the lightbox) like the receiver's does.
+    cardState.set(r.hash, { outgoing: true, mine: true, chatId, name, path, done: true });
+    sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`);
+  }
   return { handled: true, msg: hooks?.lastSent?.() || null };
 }
 
@@ -162,6 +167,55 @@ function canAsk(st) {
   return !st.path && !st.asked && !st.done && (!st.outgoing || !st.mine);
 }
 
+// Media a fetched card can preview: images open in the image lightbox,
+// videos in the player lightbox — never in a browser window. The ticket
+// carries no thumbnail, so the preview only exists once st.path is there.
+const IMG_RE = /\.(?:png|jpe?g|gif|webp|bmp|avif)$/i;
+const VID_RE = /\.(?:mp4|mov|mkv|avi|webm|m4v|3gp)$/i;
+function mediaKind(nameOrPath) {
+  const s = String(nameOrPath || "");
+  return IMG_RE.test(s) ? "image" : VID_RE.test(s) ? "video" : null;
+}
+
+let lightbox = null; // { image(src, caption), video(src, caption), folder(path, name) } — chat-view wires ui.js
+/** Wire the lightbox openers + Show in folder (chat-view owns the ui.js imports). */
+export function setXferLightboxOpener(fn) { lightbox = fn; }
+
+/** The preview a fetched image/video card leads with, wrapped in a button
+ *  that opens the lightbox. Requires the local copy (st.path) — a ticket
+ *  alone has no bytes, so those cards keep the file-type tile. Documents
+ *  keep the Open link. */
+function previewHtml(hash, name, st) {
+  if (!st.path) return "";
+  const kind = mediaKind(name || st.path);
+  if (!kind) return "";
+  const url = escapeAttr(safeFileUrl(st.path));
+  // #t=0.001 seeks to the first frame so preload=metadata paints it instead
+  // of an empty tile.
+  const media = kind === "image"
+    ? `<img class="xfer-preview" src="${url}" loading="lazy" alt="">`
+    : `<video class="xfer-preview" src="${url}#t=0.001" preload="metadata" muted playsinline></video><span class="xfer-play" aria-hidden="true">${svg(P.playFilled)}</span>`;
+  return `<button type="button" class="xfer-preview-btn" data-xfer-view="${escapeAttr(hash)}">${media}</button>`;
+}
+
+/** Lightbox open for a fetched media card (preview or Open click). */
+function openInLightbox(hash) {
+  const st = cardState.get(hash);
+  if (!st?.path || typeof document === "undefined") return;
+  const name = st.name || "";
+  const kind = mediaKind(name || st.path);
+  if (!kind) return;
+  const src = safeFileUrl(st.path);
+  if (lightbox) (kind === "image" ? lightbox.image : lightbox.video)(src, name);
+  else window.open(src, "_blank", "noopener"); // unwired (tests/PWA): old behavior
+}
+
+/** Desktop: reveal the fetched file's decrypted copy in the file manager. */
+function showInFolder(hash) {
+  const st = cardState.get(hash);
+  if (st?.path && lightbox?.folder) lightbox.folder(st.path, st.name || "");
+}
+
 /**
  * Render hook for the message bubble: a VXFER1 file card becomes a compact
  * file bubble; the fallback request line becomes a quiet label. Null = not
@@ -171,8 +225,10 @@ export function xferCardHtml(text) {
   const card = parseFileCard(text);
   if (card) {
     const st = cardState.get(card.tk.hash) || {};
-    const actions = actionsHtml(card.tk.hash, st);
-    return `<span class="xfer-card" data-xfer="${escapeAttr(card.tk.hash)}"><span class="xfer-glyph">${escapeHtml((card.name.split(".").pop()?.[0] || "f").toUpperCase())}</span>` +
+    const preview = previewHtml(card.tk.hash, card.name, st);
+    const lead = preview || `<span class="xfer-glyph">${escapeHtml((card.name.split(".").pop()?.[0] || "f").toUpperCase())}</span>`;
+    const actions = actionsHtml(card.tk.hash, card.name, st);
+    return `<span class="xfer-card${preview ? " is-media" : ""}" data-xfer="${escapeAttr(card.tk.hash)}">${lead}` +
       `<span class="xfer-name">${escapeHtml(card.name)}<span class="xfer-meta">${escapeHtml(fmtSize(card.size))}</span></span>` +
       `<span class="xfer-state${isBusy(st) ? " is-busy" : ""}" role="status">${escapeHtml(stateText(st))}</span>${routeBadgeHtml(st)}${actions}</span>`;
   }
@@ -180,8 +236,19 @@ export function xferCardHtml(text) {
   return null;
 }
 
-function actionsHtml(hash, st) {
-  if (st.path) return `<a class="xfer-open" href="${escapeAttr(safeFileUrl(st.path))}" target="_blank" rel="noopener">${escapeHtml(t("Open"))}</a>`;
+function actionsHtml(hash, name, st) {
+  if (st.path) {
+    // Media opens in the lightbox (same as regular media bubbles); the
+    // browser/system-handler path stays for documents only. Desktop adds
+    // Show in folder (the shell reveals the decrypted copy). One row.
+    const kind = mediaKind(name || st.path);
+    const openLabel = kind === "image" ? t("Open image") : kind === "video" ? t("Play video") : t("Open");
+    const open = kind
+      ? `<button type="button" class="xfer-open btn-text" data-xfer-view="${escapeAttr(hash)}">${escapeHtml(openLabel)}</button>`
+      : `<a class="xfer-open" href="${escapeAttr(safeFileUrl(st.path))}" target="_blank" rel="noopener">${escapeHtml(t("Open"))}</a>`;
+    const folder = env?.invoke ? `<button type="button" class="xfer-folder btn-text" data-xfer-folder="${escapeAttr(hash)}">${escapeHtml(t("Show in folder"))}</button>` : "";
+    return `<span class="xfer-actions">${open}${folder}</span>`;
+  }
   let out = "";
   if (canRetry(st)) out += `<button type="button" class="xfer-retry btn-text" data-xfer-retry="${escapeAttr(hash)}">${escapeHtml(t("Retry"))}</button>`;
   if (canAsk(st) && cardState.has(hash)) out += `<button type="button" class="xfer-ask btn-text" data-xfer-ask="${escapeAttr(hash)}">${escapeHtml(t("Ask for the email copy"))}</button>`;
@@ -215,9 +282,9 @@ export function noteCard(chatId, text, outgoing) {
   if (card) {
     const hash = card.tk.hash;
     const known = cardState.get(hash);
-    if (known) { if (known.chatId == null) known.chatId = chatId; if (!known.outgoing && !known.text) known.text = text; if (known.size == null) known.size = card.size; return; }
-    if (outgoing) { cardState.set(hash, { outgoing: true, mine: transport.pending.has(hash), chatId }); return; }
-    const st = { outgoing: false, chatId, size: card.size, text };
+    if (known) { if (known.chatId == null) known.chatId = chatId; if (!known.outgoing && !known.text) known.text = text; if (known.size == null) known.size = card.size; if (!known.name) known.name = card.name; return; }
+    if (outgoing) { cardState.set(hash, { outgoing: true, mine: transport.pending.has(hash), chatId, name: card.name }); return; }
+    const st = { outgoing: false, chatId, size: card.size, name: card.name, text };
     cardState.set(hash, st);
     const expired = Number(card.tk.exp) * 1000 <= Date.now();
     if (!env.invoke && expired) { if (card.size > EMAIL_MAX) st.error = "too-big-recv"; return; } // PWA, old card: the sender mails expired offers itself
@@ -329,8 +396,21 @@ function refresh(hash) {
     const old = card.querySelector(".xfer-route");
     if (old) old.remove();
     if (badge) el?.insertAdjacentHTML("afterend", badge);
-    for (const old of card.querySelectorAll(".xfer-ask, .xfer-retry, .xfer-open")) old.remove();
-    const actions = actionsHtml(hash, st);
+    // Fetched media swaps the file-type tile for a preview that opens the
+    // lightbox (the render path already has it; refresh catches the card
+    // that finished while on screen).
+    const name = st.name || card.querySelector(".xfer-name")?.childNodes?.[0]?.textContent || "";
+    const want = previewHtml(hash, name, st);
+    const have = card.querySelector(".xfer-preview-btn");
+    if (want && !have) {
+      card.querySelector(".xfer-glyph")?.remove();
+      el?.insertAdjacentHTML("beforebegin", want);
+      card.classList.add("is-media");
+    } else if (!want && have) {
+      have.remove();
+    }
+    for (const old of card.querySelectorAll(".xfer-actions")) old.remove();
+    const actions = actionsHtml(hash, name, st);
     if (actions) card.insertAdjacentHTML("beforeend", actions);
   }
 }
@@ -400,14 +480,29 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen,
     runSweep();
     if (typeof setInterval === "function" && !sweepTimer) { sweepTimer = setInterval(runSweep, SWEEP_MS); sweepTimer?.unref?.(); }
   }
-  if (typeof document !== "undefined") document.addEventListener("click", (e) => {
-    const retry = e.target.closest?.("[data-xfer-retry]");
-    if (retry) { retryFetch(retry.getAttribute("data-xfer-retry")); return; }
-    const ask = e.target.closest?.("[data-xfer-ask]");
-    if (!ask) return;
-    const hash = ask.getAttribute("data-xfer-ask");
-    askForEmailCopy(hash);
-  });
+  if (typeof document !== "undefined") {
+    document.addEventListener("click", (e) => {
+      const retry = e.target.closest?.("[data-xfer-retry]");
+      if (retry) { retryFetch(retry.getAttribute("data-xfer-retry")); return; }
+      const view = e.target.closest?.("[data-xfer-view]");
+      if (view) { openInLightbox(view.getAttribute("data-xfer-view")); return; }
+      const folder = e.target.closest?.("[data-xfer-folder]");
+      if (folder) { showInFolder(folder.getAttribute("data-xfer-folder")); return; }
+      const ask = e.target.closest?.("[data-xfer-ask]");
+      if (!ask) return;
+      const hash = ask.getAttribute("data-xfer-ask");
+      askForEmailCopy(hash);
+    });
+    // A preview the webview cannot decode (codec, evicted file) degrades to
+    // a placeholder tile instead of a broken-image glyph. error does not
+    // bubble; capture catches it for imgs and videos alike.
+    document.addEventListener("error", (e) => {
+      const el = e.target;
+      if (!el?.classList?.contains("xfer-preview")) return;
+      el.closest(".xfer-preview-btn")?.querySelector(".xfer-play")?.remove();
+      el.replaceWith(Object.assign(document.createElement("span"), { className: "xfer-preview xfer-preview-dead", textContent: t("Preview unavailable") }));
+    }, true);
+  }
 }
 
 /** The card's "Ask for the email copy" action. */

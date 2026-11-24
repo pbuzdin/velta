@@ -139,7 +139,7 @@ import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealIte
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
-import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend } from "./iroh-xfer-ui.js";
+import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend, setXferLightboxOpener } from "./iroh-xfer-ui.js";
 import { THRESHOLD as XFER_THRESHOLD } from "./iroh-xfer.js";
 import { probeVideo, playLabel } from "./composer-video.js";
 import { reactionToggle, myReaction } from "./reactions.js";
@@ -157,6 +157,13 @@ const PLAN_TIMEOUT_MS = 20000;
 function ensureXfer(view) {
   if (xferUiReady) return;
   xferUiReady = true;
+  // Fetched Dash cards open media in the lightboxes, never a browser window;
+  // desktop can also reveal the file in the file manager.
+  setXferLightboxOpener({
+    image: (src, name) => openImageLightbox(src, name),
+    video: (src, name) => openVideoLightbox(src, name),
+    folder: (path, name) => showAttachmentInFolder(path, name),
+  });
   initXferUi({
     core: view.core,
     invoke: tauriInvoke(),
