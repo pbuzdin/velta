@@ -1559,7 +1559,7 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
     // reports blobs under /data/user/0 (a symlink to /data/data), so a raw
     // prefix check would wrongly reject everything.
     let root = app_local_data_dir(app);
-    let root_canon = std::fs::canonicalize(&root).unwrap_or(root);
+    let root_canon = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
     let fpath = std::path::Path::new(&file);
     let fpath_canon = fpath.canonicalize().unwrap_or_else(|_| fpath.to_path_buf());
     log(&format!(

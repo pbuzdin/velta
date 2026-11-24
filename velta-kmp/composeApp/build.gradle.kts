@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.baselineprofile)
 }
 
 // Release signing reads keystore.properties (gitignored) when present;
@@ -152,6 +153,13 @@ android {
                 signingConfig = signingConfigs.getByName("debug")
             }
         }
+        // #507: macrobenchmark target — release-like (minified) but always
+        // debug-signed so it installs next to dev builds.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
     packaging {
         resources {
@@ -167,6 +175,17 @@ android {
 compose.resources {
     publicResClass = true
     packageOfResClass = "org.velta.kmp.generated.resources"
+}
+
+// #507: compose compiler stability reports + metrics land in
+// build/compose_reports and build/compose_metrics on every Kotlin compile
+// (release compile = the truth for skipping). The stability config marks the
+// lenient JSON wire types stable so bubbles carrying raw JsonElement fields
+// can skip recomposition.
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose_reports")
+    metricsDestination = layout.buildDirectory.dir("compose_metrics")
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("compose_stability.conf"))
 }
 
 compose.desktop {
@@ -190,4 +209,6 @@ tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask>().configureEach {
 
 dependencies {
     add("testImplementation", "junit:junit:4.13.2")
+    implementation(libs.androidx.profileinstaller)
+    add("baselineProfile", project(":baselineprofile"))
 }

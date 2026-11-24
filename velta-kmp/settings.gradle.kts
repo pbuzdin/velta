@@ -28,3 +28,4 @@ dependencyResolutionManagement {
 }
 
 include(":composeApp")
+include(":baselineprofile")

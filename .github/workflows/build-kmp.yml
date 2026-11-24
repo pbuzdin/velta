@@ -248,6 +248,30 @@ jobs:
           path: velta-kmp/composeApp/build/outputs/apk/debug/composeApp-x86_64-debug.apk
           if-no-files-found: error
 
+      # #507: a minified release APK for honest FPS testing — debug Compose
+      # is far slower, so FPS on the debug APKs above is misleading. CI has
+      # no release keystore: the build falls back to the shared debug key
+      # (build.gradle.kts), so the APK stays installable.
+      - name: Build Android release APK (minified, debug-signed)
+        working-directory: velta-kmp
+        run: ./gradlew :composeApp:assembleRelease --no-daemon --stacktrace
+
+      - name: Verify the core is in the release APKs
+        working-directory: velta-kmp/composeApp/build/outputs/apk/release
+        run: |
+          set -euo pipefail
+          ls -la
+          check() { unzip -l "$1" | grep -q "lib/$2/libvelta_rpc_shim.so" || { echo "::error::$1 lacks lib/$2/libvelta_rpc_shim.so"; exit 1; }; }
+          check composeApp-arm64-v8a-release.apk arm64-v8a
+          check composeApp-x86_64-release.apk x86_64
+
+      - name: Upload release arm64 APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: velta-kmp-arm64-release-apk
+          path: velta-kmp/composeApp/build/outputs/apk/release/composeApp-arm64-v8a-release.apk
+          if-no-files-found: error
+
       - name: Build desktop distribution
         working-directory: velta-kmp
         run: ./gradlew :composeApp:packageDistributionForCurrentOS --no-daemon --stacktrace

@@ -5831,7 +5831,8 @@ class AppModel(
         val veltaCore = core
         val id = accountId
         if (veltaCore == null || id == null) return
-        scope.launch {
+        chatLoadJob?.cancel() // #507: a slow earlier load must not overwrite a newer one
+        chatLoadJob = scope.launch {
             chatLoading = true
             try {
                 val ids = veltaCore.messageIds(id, chatId).sorted()
@@ -5926,6 +5927,7 @@ class AppModel(
     // instead and flush once, 200 ms after the last burst started.
     private val reloadLock = Any()
     private val dirtyChatIds = HashSet<Long>()
+    private val dirtyMsgIds = HashMap<Long, MutableSet<Long>>()
     private var dirtyAllChats = false
     private var dirtyList = false
     private var dirtyHead = false
@@ -5951,11 +5953,35 @@ class AppModel(
         }
     }
 
+    /** #507: a single-message event refetches just that message instead of
+     * the whole loaded window. Falls back to a full reload without ids. */
+    private fun scheduleMsgUpdate(chatId: Long?, msgId: Long?) {
+        if (chatId == null || msgId == null || msgId <= 0L) {
+            scheduleChatReload(chatId)
+            return
+        }
+        synchronized(reloadLock) {
+            if (chatId !in dirtyChatIds && !dirtyAllChats) {
+                dirtyMsgIds.getOrPut(chatId) { HashSet() } += msgId
+            }
+            if (reloadJob == null) {
+                reloadJob = scope.launch { flushReloads() }
+            }
+        }
+    }
+
     private suspend fun flushReloads() {
         delay(200)
         val snapshot = synchronized(reloadLock) {
-            val s = ReloadSnapshot(dirtyChatIds.toSet(), dirtyAllChats, dirtyList, dirtyHead)
+            val s = ReloadSnapshot(
+                dirtyChatIds.toSet(),
+                dirtyMsgIds.mapValues { it.value.toSet() },
+                dirtyAllChats,
+                dirtyList,
+                dirtyHead,
+            )
             dirtyChatIds.clear()
+            dirtyMsgIds.clear()
             dirtyAllChats = false
             dirtyList = false
             dirtyHead = false
@@ -5968,17 +5994,72 @@ class AppModel(
         }
         when (val current = screen) {
             is Screen.Chat -> {
-                if (snapshot.all || current.chatId in snapshot.ids) {
-                    loadMessages(current.chatId, current.isGroup)
+                val targeted = snapshot.msgs[current.chatId].orEmpty()
+                when {
+                    snapshot.all || current.chatId in snapshot.ids ->
+                        loadMessages(current.chatId, current.isGroup)
+                    targeted.isNotEmpty() ->
+                        applyMessageUpdates(current.chatId, current.isGroup, targeted)
                 }
                 if (snapshot.head) refreshOpenChatHead(current)
             }
-            Screen.ChatList -> if (snapshot.all || snapshot.ids.isNotEmpty() || snapshot.list) loadChats()
+            Screen.ChatList ->
+                if (snapshot.all || snapshot.ids.isNotEmpty() || snapshot.msgs.isNotEmpty() || snapshot.list) loadChats()
             else -> {}
         }
     }
 
-    private data class ReloadSnapshot(val ids: Set<Long>, val all: Boolean, val list: Boolean, val head: Boolean)
+    /** The last window load or targeted update — a newer one cancels it so a
+     * slow response can never overwrite fresher rows (#507). */
+    private var chatLoadJob: Job? = null
+
+    /**
+     * #507: swap the event-named messages into the loaded window instead of
+     * refetching it (a reaction after paging back 5 pages refetched ~1,000
+     * messages). Requested ids missing from the response were deleted → the
+     * row drops out; ids past the window's newest message append (the window
+     * always ends at the newest message); ids in an unloaded older gap wait
+     * for paging.
+     */
+    private fun applyMessageUpdates(chatId: Long, isGroup: Boolean, msgIds: Set<Long>) {
+        val veltaCore = core ?: return
+        val id = accountId ?: return
+        chatLoadJob?.cancel()
+        chatLoadJob = scope.launch {
+            try {
+                if ((screen as? Screen.Chat)?.chatId != chatId) return@launch
+                val fetched = veltaCore.messages(id, msgIds.toList())
+                if ((screen as? Screen.Chat)?.chatId != chatId) return@launch
+                val byId = fetched.associateBy { it.id }
+                val loaded = chatMessages
+                val touchesWindow = loaded.any { it.id in msgIds }
+                val maxLoaded = loaded.lastOrNull()?.id ?: 0L
+                val loadedIds = loaded.mapTo(HashSet()) { it.id }
+                val appended = fetched
+                    .filter { it.id !in loadedIds && it.id > maxLoaded }
+                    .sortedBy { it.sortTimestamp ?: it.timestamp }
+                if (!touchesWindow && appended.isEmpty()) return@launch
+                val swapped = loaded.mapNotNull { m -> if (m.id in msgIds) byId[m.id] else m }
+                chatMessages = if (appended.isEmpty()) swapped else swapped + appended
+                if (appended.isNotEmpty()) {
+                    if (isGroup) loadSenderNames(veltaCore, id, appended)
+                    refreshReplyCounts(chatId)
+                }
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                println("velta-kmp: applyMessageUpdates failed: $t")
+            }
+        }
+    }
+
+    private data class ReloadSnapshot(
+        val ids: Set<Long>,
+        val msgs: Map<Long, Set<Long>>,
+        val all: Boolean,
+        val list: Boolean,
+        val head: Boolean,
+    )
 
     /** Name/avatar/member changes of the open chat: re-read its list item. */
     private suspend fun refreshOpenChatHead(current: Screen.Chat) {
@@ -6027,7 +6108,7 @@ class AppModel(
             }
             "ImexProgress" -> event.event?.get("progress")?.toString()?.toIntOrNull()?.let { onImexProgress(it) }
             "IncomingMsg" -> {
-                if (forCurrent) scheduleChatReload(chatId)
+                if (forCurrent) scheduleMsgUpdate(chatId, event.msgId())
                 if (eventAccount != null && chatId != null) notifyIncoming(eventAccount, chatId, event)
             }
             "MsgsNoticed" -> {
@@ -6035,9 +6116,12 @@ class AppModel(
                 if (eventAccount != null && chatId != null) notifier?.cancel(eventAccount, chatId)
                 if (forCurrent) scheduleChatReload(chatId)
             }
+            // Single-message events refetch just the named message (#507);
+            // msgId 0/absent means "many" → full reload.
             "MsgsChanged", "MsgDelivered", "MsgFailed", "MsgRead", "MsgReadCountChanged",
-            "MsgDeleted", "ReactionsChanged", "IncomingReaction", "ChatEphemeralTimerModified",
-            -> if (forCurrent) scheduleChatReload(chatId)
+            "MsgDeleted", "ReactionsChanged", "IncomingReaction",
+            -> if (forCurrent) scheduleMsgUpdate(chatId, event.msgId())
+            "ChatEphemeralTimerModified" -> if (forCurrent) scheduleChatReload(chatId)
             "ChatModified" -> if (forCurrent) {
                 scheduleChatReload(chatId, head = chatId != null && (screen as? Screen.Chat)?.chatId == chatId)
                 scheduleChatReload(null, listOnly = true)
@@ -6286,4 +6370,8 @@ class AppModel(
     private fun CoreEvent.chatId(): Long? =
         (event?.get("chatId")?.toString())?.trim('"')?.toLongOrNull()
             ?: (event?.get("chat_id")?.toString())?.trim('"')?.toLongOrNull()
+
+    private fun CoreEvent.msgId(): Long? =
+        (event?.get("msgId")?.toString())?.trim('"')?.toLongOrNull()
+            ?: (event?.get("msg_id")?.toString())?.trim('"')?.toLongOrNull()
 }

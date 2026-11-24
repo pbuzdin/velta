@@ -25,9 +25,9 @@ import kotlin.test.assertTrue
 /**
  * #334 step 3: events route by account (`contextId`), notifications are
  * keyed per account+chat and suppressed only for the chat on screen while
- * the app is visible, visible unseen messages get markseen_msgs, delivery
- * events reload the open chat, and a notification tap opens the right
- * account + chat.
+ * the app is visible, visible unseen messages get markseen_msgs, message
+ * events refetch only the named message (#507), and a notification tap
+ * opens the right account + chat.
  */
 class NotifyEventsTest {
 
@@ -224,20 +224,75 @@ class NotifyEventsTest {
     }
 
     @Test
-    fun deliveryAndReadEventsReloadTheOpenChat() = runBlocking {
+    fun deliveryAndReadEventsRefetchOnlyTheNamedMessage() = runBlocking {
         val f = started(script(state = 16))
         try {
             f.openChat5()
             for (kind in listOf("MsgRead", "MsgDelivered", "MsgFailed", "ReactionsChanged")) {
-                val before = count(f.transport, "get_message_ids")
+                val idLoads = count(f.transport, "get_message_ids")
+                val msgLoads = count(f.transport, "get_messages")
                 f.model.handleEvent(event(1, """{"kind":"$kind","chatId":5,"msgId":42}"""))
-                withTimeout(5_000) { while (count(f.transport, "get_message_ids") <= before) yield() }
+                withTimeout(5_000) { while (count(f.transport, "get_messages") <= msgLoads) yield() }
+                assertEquals(idLoads, count(f.transport, "get_message_ids"), "$kind must not refetch the whole window (#507)")
+                val last = f.transport.requests.last { "\"get_messages\"" in it }
+                assertTrue("[42]" in last, "$kind refetches only the named message: $last")
             }
             // Another account's read receipt does not touch this chat.
-            val before = count(f.transport, "get_message_ids")
+            val before = count(f.transport, "get_messages")
             f.model.handleEvent(event(2, """{"kind":"MsgRead","chatId":5,"msgId":42}"""))
             delay(400)
-            assertEquals(before, count(f.transport, "get_message_ids"))
+            assertEquals(before, count(f.transport, "get_messages"))
+        } finally {
+            f.scope.cancel()
+        }
+    }
+
+    @Test
+    fun msgDeletedDropsTheRowWithoutAWindowReload() = runBlocking {
+        val f = started(script(state = 16))
+        try {
+            f.openChat5()
+            // After the delete the core answers get_messages([42]) with a
+            // LoadingError entry, which the facade drops — an empty map here.
+            f.transport.dynamic["get_messages"] = "{}"
+            val idLoads = count(f.transport, "get_message_ids")
+            f.model.handleEvent(event(1, """{"kind":"MsgDeleted","chatId":5,"msgId":42}"""))
+            withTimeout(5_000) { while (f.model.chatMessages.any { it.id == 42L }) yield() }
+            assertEquals(listOf(41L, 43L), f.model.chatMessages.map { it.id })
+            assertEquals(idLoads, count(f.transport, "get_message_ids"), "a delete must not refetch the window (#507)")
+        } finally {
+            f.scope.cancel()
+        }
+    }
+
+    @Test
+    fun incomingMsgAppendsTheTailMessageWithoutAWindowReload() = runBlocking {
+        val f = started(script())
+        try {
+            f.openChat5()
+            f.transport.dynamic["get_messages"] = """{
+                "41":{"kind":"message","id":41,"chatId":5,"fromId":2,"text":"hi","viewType":"Text","state":10,"timestamp":1700000001},
+                "42":{"kind":"message","id":42,"chatId":5,"fromId":1,"text":"mine","viewType":"Text","state":26,"timestamp":1700000002},
+                "43":{"kind":"message","id":43,"chatId":5,"fromId":2,"text":"old","viewType":"Text","state":16,"timestamp":1700000003},
+                "44":{"kind":"message","id":44,"chatId":5,"fromId":2,"text":"new","viewType":"Text","state":10,"timestamp":1700000004}}"""
+            val idLoads = count(f.transport, "get_message_ids")
+            f.model.handleEvent(incoming(1, msg = 44))
+            withTimeout(5_000) { while (f.model.chatMessages.none { it.id == 44L }) yield() }
+            assertEquals(listOf(41L, 42L, 43L, 44L), f.model.chatMessages.map { it.id })
+            assertEquals(idLoads, count(f.transport, "get_message_ids"), "an append must not refetch the window (#507)")
+        } finally {
+            f.scope.cancel()
+        }
+    }
+
+    @Test
+    fun msgsChangedWithoutAnIdFallsBackToAWindowReload() = runBlocking {
+        val f = started(script())
+        try {
+            f.openChat5()
+            val idLoads = count(f.transport, "get_message_ids")
+            f.model.handleEvent(event(1, """{"kind":"MsgsChanged","chatId":5,"msgId":0}"""))
+            withTimeout(5_000) { while (count(f.transport, "get_message_ids") <= idLoads) yield() }
         } finally {
             f.scope.cancel()
         }
