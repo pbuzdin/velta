@@ -2088,17 +2088,24 @@ private fun ListBar(model: AppModel, menuOpen: Boolean, onMenu: () -> Unit, modi
             Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            BarViewButton(VeltaIcons.chats, L.t("Chats"), "chats", model)
-            BarViewButton(VeltaIcons.contacts, L.t("Contacts"), "contacts", model)
-            BarViewButton(VeltaIcons.phone, L.t("Calls"), "calls", model)
-            BarViewButton(VeltaIcons.qr, L.t("QR code"), "qr", model)
+            // The drawer overlays the views but not this bar: any other bar
+            // action closes it first, or the view switch happens invisibly
+            // underneath the open drawer.
+            val closeMenu: () -> Unit = { if (menuOpen) onMenu() }
+            BarViewButton(VeltaIcons.chats, L.t("Chats"), "chats", model, closeMenu)
+            BarViewButton(VeltaIcons.contacts, L.t("Contacts"), "contacts", model, closeMenu)
+            BarViewButton(VeltaIcons.phone, L.t("Calls"), "calls", model, closeMenu)
+            BarViewButton(VeltaIcons.qr, L.t("QR code"), "qr", model, closeMenu)
             Box(
                 Modifier
                     .weight(1f)
                     .height(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Velta.tokens.accent)
-                    .clickable { model.toggleListView(if (model.listView == "new") "chats" else "new") },
+                    .clickable {
+                        closeMenu()
+                        model.toggleListView(if (model.listView == "new") "chats" else "new")
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(VeltaIcons.plus, contentDescription = L.t("New chat"), modifier = Modifier.size(22.dp), tint = Velta.tokens.onAccent)
@@ -2111,9 +2118,10 @@ private fun ListBar(model: AppModel, menuOpen: Boolean, onMenu: () -> Unit, modi
                     .clickable(onClick = onMenu),
                 contentAlignment = Alignment.Center,
             ) {
+                // Hamburger becomes the close X while the drawer is open.
                 Icon(
-                    VeltaIcons.menu,
-                    contentDescription = L.t("Menu"),
+                    if (menuOpen) VeltaIcons.close else VeltaIcons.menu,
+                    contentDescription = if (menuOpen) L.t("Close") else L.t("Menu"),
                     modifier = Modifier.size(22.dp),
                     tint = if (menuOpen) Velta.tokens.accent else Velta.tokens.text,
                 )
@@ -2259,7 +2267,13 @@ private fun MenuRow(icon: ImageVector, label: String, enabled: Boolean = true, o
 
 /** One .bar-btn: the active view gets accent ink + the inset bottom accent line. */
 @Composable
-private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: String, model: AppModel) {
+private fun RowScope.BarViewButton(
+    icon: ImageVector,
+    label: String,
+    view: String,
+    model: AppModel,
+    closeMenu: () -> Unit = {},
+) {
     val active = model.listView == view
     val accent = Velta.tokens.accent
     val interaction = remember { MutableInteractionSource() }
@@ -2275,7 +2289,10 @@ private fun RowScope.BarViewButton(icon: ImageVector, label: String, view: Strin
                 },
             )
             .rowSurface(interaction)
-            .clickable(interactionSource = interaction, indication = null) { model.toggleListView(view) }
+            .clickable(interactionSource = interaction, indication = null) {
+                closeMenu()
+                model.toggleListView(view)
+            }
             .drawBehind {
                 if (active) {
                     drawLine(

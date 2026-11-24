@@ -359,7 +359,10 @@ never run Gradle on the Windows side.
   accent line, top corners squared); "+" = the .bar-accent square (accent
   bg, radius 8 — #109: never a tab) opening the New-chat view; Menu opens
   a drawer over the list (profile, Saved Messages, your QR, join, Velta
-  Loop, Relays, Settings). It stops above the bar so Menu toggles it.
+  Loop, Relays, Settings). It stops above the bar so Menu toggles it; while
+  it is open the Menu button shows the close X, and every OTHER bar action
+  closes the drawer before switching (the switch used to happen invisibly
+  underneath the full-width drawer).
   No Refresh item. Android
   back inside a side view returns to chats (`PlatformBackHandler(enabled)`)
   — the expect/actual grew an `enabled` parameter for this. At the ROOT
