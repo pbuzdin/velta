@@ -3185,7 +3185,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
     // (network, media, notifications and other native helpers).
-    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 16] = [
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 17] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
         ("Battery", &APP_BATTERY_CLASS),
