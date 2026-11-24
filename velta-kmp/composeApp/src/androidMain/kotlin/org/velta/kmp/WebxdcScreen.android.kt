@@ -188,7 +188,7 @@ private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
 private fun notFound(): WebResourceResponse =
     WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, java.io.ByteArrayInputStream(ByteArray(0)))
 
-internal fun mimeFor(path: String): String {
+fun mimeFor(path: String): String {
     val ext = path.substringAfterLast('.', "").lowercase()
     return when (ext) {
         "html", "htm" -> "text/html"
