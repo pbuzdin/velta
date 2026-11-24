@@ -140,7 +140,7 @@ import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./tra
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
 import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend } from "./iroh-xfer-ui.js";
-import { THRESHOLD as XFER_THRESHOLD, EMAIL_MAX as XFER_EMAIL_MAX } from "./iroh-xfer.js";
+import { THRESHOLD as XFER_THRESHOLD } from "./iroh-xfer.js";
 import { probeVideo, playLabel } from "./composer-video.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
@@ -4733,10 +4733,14 @@ export class ChatView {
     if (!el) return;
     const pm = this.pendingMedia;
     const plan = pm?.plan;
-    const checking = pm?.checking && Number(pm.size) > XFER_THRESHOLD;
-    el.textContent = [pm?.size != null ? formatBytes(pm.size) : "", plan?.text || (checking ? t("Checking how to send…") : "")]
+    // Size unknown yet (xfer_file_size still reading a sealed upload): the
+    // check is running all the same, so say so.
+    const checking = pm?.checking && (pm.size == null || Number(pm.size) > XFER_THRESHOLD);
+    const stage = pm?.stage === "dash" ? t("Preparing for Velta Dash…") : "";
+    el.textContent = [pm?.size != null ? formatBytes(pm.size) : "", stage || plan?.text || (checking ? t("Checking how to send…") : "")]
       .filter(Boolean).join(" · ");
     el.dataset.route = plan?.route || "";
+    el.classList.toggle("is-busy", !!(stage || (checking && !plan)));
     el.hidden = !el.textContent;
   }
 
@@ -4761,17 +4765,47 @@ export class ChatView {
     return path;
   }
 
+  // #470: Send shows a busy ring while it waits (route check, Dash offer);
+  // a second tap meanwhile is ignored instead of sending twice.
+  _setSendBusy(on) {
+    const b = document.getElementById("btn-send");
+    if (!b) return;
+    b.classList.toggle("is-busy", !!on);
+    if (on) b.setAttribute("aria-busy", "true"); else b.removeAttribute("aria-busy");
+  }
+
   // Send the pending attachment with the composer text as its caption.
   async _sendPendingMedia(session) {
     const pm = this.pendingMedia;
+    if (!pm || pm.sending) return;
+    pm.sending = true;
+    this._setSendBusy(true);
+    if (pm.checking) this._renderMediaRoute();
+    try { await this._sendPendingMediaNow(session, pm); } finally {
+      pm.sending = false;
+      this._setSendBusy(false);
+      const input = document.getElementById("composer-input");
+      if (input) input.readOnly = false;
+    }
+  }
+
+  async _sendPendingMediaNow(session, pm) {
     if (pm?.planning) await pm.planning;
     if (!this._isCurrent(session) || this.pendingMedia !== pm) return;
     // Too big for email and Dash cannot deliver: keep it staged, say why.
     if (pm.plan?.route === "blocked") { errToast(pm.plan.text); return; }
     const input = document.getElementById("composer-input");
     const text = input.value.trim();
-    this._clearPendingMedia();
-    input.value = ""; sizeComposer(input);
+    // A Dash send keeps the strip, with "Preparing for Velta Dash…" and the
+    // busy ring, until the offer is ready: copying and hashing a big file
+    // takes a while, and on failure the file stays staged.
+    const dash = !this.chat?.isP2p && pm.plan?.route !== "email" && Number(pm.size) > XFER_THRESHOLD;
+    const unstage = () => {
+      if (this.pendingMedia === pm) this._clearPendingMedia();
+      if (input.value.trim() === text) { input.value = ""; sizeComposer(input); }
+    };
+    if (dash) { pm.stage = "dash"; input.readOnly = true; this._renderMediaRoute(); }
+    else unstage();
     try {
       const { quoteId, quoteText, prefix } = this._takeQuote();
       let filePath = pm.corePath;
@@ -4812,9 +4846,18 @@ export class ChatView {
           chatId: session.chatId, path: filePath, name: filename, size: pm.size,
           oneToOne: true, contactId: this.chat?.contactId ?? null,
         });
-        if (sent.failed) throw new Error(t("Too big for email (max {n} MB) and Velta Dash is unavailable right now", { n: Math.round(XFER_EMAIL_MAX / 1048576) }));
+        if (sent.failed) {
+          // Nothing went out: keep the file staged and say why.
+          pm.stage = null;
+          if (this.pendingMedia === pm) this._renderMediaRoute();
+          diagnosticsSink.append("error", `${pm.kind} send failed: ${sent.error}`);
+          if (this._isCurrent(session)) errToast(sent.error, 8000);
+          return;
+        }
         if (sent.handled) {
+          unstage();
           if (!this._isCurrent(session)) return;
+          if (sent.fellBack) toast(t("Velta Dash didn't work, so the file went by email"), 5000);
           if (sent.msg) this.appendOutgoing(sent.msg);
           if (prefix + text) {
             const cap = await this._sendArchivedAware(session.chatId, { text: prefix + text, quoteId, quoteText });
@@ -4824,11 +4867,14 @@ export class ChatView {
           return;
         }
       }
+      if (dash) unstage(); // policy says email after all
       const msg = await this._sendArchivedAware(session.chatId, { text: prefix + text, viewtype: pm.viewtype || (pm.kind === "file" ? "file" : pm.kind), file: filePath, filename, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {
+      pm.stage = null;
+      if (this.pendingMedia === pm) this._renderMediaRoute();
       diagnosticsSink.append("error", `${pm.kind} send failed: ${err?.message || err}`);
       if (this._isCurrent(session)) errToast(t("Couldn't send the file: ") + (err?.message || err));
     }
@@ -5683,9 +5729,24 @@ export class ChatView {
     }
     let kind = shareStageKind(resolved);
     if (kind === "image" && !invoke) kind = "send";
+    // #470: one big file (Open with, Send to) stages like a picked or
+    // dropped one, so the route (Velta Dash or email, or too
+    // big for both) shows before Send.
+    if (kind === "send" && resolved.length === 1 && invoke && !this.chat?.isP2p) {
+      const size = await invoke("xfer_file_size", { path: resolved[0] }).catch(() => null);
+      if (!this._isCurrent(session)) return null;
+      if (size != null && Number(size) > XFER_THRESHOLD) {
+        const path = resolved[0];
+        const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
+        const viewtype = shareViewtype(name);
+        if (viewtype === "video") this._setPendingMedia("video", fileUrl(path), path, name, { size: Number(size) });
+        else this._setPendingMedia("file", new Blob([]), path, name, { size: Number(size), viewtype });
+        kind = "staged";
+      }
+    }
     const input = document.getElementById("composer-input");
     if (kind !== "send") {
-      if (kind === "image") {
+      if (kind === "staged") { /* staged above */ } else if (kind === "image") {
         const path = resolved[0];
         const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
         const bytes = await attachmentBytes(this.core, path);
@@ -5718,7 +5779,8 @@ export class ChatView {
           chatId: session.chatId, path, name, size,
           oneToOne: this.chat?.chatType === "Single", contactId: this.chat?.contactId ?? null,
         });
-        if (sent.failed) throw new Error(t("Too big for email (max {n} MB) and Velta Dash is unavailable right now", { n: Math.round(XFER_EMAIL_MAX / 1048576) }));
+        if (sent.failed) throw new Error(sent.error);
+        if (sent.fellBack) toast(t("Velta Dash didn't work, so the file went by email"), 5000);
         if (sent.handled) {
           if (!this._isCurrent(session)) return false;
           if (sent.msg) this.appendOutgoing(sent.msg);

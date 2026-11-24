@@ -375,11 +375,14 @@ test("pre-send route: Dash when it can deliver, email under the cap, blocked ove
   assert.equal(planRoute({ ...ok, size: huge, health: up }).route, "dash");
   assert.equal(routeText(planRoute({ ...ok, size: huge, health: up }), "K"), "Velta Dash: direct to K");
   // Relay not reachable from this phone: a receiver on 4G could not dial us.
-  assert.deepEqual(planRoute({ ...ok, size: big, health: down }), { route: "email", reason: "dash-down" });
-  assert.match(routeText(planRoute({ ...ok, size: big, health: down })), /^Velta Dash is unavailable right now: sending by email \(max 22 MB\)$/);
-  assert.deepEqual(planRoute({ ...ok, size: huge, health: down }), { route: "blocked", reason: "dash-down-too-big" });
-  assert.match(routeText(planRoute({ ...ok, size: huge, health: down })), /Too big for email \(max 22 MB\) and Velta Dash is unavailable/);
+  assert.deepEqual(planRoute({ ...ok, size: big, health: down }), { route: "email", reason: "dash-down", why: "relay" });
+  assert.equal(routeText(planRoute({ ...ok, size: big, health: down })), "Velta Dash is unavailable (it can't reach your Dash relay): sending by email (max 22 MB)");
+  assert.deepEqual(planRoute({ ...ok, size: huge, health: down }), { route: "blocked", reason: "dash-down-too-big", why: "relay" });
+  assert.equal(routeText(planRoute({ ...ok, size: huge, health: down })), "Can't send: Velta Dash is unavailable (it can't reach your Dash relay) and the file is too big for email (max 22 MB)");
   assert.equal(planRoute({ ...ok, size: huge, health: { ready: false } }).route, "blocked", "endpoint down");
+  // The line says why Dash is down, never just "too big for email".
+  assert.match(routeText(planRoute({ ...ok, size: huge, health: { ready: false, error: "timeout" } })), /\(it is not responding\)/);
+  assert.match(routeText(planRoute({ ...ok, size: huge, health: { ready: false, error: "no key" } })), /\(it couldn't start\)/);
   // Not a Dash chat: the email cap is all there is.
   assert.deepEqual(planRoute({ ...ok, proven: false, size: huge }), { route: "blocked", reason: "too-big" });
   assert.equal(routeText(planRoute({ ...ok, oneToOne: false, size: huge })), "Too big to send by email (max 22 MB)");
@@ -393,7 +396,7 @@ test("pre-send route: Dash when it can deliver, email under the cap, blocked ove
 // the send button did nothing at all (56 MB video, 2026-11-24).
 test("Send never waits forever: a stalled route check, health call or offer times out", async () => {
   const ui = await import("../app/js/iroh-xfer-ui.js?stall");
-  assert.deepEqual({ ...ui.WAIT_MS }, { metaMs: 4000, peerMs: 4000, healthMs: 10000, offerMs: 120000 }, "production bounds");
+  assert.deepEqual({ ...ui.WAIT_MS }, { metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100 }, "production bounds");
   const diag = [];
   globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: (lvl, text) => diag.push(text) } });
   const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
@@ -406,17 +409,25 @@ test("Send never waits forever: a stalled route check, health call or offer time
     sendText: async () => ({}), sendFile: async () => {},
     metadata: hang, // get_server_metadata: core lock held, or a dead network
     listen: async () => {},
-    timeouts: { metaMs: 20, peerMs: 20, healthMs: 20, offerMs: 20 },
+    timeouts: { metaMs: 20, peerMs: 20, healthMs: 20, offerMs: 20, offerPerMbMs: 0 },
   });
   const huge = EMAIL_MAX + 1, ask = { size: huge, oneToOne: true, contactId: 12, peerName: "K" };
-  // Both calls stall: the route still resolves — and an unchecked route tries
-  // Dash instead of claiming "blocked" or never answering.
-  assert.deepEqual(await ui.planSend(ask), { route: "dash", reason: "ok", text: "Velta Dash: direct to K" });
-  // A health call that fails outright (endpoint cannot start) is still blocked over the cap.
+  // Both calls stall: the route still resolves. The shell answers health
+  // within ~11 s even when its endpoint cannot start, so a stall means a
+  // stuck Dash: the line says so (trying Dash anyway was the silent
+  // two-minute Send on desktop, 2026-11-24).
+  assert.deepEqual(await ui.planSend(ask), { route: "blocked", reason: "dash-down-too-big", why: "timeout", text: "Can't send: Velta Dash is unavailable (it is not responding) and the file is too big for email (max 22 MB)" });
+  // A health call that fails outright (endpoint cannot start) is blocked over the cap too.
   health = async () => { throw new Error("no key"); };
-  assert.deepEqual(await ui.planSend(ask), { route: "blocked", reason: "dash-down-too-big", text: "Too big for email (max 22 MB) and Velta Dash is unavailable right now" });
-  // A stalled offer cannot hold Send either: over the cap it says so instead.
-  assert.deepEqual(await ui.maybeSend({ chatId: 5, path: "/f", name: "v.mp4", size: huge, oneToOne: true, contactId: 12 }), { handled: true, failed: "too-big", msg: null });
+  assert.deepEqual(await ui.planSend(ask), { route: "blocked", reason: "dash-down-too-big", why: "error", text: "Can't send: Velta Dash is unavailable (it couldn't start) and the file is too big for email (max 22 MB)" });
+  // Failures are not cached: once Dash answers, the next attach goes Dash.
+  health = async () => ({ ready: true, relay: null, relayConnected: false });
+  assert.equal((await ui.planSend(ask)).route, "dash");
+  // A stalled offer cannot hold Send either: over the cap it says Dash failed.
+  assert.deepEqual(await ui.maybeSend({ chatId: 5, path: "/f", name: "v.mp4", size: huge, oneToOne: true, contactId: 12 }), {
+    handled: true, failed: "too-big", msg: null,
+    error: "Velta Dash didn't respond in time, and the file is too big for email (max 22 MB). Nothing was sent.",
+  });
   assert.match(diag.at(-1), /offer failed and v\.mp4 .* not sent: .*rpc timeout: xfer_offer/);
   // The composer binds its own waits the same way and stays usable without a plan.
   const src = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
@@ -479,14 +490,17 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   core.msg(9, card);
   await tick();
   assert.match(ui.xferCardHtml(card), /Waiting for sender…/, "never a silent 'Downloading…'");
+  assert.match(ui.xferCardHtml(card), /class="xfer-state is-busy"/, "waiting shows the busy ring");
   assert.deepEqual(fetchArgs[0].peers, ["their-relay.example"], "the receiver may dial the sender's own relay (4G: no direct path)");
   ui.xferProgressEvent({ hash: H, done: 34, size: 100 });
   assert.match(ui.xferCardHtml(card), /Fetching via Velta Dash 34%/);
+  assert.match(ui.xferCardHtml(card), /class="xfer-state is-busy"/, "fetching shows the busy ring");
   release();
   for (let i = 0; i < 10; i++) await tick();
   assert.equal(fetchArgs.length, 3, "two quiet resumes");
   assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./);
   assert.match(ui.xferCardHtml(card), /data-xfer-retry/, "a clear action, not an endless spinner");
+  assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/, "no ring once it stopped");
   results.push({ path: "/acc/xfer-in/v.mp4" });
   ui.retryFetch(H);
   await tick();

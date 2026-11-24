@@ -1,6 +1,7 @@
 // WCAG AA (4.5:1) for the dim in-bubble labels: "Forwarded a message"
 // (.msg-fwd), "edited" + timestamp (.msg-meta), quote sender (.q-name),
 // the Velta Dash file card (.xfer-meta / .xfer-state / .xfer-route / .xfer-glyph),
+// the Dash busy rings and composer route line,
 // and the read ticks (3:1, icon). Every theme, both bubble sides, the default
 // accent and custom accents (dark, mid, light/yellow, near-white, near-black).
 // Translucent layers (--bg-reply) are composited over the real bubble first.
@@ -64,6 +65,15 @@ function pairs(theme, t) {
     ["out .xfer-meta / .xfer-state / .xfer-route", c("--text-meta-out"), outB, 4.5],
     ["in/out .xfer-glyph", c("--on-accent"), c("--accent"), 4.5],
     ["out .xfer-name (brutal ink / body text)", theme === "brutal" ? c("--nb-main-ink") : c("--text"), outB, 4.5],
+    // Busy rings (#470 loaders) are drawn in currentColor: the card status
+    // ring on both bubbles, the composer route line (+ ring) on the strip,
+    // and the Send ring idle (accent text) or armed (accent fill).
+    ["in .xfer-state.is-busy ring (icon)", c("--text-dim"), inB, 3],
+    ["out .xfer-state.is-busy ring (icon)", c("--text-meta-out"), outB, 3],
+    ["composer .media-route (+ busy ring)", c("--text-dim"), c("--bg-sidebar"), 4.5],
+    ["composer .media-route blocked", c("--text"), c("--bg-sidebar"), 4.5],
+    ["composer .send-btn.is-busy ring idle", c("--accent-text"), c("--bg-sidebar"), 3],
+    ["composer .send-btn.is-busy ring armed", c("--on-accent"), c("--accent"), 3],
   ];
 }
 function check(label, theme, t) {

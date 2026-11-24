@@ -12,7 +12,7 @@
 import {
   createTransport, parseFileCard, parseResendRequest, resendRequestText, advertisedRelay, jsonStore,
   irohXferEnabled, THRESHOLD, routeLabel, CAPABILITY_KEY, peerCapabilityKey, emailReason,
-  planRoute, routeText, peerDomains, EMAIL_MAX,
+  planRoute, routeText, peerDomains, EMAIL_MAX, offerFailedText,
 } from "./iroh-xfer.js";
 import { svg, P } from "./icons.js";
 import { fileUrl } from "./media.js";
@@ -34,10 +34,11 @@ const CARDS_MAX = 300;
 const SWEEP_MS = 5 * 60 * 1000;
 
 // Send waits on the pre-send route. get_server_metadata waits on core locks
-// an IO restart holds for 30 s and hangs on a dead network; the shell bounds
-// xfer_health itself at ~6 s; xfer_offer copies the file behind the endpoint
-// lock. A stalled call must time out here, never turn Send into a no-op.
-export const WAIT_MS = Object.freeze({ metaMs: 4000, peerMs: 4000, healthMs: 10000, offerMs: 120000 });
+// an IO restart holds for 30 s and hangs on a dead network; the shell answers
+// xfer_health within ~11 s; xfer_offer copies, seals and hashes the file, so
+// its bound grows by offerPerMbMs per MB (~10 MB/s worst case). A stalled
+// call must time out here, never turn Send into a no-op.
+export const WAIT_MS = Object.freeze({ metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100 });
 let limits = { ...WAIT_MS }; // per initXferUi; tests pass short ones
 let metaCache = { at: 0, value: null, ttl: 0 };
 const META_TTL = 5 * 60 * 1000;
@@ -101,9 +102,14 @@ export async function maybeSend({ chatId, path, name, size, oneToOne, contactId 
   const r = await transport.send({ chatId, file: { path, name, size }, oneToOne, peerIsVelta: true });
   if (r.route === "none") {
     sink("error", `offer failed and ${name} (${fmtSize(size)}) is too big for email — not sent: ${r.error}`);
-    return { handled: true, failed: "too-big", msg: null };
+    health = { at: 0, value: null }; // check again before the next try
+    return { handled: true, failed: "too-big", error: offerFailedText(r.error), msg: null };
   }
-  if (r.via === "offer-failed") sink("error", `offer failed — mailed instead: ${r.error}`);
+  if (r.via === "offer-failed") {
+    sink("error", `offer failed — mailed instead: ${r.error}`);
+    health = { at: 0, value: null };
+    return { handled: true, fellBack: true, msg: hooks?.lastSent?.() || null };
+  }
   else if (r.via === "policy") sink("info", `sent ${name} (${fmtSize(size)}) by email: policy`);
   else if (r.route === "iroh") { cardState.set(r.hash, { outgoing: true, mine: true, chatId }); sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`); }
   return { handled: true, msg: hooks?.lastSent?.() || null };
@@ -126,6 +132,10 @@ function stateText(st) {
   if (st.pct != null) return t("Fetching via Velta Dash {n}%", { n: st.pct });
   if (st.receiving) return t("Waiting for sender…");
   return t("Receiving file…");
+}
+/** A card still waiting on something (sender, fetch): shows the busy ring. */
+function isBusy(st) {
+  return !st.outgoing && !st.done && !st.error && !st.asked && (!!st.receiving || st.pct != null);
 }
 /** Incoming card that failed over Dash and can try again (both online). */
 function canRetry(st) {
@@ -164,7 +174,7 @@ export function xferCardHtml(text) {
     const actions = actionsHtml(card.tk.hash, st);
     return `<span class="xfer-card" data-xfer="${escapeAttr(card.tk.hash)}"><span class="xfer-glyph">${escapeHtml((card.name.split(".").pop()?.[0] || "f").toUpperCase())}</span>` +
       `<span class="xfer-name">${escapeHtml(card.name)}<span class="xfer-meta">${escapeHtml(fmtSize(card.size))}</span></span>` +
-      `<span class="xfer-state" role="status">${escapeHtml(stateText(st))}</span>${routeBadgeHtml(st)}${actions}</span>`;
+      `<span class="xfer-state${isBusy(st) ? " is-busy" : ""}" role="status">${escapeHtml(stateText(st))}</span>${routeBadgeHtml(st)}${actions}</span>`;
   }
   if (parseResendRequest(text)) return `<span class="xfer-state">${escapeHtml(t("Asked for the email copy"))}</span>`;
   return null;
@@ -314,7 +324,7 @@ function refresh(hash) {
   const st = cardState.get(hash) || {};
   for (const card of document.querySelectorAll(`[data-xfer="${hash}"]`)) {
     const el = card.querySelector(".xfer-state");
-    if (el) el.textContent = stateText(st);
+    if (el) { el.textContent = stateText(st); el.classList.toggle("is-busy", isBusy(st)); }
     const badge = routeBadgeHtml(st);
     const old = card.querySelector(".xfer-route");
     if (old) old.remove();
@@ -357,7 +367,8 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen,
     iroh: invoke ? {
       // A stalled offer (endpoint lock held) rejects here: the transport then
       // mails the file, or reports too-big instead of waiting forever.
-      offer: (path, relay, name) => withTimeout(invoke("xfer_offer", { path, relay, name }), limits.offerMs, "xfer_offer"),
+      offer: (path, relay, name, size) => withTimeout(invoke("xfer_offer", { path, relay, name }),
+        limits.offerMs + Math.ceil((Number(size) || 0) / 1048576) * limits.offerPerMbMs, "xfer_offer"),
       fetch: (ticket, relay, peers) => invoke("xfer_fetch", { ticket, relay, peers: peers?.length ? peers : null }),
       withdraw: (hash) => invoke("xfer_withdraw", { hash }),
       status: (hashes) => invoke("xfer_status", { hashes }),
@@ -458,10 +469,13 @@ async function dashHealth() {
   if (health.value && Date.now() - health.at < 20000) return health.value;
   let v;
   try { v = await withTimeout(env.invoke("xfer_health", { relay: advertisedRelay(await relayMeta()) }), limits.healthMs, "xfer_health"); }
-  // A timeout means "not checked", not "down": the plan then tries Dash and
-  // the send itself reports if it cannot deliver.
-  catch (e) { v = /rpc timeout/.test(String(e?.message || e)) ? null : { ready: false, relay: null, relayConnected: false, error: String(e?.message || e) }; }
-  health = { at: Date.now(), value: v };
+  // The shell answers within ~11 s even when the endpoint cannot start, so
+  // a timeout here means it is stuck: Dash is down (and says why), not
+  // "unchecked" — trying it anyway was the silent two-minute Send.
+  catch (e) { v = { ready: false, relay: null, relayConnected: false, error: /rpc timeout/.test(String(e?.message || e)) ? "timeout" : String(e?.message || e) }; }
+  if (v?.ready === false || v?.error) sink("warning", `Velta Dash unavailable: ${v.error || (v.relay && !v.relayConnected ? "not connected to the Dash relay" : "endpoint down")}`);
+  // Only a healthy answer is cached: after a failure the next attach asks again.
+  health = { at: v?.ready && !v.error ? Date.now() : 0, value: v };
   return v;
 }
 export async function planSend({ size, oneToOne, contactId, peerName = "" }) {

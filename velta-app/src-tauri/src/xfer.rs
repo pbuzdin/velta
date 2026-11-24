@@ -787,26 +787,76 @@ fn attachment_key() -> Option<AttachmentKey> {
     crate::ATTACHMENT_KEY.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-async fn ensure(state: &XferState, app: &tauri::AppHandle, relay: Option<String>) -> Result<Arc<Xfer>, String> {
-    use tauri::Manager;
-    let mut g = state.inner.lock().await;
-    if let Some(x) = g.as_ref() {
-        // No relay known this call (metadata not loaded yet): keep the
-        // running endpoint rather than restarting it relay-less, which
-        // would cut transfers in flight and strip the relay from offers.
-        if x.relay == relay || relay.is_none() {
-            return Ok(x.clone());
+/// How long a command waits for the endpoint (its lock, a bind) before it
+/// reports Velta Dash unavailable instead of hanging the UI.
+pub const ENSURE_MAX: Duration = Duration::from_secs(15);
+
+impl XferState {
+    /// The running endpoint, if any; the lock is released before this
+    /// returns. xfer_status and xfer_withdraw used to match on the guard
+    /// itself and call ensure() in the None arm: the guard lived for the
+    /// whole match, so a cold call (the boot sweep with open offers, before
+    /// anything bound the endpoint) locked the same mutex twice and
+    /// deadlocked every later xfer_* call. Dash health timed out and
+    /// xfer_offer never returned.
+    pub async fn running(&self) -> Option<Arc<Xfer>> {
+        let g = self.inner.lock().await;
+        g.clone()
+    }
+
+    /// The running endpoint for `relay`, (re)bound with its state in `dir`.
+    pub async fn ensure_at(&self, relay: Option<String>, dir: PathBuf) -> Result<Arc<Xfer>, String> {
+        let mut g = self.inner.lock().await;
+        if let Some(x) = g.as_ref() {
+            // No relay known this call (metadata not loaded yet): keep the
+            // running endpoint rather than restarting it relay-less, which
+            // would cut transfers in flight and strip the relay from offers.
+            if x.relay == relay || relay.is_none() {
+                return Ok(x.clone());
+            }
+        }
+        let key = attachment_key();
+        let secret = load_or_create_key(&dir, key.as_ref()).map_err(|e| e.to_string())?;
+        if let Some(old) = g.take() {
+            // Its offers are on disk; the new endpoint loads them. A close
+            // stuck on a dead peer must not hold the lock.
+            let _ = tokio::time::timeout(Duration::from_secs(3), old.close()).await;
+        }
+        let new = Xfer::start(secret, relay, dir, key).await.map_err(|e| format!("{e:#}"))?;
+        *g = Some(new.clone());
+        Ok(new)
+    }
+
+    /// The running endpoint whatever its relay, or a new one (status and
+    /// withdraw only read the offer list).
+    pub async fn running_or_start(&self, relay: Option<String>, dir: PathBuf) -> Result<Arc<Xfer>, String> {
+        match self.running().await {
+            Some(x) => Ok(x),
+            None => self.ensure_at(relay, dir).await,
         }
     }
-    let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("xfer");
-    let key = attachment_key();
-    let secret = load_or_create_key(&dir, key.as_ref()).map_err(|e| e.to_string())?;
-    if let Some(old) = g.take() {
-        old.close().await; // its offers are on disk; the new endpoint loads them
-    }
-    let new = Xfer::start(secret, relay, dir, key).await.map_err(|e| format!("{e:#}"))?;
-    *g = Some(new.clone());
-    Ok(new)
+}
+
+fn state_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    Ok(app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("xfer"))
+}
+
+/// `fut` bounded by [`ENSURE_MAX`], with an error the UI can show.
+async fn bounded<T>(fut: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+    tokio::time::timeout(ENSURE_MAX, fut)
+        .await
+        .unwrap_or_else(|_| Err(format!("the Velta Dash endpoint did not start within {} s", ENSURE_MAX.as_secs())))
+}
+
+async fn ensure(state: &XferState, app: &tauri::AppHandle, relay: Option<String>) -> Result<Arc<Xfer>, String> {
+    let dir = state_dir(app)?;
+    bounded(state.ensure_at(relay, dir)).await
+}
+
+async fn running_or_start(state: &XferState, app: &tauri::AppHandle, relay: Option<String>) -> Result<Arc<Xfer>, String> {
+    let dir = state_dir(app)?;
+    bounded(state.running_or_start(relay, dir)).await
 }
 
 /// Offers a file for an iroh transfer; returns the ticket string to mail.
@@ -870,10 +920,7 @@ pub async fn xfer_withdraw(
     hash: String,
     relay: Option<String>,
 ) -> Result<(), String> {
-    let x = match state.inner.lock().await.as_ref() {
-        Some(x) => x.clone(),
-        None => ensure(&state, &app, relay).await?,
-    };
+    let x = running_or_start(&state, &app, relay).await?;
     x.withdraw(&hash);
     Ok(())
 }
@@ -889,10 +936,7 @@ pub async fn xfer_status(
     hashes: Vec<String>,
     relay: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let x = match state.inner.lock().await.as_ref() {
-        Some(x) => x.clone(),
-        None => ensure(&state, &app, relay).await?,
-    };
+    let x = running_or_start(&state, &app, relay).await?;
     let mut out = serde_json::Map::new();
     for h in hashes {
         let v = x.status(&h).map(|o| {
@@ -970,7 +1014,13 @@ pub async fn xfer_file_size(path: String) -> Result<u64, String> {
 /// relay means a receiver on another network can't reach us right now.
 #[tauri::command]
 pub async fn xfer_health(state: tauri::State<'_, XferState>, app: tauri::AppHandle, relay: Option<String>) -> Result<serde_json::Value, String> {
-    let x = ensure(&state, &app, relay).await?;
+    // Answers within ~11 s whatever happens; a failure is a reason the
+    // composer can show, not a rejected call.
+    let x = match tokio::time::timeout(Duration::from_secs(5), state.ensure_at(relay.clone(), state_dir(&app)?)).await {
+        Ok(Ok(x)) => x,
+        Ok(Err(e)) => return Ok(serde_json::json!({ "ready": false, "relay": relay, "relayConnected": false, "error": e })),
+        Err(_) => return Ok(serde_json::json!({ "ready": false, "relay": relay, "relayConnected": false, "error": "timeout" })),
+    };
     let relay_connected = match x.relay {
         Some(_) => tokio::time::timeout(Duration::from_secs(4), x.endpoint.home_relay().initialized()).await.is_ok(),
         None => false,
@@ -1321,6 +1371,42 @@ mod tests {
             d.close().await;
         }
         assert_eq!(a.sweep(), 0);
+        a.close().await;
+    }
+
+    /// Desktop regression: the boot sweep's xfer_status runs before anything
+    /// bound the endpoint. It used to deadlock the state lock, so the
+    /// composer's health check and xfer_offer then hung forever.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cold_status_call_then_health_and_offer_do_not_deadlock() {
+        let st = XferState::default();
+        let dir = tmp("cold");
+        let a = tokio::time::timeout(Duration::from_secs(20), st.running_or_start(None, dir.clone()))
+            .await
+            .expect("cold xfer_status deadlocked")
+            .unwrap();
+        let b = tokio::time::timeout(Duration::from_secs(5), st.ensure_at(None, dir.clone()))
+            .await
+            .expect("ensure after a cold status deadlocked")
+            .unwrap();
+        assert_eq!(a.node_id(), b.node_id(), "one endpoint, reused");
+        assert_eq!(st.running().await.map(|x| x.node_id()), Some(a.node_id()));
+        let src = tmp("src-cold");
+        let bytes = data(THRESHOLD as usize + 4099, 9);
+        std::fs::write(src.join("big.mp4"), &bytes).unwrap();
+        let t = tokio::time::timeout(Duration::from_secs(30), b.offer(&src.join("big.mp4"), None, DEFAULT_TTL))
+            .await
+            .expect("offer hung")
+            .unwrap();
+        let again = tokio::time::timeout(Duration::from_secs(5), st.running_or_start(None, dir.clone()))
+            .await
+            .expect("status after an offer deadlocked")
+            .unwrap();
+        assert!(again.status(&t.hash).is_some(), "the offer is listed");
+        let r = node("cold-recv", None).await;
+        let out = r.fetch(&t, &tmp("dst-cold"), |_, _| {}).await.unwrap();
+        assert_eq!(std::fs::read(out).unwrap(), bytes);
+        r.close().await;
         a.close().await;
     }
 }
