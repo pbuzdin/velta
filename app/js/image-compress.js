@@ -14,6 +14,11 @@
 //    lossless and often a screenshot, so it is only converted when it exceeds
 //    the core's byte limit, i.e. when the core would turn it into a lossy JPEG
 //    anyway.
+//  * HEIC/HEIF stills are always converted when this WebView can decode them
+//    (macOS; Windows with the HEIF codec), always within the core's budget and
+//    with transparency kept: unconverted they are files to most receivers and
+//    the core cannot recode them. Android does not rely on the WebView: it
+//    converts at pick time with the platform decoder (convert_heic_photo).
 //  * When the original is over the core limit, the image is scaled to the
 //    core's pixel budget (maxWh² pixels, the same rule as blob.rs) and the WebP
 //    is accepted only if it fits the byte limit, so the core then leaves it
@@ -52,7 +57,7 @@ const ascii = (b, off, s) => {
   return true;
 };
 
-// → { format: "jpeg"|"png"|"webp"|"gif"|null, animated, alpha }
+// → { format: "jpeg"|"png"|"webp"|"gif"|"heic"|null, animated, alpha }
 export function sniffImage(bytes) {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const info = { format: null, animated: false, alpha: false };
@@ -67,8 +72,17 @@ export function sniffImage(bytes) {
     Object.assign(info, webpFlags(b));
   } else if (b.length >= 6 && (ascii(b, 0, "GIF87a") || ascii(b, 0, "GIF89a"))) {
     info.format = "gif";
+  } else if (heicBrand(b)) {
+    info.format = "heic";
   }
   return info;
+}
+
+// ISO BMFF: bytes 4..8 are "ftyp", then the major brand. These brands are
+// HEIC/HEIF stills; AVIF has its own brand and decodes everywhere.
+const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1"];
+function heicBrand(b) {
+  return b.length >= 12 && ascii(b, 4, "ftyp") && HEIC_BRANDS.includes(String.fromCharCode(b[8], b[9], b[10], b[11]));
 }
 
 // Walk PNG chunks up to the first IDAT: color types 4/6 carry alpha, a tRNS
@@ -131,6 +145,15 @@ export function decideTranscode({ bytes, info, quality = "0", enabled = true }) 
   if (!info?.format) return skip("unknown-format");
   if (info.format === "gif") return skip("gif");
   if (info.animated) return skip("animated");
+  // HEIC is converted whenever this WebView can decode it (macOS; Windows
+  // with the HEIF codec): unconverted it is a file to most receivers, and
+  // the core cannot recode it. No size gate, always within the core's
+  // budget, transparency kept (WebP carries it).
+  if (info.format === "heic") {
+    if (bytes > MAX_INPUT_BYTES) return skip("too-big");
+    const { maxBytes, maxWh } = coreLimits(quality);
+    return { try: true, limited: true, maxPixels: maxWh * maxWh, targetBytes: maxBytes };
+  }
   if (info.alpha) return skip("alpha");
   if (bytes > MAX_INPUT_BYTES) return skip("too-big");
   const { maxBytes, maxWh } = coreLimits(quality);

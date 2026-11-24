@@ -5453,13 +5453,24 @@ export class ChatView {
         resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
       }
       if (!this._isCurrent(session)) return;
+      // HEIC/HEIF: the WebView cannot decode it, so it went out as a generic
+      // file with no preview. Android turns it into a full-size photo at pick
+      // time; with "Compress photos" off, or where the platform cannot read
+      // it, the original goes on unchanged.
+      resolved = (await this._heicToPhoto(resolved, picked)) || resolved;
+      if (!this._isCurrent(session)) return;
       const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
 
       // Images and videos go through the pending-attachment strip (caption =
-      // composer text); other files send immediately as before.
+      // composer text); other files send immediately as before. A HEIC that
+      // stayed HEIC is a photo only where this WebView can show it.
       const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
-      if (kind === "image" || Object.keys(exts).includes(extOf(resolved))) {
-        const mime = exts[extOf(resolved).toLowerCase()] || "image/png";
+      const lower = extOf(resolved).toLowerCase();
+      const heic = lower === "heic" || lower === "heif";
+      const isImage = Object.keys(exts).includes(lower) || (heic && await this._imageDecodes(resolved));
+      if (!this._isCurrent(session)) return;
+      if ((kind === "image" && !heic) || isImage) {
+        const mime = exts[lower] || (heic ? "image/heic" : "image/png");
         const bytes = await attachmentBytes(this.core, resolved);
         const blob = new Blob([bytes], { type: mime });
         if (!this._isCurrent(session)) return;
@@ -5499,6 +5510,36 @@ export class ChatView {
     }
   }
 
+  // A staged HEIC/HEIF pick as a photo the WebView can show, crop and
+  // compress. Android decodes it with the platform decoder, which the WebView
+  // lacks: a full-size JPEG, or PNG with transparency. Elsewhere, with
+  // "Compress photos" off, or when the platform cannot read the file, this
+  // returns null and the original goes on unchanged.
+  async _heicToPhoto(path, contentUri) {
+    const name = String(path).replace(/\\/g, "/").split("/").pop() || "";
+    if (!/\.(heic|heif)$/i.test(name) || !/^content:\/\//.test(contentUri || "")) return null;
+    const invoke = tauriInvoke();
+    if (!invoke || !(await import("./image-compress.js")).compressEnabled()) return null;
+    try {
+      const photo = await invoke("convert_heic_photo", { uri: contentUri, filename: name });
+      if (photo) diagnosticsSink.append("info", `HEIC photo converted for sending: ${String(photo).replace(/\\/g, "/").split("/").pop()}`);
+      return photo || null;
+    } catch (err) {
+      diagnosticsSink.append("warning", `HEIC convert failed: ${err?.message || err}`);
+      return null;
+    }
+  }
+
+  // Can this WebView decode the image at `path`? HEIC only where the OS
+  // supports it (macOS; Windows with the HEIF codec).
+  async _imageDecodes(path) {
+    try {
+      const bmp = await createImageBitmap(new Blob([await attachmentBytes(this.core, path)]));
+      bmp.close?.();
+      return true;
+    } catch { return false; }
+  }
+
   // #97 share-in: another app shared text and/or files into this chat.
   // Text alone lands in the composer and one photo or video in the
   // attachment strip with the text as its caption, so the user reviews it
@@ -5528,6 +5569,7 @@ export class ChatView {
         await invoke("allow_picked_path", { path: file }).catch(e => rustLog(`allow_picked_path: ${e}`));
         path = await resolveAttachmentPath(file, file.replace(/\\/g, "/").split("/").pop());
       }
+      path = (await this._heicToPhoto(path, file)) || path; // a shared HEIC becomes a photo too
       if (!this._isCurrent(session)) return null;
       resolved.push(path);
     }
