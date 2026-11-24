@@ -52,7 +52,6 @@ actual fun WebxdcScreen(model: AppModel, screen: AppModel.Screen.Webxdc) {
     )
 }
 
-
     private const val INJECTED_API = """
 <script>
 (function () {
@@ -187,35 +186,6 @@ private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
 
 private fun notFound(): WebResourceResponse =
     WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, java.io.ByteArrayInputStream(ByteArray(0)))
-
-fun mimeFor(path: String): String {
-    val ext = path.substringAfterLast('.', "").lowercase()
-    return when (ext) {
-        "html", "htm" -> "text/html"
-        "js", "mjs" -> "application/javascript"
-        "css" -> "text/css"
-        "json", "map" -> "application/json"
-        "png" -> "image/png"
-        "jpg", "jpeg" -> "image/jpeg"
-        "gif" -> "image/gif"
-        "svg" -> "image/svg+xml"
-        "webp" -> "image/webp"
-        "ico" -> "image/x-icon"
-        "wasm" -> "application/wasm"
-        "txt" -> "text/plain"
-        "mp3" -> "audio/mpeg"
-        "m4a" -> "audio/mp4"
-        "wav" -> "audio/wav"
-        "ogg", "opus" -> "audio/ogg"
-        "mp4" -> "video/mp4"
-        "ttf" -> "font/ttf"
-        "otf" -> "font/otf"
-        "woff" -> "font/woff"
-        "woff2" -> "font/woff2"
-        "toml" -> "text/plain"
-        else -> "application/octet-stream"
-    }
-}
 
 /** JS-facing bridge: the injected `window.webxdc` serializes every call to
  *  one `request(json)` (blocking the WebView's JS thread is the standard

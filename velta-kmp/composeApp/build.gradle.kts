@@ -79,7 +79,11 @@ kotlin {
                 implementation(libs.zxing.core)
             }
         }
+        // The custom jvmCommon dependsOn edges disable the default KMP
+        // hierarchy, so androidUnitTest must be wired by hand or it compiles
+        // without androidMain / jvmCommon on the classpath.
         val androidUnitTest by getting {
+            dependsOn(androidMain.get())
             dependencies {
                 implementation(kotlin("test"))
             }
