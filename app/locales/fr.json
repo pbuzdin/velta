@@ -1774,6 +1774,7 @@
   "Waiting for sender…": "En attente de l'expéditeur…",
   "Velta Dash: direct to {name} (same network only — your relay has no Dash relay)": "Velta Dash : en direct vers {name} (même réseau uniquement — votre relais n'a pas de relais Dash)",
   "Velta Dash: direct to {name}": "Velta Dash : en direct vers {name}",
+  "Checking how to send…": "Vérification du mode d'envoi…",
   "Too big to send by email (max {n} MB)": "Trop volumineux pour l'envoi par e-mail (max. {n} Mo)",
   "Velta Dash is unavailable right now: sending by email (max {n} MB)": "Velta Dash est indisponible pour le moment : envoi par e-mail (max. {n} Mo)",
   "Sending by email (max {n} MB)": "Envoi par e-mail (max. {n} Mo)"

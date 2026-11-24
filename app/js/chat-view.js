@@ -2,6 +2,7 @@
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
+import { withTimeout } from "./load-retry.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe, hapticTick } from "./components.js";
 import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
@@ -149,6 +150,9 @@ const largeFileAvailable = () => !!tauriInvoke();
 // #470: the automatic iroh file transfer glue — one init per ChatView; the
 // transport singleton keeps the pending offers for the resend fallback.
 let xferUiReady = false;
+// The composer's pre-send route check: Send waits on it, so it is bounded
+// even if a call underneath stalls past its own limit.
+const PLAN_TIMEOUT_MS = 20000;
 function ensureXfer(view) {
   if (xferUiReady) return;
   xferUiReady = true;
@@ -4629,37 +4633,49 @@ export class ChatView {
 
   // #470: which way the pending attachment will go, shown before Send —
   // Velta Dash to this contact, email (with its size cap), or blocked when
-  // it is too big for email and Dash cannot deliver right now.
+  // it is too big for email and Dash cannot deliver right now. Send waits
+  // on this, so every wait here is bounded: a stalled call (dead network,
+  // a core lock) must not turn the send button into a no-op.
   async _planPendingRoute(pm) {
+    pm.checking = true;
     try {
       const chat = this.chat;
-      if (!chat || chat.isP2p) return; // Loop chats have their own transport
       let size = pm.size ?? pm.blob?.size ?? null;
       const invoke = tauriInvoke();
-      if (size == null && pm.corePath && invoke) size = await invoke("xfer_file_size", { path: pm.corePath }).catch(() => null);
-      if (size == null || this.pendingMedia !== pm) return;
-      pm.size = Number(size);
+      if (size == null && pm.corePath && invoke) size = await withTimeout(invoke("xfer_file_size", { path: pm.corePath }), PLAN_TIMEOUT_MS, "xfer_file_size").catch(() => null);
+      if (this.pendingMedia !== pm) return;
+      if (size != null) pm.size = Number(size);
+      if (size == null || !chat || chat.isP2p) return; // Loop chats have their own transport
       ensureXfer(this);
-      const plan = await xferPlanSend({
+      const plan = await withTimeout(xferPlanSend({
         size: pm.size, oneToOne: chat.chatType === "Single",
         contactId: chat.contactId ?? null, peerName: chat.name || "",
+      }), PLAN_TIMEOUT_MS, "attachment route").catch((e) => {
+        diagnosticsSink.append("warning", `attachment route check timed out: ${e?.message || e}`);
+        return null;
       });
       if (this.pendingMedia !== pm) return;
-      pm.plan = plan;
-      diagnosticsSink.append("info", `attachment route: ${plan.route} (${plan.reason}, ${pm.size} bytes)`);
-      this._renderMediaRoute();
+      pm.plan = plan || undefined; // unchecked = no plan: Send tries Dash first
+      diagnosticsSink.append("info", `attachment route: ${pm.plan?.route || "unchecked"} (${pm.plan?.reason || "timeout"}, ${pm.size} bytes)`);
     } catch (e) {
       diagnosticsSink.append("warning", `attachment route check failed: ${e?.message || e}`);
+    } finally {
+      pm.checking = false;
+      if (this.pendingMedia === pm) this._renderMediaRoute();
     }
   }
 
+  // One line under the file name: the size, then how it will be sent.
   _renderMediaRoute() {
     const el = document.getElementById("media-route");
     if (!el) return;
-    const plan = this.pendingMedia?.plan;
-    el.textContent = plan?.text || "";
+    const pm = this.pendingMedia;
+    const plan = pm?.plan;
+    const checking = pm?.checking && Number(pm.size) > XFER_THRESHOLD;
+    el.textContent = [pm?.size != null ? formatBytes(pm.size) : "", plan?.text || (checking ? t("Checking how to send…") : "")]
+      .filter(Boolean).join(" · ");
     el.dataset.route = plan?.route || "";
-    el.hidden = !plan?.text;
+    el.hidden = !el.textContent;
   }
 
   // Tauri copies into the accounts dir. The wasm core reads the same memfs
@@ -4726,8 +4742,10 @@ export class ChatView {
         filePath = await this._writeBlobForSend(stored, bytes);
         diagnosticsSink.append("info", `media: wrote ${bytes.length} bytes to ${filePath}`);
       }
-      if (pm.plan?.route === "dash") {
-        // #470: device-to-device; the caption follows as its own message.
+      // #470: device-to-device; the caption follows as its own message. A
+      // route check that did not finish leaves no plan: try Dash first then
+      // too (maybeSend falls back to email by itself).
+      if (!this.chat?.isP2p && pm.plan?.route !== "email") {
         const sent = await xferMaybeSend({
           chatId: session.chatId, path: filePath, name: filename, size: pm.size,
           oneToOne: true, contactId: this.chat?.contactId ?? null,

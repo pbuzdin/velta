@@ -2,6 +2,7 @@
 // The transfer itself is tested in velta-app/src-tauri/src/xfer.rs.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   THRESHOLD, chooseRoute, irohXferEnabled, setIrohXferEnabled, advertisedRelay, decodeTicket,
   fileCardText, parseFileCard, resendRequestText, parseResendRequest, createTransport, EMAIL_MAX, DELIVERED_GRACE_MS,
@@ -385,6 +386,47 @@ test("pre-send route: Dash when it can deliver, email under the cap, blocked ove
   assert.equal(planRoute({ ...ok, available: false, size: big }).route, "email", "PWA: email under the cap");
   assert.equal(routeText(planRoute({ ...ok, size: 1000 })), "", "small files: nothing to say");
   assert.deepEqual(peerDomains(["Bob@Relay.Example", "x@other.example", "junk", null]), ["relay.example", "other.example"]);
+});
+
+// The composer's Send waits on the pre-send route. On a phone with no
+// internet get_server_metadata never answered, the route never resolved and
+// the send button did nothing at all (56 MB video, 2026-11-24).
+test("Send never waits forever: a stalled route check, health call or offer times out", async () => {
+  const ui = await import("../app/js/iroh-xfer-ui.js?stall");
+  assert.deepEqual({ ...ui.WAIT_MS }, { metaMs: 4000, peerMs: 4000, healthMs: 10000, offerMs: 120000 }, "production bounds");
+  const diag = [];
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: (lvl, text) => diag.push(text) } });
+  const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
+  const hang = () => new Promise(() => {});
+  let health = hang; // xfer_health
+  let offer = hang;  // xfer_offer
+  ui.initXferUi({
+    core,
+    invoke: async (cmd, args) => (cmd === "xfer_health" ? health(args) : cmd === "xfer_offer" ? offer(args) : null),
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: hang, // get_server_metadata: core lock held, or a dead network
+    listen: async () => {},
+    timeouts: { metaMs: 20, peerMs: 20, healthMs: 20, offerMs: 20 },
+  });
+  const huge = EMAIL_MAX + 1, ask = { size: huge, oneToOne: true, contactId: 12, peerName: "K" };
+  // Both calls stall: the route still resolves — and an unchecked route tries
+  // Dash instead of claiming "blocked" or never answering.
+  assert.deepEqual(await ui.planSend(ask), { route: "dash", reason: "ok", text: "Velta Dash: direct to K" });
+  // A health call that fails outright (endpoint cannot start) is still blocked over the cap.
+  health = async () => { throw new Error("no key"); };
+  assert.deepEqual(await ui.planSend(ask), { route: "blocked", reason: "dash-down-too-big", text: "Too big for email (max 22 MB) and Velta Dash is unavailable right now" });
+  // A stalled offer cannot hold Send either: over the cap it says so instead.
+  assert.deepEqual(await ui.maybeSend({ chatId: 5, path: "/f", name: "v.mp4", size: huge, oneToOne: true, contactId: 12 }), { handled: true, failed: "too-big", msg: null });
+  assert.match(diag.at(-1), /offer failed and v\.mp4 .* not sent: .*rpc timeout: xfer_offer/);
+  // The composer binds its own waits the same way and stays usable without a plan.
+  const src = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
+  assert.match(src, /withTimeout\(invoke\("xfer_file_size", \{ path: pm\.corePath \}\), PLAN_TIMEOUT_MS/);
+  assert.match(src, /withTimeout\(xferPlanSend\(\{/);
+  assert.match(src, /pm\.plan = plan \|\| undefined/);
+  assert.match(src, /!this\.chat\?\.isP2p && pm\.plan\?\.route !== "email"/, "no plan = try Dash first, Loop chats excepted");
+  assert.match(src, /pm\?\.size != null \? formatBytes\(pm\.size\)/, "the strip shows the file size");
+  assert.match(src, /checking \? t\("Checking how to send…"\)/);
+  for (const pack of ["ru", "fr"]) assert.ok(JSON.parse(readFileSync(new URL(`../app/locales/${pack}.json`, import.meta.url), "utf8"))["Checking how to send…"], `${pack} has the string`);
 });
 
 test("transport: never mails what the relay would bounce; never asks for an email copy over the cap", async () => {

@@ -1774,6 +1774,7 @@
   "Waiting for sender…": "Ожидание отправителя…",
   "Velta Dash: direct to {name} (same network only — your relay has no Dash relay)": "Velta Dash: напрямую для {name} (только в одной сети — у вашего релея нет релея Dash)",
   "Velta Dash: direct to {name}": "Velta Dash: напрямую для {name}",
+  "Checking how to send…": "Уточняю способ отправки…",
   "Too big to send by email (max {n} MB)": "Слишком большой для отправки по почте (макс. {n} МБ)",
   "Velta Dash is unavailable right now: sending by email (max {n} MB)": "Velta Dash сейчас недоступен: отправка по почте (макс. {n} МБ)",
   "Sending by email (max {n} MB)": "Отправка по почте (макс. {n} МБ)"
