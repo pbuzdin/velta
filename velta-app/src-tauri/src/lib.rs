@@ -1571,6 +1571,9 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
         log("blobfile FORBIDDEN");
         return not_found("forbidden");
     }
+    // serve_thumbnail keeps its cache at <root>/thumbs (it joins the param's
+    // parent), so hand it the accounts dir under this root.
+    let accounts = root.join("accounts");
     let serve_path = fpath_canon.to_string_lossy().to_string();
 
     let meta = match std::fs::metadata(&serve_path) {
@@ -2935,7 +2938,7 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, root: &PathBuf) {
         None
     };
     if let Some(w) = thumb_w {
-        if let Some(data) = load_thumbnail(accounts, &serve_path, &meta, w) {
+        if let Some(data) = load_thumbnail(&accounts, &serve_path, &meta, w) {
             let head = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nAccept-Ranges: bytes\r\n{cors}Content-Length: {}\r\nConnection: close\r\n\r\n",
                 data.len()
