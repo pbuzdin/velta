@@ -86,7 +86,13 @@ that history.
   arm64-v8a + x86_64 unless the #369 native-lib cache hits, the `build` job bundles it into jniLibs, fails if
   any split APK lacks it, and uploads the phone APK as `velta-kmp-arm64-apk` and the emulator one as
   `velta-kmp-x86_64-apk` (no universal APK)
-  (#334). Three
+  (#334). Since #507 it also assembles the minified release APK
+  (debug-key fallback signing) as `velta-kmp-arm64-release-apk` — the
+  only artifact FPS numbers count on — and a `:baselineprofile` module
+  holds the manual Baseline Profile generator + scroll macrobenchmarks
+  (#507 also brought the image LRU cache, per-message-id event updates
+  with `@Immutable` models, and reload/identity caching; details in
+  `velta-kmp/AGENTS.md` and `velta-kmp/docs/PHASES.md`). Three
   generators keep the client in the web's family — `ui/VeltaTokens.kt`
   (from `app/css/main.css`), `ui/VeltaIcons.kt` (from `app/js/icons.js`),
   and `ui/LangRu.kt`/`LangFr.kt` (from `app/locales/*.json`) — all

@@ -1182,3 +1182,39 @@ cache is #369 (see `docs/agents/release-ci.md`).
   Still open (Loop): PWA WebRTC Loop UI wiring (#468 remainder — engine
   slice shipped, desktop #475), group audio over iroh-live (#472, spike
   #477), second-device acceptance of the seal toggle.
+
+**#507 performance wave (branch `fix/media-scope-uploads`):**
+- **Image pipeline**: decoded bitmaps ride a 48 MB LRU (`ImageMemory` in
+  ui/Media.kt, path + size-bucket keys) over the sampled
+  `decodeImageScaled`; avatars, quote thumbs, sticker grid and bubble media
+  decode off-main at display size via `rememberCachedImage` (they were
+  full-size `BitmapFactory.decodeFile` calls on the UI thread per
+  composition). Bubble photos now honor EXIF rotation.
+- **Recomposition**: `chatRows` remembered per message window (was rebuilt
+  per recomposition and per scroll frame); markdown/language detection
+  remembered per message; group sender lookup uses a remembered id map;
+  history rows carry `contentType`; the seen-watermark flow reads
+  remembered state with `distinctUntilChanged`. `MessageObject`/`Contact`/
+  `ChatListItem`/`MessageQuote` are `@Immutable`;
+  `compose_stability.conf` marks the kotlinx JSON tree stable and compiler
+  reports/metrics land in `build/compose_reports|compose_metrics`.
+- **Event → update**: single-message events (MsgsChanged, MsgRead,
+  MsgDelivered, MsgFailed, MsgReadCountChanged, MsgDeleted,
+  ReactionsChanged, IncomingReaction, IncomingMsg with a real msgId)
+  refetch just that message and swap it into the loaded window (missing
+  from the response = deleted → row drops; past the newest loaded id =
+  append); msgId 0/absent falls back to the full reload. Window loads and
+  targeted updates share one `chatLoadJob` — a newer one cancels a slower
+  stale one.
+- **Caches + backgrounding**: identity fingerprints cache per chat
+  (cleared on ContactsChanged; was 2 RPCs per 1:1 chat per list reload);
+  Android onStop pauses UI reloads (`uiReloadsPaused` — NOT `uiVisible`,
+  which desktop never sets) and replays one flush on resume; event batches
+  decode via `decodeFromJsonElement`; older-page prepends sort the page,
+  not the list.
+- **Measurement**: CI's `build` job also assembles + uploads the minified
+  debug-signed `velta-kmp-arm64-release-apk`; the `:baselineprofile`
+  module (startup profile generator + cold-start/chat-list/history
+  macrobenchmarks, `benchmark` buildType) runs manually on a device.
+  Still open: run the generator + benchmarks on a signed-in emulator and
+  record before/after numbers (base: `15480e86`).
