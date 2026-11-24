@@ -261,3 +261,62 @@ test("the setting key is the one the drawer writes", async () => {
   assert.match(cv, /compressImage\(pm\.blob/);
   assert.match(cv, /compressEnabled\(\)/);
 });
+
+// ---- HEIC ----
+// The Android WebView cannot decode HEIC, so a HEIC pick went out as a
+// generic file with no preview. Android now converts it at pick time with the
+// platform decoder (convert_heic_photo); where the WebView can decode HEIC
+// (macOS, Windows with the HEIF codec) the compressor does it, always within
+// the core's budget because the core cannot recode HEIC.
+const heic = (brand = "heic", extra = 0) => bytesOf([0, 0, 0, 24], "ftyp", brand, [0, 0, 0, 0], "mif1", brand, new Array(extra).fill(0));
+
+test("sniffImage: HEIC/HEIF by ftyp brand; AVIF is not HEIC", () => {
+  for (const b of ["heic", "heix", "hevc", "hevx", "mif1", "msf1"]) assert.equal(sniffImage(heic(b)).format, "heic", b);
+  assert.equal(sniffImage(heic("avif")).format, null, "AVIF decodes everywhere and keeps its own path");
+  assert.equal(sniffImage(bytesOf("ftyp", "heic")).format, null, "ftyp has to sit at byte 4");
+});
+
+test("decideTranscode: HEIC always converts, inside the core's budget, with no size gate", () => {
+  const s = coreLimits("0");
+  // 150 KB is under every gate for JPEG and PNG, yet an unconverted HEIC is a file to most receivers.
+  assert.deepEqual(decideTranscode({ bytes: 150_000, info: info("heic"), quality: "0" }), { try: true, limited: true, maxPixels: s.maxWh * s.maxWh, targetBytes: s.maxBytes });
+  const c = coreLimits("1");
+  assert.deepEqual(decideTranscode({ bytes: 4_000_000, info: info("heic", { alpha: true }), quality: "1" }), { try: true, limited: true, maxPixels: c.maxWh * c.maxWh, targetBytes: c.maxBytes }, "transparency is kept; Compact uses its own budget");
+  assert.equal(decideTranscode({ bytes: 150_000, info: info("heic"), enabled: false }).reason, "disabled", "Compress photos off: the original HEIC");
+});
+
+test("compressImage: HEIC becomes WebP that fits the core limit; a WebView without a HEIC decoder keeps the original", async () => {
+  const f = fakes({ sizes: [500_000] });
+  const r = await compressImage(blobOf(big(2_500_000, heic("heic")), "image/heic"), { name: "IMG_0142.HEIC", quality: "0", deps: f.deps });
+  assert.equal(r.transcoded, true);
+  assert.equal(r.name, "IMG_0142.webp");
+  assert.equal(r.blob.type, "image/webp");
+  assert.equal(f.calls.encode[0].q, 0.8);
+  assert.ok(f.calls.encode[0].width * f.calls.encode[0].height <= 1760 * 1760 * 1.001, "scaled to the core's pixel budget");
+  // Android's WebView: createImageBitmap throws, the original is returned untouched.
+  const no = fakes({ fail: "decode" });
+  const orig = blobOf(big(2_500_000, heic()), "image/heic");
+  const kept = await compressImage(orig, { name: "IMG_0142.HEIC", deps: no.deps });
+  assert.equal(kept.blob, orig);
+  assert.equal(kept.transcoded, false);
+  assert.match(kept.reason, /^error:/);
+});
+
+test("HEIC picks are converted on Android, and elsewhere count as photos only when the WebView can show them", async () => {
+  const fs = await import("node:fs");
+  const read = p => fs.readFileSync(new URL("../" + p, import.meta.url), "utf8");
+  const cv = read("app/js/chat-view.js");
+  assert.match(cv, /resolved = \(await this\._heicToPhoto\(resolved, picked\)\) \|\| resolved;/, "the picker converts a staged HEIC before classifying it");
+  assert.match(cv, /path = \(await this\._heicToPhoto\(path, file\)\) \|\| path;/, "share-in does the same");
+  assert.match(cv, /invoke\("convert_heic_photo", \{ uri: contentUri, filename: name \}\)/);
+  assert.match(cv, /\(kind === "image" && !heic\) \|\| isImage/, "a HEIC the WebView cannot decode is not staged as a photo");
+  assert.match(cv, /heic && await this\._imageDecodes\(resolved\)/);
+  const rust = read("velta-app/src-tauri/src/lib.rs");
+  assert.match(rust, /convert_heic_photo, prep_backup/, "the command is registered");
+  assert.match(rust, /\("HeicPhotos", &APP_HEIC_PHOTOS_CLASS\)/, "the Kotlin class is cached at startup");
+  const kt = read("velta-app/src-tauri/gen/android/app/src/main/java/org/velta/HeicPhotos.kt");
+  assert.match(kt, /ImageDecoder\.decodeBitmap/, "the platform decoder; it applies the stored orientation");
+  assert.match(kt, /else Bitmap\.CompressFormat\.JPEG/, "a photo becomes JPEG; transparency needs PNG");
+  assert.match(kt, /bitmap\.compress\(format, 95, out\)/, "full quality: the crop and the Send-time budget work on the whole picture");
+  assert.match(kt, /Build\.VERSION_CODES\.P/, "Android 8 and older cannot decode HEIC: the original is sent");
+});

@@ -3107,6 +3107,10 @@ pub(crate) static APP_LOOP_FILES_CLASS: Mutex<Option<jni::objects::GlobalRef>> =
 #[cfg(target_os = "android")]
 pub(crate) static APP_LOOP_SERVICE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// Outgoing HEIC/HEIF photos: org.velta.HeicPhotos (platform decoder).
+#[cfg(target_os = "android")]
+static APP_HEIC_PHOTOS_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // --- UnifiedPush (Android) ---
 // Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
 // manager and the request channel are set once init_android_core finishes;
@@ -3198,6 +3202,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
         ("VeltaLock", &APP_LOCK_CLASS),
         ("LoopFiles", &APP_LOOP_FILES_CLASS),
         ("LoopTransferService", &APP_LOOP_SERVICE_CLASS),
+        ("HeicPhotos", &APP_HEIC_PHOTOS_CLASS),
     ];
     for (name, slot) in classes {
         match env.find_class(format!("org/velta/{name}")) {
@@ -3399,6 +3404,71 @@ pub extern "system" fn Java_org_velta_BackgroundFetchJob_stopFetch(
 #[tauri::command]
 async fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String, _encrypt: Option<bool>) -> Result<String, String> {
     Err("picking attachments is only supported on mobile".into())
+}
+
+// Desktop decodes HEIC in the WebView (image-compress.js); nothing to do here.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn convert_heic_photo(_app: tauri::AppHandle, _uri: String, _filename: String) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+/// Android: a picked HEIC/HEIF photo as a full-size JPEG (PNG with
+/// transparency), staged and sealed like any other pick (HeicPhotos.kt). The
+/// WebView cannot decode HEIC, so it used to go out as a generic file. `None`
+/// when the platform cannot decode it — Android 8 and older, a damaged file —
+/// and the caller sends the original, as before.
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn convert_heic_photo(app: tauri::AppHandle, uri: String, filename: String) -> Result<Option<String>, String> {
+    if !uri.starts_with("content://") {
+        return Ok(None);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::path::BaseDirectory;
+        let base = filename.replace(['/', '\\'], "_");
+        let stem = base.rsplit_once('.').map(|(s, _)| s).filter(|s| !s.is_empty()).unwrap_or("photo");
+        // The extension depends on what the decoder finds, so it is written
+        // first under a placeholder and renamed.
+        let dest = app
+            .path()
+            .resolve(format!("uploads/{stem}.photo"), BaseDirectory::AppLocalData)
+            .map_err(|e| e.to_string())?;
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let dest_str = dest.to_string_lossy().to_string();
+        let ext = with_android_class(&APP_HEIC_PHOTOS_CLASS, "HeicPhotos", |env, context, class| {
+            let uri_j = env.new_string(&uri).map_err(|e| e.to_string())?;
+            let dest_j = env.new_string(&dest_str).map_err(|e| e.to_string())?;
+            let v = env
+                .call_static_method(
+                    class,
+                    "convert",
+                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                    &[context.into(), (&uri_j).into(), (&dest_j).into()],
+                )
+                .map_err(|e| format!("HeicPhotos.convert: {e}"))?;
+            let o = v.l().map_err(|e| e.to_string())?;
+            if o.is_null() {
+                return Ok(None);
+            }
+            let s: String = env.get_string(&jni::objects::JString::from(o)).map_err(|e| e.to_string())?.into();
+            Ok(Some(s))
+        })?;
+        let ext = ext.filter(|e| e == "jpg" || e == "png");
+        let Some(ext) = ext else {
+            let _ = std::fs::remove_file(&dest);
+            log("convert_heic_photo: the platform decoder could not read this HEIC; sending the original");
+            return Ok(None);
+        };
+        let photo = dest.with_extension(ext);
+        std::fs::rename(&dest, &photo).map_err(|e| e.to_string())?;
+        encrypt_upload_blocking(&photo)?;
+        Ok(Some(photo.to_string_lossy().to_string()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // Desktop keeps its system-browser convention for message links; the in-app
@@ -5760,7 +5830,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, convert_heic_photo, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
