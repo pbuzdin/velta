@@ -18,6 +18,12 @@
 use std::io::BufRead;
 
 fn main() {
+    // release-version-pins.test.mjs runs this before anything else: print the
+    // vendored core's version (the binary's identity) and exit.
+    if std::env::args().any(|a| a == "--version") {
+        println!("velta-rpc-server {}", deltachat::constants::DC_VERSION_STR.trim());
+        return;
+    }
     let accounts_dir = match std::env::var("VELTA_ACCOUNTS_DIR") {
         Ok(dir) if !dir.is_empty() => dir,
         _ => {
