@@ -1059,6 +1059,12 @@ fn encrypt_upload_blocking(path: &Path) -> Result<(), String> {
     let len = input.metadata().map_err(|e| e.to_string())?.len();
     let mut temp = tempfile::Builder::new().prefix("tmp-").tempfile_in(path.parent().ok_or("upload has no parent")?).map_err(|e| e.to_string())?;
     velta_attachment::encrypt(&key, &mut input, len, temp.as_file_mut()).map_err(|e| e.to_string())?;
+    // Windows: `input` (std::fs::File::open shares READ|WRITE but not DELETE)
+    // must be closed before persist — MoveFileExW(REPLACE_EXISTING) replaces
+    // the very file that handle is still open on, which fails with
+    // "Access is denied (os error 5)" and killed every attachment send while
+    // attachment sealing was on.
+    drop(input);
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
     temp.persist(path).map_err(|e| e.error.to_string())?;
     Ok(())
