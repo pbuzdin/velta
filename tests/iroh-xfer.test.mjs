@@ -259,7 +259,7 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   const got = fileCardText({ name: "got.bin", size: tk.size, ticket: offerOf({ hash: H2("aa"), name: "got.bin" }) });
   core.msg(9, got);
   await tick();
-  assert.match(ui.xferCardHtml(got), /Received/);
+  assert.match(ui.xferCardHtml(got), /Received with Velta Dash/);
   assert.match(ui.xferCardHtml(got), /xfer-open/);
   assert.match(ui.xferCardHtml(got), /data-route="dash"/);
   ui.noteCard(9, got, false);
@@ -279,10 +279,14 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   await tick();
   assert.match(ui.xferCardHtml(shot), /<img class="xfer-preview"/, "fetched image previews");
   assert.match(ui.xferCardHtml(shot), /data-xfer-view="d{64}"/);
-  assert.match(ui.xferCardHtml(clip), /Play video/, "video action says what it does");
-  assert.match(ui.xferCardHtml(shot), /Open image/, "image action says what it does");
+  assert.doesNotMatch(ui.xferCardHtml(clip), /Play video/, "#519: the poster is the open control, no caption pill");
+  assert.doesNotMatch(ui.xferCardHtml(shot), /Open image/, "#519: the picture is the open control");
   assert.match(ui.xferCardHtml(clip), /Show in folder/, "desktop: reveal the file");
-  assert.match(ui.xferCardHtml(got), /xfer-open/, "documents keep the Open link");
+  // #519: Open is a button (an action, not navigation) with the URL computed
+  // at click time from cardState — never an href in the bubble.
+  assert.match(ui.xferCardHtml(got), /<button type="button" class="xfer-open btn-text" data-xfer-open="/, "documents keep Open, as a button");
+  assert.doesNotMatch(ui.xferCardHtml(got), /a class="xfer-open"/, "no anchor, no href");
+  assert.doesNotMatch(ui.xferCardHtml(got), /href=/, "the media URL is never in the DOM");
   // A media ticket with no local bytes (the sender's other device, or before
   // the fetch) shows the placeholder tile instead of staying silent — never
   // an empty preview src. Documents keep the file-type glyph.
@@ -299,6 +303,8 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   core.msg(9, full);
   await tick();
   assert.match(ui.xferCardHtml(full), /Not enough free space/);
+  assert.match(ui.xferCardHtml(full), /is-error/, "#519: an ERRORS sentence gets the wrap class");
+  assert.match(ui.xferCardHtml(full), /class="xfer-foot"/, "the error lives on the timestamp row, out of the icon grid");
   assert.equal(texts.filter((x) => /VXFER-RESEND/.test(x.text)).length, 0);
 
   // The sender's other device sees the outgoing card without a copy: the
@@ -536,7 +542,7 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   results.push({ path: "/acc/xfer-in/v.mp4" });
   ui.retryFetch(H);
   await tick();
-  assert.match(ui.xferCardHtml(card), /Received/);
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/);
 
   // Over the email cap and Dash failed: say so, no ask button, Retry stays.
   const H3 = "a1".repeat(32);
@@ -604,4 +610,38 @@ test("capability echo: after one message either way, BOTH phones show the Dash b
   deliver(d, c, "hello");
   await tick();
   assert.equal(await uiC.peerCanXfer(20) && await uiD.peerCanXfer(20), true, "both badges after one message the other way");
+});
+
+// ---- #519: the Dash card reads as a file row ----
+test("splitFileName keeps the extension; the two-part allow-list holds", async () => {
+  const { splitFileName, fileKind } = await import("../app/js/iroh-xfer.js");
+  assert.deepEqual(splitFileName("1795559326328-Replay_2026.02.09-03.05.mp4"),
+    { base: "1795559326328-Replay_2026.02.09-03.05", ext: ".mp4" });
+  assert.deepEqual(splitFileName("foo.tar.gz"), { base: "foo", ext: ".tar.gz" });
+  assert.deepEqual(splitFileName("foo.tar.bz2"), { base: "foo", ext: ".tar.bz2" });
+  assert.deepEqual(splitFileName("bare.gz"), { base: "bare", ext: ".gz" });
+  assert.deepEqual(splitFileName(".mp4"), { base: ".mp4", ext: "" }, "a leading-dot name is all base");
+  assert.deepEqual(splitFileName("noext"), { base: "noext", ext: "" });
+  assert.equal(fileKind("Replay_2026.02.09-03.05.mp4"), "video");
+  assert.equal(fileKind("x.tar.bz2"), "archive");
+  assert.equal(fileKind("song.flac"), "audio");
+  assert.equal(fileKind("noext"), "file");
+});
+
+test("the card renders a file row: icon tile, one-line name, size row, foot", async () => {
+  const { P } = await import("../app/js/icons.js");
+  const ui = await import("../app/js/iroh-xfer-ui.js");
+  const name = "1795559063928-session-recording.flac"; // non-media: the tile is the type icon, not a preview
+  const html = ui.xferCardHtml(fileCardText({ name, size: 7.2 * 1048576, ticket: enc({ ...tk, hash: "55".repeat(32), name }) }));
+  const mic = P.mic.slice(0, 24).replaceAll("(", "\(").replaceAll(")", "\)");
+  assert.match(html, new RegExp(mic), "the tile is the type icon (P.mic for .flac), not a letter");
+  assert.doesNotMatch(html, /xfer-glyph">[^<]<\/span>/, "no single-letter tile");
+  const nm = /<span class="xfer-name-base">(.*?)<\/span><span class="xfer-name-ext">(.*?)<\/span>/.exec(html);
+  assert.ok(nm, "the name splits into base + ext");
+  assert.equal(nm[1] + nm[2], name, "base + ext are the full name, no gap between the spans");
+  assert.equal(nm[2], ".flac", "the extension stays");
+  assert.match(html, /class="xfer-sub"/, "size + chip + actions share one row");
+  assert.match(html, /class="xfer-foot"/, "the status shares the timestamp row");
+  assert.match(html, /xfer-meta-slot/, "chat-view fills the timestamp slot");
+  assert.doesNotMatch(html, /is-error/, "steady states do not carry the error wrap");
 });

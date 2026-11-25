@@ -59,16 +59,23 @@ function pairs(theme, t) {
     ["in .msg-deleted", mix80(c("--text-dim"), c("--text")), inB, 4.5],
     ["out .msg-deleted", theme === "brutal" ? c("--nb-main-ink") : mix80(c("--text-meta-out"), c("--text")), outB, 4.5],
     ["out .ticks.read (icon)", theme === "brutal" ? c("--nb-main-ink") : c("--ticks-read"), outB, 3],
-    // Velta Dash file card (#470): size, status and route badge use the same
-    // tokens as .file-size; the type tile matches .file-ico (accent fill + ink).
-    ["in .xfer-meta / .xfer-state / .xfer-route", c("--text-dim"), inB, 4.5],
+    // Velta Dash file card (#470, retokenized by #519): size, status and the
+    // route badge are the in-bubble meta pair (--text-meta-in / out; the
+    // canvas --text-dim pair was never the published in-bubble one); the
+    // type tile matches .file-ico (accent fill + ink). Open is a verb:
+    // incoming keeps the .btn-text accent pairs, outgoing uses --out-link
+    // (brutal: --nb-main-ink) because .msg-row.out .btn-text paints the
+    // status token.
+    ["in .xfer-meta / .xfer-state / .xfer-route", c("--text-meta-in"), inB, 4.5],
     ["out .xfer-meta / .xfer-state / .xfer-route", c("--text-meta-out"), outB, 4.5],
     ["in/out .xfer-glyph", c("--on-accent"), c("--accent"), 4.5],
     ["out .xfer-name (brutal ink / body text)", theme === "brutal" ? c("--nb-main-ink") : c("--text"), outB, 4.5],
+    ["in .xfer-open verb", theme === "brutal" ? c("--accent-2") : c(theme === "light" ? "--accent-text-in" : "--accent-text"), inB, 4.5],
+    ["out .xfer-open verb", theme === "brutal" ? c("--nb-main-ink") : c("--out-link"), outB, 4.5],
     // Busy rings (#470 loaders) are drawn in currentColor: the card status
     // ring on both bubbles, the composer route line (+ ring) on the strip,
     // and the Send ring idle (accent text) or armed (accent fill).
-    ["in .xfer-state.is-busy ring (icon)", c("--text-dim"), inB, 3],
+    ["in .xfer-state.is-busy ring (icon)", c("--text-meta-in"), inB, 3],
     ["out .xfer-state.is-busy ring (icon)", c("--text-meta-out"), outB, 3],
     ["composer .media-route (+ busy ring)", c("--text-dim"), c("--bg-sidebar"), 4.5],
     ["composer .media-route blocked", c("--text"), c("--bg-sidebar"), 4.5],

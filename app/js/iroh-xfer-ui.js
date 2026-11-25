@@ -12,7 +12,7 @@
 import {
   createTransport, parseFileCard, parseResendRequest, resendRequestText, advertisedRelay, jsonStore,
   irohXferEnabled, THRESHOLD, routeLabel, CAPABILITY_KEY, peerCapabilityKey, emailReason,
-  planRoute, routeText, peerDomains, EMAIL_MAX, offerFailedText,
+  planRoute, routeText, peerDomains, EMAIL_MAX, offerFailedText, splitFileName, fileKind,
 } from "./iroh-xfer.js";
 import { svg, P } from "./icons.js";
 import { fileUrl } from "./media.js";
@@ -24,7 +24,7 @@ import { withTimeout } from "./load-retry.js";
 let env = null;  // { core, invoke } — invoke null in the PWA
 let transport = null;
 let metadataFn = null;       // async () => get_server_metadata | null
-let hooks = null;            // { sendText, sendFile, lastSent }
+let hooks = null;            // { sendText, sendFile, lastSent, openHttp }
 let lastSent = null;         // the card message transport.send just mailed
 let account = "0";
 let selfChat = null;         // Saved Messages chat id (cached per account)
@@ -136,10 +136,14 @@ function stateText(st) {
   if (st.error && ERRORS[st.error]) return ERRORS[st.error]();
   if (st.asked && !st.done) return st.dashFailed ? t("Couldn't fetch via Velta Dash: asked for the email copy") : t("Asked for the email copy");
   if (st.outgoing) return st.mailed ? t("Sent by email") : routeLabel("iroh");
-  if (st.done) return t("Received");
+  if (st.done) return t("Received with Velta Dash");
   if (st.pct != null) return t("Fetching via Velta Dash {n}%", { n: st.pct });
   if (st.receiving) return t("Waiting for sender…");
   return t("Receiving file…");
+}
+/** An ERRORS sentence: fully visible on the timestamp row, may wrap (#519). */
+function isErrorState(st) {
+  return !!(st.error && ERRORS[st.error]);
 }
 /** A card still waiting on something (sender, fetch): shows the busy ring. */
 function isBusy(st) {
@@ -213,27 +217,53 @@ function openInLightbox(hash) {
   else window.open(src, "_blank", "noopener"); // unwired (tests/PWA): old behavior
 }
 
+/** Open a fetched DOCUMENT (#519): http(s) — the loopback media server,
+ *  blobfile.localhost, convertFileSrc — rides the shell's openHttp (desktop
+ *  opener plugin; wry swallows window.open); other schemes take the browser
+ *  default the old anchor got. Never open_document: a Dash file is not a
+ *  core blob, and the sealed accounts/xfer-in/ path would hand the OS
+ *  ciphertext. The URL is computed here, at click time — it is never an
+ *  href in the bubble. */
+function openFile(hash) {
+  const st = cardState.get(hash);
+  if (!st?.path) return;
+  const url = safeFileUrl(st.path);
+  if (/^https?:/i.test(url) && typeof hooks.openHttp === "function") hooks.openHttp(url);
+  else window.open(url, "_blank", "noopener");
+}
+
 /** Desktop: reveal the fetched file's decrypted copy in the file manager. */
 function showInFolder(hash) {
   const st = cardState.get(hash);
   if (st?.path && lightbox?.folder) lightbox.folder(st.path, st.name || "");
 }
 
+/** Type tile icons for the card (#519): closed map, all 24px outline
+ *  currentColor glyphs, already decorative. No letter fallback. */
+const KIND_ICONS = { video: "video", audio: "mic", image: "photo", archive: "archive", file: "file" };
+
 /**
- * Render hook for the message bubble: a VXFER1 file card becomes a compact
- * file bubble; the fallback request line becomes a quiet label. Null = not
- * ours, render as usual.
+ * Render hook for the message bubble: a VXFER1 file card becomes a file row
+ * (#519) — 44px type tile (or the media preview, which replaces it), a
+ * one-line name that keeps its extension, a size row (size, Dash chip,
+ * actions), and a foot row where the status sentence shares the timestamp
+ * with .msg-meta (chat-view fills the slot). The fallback request line stays
+ * a quiet label. Null = not ours, render as usual.
  */
 export function xferCardHtml(text) {
   const card = parseFileCard(text);
   if (card) {
     const st = cardState.get(card.tk.hash) || {};
     const preview = previewHtml(card.tk.hash, card.name, st);
-    const lead = preview || `<span class="xfer-glyph">${escapeHtml((card.name.split(".").pop()?.[0] || "f").toUpperCase())}</span>`;
+    const kind = KIND_ICONS[fileKind(card.name)] || "file";
+    const lead = preview || `<span class="xfer-glyph" aria-hidden="true">${svg(P[kind])}</span>`;
+    const { base, ext } = splitFileName(card.name);
     const actions = actionsHtml(card.tk.hash, card.name, st);
+    const err = isErrorState(st);
     return `<span class="xfer-card${preview ? " is-media" : ""}" data-xfer="${escapeAttr(card.tk.hash)}">${lead}` +
-      `<span class="xfer-name">${escapeHtml(card.name)}<span class="xfer-meta">${escapeHtml(fmtSize(card.size))}</span></span>` +
-      `<span class="xfer-state${isBusy(st) ? " is-busy" : ""}" role="status">${escapeHtml(stateText(st))}</span>${routeBadgeHtml(st)}${actions}</span>`;
+      `<span class="xfer-name" title="${escapeAttr(card.name)}"><span class="xfer-name-base">${escapeHtml(base)}</span><span class="xfer-name-ext">${escapeHtml(ext)}</span></span>` +
+      `<span class="xfer-sub"><span class="xfer-meta">${escapeHtml(fmtSize(card.size))}</span>${routeBadgeHtml(st)}${actions}</span></span>` +
+      `<span class="xfer-foot"><span class="xfer-state${isBusy(st) ? " is-busy" : ""}${err ? " is-error" : ""}" role="status">${escapeHtml(stateText(st))}</span><span class="xfer-meta-slot"></span></span>`;
   }
   if (parseResendRequest(text)) return `<span class="xfer-state">${escapeHtml(t("Asked for the email copy"))}</span>`;
   return null;
@@ -241,16 +271,16 @@ export function xferCardHtml(text) {
 
 function actionsHtml(hash, name, st) {
   if (st.path) {
-    // Media opens in the lightbox (same as regular media bubbles); the
-    // browser/system-handler path stays for documents only. Desktop adds
-    // Show in folder (the shell reveals the decrypted copy). One row.
-    const kind = mediaKind(name || st.path);
-    const openLabel = kind === "image" ? t("Open image") : kind === "video" ? t("Play video") : t("Open");
-    const open = kind
-      ? `<button type="button" class="xfer-open btn-text" data-xfer-view="${escapeAttr(hash)}">${escapeHtml(openLabel)}</button>`
-      : `<a class="xfer-open" href="${escapeAttr(safeFileUrl(st.path))}" target="_blank" rel="noopener">${escapeHtml(t("Open"))}</a>`;
-    const folder = env?.invoke ? `<button type="button" class="xfer-folder btn-text" data-xfer-folder="${escapeAttr(hash)}">${escapeHtml(t("Show in folder"))}</button>` : "";
-    return `<span class="xfer-actions">${open}${folder}</span>`;
+    // Media: the preview itself is the open control (the picture opens the
+    // image, .xfer-play opens the video) — no caption open button (#519).
+    // Desktop adds Show in folder (the shell reveals the decrypted copy).
+    if (mediaKind(name || st.path)) {
+      const folder = env?.invoke ? `<button type="button" class="xfer-folder btn-text" data-xfer-folder="${escapeAttr(hash)}">${escapeHtml(t("Show in folder"))}</button>` : "";
+      return folder;
+    }
+    // Documents: Open is a button — an action, not navigation. The URL is
+    // computed at click time from cardState (data-xfer-open); never an href.
+    return `<button type="button" class="xfer-open btn-text" data-xfer-open="${escapeAttr(hash)}">${escapeHtml(t("Open"))}</button>`;
   }
   let out = "";
   if (canRetry(st)) out += `<button type="button" class="xfer-retry btn-text" data-xfer-retry="${escapeAttr(hash)}">${escapeHtml(t("Retry"))}</button>`;
@@ -389,32 +419,64 @@ async function runSweep() {
   if (evs.length) saveCards();
 }
 
+/** Paint one mounted (or detached) card element from cardState (#519).
+ *  State lives in .xfer-foot; the route badge and actions append into
+ *  .xfer-sub after the size; fetched media swaps the type tile for a
+ *  preview. Legacy classes from an older paint get cleaned up. */
+function paintCard(card, st) {
+  const hash = card.getAttribute("data-xfer");
+  const el = card.querySelector(".xfer-state");
+  if (el) {
+    el.textContent = stateText(st);
+    el.classList.toggle("is-busy", isBusy(st));
+    el.classList.toggle("is-error", isErrorState(st));
+  }
+  const sub = card.querySelector(".xfer-sub");
+  const name = st.name || card.querySelector(".xfer-name-base")?.textContent || "";
+  // Fetched media swaps the file-type tile for a preview that opens the
+  // lightbox (the render path already has it; refresh catches the card
+  // that finished while on screen).
+  const want = previewHtml(hash, name, st);
+  const have = card.querySelector(".xfer-preview-btn");
+  if (want && !have) {
+    card.querySelector(".xfer-glyph")?.remove();
+    card.insertAdjacentHTML("afterbegin", want);
+    card.classList.add("is-media");
+  } else if (!want && have) {
+    have.remove();
+  }
+  if (sub) {
+    for (const old of card.querySelectorAll(".xfer-route, .xfer-actions, .xfer-open, .xfer-ask, .xfer-retry, .xfer-folder")) old.remove();
+    sub.insertAdjacentHTML("beforeend", routeBadgeHtml(st) + actionsHtml(hash, name, st));
+  }
+}
+
+/** Repaint every Dash card under `root`, mounted or not — the history
+ *  cache-hit path calls this before the scroller measures the row, so a
+ *  fetch that finished off-screen remounts as Received with Open. */
+export function paintXferIn(root) {
+  if (typeof document === "undefined" || !root?.querySelectorAll) return;
+  for (const card of root.querySelectorAll("[data-xfer]")) paintCard(card, cardState.get(card.getAttribute("data-xfer")) || {});
+}
+
 function refresh(hash) {
   if (typeof document === "undefined") return; // node tests: state assertions only
   const st = cardState.get(hash) || {};
   for (const card of document.querySelectorAll(`[data-xfer="${hash}"]`)) {
-    const el = card.querySelector(".xfer-state");
-    if (el) { el.textContent = stateText(st); el.classList.toggle("is-busy", isBusy(st)); }
-    const badge = routeBadgeHtml(st);
-    const old = card.querySelector(".xfer-route");
-    if (old) old.remove();
-    if (badge) el?.insertAdjacentHTML("afterend", badge);
-    // Fetched media swaps the file-type tile for a preview that opens the
-    // lightbox (the render path already has it; refresh catches the card
-    // that finished while on screen).
-    const name = st.name || card.querySelector(".xfer-name")?.childNodes?.[0]?.textContent || "";
-    const want = previewHtml(hash, name, st);
-    const have = card.querySelector(".xfer-preview-btn");
-    if (want && !have) {
-      card.querySelector(".xfer-glyph")?.remove();
-      el?.insertAdjacentHTML("beforebegin", want);
-      card.classList.add("is-media");
-    } else if (!want && have) {
-      have.remove();
+    paintCard(card, st);
+    // The scroller notify (#519): percent ticks and steady states must not
+    // fire it (overflow-anchor: none makes a spurious notify a scroll
+    // jump). The first paint stores the height — renderItem's own measure
+    // covers it. Only an integer height change dispatches, and the wrap
+    // mutation above happens in this same turn, before the read.
+    const h = card.offsetHeight;
+    if (!h || !card.isConnected) continue;
+    const prev = card.dataset.xferH;
+    if (prev == null) { card.dataset.xferH = String(h); continue; }
+    if (prev !== String(h)) {
+      card.dataset.xferH = String(h);
+      card.dispatchEvent(new CustomEvent("velta-row-resized", { bubbles: true }));
     }
-    for (const old of card.querySelectorAll(".xfer-actions")) old.remove();
-    const actions = actionsHtml(hash, name, st);
-    if (actions) card.insertAdjacentHTML("beforeend", actions);
   }
 }
 
@@ -432,12 +494,12 @@ function useAccount(id) {
 
 /** Wire once from boot: shell handles + the composer's send hooks. In the
  *  PWA (no invoke) the transport has no iroh: cards ask for the email copy. */
-export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen, timeouts = {} }) {
+export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen, openHttp, timeouts = {} }) {
   if (transport) return; // never re-init
   env = { core, invoke: invoke || null };
   limits = { ...WAIT_MS, ...timeouts };
   metadataFn = metadata || (async () => null);
-  hooks = { sendText, sendFile, lastSent: () => lastSent };
+  hooks = { sendText, sendFile, lastSent: () => lastSent, openHttp };
   account = String(core?.accountId ?? "0");
   loadCards();
   let store = jsonStore(`velta-xfer-pending:${account}`);
@@ -491,6 +553,14 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen,
       if (view) { openInLightbox(view.getAttribute("data-xfer-view")); return; }
       const folder = e.target.closest?.("[data-xfer-folder]");
       if (folder) { showInFolder(folder.getAttribute("data-xfer-folder")); return; }
+      const open = e.target.closest?.("[data-xfer-open]");
+      if (open) {
+        // Selection mode: the row listener toggled selection and returned
+        // without stopPropagation — do not also open (#519).
+        if (open.closest(".msg-row")?.classList.contains("selectable")) return;
+        openFile(open.getAttribute("data-xfer-open"));
+        return;
+      }
       const ask = e.target.closest?.("[data-xfer-ask]");
       if (!ask) return;
       const hash = ask.getAttribute("data-xfer-ask");
