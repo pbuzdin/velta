@@ -375,12 +375,38 @@ test("Velta Dash: brand strings, header badge state, explainer hint, fallback re
   assert.match(emailReason({ ...big, available: false }), /PWA/);
 });
 
-test("Velta Dash icon: house-style outline glyph, not Beam or Loop", async () => {
-  const { P, ICON } = await import("../app/js/icons.js");
+test("Velta Dash icon: the brand mark is the site logo byte-exact; P.dash stays the outline KMP glyph", async () => {
+  const { P, ICON, DASH_SVG } = await import("../app/js/icons.js");
   assert.ok(P.dash && P.dash !== P.loop);
   assert.doesNotMatch(P.dash, /fill="currentColor"/);
-  assert.match(ICON.dash, /stroke-width="2"/);
   assert.match(ICON.dash, /aria-hidden="true"/);
+  // The UI brand mark is velta.cc/dash-logo.svg verbatim (viewBox + all six
+  // filled paths of the user-fixed geometry).
+  assert.match(DASH_SVG, /viewBox="0 0 277 260"/);
+  for (const d of [
+    "M0 0H79.5L177 187L139.5 260L0 0Z",
+    "M207.971 131H165.276L148.5 97H225.757L207.971 131Z",
+    "M186 173L165.276 131H207.971L186 173Z",
+    "M265.515 21H186.5L197 0H276.5L265.515 21Z",
+    "M245.636 59H167.5L177 40H255.575L245.636 59Z",
+    "M225.757 97H148.5L158 78H235.696L225.757 97Z",
+  ]) assert.ok(DASH_SVG.includes(`d="${d}"`), `mark path ${d}`);
+  assert.match(DASH_SVG, /fill="currentColor"/);
+  assert.match(DASH_SVG, /aria-hidden="true"/);
+});
+
+test("the state line lives OUTSIDE [data-xfer]; paintCard resolves it through the parent", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/js/iroh-xfer-ui.js", import.meta.url), "utf8");
+  // .xfer-foot is a sibling of the card (it spans the bubble and carries the
+  // timestamp). Querying .xfer-state inside [data-xfer] finds nothing, and
+  // live updates silently never land — the "stuck Waiting for sender…" bug.
+  assert.match(src, /card\.parentElement\?\.querySelector\(":scope > \.xfer-foot"\)/, "state line resolved beside the card, not inside it");
+  const ui = await import("../app/js/iroh-xfer-ui.js?foot");
+  const card = fileCardText({ name: "d.bin", size: tk.size, ticket: offerOf({ hash: "0e".repeat(32), name: "d.bin" }) });
+  const html = ui.xferCardHtml(card) || "";
+  const cardEnd = html.indexOf("</span>", html.indexOf("xfer-sub"));
+  assert.ok(html.indexOf('class="xfer-foot"') > cardEnd, "the foot renders after the [data-xfer] span closes");
 });
 
 test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawer toggle is branded", async () => {
@@ -396,7 +422,7 @@ test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawe
   assert.match(rule, /min-width: 44px/);
   assert.match(rule, /min-height: 44px/);
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
-  assert.match(ui, /data-setting="dash">\$\{ICON\.dash\}/);
+  assert.match(ui, /data-setting="dash">\$\{DASH_SVG\}/);
   assert.match(ui, /toggleText\("Velta Dash"/);
   assert.match(ui, /new CustomEvent\("velta-dash"/);
   assert.doesNotMatch(ui, /Send large files directly/);
@@ -434,7 +460,7 @@ test("pre-send route: Dash when it can deliver, email under the cap, blocked ove
 // the send button did nothing at all (56 MB video, 2026-11-24).
 test("Send never waits forever: a stalled route check, health call or offer times out", async () => {
   const ui = await import("../app/js/iroh-xfer-ui.js?stall");
-  assert.deepEqual({ ...ui.WAIT_MS }, { metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100 }, "production bounds");
+  assert.deepEqual({ ...ui.WAIT_MS }, { metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100, fetchMs: 300000, fetchPerMbMs: 500 }, "production bounds");
   const diag = [];
   globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: (lvl, text) => diag.push(text) } });
   const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
@@ -529,6 +555,8 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   await tick();
   assert.match(ui.xferCardHtml(card), /Waiting for sender…/, "never a silent 'Downloading…'");
   assert.match(ui.xferCardHtml(card), /class="xfer-state is-busy"/, "waiting shows the busy ring");
+  assert.doesNotMatch(ui.xferCardHtml(card), /xfer-preview-dead/, "in flight: no dead tile under the busy ring");
+  assert.match(ui.xferCardHtml(card), /xfer-glyph/, "in flight: the file-type glyph stays");
   assert.deepEqual(fetchArgs[0].peers, ["their-relay.example"], "the receiver may dial the sender's own relay (4G: no direct path)");
   ui.xferProgressEvent({ hash: H, done: 34, size: 100 });
   assert.match(ui.xferCardHtml(card), /Fetching via Velta Dash 34%/);
@@ -539,6 +567,10 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./);
   assert.match(ui.xferCardHtml(card), /data-xfer-retry/, "a clear action, not an endless spinner");
   assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/, "no ring once it stopped");
+  assert.match(ui.xferCardHtml(card), /xfer-preview-dead/, "settled without bytes: the tile says why");
+  ui.xferProgressEvent({ hash: H, done: 50, size: 100 });
+  assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/, "a late progress event does not resurrect the ring");
+  assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./, "the settled error stands");
   results.push({ path: "/acc/xfer-in/v.mp4" });
   ui.retryFetch(H);
   await tick();
@@ -560,6 +592,36 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   core.msg(9, mid);
   await tick(); await tick();
   assert.match(ui.xferCardHtml(mid), /Couldn&#39;t fetch via Velta Dash: asked for the email copy|Couldn't fetch via Velta Dash: asked for the email copy/);
+});
+
+test("receiver card: a fetch that never settles still ends — hard cap, then a clear error + Retry", async () => {
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage ??= { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?hangfetch");
+  ui.RETRY_DELAYS_MS.splice(0, ui.RETRY_DELAYS_MS.length, 0, 0, 0);
+  const core = fakeCore();
+  core.accountId = 33;
+  core.getChat = async (id) => ({ id, chatType: "Single", contactId: 12 });
+  core.getContact = async () => ({ id: 12, addr: "kay@their-relay.example" });
+  ui.initXferUi({
+    core,
+    // xfer_fetch never settles: the trickling-peer case every inner Rust
+    // bound misses. The overall cap must end the card's spinner anyway.
+    invoke: async (cmd) => (cmd === "xfer_fetch" ? new Promise(() => {}) : null),
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+    timeouts: { metaMs: 20, peerMs: 20, healthMs: 20, offerMs: 20, offerPerMbMs: 0, fetchMs: 25, fetchPerMbMs: 0 },
+  });
+  const H = "c3".repeat(32);
+  const card = fileCardText({ name: "v.mp4", size: tk.size, ticket: enc({ ...tk, hash: H }) });
+  ui.noteCard(9, card, false);
+  assert.match(ui.xferCardHtml(card), /Waiting for sender…/, "in flight before the cap");
+  await new Promise((r) => setTimeout(r, 400)); // 4 attempts x 25 ms cap + 0-delay retries
+  await tick();
+  assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./, "the cap ends the endless spinner");
+  assert.match(ui.xferCardHtml(card), /data-xfer-retry/);
+  assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/);
 });
 
 test("capability echo: after one message either way, BOTH phones show the Dash badge", async () => {

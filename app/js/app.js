@@ -103,7 +103,7 @@ import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
-import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { DASH_SVG, ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { dashState, dashExplainer, irohXferEnabled, peerCapabilityKey } from "./iroh-xfer.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
 
@@ -3049,7 +3049,7 @@ function hideDashBadge() {
 function showDashExplainer(st) {
   const body = document.createElement("div");
   body.className = "dash-explainer";
-  body.innerHTML = `<p class="dash-explainer-text">${svg(P.dash)}<span>${escapeHtml(dashExplainer(st))}</span></p>`;
+  body.innerHTML = `<p class="dash-explainer-text">${DASH_SVG}<span>${escapeHtml(dashExplainer(st))}</span></p>`;
   const foot = document.createElement("div");
   const open = document.createElement("button");
   open.type = "button";

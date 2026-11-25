@@ -383,6 +383,7 @@ pub struct Xfer {
     /// Bytes streamed out by the provider (tests check resume with it).
     pub served: AtomicU64,
     connect_timeout_ms: AtomicU64,
+    read_idle_ms: AtomicU64,
 }
 
 impl Xfer {
@@ -415,6 +416,7 @@ impl Xfer {
             offers: Mutex::new(offers),
             served: AtomicU64::new(0),
             connect_timeout_ms: AtomicU64::new(20_000),
+            read_idle_ms: AtomicU64::new(READ_IDLE.as_millis() as u64),
         });
         let me = x.clone();
         tokio::spawn(async move { me.accept_loop().await });
@@ -424,6 +426,16 @@ impl Xfer {
     /// How long a fetch waits for a path before calling the sender unreachable.
     pub fn set_connect_timeout(&self, d: Duration) {
         self.connect_timeout_ms.store(d.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    /// How long a fetch waits for handshake answer or body bytes before
+    /// giving up (resumable). Tests shorten it.
+    pub fn set_read_idle(&self, d: Duration) {
+        self.read_idle_ms.store(d.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    fn read_idle(&self) -> Duration {
+        Duration::from_millis(self.read_idle_ms.load(Ordering::Relaxed))
     }
 
     pub fn node_id(&self) -> NodeId {
@@ -624,12 +636,23 @@ impl Xfer {
             Err(_) => return Err(FetchError::Unreachable("timed out".into())),
         };
 
-        let (mut send, mut recv) = conn.open_bi().await.map_err(|e| io(e.into()))?;
-        let req = Request { hash: ticket.hash.clone(), offset, sec: ticket.sec.clone() };
-        write_frame(&mut send, &serde_json::to_vec(&req).unwrap()).await.map_err(io)?;
-        send.finish().map_err(|e| io(e.into()))?;
-        let resp: Response = serde_json::from_slice(&read_frame(&mut recv).await.map_err(io)?)
-            .map_err(|e| io(e.into()))?;
+        // The whole request/response handshake is bounded like a body read:
+        // a peer that accepts the connection but never answers the request
+        // frame (backgrounded mid-handshake, wedged accept loop) must not
+        // park xfer_fetch — and the card's busy ring — forever.
+        let handshake = async {
+            let (mut send, mut recv) = conn.open_bi().await.map_err(|e| io(e.into()))?;
+            let req = Request { hash: ticket.hash.clone(), offset, sec: ticket.sec.clone() };
+            write_frame(&mut send, &serde_json::to_vec(&req).unwrap()).await.map_err(io)?;
+            send.finish().map_err(|e| io(e.into()))?;
+            let resp: Response = serde_json::from_slice(&read_frame(&mut recv).await.map_err(io)?)
+                .map_err(|e| io(e.into()))?;
+            Ok::<_, FetchError>((recv, resp))
+        };
+        let (mut recv, resp) = match tokio::time::timeout(self.read_idle(), handshake).await {
+            Ok(r) => r?,
+            Err(_) => return Err(FetchError::Io("stalled".into())),
+        };
         if !resp.ok {
             let e = match resp.err.as_str() {
                 "expired" => FetchError::Expired,
@@ -657,7 +680,7 @@ impl Xfer {
         loop {
             // A sender that went to the background stops sending without
             // closing: give up after READ_IDLE so the UI can resume/retry.
-            let n = match tokio::time::timeout(READ_IDLE, recv.read(&mut buf)).await {
+            let n = match tokio::time::timeout(self.read_idle(), recv.read(&mut buf)).await {
                 Ok(Ok(Some(n))) => n,
                 Ok(Ok(None)) => break,
                 Ok(Err(e)) => {
@@ -896,10 +919,12 @@ pub async fn xfer_fetch(
     let dir = crate::accounts_dir(&app).join("xfer-in");
     let hash = t.hash.clone();
     let mut last = 0u64;
+    let mut first = true; // the 0-byte event flips the card to "Fetching 0%"
     let peers = peers.unwrap_or_default();
     let res = x
         .fetch_from(&t, &dir, &peers, |done, size| {
-            if done == size || done - last >= 1024 * 1024 {
+            if first || done == size || done - last >= 1024 * 1024 {
+                first = false;
                 last = done;
                 let _ = app.emit("xfer-progress", serde_json::json!({ "hash": hash, "done": done, "size": size }));
             }
@@ -1112,6 +1137,54 @@ mod tests {
         let out = b.fetch_from(&t, &tmp("dst8b"), &[url1.to_string()], |_, _| {}).await.unwrap();
         assert_eq!(std::fs::read(out).unwrap(), bytes);
         a.close().await;
+        b.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_peer_that_accepts_but_never_answers_stalls_out_instead_of_hanging() {
+        // The sender that wedges mid-handshake (backgrounded phone, stuck
+        // accept loop): the connection opens, the request frame goes out, no
+        // response ever comes back. The fetch must give up (resumable), not
+        // park xfer_fetch — and the card's busy ring — forever.
+        let silent = Endpoint::builder()
+            .secret_key(skey())
+            .alpns(vec![ALPN.to_vec()])
+            .relay_mode(RelayMode::Disabled)
+            .bind()
+            .await
+            .unwrap();
+        let hold = silent.clone();
+        tokio::spawn(async move {
+            while let Some(incoming) = hold.accept().await {
+                tokio::spawn(async move {
+                    if let Ok(connecting) = incoming.accept() {
+                        if let Ok(_conn) = connecting.await {
+                            std::future::pending::<()>().await; // held open, never served
+                        }
+                    }
+                });
+            }
+        });
+        let na = tokio::time::timeout(Duration::from_secs(5), silent.node_addr()).await.unwrap().unwrap();
+        let t = Ticket {
+            v: 1,
+            proto: IROH_PROTO.into(),
+            node: silent.node_id().to_string(),
+            relay: None,
+            addrs: na.direct_addresses.into_iter().collect(),
+            hash: "ab".repeat(32),
+            size: 7_000_000,
+            name: "film.mp4".into(),
+            exp: now() + 3600,
+            sec: "00".repeat(16),
+        };
+        let b = node("silent-b", None).await;
+        b.set_read_idle(Duration::from_secs(1));
+        let started = std::time::Instant::now();
+        let r = b.fetch(&t, &tmp("silent-dst"), |_, _| {}).await;
+        assert!(matches!(r, Err(FetchError::Io(ref e)) if e == "stalled"), "got {r:?}");
+        assert!(started.elapsed() < Duration::from_secs(10), "gave up promptly");
+        silent.close().await;
         b.close().await;
     }
 

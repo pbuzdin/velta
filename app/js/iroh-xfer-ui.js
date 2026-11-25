@@ -14,7 +14,7 @@ import {
   irohXferEnabled, THRESHOLD, routeLabel, CAPABILITY_KEY, peerCapabilityKey, emailReason,
   planRoute, routeText, peerDomains, EMAIL_MAX, offerFailedText, splitFileName, fileKind,
 } from "./iroh-xfer.js";
-import { svg, P } from "./icons.js";
+import { DASH_SVG, svg, P } from "./icons.js";
 import { fileUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { t } from "./i18n.js";
@@ -38,7 +38,7 @@ const SWEEP_MS = 5 * 60 * 1000;
 // xfer_health within ~11 s; xfer_offer copies, seals and hashes the file, so
 // its bound grows by offerPerMbMs per MB (~10 MB/s worst case). A stalled
 // call must time out here, never turn Send into a no-op.
-export const WAIT_MS = Object.freeze({ metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100 });
+export const WAIT_MS = Object.freeze({ metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100, fetchMs: 300000, fetchPerMbMs: 500 });
 let limits = { ...WAIT_MS }; // per initXferUi; tests pass short ones
 let metaCache = { at: 0, value: null, ttl: 0 };
 const META_TTL = 5 * 60 * 1000;
@@ -167,7 +167,7 @@ function routeBadgeHtml(st) {
   const r = routeOf(st);
   if (!r) return "";
   const label = r === "dash" ? t("Dash") : t("Email fallback");
-  return `<span class="xfer-route" data-route="${r}">${r === "dash" ? svg(P.dash) : svg(P.mail)}<span>${escapeHtml(label)}</span></span>`;
+  return `<span class="xfer-route" data-route="${r}">${r === "dash" ? DASH_SVG : svg(P.mail)}<span>${escapeHtml(label)}</span></span>`;
 }
 function canAsk(st) {
   if (st.error === "too-big-recv" || (st.size != null && st.size > EMAIL_MAX)) return false;
@@ -195,7 +195,14 @@ export function setXferLightboxOpener(fn) { lightbox = fn; }
 function previewHtml(hash, name, st) {
   const kind = mediaKind(name || st.path);
   if (!kind) return "";
-  if (!st.path) return `<span class="xfer-preview xfer-preview-dead">${escapeHtml(t("Preview unavailable"))}</span>`;
+  // No bytes yet: while the card is still waiting on a fetch the glyph tile
+  // stays — a dead tile under the busy ring reads as "broken", not "wait".
+  // The dead tile is for settled cards that will never have a copy here:
+  // asked/error, or the sender's other device.
+  if (!st.path) {
+    if (!st.outgoing && !st.asked && !st.error) return "";
+    return `<span class="xfer-preview xfer-preview-dead">${escapeHtml(t("Preview unavailable"))}</span>`;
+  }
   const url = escapeAttr(safeFileUrl(st.path));
   // #t=0.001 seeks to the first frame so preload=metadata paints it instead
   // of an empty tile.
@@ -351,7 +358,13 @@ function startFetch(hash, attempt) {
   st.pct = undefined;
   refresh(hash);
   sink("info", env.invoke ? `fetching ${name} (${fmtSize(st.size)}) via Velta Dash${attempt ? ` (retry ${attempt})` : ""}` : `asking for the email copy of ${name} (no Dash here)`);
-  (async () => transport.receive({ chatId: st.chatId, text: st.text, peers: env.invoke ? await peersOf(st.chatId) : [] }))().then((r) => {
+  // Hard overall cap: every Rust wait is bounded (connect, handshake, read
+  // idle), but a peer that trickles a byte per idle window keeps a fetch
+  // "alive" forever at 0% — the card would spin "Waiting for sender…"
+  // indefinitely. Past the cap the card errors (Retry resumes from the
+  // .part); ~2 MB/s floor plus 5 min of slack.
+  const budget = limits.fetchMs + Math.ceil((Number(st.size) || 0) / 1048576) * limits.fetchPerMbMs;
+  withTimeout((async () => transport.receive({ chatId: st.chatId, text: st.text, peers: env.invoke ? await peersOf(st.chatId) : [] }))(), budget, "xfer_fetch").then((r) => {
     const cur = cardState.get(hash);
     if (!cur) return;
     cur.receiving = false;
@@ -425,7 +438,13 @@ async function runSweep() {
  *  preview. Legacy classes from an older paint get cleaned up. */
 function paintCard(card, st) {
   const hash = card.getAttribute("data-xfer");
-  const el = card.querySelector(".xfer-state");
+  // .xfer-foot is a SIBLING of [data-xfer] — it spans the bubble under the
+  // card and carries the timestamp — so the state line is resolved through
+  // the parent. Querying inside the card found nothing and live updates
+  // (progress, done, error) silently never landed: a finished fetch kept
+  // showing "Waiting for sender…" until the row happened to re-render.
+  const foot = card.parentElement?.querySelector(":scope > .xfer-foot") || null;
+  const el = (foot || card).querySelector(".xfer-state");
   if (el) {
     el.textContent = stateText(st);
     el.classList.toggle("is-busy", isBusy(st));
@@ -468,8 +487,11 @@ function refresh(hash) {
     // fire it (overflow-anchor: none makes a spurious notify a scroll
     // jump). The first paint stores the height — renderItem's own measure
     // covers it. Only an integer height change dispatches, and the wrap
-    // mutation above happens in this same turn, before the read.
-    const h = card.offsetHeight;
+    // mutation above happens in this same turn, before the read. The foot
+    // is a sibling of the card, so its height (the state line wraps on
+    // errors) counts too.
+    const foot = card.parentElement?.querySelector(":scope > .xfer-foot");
+    const h = card.offsetHeight + (foot?.offsetHeight || 0);
     if (!h || !card.isConnected) continue;
     const prev = card.dataset.xferH;
     if (prev == null) { card.dataset.xferH = String(h); continue; }
@@ -568,10 +590,24 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen,
     });
     // A preview the webview cannot decode (codec, evicted file) degrades to
     // a placeholder tile instead of a broken-image glyph. error does not
-    // bubble; capture catches it for imgs and videos alike.
+    // bubble; capture catches it for imgs and videos alike. One retry with
+    // the URL recomputed first: the very first paint can precede the media
+    // server / blobfile probe, baking a convertFileSrc URL that serves the
+    // sealed (VLTA) bytes raw — by the time the error fires, fileUrl
+    // resolves to the decrypting chain and the same file plays.
     document.addEventListener("error", (e) => {
       const el = e.target;
       if (!el?.classList?.contains("xfer-preview")) return;
+      const hash = el.closest?.("[data-xfer]")?.getAttribute("data-xfer");
+      const st = hash ? cardState.get(hash) : null;
+      if (st?.path && !el.dataset.xferRetried) {
+        const fresh = safeFileUrl(st.path);
+        if (fresh && fresh !== "#" && fresh !== (el.getAttribute("src") || "").split("#")[0]) {
+          el.dataset.xferRetried = "1";
+          el.src = el.tagName === "VIDEO" ? `${fresh}#t=0.001` : fresh;
+          return;
+        }
+      }
       el.closest(".xfer-preview-btn")?.querySelector(".xfer-play")?.remove();
       el.replaceWith(Object.assign(document.createElement("span"), { className: "xfer-preview xfer-preview-dead", textContent: t("Preview unavailable") }));
     }, true);
@@ -588,7 +624,9 @@ export function askForEmailCopy(hash) {
 const lastPaint = new Map();
 export function xferProgressEvent(p) {
   const st = p && cardState.get(p.hash);
-  if (!st || st.outgoing || st.done || !(Number(p.size) > 0)) return;
+  // st.error too: a late event from a fetch the UI already gave up on must
+  // not resurrect the busy ring — nothing would ever clear it again.
+  if (!st || st.outgoing || st.done || st.error || !(Number(p.size) > 0)) return;
   st.receiving = true;
   st.pct = Math.min(99, Math.floor((Number(p.done) * 100) / Number(p.size)));
   const now = Date.now();
