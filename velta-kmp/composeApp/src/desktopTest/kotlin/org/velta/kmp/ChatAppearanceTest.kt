@@ -14,9 +14,7 @@ import org.velta.kmp.ui.detectTextLang
 import org.velta.kmp.ui.fontPrefValue
 import org.velta.kmp.ui.hyphenFallback
 import org.velta.kmp.ui.pxLabel
-import org.velta.kmp.ui.showStickerButton
 import org.velta.kmp.ui.showStickersInMenu
-import org.velta.kmp.ui.stickersInAttachPref
 import org.velta.kmp.ui.storedBubbleRadius
 import org.velta.kmp.ui.withBubbleRadius
 import kotlin.test.Test
@@ -84,16 +82,9 @@ class ChatAppearanceTest {
         assertEquals("en", hyphenFallback("fr"))
         assertEquals("ru", hyphenFallback("ru"))
 
-        assertFalse(stickersInAttachPref(null))
-        assertFalse(stickersInAttachPref("0"))
-        assertTrue(stickersInAttachPref("1"))
-        assertTrue(showStickerButton(inAttach = false, hasText = false, p2pGroup = false))
-        assertFalse(showStickerButton(inAttach = false, hasText = true, p2pGroup = false))
-        assertFalse(showStickerButton(inAttach = true, hasText = false, p2pGroup = false))
-        assertFalse(showStickerButton(inAttach = false, hasText = false, p2pGroup = true))
-        assertFalse(showStickersInMenu(inAttach = false, p2pGroup = false))
-        assertTrue(showStickersInMenu(inAttach = true, p2pGroup = false))
-        assertFalse(showStickersInMenu(inAttach = true, p2pGroup = true))
+        // Stickers live in the attach menu only; no pref, no composer button.
+        assertTrue(showStickersInMenu(p2pGroup = false))
+        assertFalse(showStickersInMenu(p2pGroup = true))
 
         val platform = MemPrefs()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

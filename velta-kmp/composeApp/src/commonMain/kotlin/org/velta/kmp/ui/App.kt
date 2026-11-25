@@ -2879,7 +2879,6 @@ private fun SettingsScreen(model: AppModel) {
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
                 SettingsToggleRow("Hyphenate long words (English, Russian)", model.hyphensOn, model::onSetHyphens)
-                SettingsToggleRow("Stickers in attachments menu", model.stickersInAttach, model::onSetStickersInAttach)
                 if (glassComposerAvailable()) {
                     SettingsToggleRow("Liquid glass composer", model.glassComposer, model::onSetGlassComposer)
                 }
@@ -4626,12 +4625,7 @@ private fun Composer(model: AppModel) {
         // chrome. Icons ride --ico-5 (26px); send is accentText when armed.
         // ponytail: no P2P groups in this client, so that hide stays false until Loop.
         val p2pGroup = false
-        val stickerInMenu = showStickersInMenu(model.stickersInAttach, p2pGroup)
-        val stickerButton = showStickerButton(
-            model.stickersInAttach,
-            model.composerText.trim().isNotEmpty(),
-            p2pGroup,
-        )
+        val stickerInMenu = showStickersInMenu(p2pGroup)
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Bottom,
@@ -4730,22 +4724,6 @@ private fun Composer(model: AppModel) {
                         }
                     },
                 )
-                if (stickerButton) {
-                    IconButton(
-                        onClick = {
-                            model.loadStickers()
-                            showStickers = !showStickers
-                        },
-                        modifier = Modifier.padding(end = 8.dp).size(34.dp),
-                    ) {
-                        Icon(
-                            VeltaIcons.sticker,
-                            contentDescription = L.t("Stickers"),
-                            modifier = Modifier.size(22.dp),
-                            tint = Velta.tokens.textDim,
-                        )
-                    }
-                }
             }
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                 // Stable: while recording, Send stops and sends the voice message.

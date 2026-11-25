@@ -121,7 +121,7 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
   default on). Small groups (up to 10 members) list everyone on a bare `@`;
   bigger groups start listing after the first letter.
   Details: [docs/mentions.md](docs/mentions.md).
-- **Send later** — the Send later button beside Send (desktop), long-press or right-click Send, press Ctrl+Shift+Enter, or pick it in the attach menu to schedule a
+- **Send later** — long-press or right-click Send, press Ctrl+Shift+Enter, or pick it in the attach menu to schedule a
   message: presets or a date and time. Scheduled messages show as a chip in
   the chat and in a per-chat and global list, where you can edit, send now,
   or delete them. Android uses exact alarms when allowed and still sends on
@@ -297,10 +297,12 @@ before first paint, like the interface scale. Message text is tagged `ru` or
 e-mail addresses and hashtags are never hyphenated.
 On wide windows the chat list can be collapsed with the chevron above the Menu button or **Ctrl+B** (⌘B); while collapsed, the button shows the unread count.
 Opt-in extras: **Pure black (AMOLED)** for the dark theme (pure-black
-backgrounds, slightly grey elevated surfaces), **Stickers in attachments
-menu**, which moves the sticker button into the attachments menu, and
+backgrounds, slightly grey elevated surfaces) and
 **Liquid glass composer** (off by default; Windows and Android only), which
-lets the message field bend the chat scrolling behind it.
+lets the message field bend the chat scrolling behind it. Stickers open from
+the attach menu (Attach → Stickers); the composer row keeps only attach,
+the message field, and Send — Apps, Commands and Send later live in the
+attach menu too.
 
 **Export settings** (drawer → Export settings to Saved Messages, last item
 before About) sends one plain-text message to your own Saved Messages: a

@@ -29,11 +29,10 @@ Later #358 slices in this tree: strict relay and `velta://proxy` message
 cards (`ui/InviteCards.kt`; `velta://ws` stays plain text), sticker sends
 via `send_msg` viewtype `Sticker` so a reply quote survives, chat
 appearance (text size, corners, hyphenation, liquid-glass composer
-switch, stickers-in-attach), and an Android app-lock PIN beside the
-biometric lock. Desktop has no PIN control and does not encrypt a
-keyless accounts dir. No Windows Hello. Stickers default to the
-composer button and move into Attach when `velta-stickers-in-attach`
-is `"1"`. The button hides while the composer has text.
+switch), and an Android app-lock PIN beside the biometric lock. Desktop
+has no PIN control and does not encrypt a keyless accounts dir. No
+Windows Hello. Stickers open from the Attach menu only — the composer
+button and its `velta-stickers-in-attach` pref are gone (web parity).
 Reply threads count quotes (`get_reply_counts`; the loaded window counts
 only when history is complete), show "N replies" and a side button, and
 open a 70% sheet (history dimmed, go-down hidden) that keeps the next send quoting the parent
@@ -101,8 +100,8 @@ composeApp/src/
                  labels, deltachat.id short links.
   ui/InviteCards.kt  strict message cards: `https://host/i/<token>` and
                  `velta://proxy` only. `velta://ws` stays plain text.
-  ui/ChatAppearance.kt  text size, bubble corners, hyphenation,
-                 stickers-in-attach (`chat-appearance.js` / `text-lang.js`).
+  ui/ChatAppearance.kt  text size, bubble corners, hyphenation
+                 (`chat-appearance.js` / `text-lang.js`).
   ui/ThreadRules.kt reply counts, thread rows, send re-lock.
   ui/HtmlScreen.kt  full-HTML viewer. Android actual is a WebView with
                  JavaScript off. Desktop actual is a notice.
@@ -446,9 +445,8 @@ never run Gradle on the Windows side.
   48dp-min 16dp-radius input wrap on bgSidebar + 1dp border, naked
   BasicTextField 15.5sp/1.3, armed-send tint). Attach menu (web
   chat-view.js): Photo / Video / Camera (FileProvider capture) / File
-  (SAF mime pre-filter). Stickers is that menu only when
-  `velta-stickers-in-attach` is `"1"`; otherwise the button sits in the
-  empty composer and hides while there is text. Staged attachments show a 96×64
+  (SAF mime pre-filter). Stickers is that menu, always (the composer
+  button and its pref are gone — web parity). Staged attachments show a 96×64
   letterboxed thumbnail (EXIF-aware; video first frame + play/duration);
   Edit on a still opens the pre-send crop/draw editor
   (`ui/ImageEditRules.kt`: aspect presets, 90° rotate, brush, undo/redo;
@@ -671,10 +669,9 @@ never run Gradle on the Windows side.
   (brutal 6, otherwise 14). With an override, tail and quote are
   min(6, r) and media is max(0, r−4); with none, brutal media stays 10.
   `velta-hyphens` is off only when `"0"`.
-  `velta-stickers-in-attach` is on only when `"1"` (off stores `"0"`).
-  Off: sticker button inside the empty composer. On: Stickers is an
-  Attach row and the button is gone. Either way the button is gone
-  while the field has text. Mail chats still pass `p2pGroup = false`.
+  Stickers is always an Attach row; the composer button and its
+  `velta-stickers-in-attach` pref are gone (web parity). Mail chats still
+  pass `p2pGroup = false`.
   The Loop composer sends text and a file (no stickers, no voice). Typing
   hints follow `velta-p2p-typing` (absent is on). A 1:1 chat can remove
   the device; a group can be renamed by its creator, left, disbanded, or

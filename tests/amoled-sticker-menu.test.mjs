@@ -1,4 +1,5 @@
-// #277 pure black (AMOLED) dark theme and #278 stickers in the attach menu.
+// #277 pure black (AMOLED) dark theme and #278 stickers in the attach menu
+// (now the only home: the composer sticker button and its pref are gone).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -11,6 +12,7 @@ const CSS = read("app/css/main.css");
 const APP = read("app/js/app.js");
 const UI = read("app/js/ui.js");
 const VIEW = read("app/js/chat-view.js");
+const INDEX = read("app/index.html");
 
 function pin({ theme, amoled, light = false }) {
   const store = new Map(Object.entries({ "dw-theme": theme, ...(amoled ? { "velta-amoled": "1" } : {}) }));
@@ -54,24 +56,29 @@ test("app.js applyTheme toggles data-amoled for dark only and the drawer switch 
   assert.match(UI, /amoledOpt\.hidden = document\.documentElement\.dataset\.theme !== "dark"/);
 });
 
-test("settings export/apply covers both switches", () => {
+test("settings export/apply covers the AMOLED switch", () => {
   const keys = SETTINGS.map(s => s.key);
-  assert.ok(keys.includes("amoled") && keys.includes("stickers-in-attach"));
-  const m = new Map([["velta-amoled", "1"], ["velta-stickers-in-attach", "1"]]);
+  assert.ok(keys.includes("amoled"));
+  // stickers-in-attach and commands-button left the list with their switches;
+  // old imports report them as ignored (parseSettings), never throw.
+  assert.ok(!keys.includes("stickers-in-attach") && !keys.includes("commands-button"));
+  const m = new Map([["velta-amoled", "1"], ["velta-stickers-in-attach", "1"], ["velta-cmds-button", "0"]]);
   const ls = { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k) };
   const v = readSettings(ls);
   assert.equal(v.amoled, "on");
-  assert.equal(v["stickers-in-attach"], "on");
-  applySettings(ls, { amoled: "off", "stickers-in-attach": "off" });
+  applySettings(ls, { amoled: "off" });
   assert.equal(m.has("velta-amoled"), false);
-  assert.equal(m.has("velta-stickers-in-attach"), false);
+  assert.equal(m.has("velta-stickers-in-attach"), true); // unread, left on disk
 });
 
-test("stickers in attach: composer button hidden, Attach → Stickers opens the same picker", () => {
-  assert.match(VIEW, /b\.hidden = !!chat\?\.isP2pGroup \|\| stickersInAttach\(\)/);
-  assert.match(VIEW, /if \(stickersInAttach\(\) && !this\.chat\?\.isP2pGroup\) \{\s*attachItems\.push\(\{ label: "Stickers", icon: ICO\.sticker, onClick: \(\) => this\._toggleStickerPicker\(\) \}\)/);
+test("stickers in attach: no composer button, Attach → Stickers opens the same picker", () => {
+  // The pref and its gates are gone; the menu row is unconditional for
+  // non-local groups.
+  assert.doesNotMatch(VIEW, /stickersInAttach|velta-stickers-in-attach|velta-stickers-pref/);
+  assert.doesNotMatch(INDEX, /btn-sticker/);
+  assert.doesNotMatch(CSS, /#btn-sticker/);
+  assert.match(VIEW, /if \(!this\.chat\?\.isP2pGroup\) \{\s*attachItems\.push\(\{ label: "Stickers", icon: ICO\.sticker, onClick: \(\) => this\._toggleStickerPicker\(\) \}\)/);
   // #264: the picker's send keeps the active reply.
   assert.match(VIEW, /viewtype: "sticker", file: path, \.\.\.this\._quoteFields\(\)/);
-  assert.match(VIEW, /addEventListener\("velta-stickers-pref", \(\) => this\._applyGroupComposer\(this\.chat\)\)/);
   assert.doesNotMatch(VIEW, /label: "Article"/);
 });

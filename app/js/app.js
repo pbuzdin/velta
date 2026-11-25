@@ -1573,8 +1573,6 @@ function refreshAfterSettingsApply(keys) {
   if (has("language")) { location.reload(); return; }
   if (has("theme") || has("amoled")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
   if (has("loop-seal-media")) applyP2pSeal(p2pSealOn());
-  if (has("stickers-in-attach")) window.dispatchEvent(new Event("velta-stickers-pref"));
-  if (has("send-later") || has("commands-button")) window.dispatchEvent(new Event("velta-composer-pref"));
   if (has("glass-composer")) window.dispatchEvent(new Event("velta-glass-pref"));
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {

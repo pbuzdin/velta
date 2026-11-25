@@ -88,7 +88,6 @@ local-chat-typing: on
 | `link-previews` | `off`, `picture`, `fetch` | `velta-link-preview` |
 | `strip-tracking` | on/off | `velta-strip-trackers` |
 | `send-on-enter` | on/off | `velta-send-enter` |
-| `stickers-in-attach` | on/off (absent = off) | `velta-stickers-in-attach` |
 | `glass-composer` | on/off (absent = off) | `velta-glass-composer` |
 | `read-receipts` | on/off | `velta-mdns` (+ core `mdns_enabled`) |
 | `remember-scroll` | on/off | `velta-remember-scroll` |

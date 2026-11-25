@@ -42,94 +42,91 @@ try {
   assert.deepEqual(errors, [])
   console.log('OK: demo boot, chat open, message send, no unexpected browser errors')
 
-  // Expanding composer: typing expands the field to a full-width column with
-  // the buttons on a row below, hides the sticker trigger (a sticker send is
-  // a message of its own), caps the field at three lines; clearing collapses.
+  // One-row composer at every width: attach, field, send. Typing never
+  // reflows the row; the arrow fills only while armed (text, staged file,
+  // or voice); Apps/Commands/Send later/Stickers live in the attach menu.
   const bar = page.locator('#main-composer')
   const state = () => bar.evaluate(el => ({
     display: getComputedStyle(el).display,
-    expanded: el.classList.contains('expanded'),
-    hasText: el.classList.contains('has-text'),
+    armed: el.classList.contains('armed'),
   }))
   assert.equal((await state()).display, 'flex', 'rest: single-row flex composer')
-  await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth > 0, undefined, { timeout: 2000 })
-    .catch(() => { throw new Error('rest: sticker did not return after send') })
-  const restGut = await page.evaluate(() => {
+  assert.equal((await state()).armed, false, 'rest: send unarmed')
+  const gutters = () => page.evaluate(() => {
     const r = s => document.querySelector(s).getBoundingClientRect()
     const a = r('#btn-attach'); const w = r('.composer-input-wrap'); const d = r('#btn-send')
     return [Math.round(w.left - a.right), Math.round(d.left - w.right)]
   })
-  assert.deepEqual(restGut, [8, 8], 'rest: equal gutters around the field')
+  assert.deepEqual(await gutters(), [8, 8], 'rest: equal gutters around the field')
   await page.locator('#composer-input').fill('M '.repeat(80))
-  assert.deepEqual(await state(), { display: 'grid', expanded: true, hasText: true }, 'typing: expanded grid')
-  await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth === 0, { timeout: 2000 })
-  // Wait out the 180ms composer-drop animation before measuring geometry.
-  const below = await page.waitForFunction(() => {
-    const r = s => document.querySelector(s).getBoundingClientRect()
-    const a = r('#btn-attach'); const w = r('.composer-input-wrap'); const d = r('#btn-send')
-    const v = [a.top - w.bottom, a.left - w.left, w.right - d.right].map(Math.round)
-    return v[0] === 8 && v[1] === 0 && v[2] === 0 ? v : null
-  }, undefined, { timeout: 2000 }).then(h => h.jsonValue())
-  assert.deepEqual(below, [8, 0, 0], 'expanded: buttons row below, flush with the field edges')
+  assert.deepEqual(await state(), { display: 'flex', armed: true }, 'typing: same row, armed')
+  assert.deepEqual(await gutters(), [8, 8], 'typing: gutters unchanged — no second row')
   const h = await page.locator('#composer-input').evaluate(el => el.clientHeight)
   assert.ok(h > 55 && h <= 95, `field capped at three lines, clientHeight ${h}`)
   await page.locator('#composer-input').fill('')
-  assert.deepEqual(await state(), { display: 'flex', expanded: false, hasText: false }, 'clear: collapsed again')
-  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('btn-apps')).display), 'none', 'phone: quick tools stay in the attach menu')
-  await page.waitForFunction(() => document.getElementById('btn-sticker').offsetWidth > 0, { timeout: 2000 })
+  assert.deepEqual(await state(), { display: 'flex', armed: false }, 'clear: same row, disarmed')
+  for (const id of ['btn-apps', 'btn-commands', 'btn-send-later', 'btn-sticker']) {
+    assert.equal(await page.evaluate(i => document.getElementById(i), id), null, `${id}: gone from the composer`)
+  }
 
-  // Touch: focus alone expands, blur collapses (no text needed either way).
+  // Touch: focus alone must not grow a second row (the old phone jump).
   const touch = await browser.newPage({ viewport: { width: 390, height: 800 } })
   const touchErrors = []
   touch.on('pageerror', e => touchErrors.push(e.message))
-  await touch.addInitScript(() => {
-    localStorage.setItem('velta-mock', '1')
-    const real = window.matchMedia.bind(window)
-    window.matchMedia = q => q.includes('pointer: coarse')
-      ? { matches: true, media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }
-      : real(q)
-  })
+  await touch.addInitScript(() => localStorage.setItem('velta-mock', '1'))
   await touch.goto(`http://127.0.0.1:${server.address().port}/index.html`)
   await touch.locator('.chat-item', { hasText: 'Ada Byron' }).first().click({ timeout: 15000 })
   await touch.locator('#chat-view').waitFor({ state: 'visible' })
   await touch.locator('#composer-input').focus()
-  assert.equal(await touch.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'grid', 'touch: focus alone expands')
+  assert.equal(await touch.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'flex', 'touch: focus does not reflow the row')
+  assert.equal(await touch.evaluate(() => document.getElementById('main-composer').classList.contains('armed')), false, 'touch: focus alone does not arm')
   await touch.evaluate(() => document.activeElement?.blur())
-  assert.equal(await touch.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'flex', 'touch: blur collapses')
+  assert.equal(await touch.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'flex', 'touch: blur keeps the row')
   assert.deepEqual(touchErrors, [])
   await touch.close()
-  console.log('OK: expanding composer — rest/typing/clear + touch focus/blur')
+  console.log('OK: composer — one row at rest/typing/clear, focus does not reflow')
 
-  // Desktop (≥600px): always expanded — grid at rest, send pinned to one
-  // spot through typing/clearing; send fills accent only while armed.
+  // Desktop: the same one row. Send pinned through typing/clearing; fill
+  // only while armed — including a staged file with an empty caption.
   const desk = await browser.newPage({ viewport: { width: 1000, height: 800 } })
   desk.on('pageerror', e => errors.push(e.message))
   await desk.addInitScript(() => localStorage.setItem('velta-mock', '1'))
   await desk.goto(`http://127.0.0.1:${server.address().port}/index.html`)
   await desk.locator('.chat-item', { hasText: 'Ada Byron' }).first().click({ timeout: 15000 })
   await desk.locator('#chat-view').waitFor({ state: 'visible' })
-  assert.equal(await desk.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'grid', 'desktop: expanded at rest')
+  assert.equal(await desk.evaluate(() => getComputedStyle(document.getElementById('main-composer')).display), 'flex', 'desktop: flex at rest')
   const sendRect = () => desk.evaluate(() => { const r = document.getElementById('btn-send').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)] })
   const restPos = await sendRect()
   const restFill = await desk.evaluate(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor)
-  await desk.locator('#composer-input').fill('desktop always expanded')
+  assert.equal(restFill, 'rgba(0, 0, 0, 0)', 'desktop: unarmed send has no fill')
+  await desk.locator('#composer-input').fill('desktop one row')
   assert.deepEqual(await sendRect(), restPos, 'desktop: send does not move while typing')
   // The .15s background transition stalls in an occluded pane — wait it out.
   await desk.waitForFunction(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor !== 'rgba(0, 0, 0, 0)', undefined, { timeout: 2000 })
-  const armedFill = await desk.evaluate(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor)
-  assert.notEqual(armedFill, restFill, 'desktop: send fills accent while there is text')
   await desk.locator('#composer-input').fill('')
   assert.deepEqual(await sendRect(), restPos, 'desktop: send does not move on clear')
   await desk.waitForFunction(v => getComputedStyle(document.getElementById('btn-send')).backgroundColor === v, restFill, { timeout: 2000 })
-  // Quick tools: Apps/Commands beside Attach, Send later beside Send.
-  assert.equal(await desk.evaluate(() => getComputedStyle(document.getElementById('btn-apps')).display), 'grid', 'desktop: quick tools visible')
-  assert.equal(await desk.evaluate(() => document.getElementById('btn-send-later').hidden), false, 'desktop: Send later shown in a normal chat')
-  await desk.locator('#btn-apps').click()
-  await desk.locator('.ctx-menu').waitFor({ state: 'visible', timeout: 2000 })
-  // Attach menu: the [popover] base must not win overflow back — with both
-  // details open the menu scrolls inside its box instead of spilling.
-  await desk.evaluate(() => document.getElementById('btn-attach').click())
+  // A pasted image stages the strip and arms the fill with an empty caption
+  // (a staged file already sends on tap — the fill says so).
+  await desk.evaluate(() => {
+    const dt = new DataTransfer()
+    dt.items.add(new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'notes.png', { type: 'image/png' }))
+    document.getElementById('composer-input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+  await desk.locator('#media-preview').waitFor({ state: 'visible', timeout: 2000 })
+  assert.equal(await desk.evaluate(() => document.getElementById('composer-input').value), '', 'staged file: caption still empty')
+  await desk.waitForFunction(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor !== 'rgba(0, 0, 0, 0)', undefined, { timeout: 2000 })
+  assert.notEqual(await desk.evaluate(() => getComputedStyle(document.getElementById('btn-send')).backgroundColor), restFill, 'staged file: send armed with an empty caption')
+  await desk.locator('#btn-media-close').click()
+  await desk.waitForFunction(v => getComputedStyle(document.getElementById('btn-send')).backgroundColor === v, restFill, { timeout: 2000 })
+  // The attach menu is the only overflow: Apps/Commands details, plus the
+  // Stickers and Send later rows. The [popover] base must not win overflow
+  // back — with both details open the menu scrolls inside its box.
+  await desk.locator('#btn-attach').click()
   await desk.locator('.attach-pop').waitFor({ state: 'visible', timeout: 2000 })
+  const menuRows = await desk.evaluate(() => [...document.querySelectorAll('.attach-pop button')].map(b => b.textContent.trim()))
+  assert.ok(menuRows.some(s => s.includes('Stickers')), 'attach menu: Stickers row present')
+  assert.ok(menuRows.some(s => s.includes('Send later')), 'attach menu: Send later row present')
   await desk.evaluate(() => { for (const d of document.querySelectorAll('.attach-pop details')) d.open = true })
   const over = await desk.evaluate(() => {
     const m = document.querySelector('.attach-pop')
@@ -139,9 +136,7 @@ try {
   assert.equal(over.y, 'auto', 'attach menu: popup overflow owned by the menu')
   assert.ok(over.fits, 'attach menu: stays inside the viewport with details open')
   await desk.close()
-  console.log('OK: desktop composer — always expanded, pinned send, armed fill, quick tools')
-  await desk.close()
-  console.log('OK: desktop composer — always expanded, pinned send, armed fill')
+  console.log('OK: composer — pinned send, armed fill (text + staged file), attach menu')
 } finally {
   await browser.close()
   server.close()

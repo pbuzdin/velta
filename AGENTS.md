@@ -1572,10 +1572,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   thumbnail buys nothing. Tap behavior: received sticker = add-to-collection
   prompt THEN lightbox; own sticker = lightbox UNCONDITIONALLY (no
   naturalWidth gate — the static thumbnail may still be decoding when tapped,
-  which silently killed taps on Android). Composer trigger is
-  `#btn-sticker` INSIDE `.composer-input-wrap` (right edge) — icon is the
-  hand-drawn square-with-fold smiley (e888008; an svgrepo circle variant
-  was tried and rejected by the user). P2P chats: no save/picker
+  which silently killed taps on Android). Composer trigger is the attach
+  menu's "Stickers" row (non-local groups only; the old `#btn-sticker`
+  inside `.composer-input-wrap` and its `velta-stickers-in-attach` pref are
+  gone — the icon was the hand-drawn square-with-fold smiley, e888008; an
+  svgrepo circle variant was tried and rejected by the user). P2P chats: no save/picker
   interplay. MockCore ships `mock:<emoji>` tile paths the picker renders
   as text — never feed those to fileUrl.
 - **JSON-RPC `MessageData` casing (post-1.4.31, silent-kill class)**: the
