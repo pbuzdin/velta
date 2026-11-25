@@ -138,11 +138,13 @@ export const P = {
   // scheduled messages ("Send later"): clock face, hands at 12 → 4
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',  // Admin group / admin badge (#177): outline shield with a check
   // Admin chip on the admin's messages (#177): plain outline shield
-  // Velta Dash (#470, automatic large-file transfer): the brand V, right
-  // arm sliced — the dash-logo.svg mark as an outline glyph (house style).
-  // The break is wider than the mark's own slit: at 24px a stroke gap
-  // narrower than ~4 units bridges through the round caps.
-  dash: '<path d="M5 4l7 16"/><path d="M19 4l-2.7 6.1"/><path d="M14.6 14L12 20"/>',
+  // Velta Dash (#470, automatic large-file transfer): the dash-logo.svg
+  // mark as an outline glyph (house style) — the user-fixed geometry: the
+  // left arm carries the point, the right arm is two thin dashes up top
+  // plus a solid lower arm that ends SHORT of the tip (the V stays open).
+  // Gaps are wider than the mark's own: at 24px a stroke gap under ~2.3
+  // units bridges through the round caps.
+  dash: '<path d="M5 4l7 16"/><path d="M20.3 4l-.5 1.5"/><path d="M18.9 7.6l-.5 1.5"/><path d="M17.5 11.2l-1.2 3.5"/>',
   // email (Dash's email-fallback badge on file cards): envelope
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5L12 13l8.5-6.5"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/>',
