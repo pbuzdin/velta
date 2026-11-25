@@ -540,8 +540,30 @@ over 6 MB, which now stage too) shows a `#media-route` line from
 A Dash send mails the ticket card, then the caption as its own message.
 
 **Receiver card states.** "Waiting for sender…" → "Fetching via Velta Dash
-34%" (`xfer-progress`) → "Received"; or "Couldn't fetch via Velta Dash: asked
-for the email copy"; or the too-large / interrupted states above (Retry).
+34%" (`xfer-progress`) → "Received with Velta Dash"; or "Couldn't fetch via
+Velta Dash: asked for the email copy"; or the too-large / interrupted states
+above (Retry).
+
+**File card layout (#519).** A Dash message is still a text bubble carrying
+the ticket, but the card is a file row, not a wrapping flex line: a 44px
+type tile (accent fill + `--on-accent` icon from a closed kind map — video,
+audio, image, archive, file; no extension letter), a one-line filename that
+keeps its extension (`splitFileName`; `.tar.gz` and `.tar.bz2` stay whole,
+everything else keeps the last suffix; the base ellipsizes, the extension
+never breaks off), and a size row: byte count (`fmtSize`), the route chip
+(a passive status token on `--text-meta-in` / `--text-meta-out`, never
+accent), and the action. The status sentence shares the timestamp row with
+`.msg-meta` (`.xfer-foot`) instead of crowding the size row, and an ERRORS
+sentence wraps there (`.is-error`) without moving the tile. Open and Show in
+folder are `.btn-text` buttons, not anchors and not pills — Open computes the
+`fileUrl` at click time from card state and never carries an href (and never
+`open_document`: a Dash file is not a core blob, the sealed `accounts/xfer-in/`
+path would reach the OS as ciphertext). A fetched image/video shows the real
+preview in place of the tile (#517): the picture opens the image lightbox,
+the play disc opens the player; bytes on the sender's device preview the same
+way. `refresh()` dispatches `velta-row-resized` only when the card's integer
+`offsetHeight` changes — a percent tick never moves the history — and a
+recycled row repaints via `paintXferIn` before the scroller measures it.
 
 **Plain email over the cap.** Core sends a big attachment as a small
 pre-message plus the full post-message. When the sender's relay refuses the

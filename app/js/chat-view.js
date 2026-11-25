@@ -139,8 +139,8 @@ import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealIte
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
-import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend, setXferLightboxOpener } from "./iroh-xfer-ui.js";
-import { THRESHOLD as XFER_THRESHOLD } from "./iroh-xfer.js";
+import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend, setXferLightboxOpener, paintXferIn } from "./iroh-xfer-ui.js";
+import { THRESHOLD as XFER_THRESHOLD, fileKind } from "./iroh-xfer.js";
 import { probeVideo, playLabel } from "./composer-video.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
@@ -170,6 +170,7 @@ function ensureXfer(view) {
     metadata: () => view.core?.getServerMetadata?.(),
     sendText: (chatId, text) => view._sendArchivedAware(chatId, { text }),
     sendFile: (chatId, path, name) => view._sendArchivedAware(chatId, { viewtype: shareViewtype(name), file: path, filename: name }),
+    openHttp,
   });
 }
 // Cheap header gate so Saved Messages can offer Apply without pulling
@@ -2289,6 +2290,10 @@ export class ChatView {
     if (cached && cached._veltaFlags === this._itemFlags(item)
         && (sig == null || this._rowSigCache.get(item.key) === sig)) {
       unparkMedia(cached);
+      // A Dash card whose fetch finished while the row was recycled repaints
+      // BEFORE the scroller measures the mount — the stale "Receiving…"
+      // state never shows (#519).
+      paintXferIn(cached);
       this._healCachedImage(cached);
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
@@ -2782,7 +2787,16 @@ export class ChatView {
       const label = escapeHtml(replyN === 1 ? t("Show 1 reply") : t("Show {n} replies", { n: replyN }));
       threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}</button>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${adminChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}${repliesChip}</span>${failBadge}</div>`;
+    // A Dash card (#519) carries its own foot row: the status sentence sits
+    // beside the timestamp, so the meta fills the card's slot instead of
+    // floating at the bubble's end. Every other message keeps the float.
+    const metaInner = `${edited}${star}${botChip}${adminChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}${repliesChip}`;
+    if (bubble.includes("xfer-meta-slot")) {
+      bubble = bubble.replace('<span class="xfer-meta-slot"></span>', `<span class="msg-meta">${metaInner}</span>`);
+      bubble += `${failBadge}</div>`;
+    } else {
+      bubble += `<span class="msg-meta">${metaInner}</span>${failBadge}</div>`;
+    }
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
@@ -3235,6 +3249,16 @@ export class ChatView {
           openHttp(href);
         }
         return; // non-http hrefs: browser default, never row selection
+      }
+      // Dash Open (#519): a button, so GESTURE_SKIP_SELECTOR already stops
+      // a swipe from STARTING on it. This guard is for a swipe that began
+      // elsewhere on the bubble and whose synthesised click lands on Open —
+      // same 400ms window as the hashtag and code-copy buttons. Otherwise
+      // this branch returns without stopPropagation: the document-level
+      // data-xfer-open listener performs the open.
+      if (e.target.closest("[data-xfer-open]")) {
+        if (Date.now() - (this._swipedAt || 0) < 400) { e.stopPropagation(); return; }
+        return;
       }
       // #134: tapping a #hashtag searches for it in this chat (app.js
       // listens and opens the chat search prefilled with the tag).
@@ -4635,9 +4659,12 @@ export class ChatView {
     bar.hidden = false;
     thumb.replaceChildren();
     if (pm.kind === "file") {
+      // #519: the type icon map, not the extension's first letter — the
+      // composer thumb keeps its 30px glyph box.
       const glyph = document.createElement("span");
       glyph.className = "xfer-glyph";
-      glyph.textContent = (String(pm.name || "f").split(".").pop()?.[0] || "f").toUpperCase();
+      glyph.setAttribute("aria-hidden", "true");
+      glyph.innerHTML = svg(P[{ video: "video", audio: "mic", image: "photo", archive: "archive", file: "file" }[fileKind(pm.name)] || "file"]);
       thumb.append(glyph);
     } else if (pm.kind === "video") {
       thumb.classList.add("is-video");

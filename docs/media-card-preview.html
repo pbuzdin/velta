@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Velta image and video cards</title>
+<style>
+  :root {
+    --bg-chat: #0b0b10;
+    --bg-bubble-in: #1c1c26;
+    --bg-bubble-out: #2b5278;
+    --accent-text: #5aa2e6;
+    --on-accent: #10131a;
+    --text: #f2f2f5;
+    --text-meta-in: #8f8f9c;
+    --text-meta-out: #a8c6e2;
+    --out-link: #dfeaf6;
+    --ticks-read: #6ec2ff;
+    --radius-bubble: 14px;
+    --radius-tail: 6px;
+    --radius-media: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg-chat); color: var(--text); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: 28px 20px 32px;
+  }
+  h1 { margin: 0 0 16px; font-size: 13px; font-weight: 600; color: var(--text-meta-in); }
+  .history { max-width: 560px; display: flex; flex-direction: column; gap: 10px; }
+  .msg-row { display: flex; padding: 2px 6px; }
+  .msg-row.out { justify-content: flex-end; }
+  .bubble {
+    width: 420px; max-width: 100%;
+    background: var(--bg-bubble-in);
+    border-radius: var(--radius-bubble);
+    border-bottom-left-radius: var(--radius-tail);
+    padding: 7px 10px 6px;
+    box-shadow: 0 1px 2px rgba(16,16,16,.25);
+  }
+  .msg-row.out .bubble {
+    background: var(--bg-bubble-out);
+    border-bottom-left-radius: var(--radius-bubble);
+    border-bottom-right-radius: var(--radius-tail);
+  }
+  .media {
+    margin: 2px -5px 6px;
+    border-radius: var(--radius-media);
+    overflow: hidden;
+    background: #101010;
+    line-height: 0;
+  }
+  .media img { width: 100%; height: auto; display: block; }
+  .xfer-name {
+    display: flex; min-width: 0;
+    font-size: 14.5px; font-weight: 600; line-height: 1.25;
+  }
+  .xfer-name-base {
+    flex: 0 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .xfer-name-ext { flex: none; white-space: nowrap; }
+  .xfer-sub {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 2px; min-width: 0;
+  }
+  .xfer-meta, .xfer-route { font-size: 12.5px; }
+  .xfer-route { font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+  .xfer-route svg { width: 14px; height: 14px; }
+  .msg-row:not(.out) .xfer-meta,
+  .msg-row:not(.out) .xfer-route,
+  .msg-row:not(.out) .xfer-state { color: var(--text-meta-in); }
+  .msg-row.out .xfer-meta,
+  .msg-row.out .xfer-route,
+  .msg-row.out .xfer-state { color: var(--text-meta-out); }
+  .folder {
+    margin-left: auto;
+    border: 0; background: transparent; cursor: pointer;
+    font: inherit; font-size: 14px; font-weight: 600; line-height: 1;
+    padding: 4px 8px; color: var(--accent-text);
+  }
+  .msg-row.out .folder { color: var(--out-link); }
+  .xfer-foot {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; margin-top: 2px;
+  }
+  .xfer-state { font-size: 11.5px; line-height: 1.3; }
+  .msg-meta { flex: none; font-size: 11.5px; line-height: 1.3; }
+  .msg-row:not(.out) .msg-meta { color: var(--text-meta-in); }
+  .msg-row.out .msg-meta { color: var(--text-meta-out); }
+  .ticks { color: var(--ticks-read); margin-left: 3px; }
+  .ticks svg { width: 14px; height: 14px; vertical-align: -2px; }
+</style>
+</head>
+<body>
+  <h1>Proposed · image and video · preview is the card</h1>
+  <div class="history">
+    <div class="msg-row">
+      <div class="bubble">
+        <div class="media"><img src="media-photo.png" alt=""></div>
+        <div class="xfer-name" title="1795562108894-unknown_2025.12.08-04.05.png">
+          <span class="xfer-name-base">1795562108894-unknown_2025.12.08-04.05</span><span class="xfer-name-ext">.png</span>
+        </div>
+        <div class="xfer-sub">
+          <span class="xfer-meta">6.8 MB</span>
+          <span class="xfer-route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h11M16 7l5 5-5 5"/><path d="M3 8h4M2 12h4M3 16h4"/></svg><span>Dash</span></span>
+          <button type="button" class="folder">Show in folder</button>
+        </div>
+        <div class="xfer-foot">
+          <span class="xfer-state">Received with Velta Dash</span>
+          <span class="msg-meta">02:15</span>
+        </div>
+      </div>
+    </div>
+    <div class="msg-row out">
+      <div class="bubble">
+        <div class="media"><img src="media-video.png" alt=""></div>
+        <div class="xfer-name" title="1795566026819-Untitled video - Made with Clipchamp.mp4">
+          <span class="xfer-name-base">1795566026819-Untitled video - Made with Clipchamp</span><span class="xfer-name-ext">.mp4</span>
+        </div>
+        <div class="xfer-sub">
+          <span class="xfer-meta">7.2 MB</span>
+          <span class="xfer-route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h11M16 7l5 5-5 5"/><path d="M3 8h4M2 12h4M3 16h4"/></svg><span>Dash</span></span>
+          <button type="button" class="folder">Show in folder</button>
+        </div>
+        <div class="xfer-foot">
+          <span class="xfer-state">Sent with Velta Dash</span>
+          <span class="msg-meta">03:20 <span class="ticks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13l4 4L16 7M11.5 16.5l.5.5L22 7"/></svg></span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

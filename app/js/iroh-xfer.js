@@ -356,3 +356,38 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
   }
   return { send, receive, onResendRequest, sweep, pending, reload };
 }
+
+// ---- name/kind helpers for the Dash file card (#519) ----
+
+// One-line filename with a kept extension: `.tar.gz` and `.tar.bz2` stay
+// whole (the two-part allow-list), everything else keeps its last suffix.
+// A leading-dot name (`.mp4`) is all base; no extension means the whole
+// string is the base and the card end-ellipsizes it.
+const MULTI_EXT = [".tar.gz", ".tar.bz2"];
+const EXT_RE = /\.([A-Za-z0-9]{1,8})$/;
+export function splitFileName(name) {
+  const n = String(name || "");
+  const lower = n.toLowerCase();
+  for (const ext of MULTI_EXT) {
+    if (lower.endsWith(ext) && n.length > ext.length) {
+      return { base: n.slice(0, -ext.length), ext: n.slice(-ext.length) };
+    }
+  }
+  const m = EXT_RE.exec(n);
+  if (!m || m.index === 0) return { base: n || "file", ext: "" };
+  return { base: n.slice(0, m.index), ext: m[0] };
+}
+
+const VIDEO = new Set(["mp4", "m4v", "mov", "webm", "mkv", "avi"]);
+const AUDIO = new Set(["mp3", "m4a", "aac", "ogg", "opus", "wav", "flac"]);
+const IMAGE = new Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "avif"]);
+const ARCHIVE = new Set(["zip", "7z", "rar", "tar", "gz", "tgz", "bz2"]);
+/** Closed enum for the card's type tile; never the raw extension. */
+export function fileKind(name) {
+  const ext = (EXT_RE.exec(String(name || ""))?.[1] || "").toLowerCase();
+  if (VIDEO.has(ext)) return "video";
+  if (AUDIO.has(ext)) return "audio";
+  if (IMAGE.has(ext)) return "image";
+  if (ARCHIVE.has(ext)) return "archive";
+  return "file";
+}

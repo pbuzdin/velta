@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Velta Dash card — proposed</title>
+<style>
+  :root {
+    --bg: #0f0f14;
+    --bg-chat: #0b0b10;
+    --bg-bubble-in: #1c1c26;
+    --bg-bubble-out: #2b5278;
+    --accent: #5aa2e6;
+    --accent-text: #5aa2e6;
+    --on-accent: #10131a;
+    --text: #f2f2f5;
+    --text-meta-in: #8f8f9c;
+    --text-meta-out: #a8c6e2;
+    --out-link: #dfeaf6;
+    --ticks-read: #6ec2ff;
+    --radius-bubble: 14px;
+    --radius-tail: 6px;
+    --radius-media: 10px;
+    --ico-4: 22px;
+    --focus-ring: var(--accent);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg-chat); color: var(--text); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: 28px 20px 36px;
+  }
+  h1 {
+    margin: 0 0 18px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    color: var(--text-meta-in);
+  }
+  .history { max-width: 520px; display: flex; flex-direction: column; gap: 2px; }
+  .msg-row { display: flex; padding: 2px 6px; }
+  .msg-row.out { justify-content: flex-end; }
+  .bubble {
+    position: relative;
+    max-width: min(480px, 90%);
+    background: var(--bg-bubble-in);
+    color: var(--text);
+    border-radius: var(--radius-bubble);
+    border-bottom-left-radius: var(--radius-tail);
+    padding: 7px 10px 6px;
+    box-shadow: 0 1px 2px rgba(16,16,16,.25);
+  }
+  .msg-row.out .bubble {
+    background: var(--bg-bubble-out);
+    border-bottom-left-radius: var(--radius-bubble);
+    border-bottom-right-radius: var(--radius-tail);
+  }
+  .xfer-card {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-areas: "glyph name" "glyph sub";
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: center;
+    width: 320px;
+    max-width: 100%;
+    padding: 2px 0 0;
+  }
+  .xfer-glyph {
+    grid-area: glyph;
+    width: 44px; height: 44px;
+    border-radius: var(--radius-media);
+    background: var(--accent);
+    color: var(--on-accent);
+    display: grid; place-items: center;
+  }
+  .xfer-glyph svg { width: var(--ico-4); height: var(--ico-4); }
+  .xfer-name {
+    grid-area: name;
+    display: flex; min-width: 0;
+    font-size: 14.5px; font-weight: 600; line-height: 1.25;
+  }
+  .xfer-name-base {
+    flex: 0 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .xfer-name-ext { flex: none; white-space: nowrap; }
+  .xfer-sub {
+    grid-area: sub;
+    display: flex; align-items: center; gap: 6px;
+    min-width: 0;
+  }
+  .xfer-meta, .xfer-route { font-size: 12.5px; font-weight: 400; }
+  .xfer-meta { flex: none; }
+  .xfer-route {
+    flex: none; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+  .xfer-route svg { width: 14px; height: 14px; }
+  .msg-row:not(.out) .xfer-meta,
+  .msg-row:not(.out) .xfer-route,
+  .msg-row:not(.out) .xfer-state { color: var(--text-meta-in); }
+  .msg-row.out .xfer-meta,
+  .msg-row.out .xfer-route,
+  .msg-row.out .xfer-state { color: var(--text-meta-out); }
+  .xfer-open, .xfer-retry {
+    margin-left: auto;
+    flex: none;
+    border: 0; background: transparent;
+    font: inherit; font-size: 14px; font-weight: 600; line-height: 1;
+    padding: 4px 8px; cursor: pointer;
+    color: var(--accent-text);
+  }
+  .msg-row.out .xfer-open { color: var(--out-link); }
+  .xfer-foot {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 10px; margin-top: 2px;
+  }
+  .xfer-foot .xfer-state {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 11.5px; line-height: 1.3; font-weight: 400;
+  }
+  .msg-meta {
+    float: none; margin: 0; flex: none;
+    font-size: 11.5px; line-height: 1.3;
+  }
+  .msg-row:not(.out) .msg-meta { color: var(--text-meta-in); }
+  .msg-row.out .msg-meta { color: var(--text-meta-out); }
+  .ticks { color: var(--ticks-read); margin-left: 3px; }
+  .ticks svg { width: 14px; height: 14px; vertical-align: -2px; }
+  .cap {
+    margin: 22px 6px 0;
+    max-width: 520px;
+    font-size: 12.5px;
+    color: var(--text-meta-in);
+  }
+</style>
+</head>
+<body>
+  <h1>Proposed · dark · same two messages</h1>
+  <div class="history">
+    <div class="msg-row out">
+      <div class="bubble">
+        <span class="xfer-card">
+          <span class="xfer-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.2v5.6l4.6-2.8z"/></svg>
+          </span>
+          <span class="xfer-name" title="1795559063928-Untitled video - Made with Clipchamp.mp4">
+            <span class="xfer-name-base">1795559063928-Untitled video - Made with Clipchamp</span><span class="xfer-name-ext">.mp4</span>
+          </span>
+          <span class="xfer-sub">
+            <span class="xfer-meta">7.2 MB</span>
+            <span class="xfer-route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h11M16 7l5 5-5 5"/><path d="M3 8h4M2 12h4M3 16h4"/></svg><span>Dash</span></span>
+          </span>
+        </span>
+        <span class="xfer-foot">
+          <span class="xfer-state">Sent with Velta Dash</span>
+          <span class="msg-meta">01:24 <span class="ticks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13l4 4L16 7M11.5 16.5l.5.5L22 7"/></svg></span></span>
+        </span>
+      </div>
+    </div>
+    <div class="msg-row">
+      <div class="bubble">
+        <span class="xfer-card">
+          <span class="xfer-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.2v5.6l4.6-2.8z"/></svg>
+          </span>
+          <span class="xfer-name" title="1795559326328-Replay_2026.02.09-03.05.mp4">
+            <span class="xfer-name-base">1795559326328-Replay_2026.02.09-03.05</span><span class="xfer-name-ext">.mp4</span>
+          </span>
+          <span class="xfer-sub">
+            <span class="xfer-meta">166.3 MB</span>
+            <span class="xfer-route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h11M16 7l5 5-5 5"/><path d="M3 8h4M2 12h4M3 16h4"/></svg><span>Dash</span></span>
+            <button type="button" class="xfer-open">Open</button>
+          </span>
+        </span>
+        <span class="xfer-foot">
+          <span class="xfer-state">Received with Velta Dash</span>
+          <span class="msg-meta">01:30</span>
+        </span>
+      </div>
+    </div>
+    <div class="msg-row">
+      <div class="bubble">
+        <span class="xfer-card">
+          <span class="xfer-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/></svg>
+          </span>
+          <span class="xfer-name" title="field-notes.tar.gz">
+            <span class="xfer-name-base">field-notes</span><span class="xfer-name-ext">.tar.gz</span>
+          </span>
+          <span class="xfer-sub">
+            <span class="xfer-meta">1.8 GB</span>
+            <span class="xfer-route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h11M16 7l5 5-5 5"/><path d="M3 8h4M2 12h4M3 16h4"/></svg><span>Dash</span></span>
+            <button type="button" class="xfer-retry">Retry</button>
+          </span>
+        </span>
+        <span class="xfer-foot">
+          <span class="xfer-state">This file is too large to receive.</span>
+          <span class="msg-meta">01:41</span>
+        </span>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Status shares the timestamp row. Size, Dash, and Open stay under the name. The icon’s grid is only those two lines, so an error does not move it.</p>
+</body>
+</html>
