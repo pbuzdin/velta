@@ -55,7 +55,14 @@ internal fun markdownAnnotated(
     // textColor is the bubble ink; emphasis uses the default span color.
     if (text.isBlank()) return AnnotatedString(text)
     val builder = AnnotatedString.Builder()
+    // Velta Dash tickets (#470): the wire format is two readable lines plus
+    // a base64 `VXFER1:` ticket — the ticket is a machine field, never user
+    // copy (the web hides it behind the file card). `VXFER-RESEND:` is the
+    // matching client-to-client request line. Hide both; a KMP Dash UI is a
+    // later port, the readable lines still say what arrived.
     val lines = text.split("\n")
+        .filter { !it.startsWith("VXFER1:") && !it.startsWith("VXFER-RESEND:") }
+        .ifEmpty { text.split("\n") }
     lines.forEachIndexed { index, rawLine ->
         if (index > 0) builder.append("\n")
         val quoted = QUOTE_LINE.find(rawLine)
