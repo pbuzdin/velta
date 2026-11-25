@@ -320,7 +320,7 @@ export function noteCard(chatId, text, outgoing) {
     const hash = card.tk.hash;
     const known = cardState.get(hash);
     if (known) { if (known.chatId == null) known.chatId = chatId; if (!known.outgoing && !known.text) known.text = text; if (known.size == null) known.size = card.size; if (!known.name) known.name = card.name; return; }
-    if (outgoing) { cardState.set(hash, { outgoing: true, mine: transport.pending.has(hash), chatId, name: card.name }); return; }
+    if (outgoing) { cardState.set(hash, { outgoing: true, mine: transport.pending.has(hash), chatId, name: card.name, size: card.size }); return; }
     const st = { outgoing: false, chatId, size: card.size, name: card.name, text };
     cardState.set(hash, st);
     const expired = Number(card.tk.exp) * 1000 <= Date.now();

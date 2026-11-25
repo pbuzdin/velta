@@ -319,6 +319,12 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   assert.match(ui.xferCardHtml(mine), /Asked for the email copy/);
   assert.match(ui.xferCardHtml(mine), /data-route="email"[^>]*>.*Email fallback/, "card badge: email fallback");
 
+  // A big file on the other device can't travel by email (the cap) — the
+  // ask must hide, not invite a doomed request (#519 feedback).
+  const bigMine = fileCardText({ name: "huge-other.mp4", size: EMAIL_MAX + 1, ticket: offerOf({ hash: H2("77"), name: "huge-other.mp4", size: EMAIL_MAX + 1 }) });
+  ui.noteCard(6, bigMine, true);
+  assert.doesNotMatch(ui.xferCardHtml(bigMine), /data-xfer-ask/, "> the email cap: no doomed ask");
+
   // This device holds big.bin's offer: a request for it from Saved Messages
   // (its own other device, an outgoing message there) mails it there.
   core.msg(3, resendRequestText(H2("cd")), true);
@@ -693,6 +699,7 @@ test("splitFileName keeps the extension; the two-part allow-list holds", async (
   assert.equal(fileKind("song.flac"), "audio");
   assert.equal(fileKind("noext"), "file");
 });
+
 
 test("the card renders a file row: icon tile, one-line name, size row, foot", async () => {
   const { P } = await import("../app/js/icons.js");
