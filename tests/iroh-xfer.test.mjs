@@ -282,13 +282,15 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   assert.match(ui.xferCardHtml(clip), /Show in folder/, "desktop: reveal the file");
   assert.match(ui.xferCardHtml(got), /xfer-open/, "documents keep the Open link");
   // A media ticket with no local bytes (the sender's other device, or before
-  // the fetch) keeps the file-type tile — never an empty preview src.
+  // the fetch) shows the placeholder tile instead of staying silent — never
+  // an empty preview src. Documents keep the file-type glyph.
   const ghost = fileCardText({ name: "ghost.mp4", size: tk.size, ticket: offerOf({ hash: H2("ff"), name: "ghost.mp4" }) });
   ui.noteCard(6, ghost, true);
   const ghostHtml = ui.xferCardHtml(ghost);
-  assert.doesNotMatch(ghostHtml, /xfer-preview/, "no bytes: no preview");
-  assert.match(ghostHtml, /xfer-glyph/, "no bytes: file-type tile");
+  assert.match(ghostHtml, /xfer-preview-dead/, "no bytes: the tile says why");
+  assert.match(ghostHtml, /Preview unavailable/);
   assert.doesNotMatch(ghostHtml, /src=""/, "never an empty src");
+  assert.doesNotMatch(ghostHtml, /xfer-glyph/, "media never falls back to the letter tile");
 
   // No free space: a clear error, and no email request (the disk is the problem).
   const full = fileCardText({ name: "full.bin", size: tk.size, ticket: offerOf({ hash: H2("bb"), name: "full.bin" }) });

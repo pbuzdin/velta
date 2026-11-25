@@ -182,13 +182,13 @@ let lightbox = null; // { image(src, caption), video(src, caption), folder(path,
 export function setXferLightboxOpener(fn) { lightbox = fn; }
 
 /** The preview a fetched image/video card leads with, wrapped in a button
- *  that opens the lightbox. Requires the local copy (st.path) — a ticket
- *  alone has no bytes, so those cards keep the file-type tile. Documents
- *  keep the Open link. */
+ *  that opens the lightbox. Media without a local copy (the sender's other
+ *  device, tickets from before the fetch) says so on the tile instead of
+ *  staying silent. Documents keep the Open link. */
 function previewHtml(hash, name, st) {
-  if (!st.path) return "";
   const kind = mediaKind(name || st.path);
   if (!kind) return "";
+  if (!st.path) return `<span class="xfer-preview xfer-preview-dead">${escapeHtml(t("Preview unavailable"))}</span>`;
   const url = escapeAttr(safeFileUrl(st.path));
   // #t=0.001 seeks to the first frame so preload=metadata paints it instead
   // of an empty tile.

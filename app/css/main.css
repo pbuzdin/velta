@@ -997,9 +997,13 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 /* Preview the webview cannot decode (codec, evicted file): placeholder tile. */
 .xfer-preview-dead { display: grid; place-items: center; width: 100%; height: 120px; padding: 8px;
   border-radius: 8px; background: var(--bg-hover); color: var(--text-dim); font-size: var(--fs-2); text-align: center; }
-/* Card actions: Open image / Play video + Show in folder — one row. */
+/* Card actions: Open image / Play video + Show in folder — one row. Chips,
+   not bare text: --bg-reply/--border/--text keeps them reading as buttons
+   on both the accent outgoing bubble and the plain incoming one (AA pair). */
 .xfer-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-.xfer-actions .btn-text { padding: 6px 12px; }
+.xfer-actions .btn-text { padding: 7px 12px; border-radius: 8px;
+  background: var(--bg-reply); color: var(--text); border: 1px solid var(--border); }
+@media (hover: hover) and (pointer: fine) { .xfer-actions .btn-text:hover { background: var(--bg-hover); } }
 /* Velta Dash route badge on the card: which path the file took. Same
    colour as .xfer-state; outgoing bubbles remapped below like .file-size. */
 .xfer-route { display: inline-flex; align-items: center; gap: 4px; flex: none;
