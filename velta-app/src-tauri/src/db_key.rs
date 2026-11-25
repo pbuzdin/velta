@@ -123,6 +123,7 @@ fn keychain_entry_legacy() -> Option<keyring::Entry> {
 /// the machine read and rewrote — a test-rig build re-keyed the real
 /// profile's store with its own fresh key. The scope is the tauri
 /// identifier.
+#[cfg(not(target_os = "android"))]
 fn keychain_entry(identity: &str) -> Option<keyring::Entry> {
     keyring::Entry::new(&format!("{KEYCHAIN_SERVICE}.{identity}"), KEYCHAIN_USER)
         .map_err(|e| log(&format!("keychain unavailable: {e}")))
@@ -133,6 +134,7 @@ fn keychain_entry(identity: &str) -> Option<keyring::Entry> {
 /// wins; without it, the pre-scoping shared DEK is adopted only when it
 /// demonstrably opens this identity's databases (a foreign key must never
 /// encrypt a plaintext store it cannot be recovered for).
+#[cfg(not(target_os = "android"))]
 fn startup_lookup(scoped: Lookup, legacy_hex: Option<String>, opens_ours: bool) -> Lookup {
     match scoped {
         Lookup::Found(hex) => Lookup::Found(hex),
