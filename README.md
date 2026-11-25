@@ -106,6 +106,14 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
 
 ## Functions
 
+- **Velta Dash** — files over the email size cap to one contact move
+  device-to-device over iroh while you are both online: the composer shows
+  the route (Dash or email) before you send, the file card in the chat keeps
+  a one-line name, size, route chip and a live status, and a fetched image
+  or video previews right in the card (opens in Velta's own viewer; desktop
+  can reveal the file in the file manager). While a peer is offline, smaller
+  files fall back to email. Turn the capability on per chat in the drawer
+  ("Velta Dash"); the chat header shows a Dash badge when both sides are on.
 - **@mentions** — type `@` in a group to pick a member; the message carries
   plain text `@Name (C0FE)` (first fingerprint group), so Delta Chat shows it
   as typed. Velta highlights mentions, mentions of you stronger, and a muted
@@ -844,8 +852,11 @@ uploads small and relay storage lasting longer. With **Compress photos to save r
 space** on (the default, same drawer section), big JPEG/WebP photos - and
 opaque PNGs the core would recompress anyway - are re-encoded to lossy WebP
 before sending when that makes them at least 10% smaller (or fit the limit
-above); this also drops location/camera info from those photos. Small
-photos, GIFs, animated or transparent images and files are never touched. A pasted screenshot is written under the app's `uploads/` folder and encrypted there before send. From the attachment menu you
+above); this also drops location/camera info from those photos. With
+**Resize photos to 2k** on (the default, same drawer section, independent of
+the WebP switch), a photo longer than 2048 px on its longest side is scaled
+down on send - with WebP off it re-encodes as JPEG once; tiny originals are
+never touched. Small photos, GIFs, animated or transparent images and files are never touched. A pasted screenshot is written under the app's `uploads/` folder and encrypted there before send. From the attachment menu you
 can send:
 
 **Voice message** (not offered in local groups) records from the
