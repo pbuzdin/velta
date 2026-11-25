@@ -569,9 +569,14 @@ dead preview" bug):
   silently never updates, which is exactly how a finished fetch kept
   showing "Waiting for sender…" while `cardState` said done. The row-resize
   height check counts the foot too (error text wraps).
-- The "Preview unavailable" dead tile renders only on SETTLED copyless
-  cards (asked/error, or the sender's other device). An in-flight fetch
-  keeps the file-type glyph — never a dead tile under the busy ring.
+- Byteless media (a transfer that succeeded on the sender's other device)
+  falls back to the small kind tile, so a settled card reads like an
+  ordinary file with Ask/Retry intact. The "Preview unavailable" dead tile
+  renders only when bytes are present but the codec refused them (the
+  decode-failure runtime path). An in-flight fetch keeps the file-type
+  glyph — never a dead tile under the busy ring. (`paintCard` must count
+  dead tiles as "have": checking only for `.xfer-preview-btn` stacked a
+  fresh dead tile on every repaint.)
 - A preview media error retries ONCE with `fileUrl` recomputed before going
   dead: the first paint can precede the media server / blobfile probe, and
   the `convertFileSrc` fallback serves the VLTA-sealed bytes raw.
@@ -595,7 +600,13 @@ folder are `.btn-text` buttons, not anchors and not pills — Open computes the
 path would reach the OS as ciphertext). A fetched image/video shows the real
 preview in place of the tile (#517): the picture opens the image lightbox,
 the play disc opens the player; bytes on the sender's device preview the same
-way. `refresh()` dispatches `velta-row-resized` only when the card's integer
+way. The size row spans the full card width (grid `"sub sub"`), so glyph and
+media cards align; the row verb (Open / Show in folder / Retry / Ask) hugs
+the far end (`margin-left: auto`). Ask shows only where email can actually
+carry the file: `noteCard` stores the size on outgoing cards too, and an
+own-other-device card over the 22 MiB cap hides Ask (it could only invite a
+doomed request). `refresh()` dispatches `velta-row-resized` only when the
+card's integer
 height (card + sibling foot) changes — a percent tick never moves the
 history — and a recycled row repaints via `paintXferIn` before the scroller
 measures it.
