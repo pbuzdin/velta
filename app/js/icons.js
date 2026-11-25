@@ -144,7 +144,7 @@ export const P = {
   // plus a solid lower arm that ends SHORT of the tip (the V stays open).
   // Gaps are wider than the mark's own: at 24px a stroke gap under ~2.3
   // units bridges through the round caps.
-  dash: '<path d="M5 4l7 16"/><path d="M20.3 4l-.5 1.5"/><path d="M18.9 7.6l-.5 1.5"/><path d="M17.5 11.2l-1.2 3.5"/>',
+  dash: '<path d="M5 4l7 16"/><path d="M20.4 4l-.6 1.7"/><path d="M18.5 8.4l-.6 1.7"/><path d="M16.7 12.8l-.9 2.9"/>',
   // email (Dash's email-fallback badge on file cards): envelope
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5L12 13l8.5-6.5"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/>',
