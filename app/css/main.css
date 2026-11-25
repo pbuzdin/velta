@@ -1015,6 +1015,12 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
   display: flex; align-items: center; gap: 6px;
   min-width: 0; flex-wrap: nowrap;
 }
+/* Air between the byte count and the Dash chip (#519 feedback): the row's
+   base gap is 6px, the chip reads better with double that before it. */
+.xfer-route { margin-left: 6px; }
+/* The row's verb (Show in folder / Open / Retry / Ask) hugs the far end —
+   the size + chip stay a compact pair on the left (#519 feedback). */
+.xfer-folder, .xfer-open, .xfer-retry, .xfer-ask { margin-left: auto; }
 .xfer-meta { display: inline; flex: none; font-weight: 400; font-size: 12.5px; }
 .xfer-state {
   flex: 1 1 auto; min-width: 0;
