@@ -7477,6 +7477,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "data-encoding",
+ "deltachat",
  "deltachat-jsonrpc",
  "futures-util",
  "getrandom 0.2.17",

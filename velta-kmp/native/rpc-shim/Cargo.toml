@@ -37,6 +37,7 @@ path = "src/main.rs"
 
 [dependencies]
 deltachat-jsonrpc = { path = "../../../core/deltachat-jsonrpc" }
+deltachat = { path = "../../../core" }
 yerpc = "0.7"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
