@@ -2078,6 +2078,22 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .cht-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cht-status { font-size: 13px; color: var(--text-dim); }
 .cht-status.online { color: var(--accent-text); }
+/* #519 follow-up: a 1:1 header wears the contact's Prism hue — the drawer
+   fingerprint gradient rotated to their color, lightness pinned at 30/33%
+   (the drawer sweep holds #f4f4f4 at >=4.79:1 on the worst hue — that IS
+   the dim version; both themes share the gradient and the light ink). */
+velta-chat-head.prism-head {
+  background: linear-gradient(135deg,
+    hsl(var(--prism-h, 215) 45% 30%),
+    hsl(calc(var(--prism-h, 215) + 40) 30% 33%));
+  border-radius: 10px;
+  padding: 5px 10px;
+  color: #f4f4f4;
+}
+velta-chat-head.prism-head .cht-name,
+velta-chat-head.prism-head .cht-name-text { color: #f4f4f4; }
+velta-chat-head.prism-head .cht-status { color: rgba(244, 244, 244, .95); }
+velta-chat-head.prism-head .cht-status.online { color: #f4f4f4; }
 
 /* ---------- Popups / menus / modals ---------- */
 .pop-overlay {

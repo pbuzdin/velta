@@ -4,7 +4,7 @@ import { formatListTime, timeAgo, timeTag, formatDuration } from "./format.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, cachedFingerprintIsDerived, fingerprintGroups } from "./avatar.js";
-import { avatarFill } from "./name-color.js";
+import { avatarFill, nameHue } from "./name-color.js";
 import { P, svg, labelled } from "./icons.js";
 import { t } from "./i18n.js";
 
@@ -465,6 +465,17 @@ class VeltaChatHead extends Elena(HTMLElement) {
   render() {
     const c = this.chat;
     if (!c) return html`<div></div>`;
+    // #519 follow-up: a 1:1 header wears the contact's Prism hue — the
+    // drawer fingerprint gradient rotated to their color. Groups, Loop
+    // chats and special kinds stay on the plain header.
+    const oneToOne = !!c.contactId && !c.isP2pGroup
+      && !["group", "channel", "saved", "device", "deaddrop"].includes(c.kind);
+    const prismH = oneToOne ? Math.round(nameHue(c.avatarColor || c.name)) : null;
+    if (prismH == null) this.classList.remove("prism-head");
+    else {
+      this.style.setProperty("--prism-h", String(prismH));
+      this.classList.add("prism-head");
+    }
     const st = this.statusLine();
     const online = typeof st === "object" && st.online;
     const stText = typeof st === "object" ? st.text : st;
