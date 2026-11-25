@@ -210,7 +210,8 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   const ui = await import("../app/js/iroh-xfer-ui.js?tauri");
   const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
   const texts = [], files = [], calls = [];
-  const fetches = { [H2("aa")]: { path: "/acc/xfer-in/got.bin" }, [H2("bb")]: { error: "no space", code: "no-space", email: false } };
+  const fetches = { [H2("aa")]: { path: "/acc/xfer-in/got.bin" }, [H2("bb")]: { error: "no space", code: "no-space", email: false },
+    [H2("cc")]: { path: "/acc/xfer-in/clip.mp4" }, [H2("dd")]: { path: "/acc/xfer-in/shot.png" } };
   function H2(c) { return c.repeat(32); }
   ui.initXferUi({
     core,
@@ -247,6 +248,8 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   const out = await ui.maybeSend({ chatId: 6, path: "/dl/big.bin", name: "big.bin", size: THRESHOLD + 1, oneToOne: true, contactId: 12 });
   assert.equal(out.handled, true);
   assert.match(texts[0].text, /^VXFER1:/m);
+  const stored = JSON.parse(localStorage.getItem("velta-xfer-cards:1") || "{}");
+  assert.equal(stored[H2("cd")]?.path, "/dl/big.bin", "the sender's staged path persists for the outgoing preview");
   ui.noteCard(6, texts[0].text, true);
   assert.match(ui.xferCardHtml(texts[0].text), /Sent with Velta Dash/);
   assert.match(ui.xferCardHtml(texts[0].text), /class="xfer-route" data-route="dash"/, "card badge: the path taken");
@@ -261,6 +264,35 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   assert.match(ui.xferCardHtml(got), /data-route="dash"/);
   ui.noteCard(9, got, false);
   assert.equal(calls.filter((c) => c === "xfer_fetch").length, 1, "rendering again does not fetch twice");
+
+  // Fetched image/video cards lead with a preview frame and open in the
+  // lightbox — never a browser window (documents keep the Open anchor).
+  const clip = fileCardText({ name: "clip.mp4", size: tk.size, ticket: offerOf({ hash: H2("cc"), name: "clip.mp4" }) });
+  core.msg(9, clip);
+  await tick();
+  assert.match(ui.xferCardHtml(clip), /xfer-preview-btn/, "fetched video leads with a preview frame");
+  assert.match(ui.xferCardHtml(clip), /<video class="xfer-preview"/, "video previews via preload=metadata");
+  assert.match(ui.xferCardHtml(clip), /data-xfer-view/, "the preview opens the lightbox");
+  assert.doesNotMatch(ui.xferCardHtml(clip), /target="_blank"/, "media never escapes to the browser");
+  const shot = fileCardText({ name: "shot.png", size: tk.size, ticket: offerOf({ hash: H2("dd"), name: "shot.png" }) });
+  core.msg(9, shot);
+  await tick();
+  assert.match(ui.xferCardHtml(shot), /<img class="xfer-preview"/, "fetched image previews");
+  assert.match(ui.xferCardHtml(shot), /data-xfer-view="d{64}"/);
+  assert.match(ui.xferCardHtml(clip), /Play video/, "video action says what it does");
+  assert.match(ui.xferCardHtml(shot), /Open image/, "image action says what it does");
+  assert.match(ui.xferCardHtml(clip), /Show in folder/, "desktop: reveal the file");
+  assert.match(ui.xferCardHtml(got), /xfer-open/, "documents keep the Open link");
+  // A media ticket with no local bytes (the sender's other device, or before
+  // the fetch) shows the placeholder tile instead of staying silent — never
+  // an empty preview src. Documents keep the file-type glyph.
+  const ghost = fileCardText({ name: "ghost.mp4", size: tk.size, ticket: offerOf({ hash: H2("ff"), name: "ghost.mp4" }) });
+  ui.noteCard(6, ghost, true);
+  const ghostHtml = ui.xferCardHtml(ghost);
+  assert.match(ghostHtml, /xfer-preview-dead/, "no bytes: the tile says why");
+  assert.match(ghostHtml, /Preview unavailable/);
+  assert.doesNotMatch(ghostHtml, /src=""/, "never an empty src");
+  assert.doesNotMatch(ghostHtml, /xfer-glyph/, "media never falls back to the letter tile");
 
   // No free space: a clear error, and no email request (the disk is the problem).
   const full = fileCardText({ name: "full.bin", size: tk.size, ticket: offerOf({ hash: H2("bb"), name: "full.bin" }) });

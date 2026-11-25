@@ -978,6 +978,35 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 .xfer-state { color: var(--text-dim); font-size: var(--fs-2); max-width: 22em; }
 .xfer-open { flex: none; font-weight: 600; }
 .xfer-ask { flex: none; }
+/* Fetched image/video cards lead with a frame that opens the lightbox —
+   same treatment as regular media bubbles, never a browser window.
+   Media cards stack: full-width preview on top, name/size and state below.
+   Natural ratio capped at 260px; object-fit crops the overflow. */
+.xfer-card.is-media { flex-direction: column; align-items: stretch; }
+.xfer-preview-btn { flex: none; position: relative; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 8px; align-self: stretch; }
+.xfer-preview { display: block; width: 100%; height: auto; max-height: 260px; object-fit: cover; border-radius: 8px; background: var(--bg-hover); }
+.xfer-card.is-media .xfer-name { flex: none; margin-top: 6px; }
+.xfer-card.is-media .xfer-state, .xfer-card.is-media .xfer-route { margin-top: 2px; }
+/* Play glyph over video previews: neutral white glyph on the solid clamped
+   ink — a translucent disc failed worst-case contrast (white frame under a
+   45% ink blend left the glyph at ~1.9:1); solid #10131a gives 14.9:1 with
+   #f1f1f1 over any frame. */
+.xfer-play { position: absolute; inset: 0; margin: auto; width: 34px; height: 34px; display: grid; place-items: center;
+  border-radius: 50%; background: #10131a; color: #f1f1f1; }
+.xfer-play svg { width: 18px; height: 18px; }
+/* Preview the webview cannot decode (codec, evicted file): placeholder tile.
+   Ink is --text, not --text-dim: measured on the composited tile surface
+   (bubble + bg-hover) dim lands at 4.33 dark / 4.32 brutal — under AA;
+   --text holds 13.1 / 14.6 / 9.7 across the three themes. */
+.xfer-preview-dead { display: grid; place-items: center; width: 100%; height: 120px; padding: 8px;
+  border-radius: 8px; background: var(--bg-hover); color: var(--text); font-size: var(--fs-2); text-align: center; }
+/* Card actions: Open image / Play video + Show in folder — one row. Chips,
+   not bare text: --bg-reply/--border/--text keeps them reading as buttons
+   on both the accent outgoing bubble and the plain incoming one (AA pair). */
+.xfer-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.xfer-actions .btn-text { padding: 7px 12px; border-radius: 8px;
+  background: var(--bg-reply); color: var(--text); border: 1px solid var(--border); }
+@media (hover: hover) and (pointer: fine) { .xfer-actions .btn-text:hover { background: var(--bg-hover); } }
 /* Velta Dash route badge on the card: which path the file took. Same
    colour as .xfer-state; outgoing bubbles remapped below like .file-size. */
 .xfer-route { display: inline-flex; align-items: center; gap: 4px; flex: none;
