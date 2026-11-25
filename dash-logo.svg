@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 590" role="img" aria-label="Velta Dash">
+  <title>Velta Dash</title>
+  <!-- Mono website mark: the brand V's right arm — the exact mirror of the solid left arm — sliced into three horizontal dash bands with air gaps; the V still closes at the shared tip. Fill follows the page theme. -->
+  <style>
+    svg { color: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
+  </style>
+  <g fill="currentColor">
+    <polygon points="0.0,0.0 191.0,0.0 402.0,420.0 314.0,590.0"/>
+    <polygon points="433.0,0.0 624.0,0.0 528.2,180.0 342.6,180.0"/>
+    <polygon points="327.5,210.0 512.2,210.0 419.1,385.0 239.6,385.0"/>
+    <polygon points="224.5,415.0 403.1,415.0 310.0,590.0"/>
+  </g>
+</svg>
