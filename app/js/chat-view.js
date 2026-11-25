@@ -5443,6 +5443,20 @@ export class ChatView {
     const folder = (Array.isArray(picked) ? picked[0] : picked) || "";
     if (!folder || !this._isCurrent(session)) return;
     if (!android) await invoke("allow_picked_path", { path: folder }).catch(e => rustLog(`allow_picked_path: ${e}`));
+    // #454 feedback: warn, don't block. The engine refuses one transfer over
+    // 2 GB (that case cannot succeed), and anything big enough to matter
+    // gets a heads-up before the packing walk starts.
+    try {
+      const files = await invoke("list_folder_files", { path: folder });
+      const total = (files || []).reduce((sum, f) => sum + (Number(f.size) || 0), 0);
+      if (total > 2 * 1024 * 1024 * 1024) {
+        errToast(t("This folder is {size} — over the 2 GB single-transfer limit, so it can't be sent as one transfer", { size: formatBytes(total) }), 6000);
+        return;
+      }
+      if (total > 512 * 1024 * 1024) toast(t("Large folder ({size}) — packing and sending may take a while", { size: formatBytes(total) }));
+    } catch (e) {
+      diagnosticsSink.append("warning", `folder size probe failed: ${e?.message || e}`);
+    }
     toast(t("Packing the folder…"));
     try {
       const msg = android
