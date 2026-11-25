@@ -139,9 +139,10 @@ export const P = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',  // Admin group / admin badge (#177): outline shield with a check
   // Admin chip on the admin's messages (#177): plain outline shield
   // Velta Dash (#470, automatic large-file transfer): the brand V with the
-  // right arm sliced — the dash-logo.svg mark, stroke-ified for 24px. Not
-  // the Beam or Loop marks.
-  dash: '<path d="M5 4l7 16"/><path d="M19 4l-3.5 7.6"/><path d="M14.6 14.3L12 20"/>',
+  // right arm sliced — dash-logo.svg scaled to the 24 grid, slit widened
+  // (the mark's own gap is under a pixel at this size). Filled: the slit
+  // survives where a stroke break would not.
+  dash: '<path fill="currentColor" stroke="none" d="M2 2L8.12 2L14.88 15.46L12.06 20.91z"/><path fill="currentColor" stroke="none" d="M15.88 2L22 2L17.42 10.6L11.56 10.6z"/><path fill="currentColor" stroke="none" d="M10.31 13.1L16.09 13.1L11.94 20.91L9.12 15.46z"/>',
   // email (Dash's email-fallback badge on file cards): envelope
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5L12 13l8.5-6.5"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/>',
