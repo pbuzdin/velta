@@ -56,6 +56,7 @@ async function relayMeta() {
 const cardsStore = () => jsonStore(`velta-xfer-cards:${account}`);
 function loadCards() {
   cardState.clear();
+  validatedCopies.clear();
   for (const [h, st] of Object.entries(cardsStore().load())) if (st && typeof st === "object") cardState.set(h, st);
 }
 function saveCards() {
@@ -64,6 +65,52 @@ function saveCards() {
     if (st.done || st.asked || st.error) keep[h] = { chatId: st.chatId, path: st.path, asked: st.asked, done: st.done, error: st.error, outgoing: st.outgoing || undefined, size: st.size, name: st.name || undefined, dashFailed: st.dashFailed || undefined };
   }
   cardsStore().save(keep);
+}
+
+/** A persisted done/path state can outlive the bytes it points at:
+ *  localStorage survives a profile recreate, the account rowid in the store
+ *  key collides with the fresh profile's, and a same-content resend hashes
+ *  to the same card — while the old file is gone or sealed under a key this
+ *  install no longer has. Trusting the stale state shows a phantom
+ *  "Received" card (dead preview, Show in folder failing with the raw
+ *  decrypt error) and its done flag suppresses the re-fetch. Check the
+ *  stored copy once per session against the live key (xfer_file_size opens
+ *  the VLTA header) and drop it on failure: incoming cards fetch again,
+ *  outgoing cards just lose the dead preview. */
+const validatedCopies = new Set();
+function revalidateStoredCopy(hash, st, incomingText) {
+  if (!env?.invoke || validatedCopies.has(hash)) return;
+  // Direction flip: the peer resent the same content (same hash) while the
+  // known state is OUR old outgoing offer whose copy is already gone — after
+  // a profile recreate the engine even lost the offer itself (its
+  // offers.json was sealed under the old key, so the sweep reports it
+  // "missing"). The dead outgoing state must not block the incoming card:
+  // the peer's fresh ticket is fetchable.
+  if (incomingText && st.outgoing && !st.path) { convertToIncoming(hash, st, incomingText); return; }
+  if (!st.path) return;
+  validatedCopies.add(hash);
+  withTimeout(env.invoke("xfer_file_size", { path: st.path }), limits.metaMs, "xfer_file_size").then((len) => {
+    if (st.size == null && Number.isFinite(len)) { st.size = len; saveCards(); }
+  }).catch(() => {
+    const cur = cardState.get(hash);
+    if (!cur) return;
+    if (cur.outgoing && incomingText) { convertToIncoming(hash, cur, incomingText); return; }
+    if (!cur.path) return;
+    sink("info", `stored copy of ${cur.name || hash.slice(0, 8)} is gone or unreadable — ${cur.outgoing ? "dropping the preview" : "fetching again"}`);
+    cur.path = undefined;
+    if (!cur.outgoing) { cur.done = false; cur.error = undefined; }
+    saveCards();
+    if (!cur.outgoing && cur.text) startFetch(hash, 0);
+    else refresh(hash);
+  });
+}
+
+/** Replace a dead outgoing state with a fresh incoming one and fetch. */
+function convertToIncoming(hash, st, text) {
+  sink("info", `the peer resent ${st.name || hash.slice(0, 8)} — fetching their fresh copy`);
+  cardState.set(hash, { chatId: st.chatId, size: st.size, name: st.name, text });
+  saveCards();
+  startFetch(hash, 0);
 }
 
 /** True when the contact has proved it runs Velta with the transfer: core
@@ -117,6 +164,7 @@ export async function maybeSend({ chatId, path, name, size, oneToOne, contactId 
     // persist it NOW: saveCards only runs on fetch/ask/resend events, and a
     // restart before any of those would drop the path and kill the preview.
     cardState.set(r.hash, { outgoing: true, mine: true, chatId, name, path, done: true });
+    validatedCopies.add(r.hash); // just staged: no need to re-check the copy
     saveCards();
     sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`);
   }
@@ -319,7 +367,7 @@ export function noteCard(chatId, text, outgoing) {
   if (card) {
     const hash = card.tk.hash;
     const known = cardState.get(hash);
-    if (known) { if (known.chatId == null) known.chatId = chatId; if (!known.outgoing && !known.text) known.text = text; if (known.size == null) known.size = card.size; if (!known.name) known.name = card.name; return; }
+    if (known) { if (known.chatId == null) known.chatId = chatId; if (!known.outgoing && !known.text) known.text = text; if (known.size == null) known.size = card.size; if (!known.name) known.name = card.name; revalidateStoredCopy(hash, known, outgoing ? null : text); return; }
     if (outgoing) { cardState.set(hash, { outgoing: true, mine: transport.pending.has(hash), chatId, name: card.name, size: card.size }); return; }
     const st = { outgoing: false, chatId, size: card.size, name: card.name, text };
     cardState.set(hash, st);
@@ -366,7 +414,7 @@ function startFetch(hash, attempt) {
     if (!cur) return;
     cur.receiving = false;
     cur.pct = undefined;
-    if (r?.path) { cur.path = r.path; cur.done = true; sink("info", `received ${name} via Velta Dash`); }
+    if (r?.path) { cur.path = r.path; cur.done = true; validatedCopies.add(hash); sink("info", `received ${name} via Velta Dash`); }
     else if (r?.asked) { cur.asked = true; cur.dashFailed = r.code !== "no-iroh"; sink(r.code === "no-iroh" ? "info" : "error", `asked for the email copy (${r.error || r.code || "unknown"})`); }
     else if (r?.tooBig) { cur.error = "too-big-recv"; sink("error", `Dash fetch failed and ${name} is too big for email (${r.error || r.code})`); }
     else if (r?.code === "no-space" || r?.code === "too-large") { cur.error = r.code; sink("error", `fetch refused: ${r.error}`); }

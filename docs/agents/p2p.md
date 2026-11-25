@@ -577,6 +577,17 @@ dead preview" bug):
   the `convertFileSrc` fallback serves the VLTA-sealed bytes raw.
 - `xferProgressEvent` ignores cards settled with an error (like done ones):
   a late event must not resurrect the busy ring — nothing would clear it.
+- A persisted `done` + path state is revalidated against the live key once
+  per session (`xfer_file_size` opens the VLTA header): localStorage survives
+  a profile recreate, the account rowid in the store key collides with the
+  fresh profile's, and a same-content resend hashes to the same card — a
+  stale state would otherwise show a phantom "Received" with a dead preview
+  and its done flag would suppress the re-fetch. A failed check drops the
+  path: incoming cards fetch again, outgoing cards just lose the preview.
+  The same hash also flips direction (we sent it yesterday, the peer resends
+  it today): a dead outgoing state — copy gone, or the offer itself lost
+  with the old key's offers.json — converts to a fresh incoming state and
+  fetches the peer's new ticket instead of sitting on "missing".
 
 **File card layout (#519).** A Dash message is still a text bubble carrying
 the ticket, but the card is a file row, not a wrapping flex line: a 44px

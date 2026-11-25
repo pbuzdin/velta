@@ -718,3 +718,116 @@ test("the card renders a file row: icon tile, one-line name, size row, foot", as
   assert.match(html, /xfer-meta-slot/, "chat-view fills the timestamp slot");
   assert.doesNotMatch(html, /is-error/, "steady states do not carry the error wrap");
 });
+
+test("receiver card: a persisted done state whose stored copy is gone/unreadable is dropped and re-fetched", async () => {
+  // localStorage survives a profile recreate (the account rowid in the store
+  // key collides with the fresh profile's) and a same-content resend hashes
+  // to the same card — while the old file is gone or sealed under a key this
+  // install no longer has. The stale done+path must not suppress the fetch
+  // or show a phantom "Received" with a dead preview.
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?stalerecv");
+  const core = fakeCore();
+  core.accountId = 55;
+  core.getChat = async (id) => ({ id, chatType: "Single", contactId: 12 });
+  core.getContact = async () => ({ id: 12, addr: "kay@their-relay.example" });
+  const H = "e5".repeat(32);
+  const calls = [];
+  // Yesterday's persisted state: done, pointing at a copy that no longer opens.
+  localStorage.setItem("velta-xfer-cards:55", JSON.stringify({ [H]: { chatId: 9, path: "/old/xfer-in/stale.bin", done: true, size: tk.size, name: "stale.bin" } }));
+  ui.initXferUi({
+    core,
+    invoke: async (cmd, args) => {
+      calls.push(cmd);
+      if (cmd === "xfer_file_size") throw new Error("attachment key authentication failed"); // stale copy under a lost key
+      if (cmd === "xfer_fetch") return { path: "/acc/xfer-in/fresh.bin" };
+      if (cmd === "xfer_status") return {};
+      return null;
+    },
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+  });
+  // Yesterday's persisted state was seeded before init (loadCards reads it).
+  const card = fileCardText({ name: "stale.bin", size: tk.size, ticket: offerOf({ hash: H, name: "stale.bin" }) });
+  ui.noteCard(9, card, false); // first sight of the same-hash card in the fresh profile
+  await tick(); await tick();
+  assert.ok(calls.includes("xfer_file_size"), "the persisted copy is validated against the live key");
+  assert.ok(calls.includes("xfer_fetch"), "the stale done state does not suppress the re-fetch");
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/, "the card settles on the fresh copy");
+  const stored = JSON.parse(localStorage.getItem("velta-xfer-cards:55") || "{}");
+  assert.equal(stored[H]?.path, "/acc/xfer-in/fresh.bin", "the persisted path is the fresh fetch, not the stale one");
+});
+
+test("outgoing card: a stale staged path is dropped without a fetch", async () => {
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?staleout");
+  const core = fakeCore();
+  core.accountId = 56;
+  const calls = [];
+  const H = "f6".repeat(32);
+  localStorage.setItem("velta-xfer-cards:56", JSON.stringify({ [H]: { chatId: 9, path: "/old/uploads/staged.bin", done: true, outgoing: true, size: tk.size, name: "staged.bin" } }));
+  ui.initXferUi({
+    core,
+    invoke: async (cmd) => { calls.push(cmd); if (cmd === "xfer_file_size") throw new Error("attachment key authentication failed"); return null; },
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+  });
+  const card = fileCardText({ name: "staged.bin", size: tk.size, ticket: offerOf({ hash: H, name: "staged.bin" }) });
+  ui.noteCard(9, card, true);
+  await tick(); await tick();
+  assert.ok(calls.includes("xfer_file_size"));
+  assert.ok(!calls.includes("xfer_fetch"), "the sender's own card never fetches");
+  const stored = JSON.parse(localStorage.getItem("velta-xfer-cards:56") || "{}");
+  assert.equal(stored[H]?.path, undefined, "the dead preview path is dropped");
+  assert.match(ui.xferCardHtml(card), /Sent with Velta Dash/, "the card still reads as sent");
+});
+
+test("receiver card: a same-content resend flips a dead outgoing state to a fresh fetch", async () => {
+  // Yesterday WE sent the file (outgoing state, staged path). The profile was
+  // then recreated: the staged copy is sealed under a lost key and the engine
+  // lost the offer itself (offers.json under the old key → sweep says
+  // "missing"). Today the PEER sends the same content — same hash. The dead
+  // outgoing state must not block the incoming card: fetch the peer's ticket.
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?flip");
+  const core = fakeCore();
+  core.accountId = 57;
+  core.getChat = async (id) => ({ id, chatType: "Single", contactId: 12 });
+  core.getContact = async () => ({ id: 12, addr: "kay@their-relay.example" });
+  const calls = [];
+  const H1 = "a1".repeat(32), H2 = "b2".repeat(32);
+  localStorage.setItem("velta-xfer-cards:57", JSON.stringify({
+    [H1]: { chatId: 9, path: "/old/uploads/staged.bin", done: true, outgoing: true, size: tk.size, name: "flip.bin" },
+    [H2]: { chatId: 9, outgoing: true, error: "missing", size: tk.size, name: "flip2.bin" },
+  }));
+  ui.initXferUi({
+    core,
+    invoke: async (cmd) => {
+      calls.push(cmd);
+      if (cmd === "xfer_file_size") throw new Error("attachment key authentication failed");
+      if (cmd === "xfer_fetch") return { path: "/acc/xfer-in/resent.bin" };
+      if (cmd === "xfer_status") return {};
+      return null;
+    },
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+  });
+  const card1 = fileCardText({ name: "flip.bin", size: tk.size, ticket: offerOf({ hash: H1, name: "flip.bin" }) });
+  const card2 = fileCardText({ name: "flip2.bin", size: tk.size, ticket: offerOf({ hash: H2, name: "flip2.bin" }) });
+  ui.noteCard(9, card1, false); // incoming resend, dead staged copy on disk
+  ui.noteCard(9, card2, false); // incoming resend, offer already swept as missing
+  await tick(); await tick();
+  assert.equal(calls.filter((c) => c === "xfer_fetch").length, 2, "both flipped cards fetch the peer's fresh copy");
+  assert.match(ui.xferCardHtml(card1), /Received with Velta Dash/);
+  assert.match(ui.xferCardHtml(card2), /Received with Velta Dash/);
+  const stored = JSON.parse(localStorage.getItem("velta-xfer-cards:57") || "{}");
+  assert.equal(stored[H1]?.outgoing, undefined, "the outgoing mark is gone");
+  assert.equal(stored[H1]?.path, "/acc/xfer-in/resent.bin", "the persisted path is the fresh fetch");
+  assert.equal(stored[H2]?.error, undefined, "the swept missing error is gone");
+});
