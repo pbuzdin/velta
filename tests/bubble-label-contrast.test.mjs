@@ -35,6 +35,13 @@ function rgba(v) {
   if (m) { const p = m[1].split(",").map(Number); return [p[0], p[1], p[2], p[3] ?? 1]; }
   throw new Error("color? " + v);
 }
+const hslRGBA = (h, s, l) => {
+  const S = s / 100, L = l / 100;
+  const k = n => (n + h / 30) % 12;
+  const a = S * Math.min(L, 1 - L);
+  const f = n => L - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [f(0) * 255, f(8) * 255, f(4) * 255, 1];
+};
 const over = (top, under) => { const a = top[3]; return [0, 1, 2].map(i => top[i] * a + under[i] * (1 - a)).concat(1); };
 const mix80 = (a, b) => [0, 1, 2].map(i => a[i] * .8 + b[i] * .2).concat(1);
 const lum = c => c.slice(0, 3).map(x => { x /= 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }).reduce((s, x, i) => s + x * [0.2126, 0.7152, 0.0722][i], 0);
@@ -81,6 +88,17 @@ function pairs(theme, t) {
     ["composer .media-route blocked", c("--text"), c("--bg-sidebar"), 4.5],
     ["composer .send-btn.is-busy ring idle", c("--accent-text"), c("--bg-sidebar"), 3],
     ["composer .send-btn.is-busy ring armed", c("--on-accent"), c("--accent"), 3],
+    // Prism 1:1 header (#519 follow-up): light ink over the drawer-style
+    // gradient (lightness pinned 45%/30% -> 30%/33%), identical in every
+    // theme — sweep the hue, the second (lighter) stop is the worst case;
+    // the .95 status ink is composited over that stop.
+    ...Array.from({ length: 12 }, (_, i) => {
+      const h = i * 30, grad = hslRGBA(h + 40, 30, 33);
+      return [
+        [`prism ${h} name / status .95`, over([244, 244, 244, 1], grad), grad, 4.5],
+        [`prism ${h} status .95`, over([244, 244, 244, 0.95], grad), grad, 4.5],
+      ];
+    }).flat(),
   ];
 }
 function check(label, theme, t) {
