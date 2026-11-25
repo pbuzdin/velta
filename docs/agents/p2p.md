@@ -422,10 +422,16 @@ webxdc. Code, prefs, commands and config keys keep the internal name `xfer`
 (`velta-iroh-xfer`, `xfer_*`, `ui.velta.xfer*`, `VXFER1:`).
 
 **UI.**
+- The brand mark in the UI is `DASH_SVG` (icons.js): velta.cc/dash-logo.svg
+  byte-exact — the user-fixed geometry, filled, like `LOOP_SVG`. Used by the
+  header badge (a `hydrateIcons` special case for `data-icon="dash"`), the
+  drawer toggle, the card route badge and the explainer. `P.dash` stays the
+  house-style outline glyph and exists only as the KMP sync source
+  (`VeltaIcons.kt`); never render it in the Tauri/PWA UI.
 - Drawer toggle "Velta Dash: on/off" (`data-setting="dash"`, Tauri only). A
   flip fires `velta-dash`: the glue re-announces `ui.velta.xfer` and the chat
   header badge refreshes.
-- Chat header badge `#btn-dash` (icon `P.dash` + "Dash"): shown only in a 1:1
+- Chat header badge `#btn-dash` (icon `DASH_SVG` + "Dash"): shown only in a 1:1
   chat with Dash on **and** the contact proven (`dashState() === "on"`);
   hidden for groups, Saved Messages, local chats, the PWA, Delta Chat and
   unproven contacts. A message from the open contact re-checks it. Tap →
@@ -489,8 +495,20 @@ default), `sec` (random per-ticket secret).
   http, no suffix tricks). Two phones on different relays and on 4G (no
   direct path) meet through the sender's relay. Any other relay: direct
   paths only.
-- A read that stays idle 30 s (`READ_IDLE`) ends the fetch as `Io("stalled")`
-  (partial kept), so a dead peer never leaves a card spinning.
+- A read that stays idle 30 s (`READ_IDLE`, per-endpoint configurable via
+  `set_read_idle`) ends the fetch as `Io("stalled")` (partial kept), so a
+  dead peer never leaves a card spinning. The same bound covers the whole
+  request/response **handshake**: a peer that accepts the connection but
+  never answers the request frame (backgrounded mid-handshake, wedged
+  accept loop) stalls out instead of parking `xfer_fetch` forever.
+- Belt and braces in JS: `startFetch` caps the WHOLE receive
+  (`WAIT_MS.fetchMs` 5 min + `fetchPerMbMs` 500, a ~2 MB/s floor). A peer
+  that trickles a byte per idle window passes every Rust bound; past the
+  cap the card errors "interrupted" and Retry resumes from the `.part`.
+- The first `xfer-progress` event fires at 0 bytes, so the card flips from
+  "Waiting for sender…" to "Fetching via Velta Dash 0%" the moment the
+  stream opens — handshake-wait and body-stall are distinguishable on
+  screen.
 - `xfer_health(relay)` → `{ready, relay, relayConnected, direct}` (the
   endpoint up and its home relay connected within 4 s); `xfer_file_size`
   gives the plaintext size of a sealed upload without reading it in JS.
@@ -542,7 +560,23 @@ A Dash send mails the ticket card, then the caption as its own message.
 **Receiver card states.** "Waiting for sender…" → "Fetching via Velta Dash
 34%" (`xfer-progress`) → "Received with Velta Dash"; or "Couldn't fetch via
 Velta Dash: asked for the email copy"; or the too-large / interrupted states
-above (Retry).
+above (Retry). Hard-won invariants (each was a shipped "stuck spinner /
+dead preview" bug):
+
+- The state line lives in `.xfer-foot`, a **sibling** of `[data-xfer]` (the
+  foot spans the bubble and carries the timestamp). `paintCard` resolves it
+  through `card.parentElement` — querying inside the card finds nothing and
+  silently never updates, which is exactly how a finished fetch kept
+  showing "Waiting for sender…" while `cardState` said done. The row-resize
+  height check counts the foot too (error text wraps).
+- The "Preview unavailable" dead tile renders only on SETTLED copyless
+  cards (asked/error, or the sender's other device). An in-flight fetch
+  keeps the file-type glyph — never a dead tile under the busy ring.
+- A preview media error retries ONCE with `fileUrl` recomputed before going
+  dead: the first paint can precede the media server / blobfile probe, and
+  the `convertFileSrc` fallback serves the VLTA-sealed bytes raw.
+- `xferProgressEvent` ignores cards settled with an error (like done ones):
+  a late event must not resurrect the busy ring — nothing would clear it.
 
 **File card layout (#519).** A Dash message is still a text bubble carrying
 the ticket, but the card is a file row, not a wrapping flex line: a 44px
@@ -562,8 +596,9 @@ path would reach the OS as ciphertext). A fetched image/video shows the real
 preview in place of the tile (#517): the picture opens the image lightbox,
 the play disc opens the player; bytes on the sender's device preview the same
 way. `refresh()` dispatches `velta-row-resized` only when the card's integer
-`offsetHeight` changes — a percent tick never moves the history — and a
-recycled row repaints via `paintXferIn` before the scroller measures it.
+height (card + sibling foot) changes — a percent tick never moves the
+history — and a recycled row repaints via `paintXferIn` before the scroller
+measures it.
 
 **Plain email over the cap.** Core sends a big attachment as a small
 pre-message plus the full post-message. When the sender's relay refuses the
@@ -581,15 +616,19 @@ phones show the badge. Core test `test_velta_xfer_capability_echo`.
   cards are handled with the chat closed — for the selected account only.
 
 **Tests.**
-- `xfer.rs`, 14 tests, including: only our own or the sender's chatmail
+- `xfer.rs`, 16 tests, including: only our own or the sender's chatmail
   relay is dialled; phones on two relays meet through the sender's relay; the hash
   alone does not fetch; too-large tickets refused before connecting; offers
   survive a restart and rest sealed; keyless identity is 0600 and stale
-  partials go.
+  partials go; a peer that accepts but never answers stalls out (read-idle
+  bound on the handshake) instead of hanging.
 - `tests/iroh-xfer.test.mjs`: route, relay pick (camelCase), card codec,
   persisted pending + resend rules, sweep, PWA auto-ask, UI glue in Tauri
-  and PWA modes, pre-send routes and the email cap, receiver card states,
-  and both phones converging on the badge.
+  and PWA modes, pre-send routes and the email cap, receiver card states
+  (in-flight shows no dead tile; a never-settling fetch hits the hard cap;
+  a late progress event cannot resurrect a settled card), the foot-sibling
+  structure contract, the `DASH_SVG` mark geometry, and both phones
+  converging on the badge.
 - Core: `test_velta_xfer_capability`, `test_velta_xfer_capability_echo`
   (patch #31).
 
