@@ -334,7 +334,7 @@ async fn set_db_pin(app: tauri::AppHandle, old: Option<String>, pin: String) -> 
 fn set_db_pin_blocking(app: tauri::AppHandle, old: Option<String>, pin: String) -> Result<(), String> {
     #[cfg(not(target_os = "android"))]
     {
-        db_key::pin_set(&accounts_dir(&app), old.as_deref(), &pin)
+        db_key::pin_set(&accounts_dir(&app), old.as_deref(), &pin, app.config().identifier.as_str())
     }
     #[cfg(target_os = "android")]
     {
@@ -353,7 +353,7 @@ async fn clear_db_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> 
 fn clear_db_pin_blocking(app: tauri::AppHandle, pin: String) -> Result<(), String> {
     #[cfg(not(target_os = "android"))]
     {
-        db_key::pin_clear(&accounts_dir(&app), &pin)
+        db_key::pin_clear(&accounts_dir(&app), &pin, app.config().identifier.as_str())
     }
     #[cfg(target_os = "android")]
     {
@@ -459,7 +459,7 @@ async fn set_db_hello(app: tauri::AppHandle, pin: Option<String>) -> Result<(), 
     #[cfg(windows)]
     {
         let dir = accounts_dir(&app);
-        tauri::async_runtime::spawn_blocking(move || db_key::hello_set(&dir, pin.as_deref()))
+        tauri::async_runtime::spawn_blocking(move || db_key::hello_set(&dir, pin.as_deref(), app.config().identifier.as_str()))
             .await
             .map_err(|e| e.to_string())?
     }
@@ -475,7 +475,7 @@ async fn clear_db_hello(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         let dir = accounts_dir(&app);
-        tauri::async_runtime::spawn_blocking(move || db_key::hello_clear(&dir))
+        tauri::async_runtime::spawn_blocking(move || db_key::hello_clear(&dir, app.config().identifier.as_str()))
             .await
             .map_err(|e| e.to_string())?
     }
@@ -492,8 +492,9 @@ async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         let dir = accounts_dir(&app);
+        let identity = app.config().identifier.clone();
         let raw = tauri::async_runtime::spawn_blocking(move || {
-            db_key::hello_unlock(&dir, &dir.join("accounts"))
+            db_key::hello_unlock(&dir, &dir.join("accounts"), &identity)
         })
         .await
         .map_err(|e| e.to_string())??;
@@ -5804,7 +5805,7 @@ pub fn run() {
                 // untouched while sqlcipher_export runs. An app-lock PIN wrap
                 // starts the session LOCKED: the sidecar spawns keyless and
                 // unlock_with_pin respawns it keyed after the PIN is entered.
-                let (db_key, key_issue, app_locked) = db_key::startup(&accounts);
+                let (db_key, key_issue, app_locked) = db_key::startup(&accounts, app.config().identifier.as_str());
                 set_db_key_issue(key_issue);
                 if app_locked {
                     let hello = db_key::hello_locked(&accounts);
