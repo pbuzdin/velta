@@ -975,7 +975,7 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 .xfer-card {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
-  grid-template-areas: "glyph name" "glyph sub";
+  grid-template-areas: "glyph name" "sub sub";
   column-gap: 10px;
   row-gap: 2px; /* 2px grid. 1px is not an amber exception. */
   align-items: center;
