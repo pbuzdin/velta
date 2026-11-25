@@ -248,6 +248,8 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   const out = await ui.maybeSend({ chatId: 6, path: "/dl/big.bin", name: "big.bin", size: THRESHOLD + 1, oneToOne: true, contactId: 12 });
   assert.equal(out.handled, true);
   assert.match(texts[0].text, /^VXFER1:/m);
+  const stored = JSON.parse(localStorage.getItem("velta-xfer-cards:1") || "{}");
+  assert.equal(stored[H2("cd")]?.path, "/dl/big.bin", "the sender's staged path persists for the outgoing preview");
   ui.noteCard(6, texts[0].text, true);
   assert.match(ui.xferCardHtml(texts[0].text), /Sent with Velta Dash/);
   assert.match(ui.xferCardHtml(texts[0].text), /class="xfer-route" data-route="dash"/, "card badge: the path taken");

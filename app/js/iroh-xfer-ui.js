@@ -113,8 +113,11 @@ export async function maybeSend({ chatId, path, name, size, oneToOne, contactId 
   else if (r.via === "policy") sink("info", `sent ${name} (${fmtSize(size)}) by email: policy`);
   else if (r.route === "iroh") {
     // The sender has the bytes: keep the staged path so the outgoing card
-    // previews (and opens in the lightbox) like the receiver's does.
+    // previews (and opens in the lightbox) like the receiver's does — and
+    // persist it NOW: saveCards only runs on fetch/ask/resend events, and a
+    // restart before any of those would drop the path and kill the preview.
     cardState.set(r.hash, { outgoing: true, mine: true, chatId, name, path, done: true });
+    saveCards();
     sink("info", `offered ${name} (${fmtSize(size)}) for direct fetch`);
   }
   return { handled: true, msg: hooks?.lastSent?.() || null };
