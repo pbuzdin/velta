@@ -446,7 +446,7 @@ test("pre-send route: Dash when it can deliver, email under the cap, blocked ove
 // the send button did nothing at all (56 MB video, 2026-11-24).
 test("Send never waits forever: a stalled route check, health call or offer times out", async () => {
   const ui = await import("../app/js/iroh-xfer-ui.js?stall");
-  assert.deepEqual({ ...ui.WAIT_MS }, { metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100 }, "production bounds");
+  assert.deepEqual({ ...ui.WAIT_MS }, { metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100, fetchMs: 300000, fetchPerMbMs: 500 }, "production bounds");
   const diag = [];
   globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: (lvl, text) => diag.push(text) } });
   const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
@@ -578,6 +578,36 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   core.msg(9, mid);
   await tick(); await tick();
   assert.match(ui.xferCardHtml(mid), /Couldn&#39;t fetch via Velta Dash: asked for the email copy|Couldn't fetch via Velta Dash: asked for the email copy/);
+});
+
+test("receiver card: a fetch that never settles still ends — hard cap, then a clear error + Retry", async () => {
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage ??= { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?hangfetch");
+  ui.RETRY_DELAYS_MS.splice(0, ui.RETRY_DELAYS_MS.length, 0, 0, 0);
+  const core = fakeCore();
+  core.accountId = 33;
+  core.getChat = async (id) => ({ id, chatType: "Single", contactId: 12 });
+  core.getContact = async () => ({ id: 12, addr: "kay@their-relay.example" });
+  ui.initXferUi({
+    core,
+    // xfer_fetch never settles: the trickling-peer case every inner Rust
+    // bound misses. The overall cap must end the card's spinner anyway.
+    invoke: async (cmd) => (cmd === "xfer_fetch" ? new Promise(() => {}) : null),
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+    timeouts: { metaMs: 20, peerMs: 20, healthMs: 20, offerMs: 20, offerPerMbMs: 0, fetchMs: 25, fetchPerMbMs: 0 },
+  });
+  const H = "c3".repeat(32);
+  const card = fileCardText({ name: "v.mp4", size: tk.size, ticket: enc({ ...tk, hash: H }) });
+  ui.noteCard(9, card, false);
+  assert.match(ui.xferCardHtml(card), /Waiting for sender…/, "in flight before the cap");
+  await new Promise((r) => setTimeout(r, 400)); // 4 attempts x 25 ms cap + 0-delay retries
+  await tick();
+  assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./, "the cap ends the endless spinner");
+  assert.match(ui.xferCardHtml(card), /data-xfer-retry/);
+  assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/);
 });
 
 test("capability echo: after one message either way, BOTH phones show the Dash badge", async () => {

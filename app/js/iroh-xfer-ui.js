@@ -38,7 +38,7 @@ const SWEEP_MS = 5 * 60 * 1000;
 // xfer_health within ~11 s; xfer_offer copies, seals and hashes the file, so
 // its bound grows by offerPerMbMs per MB (~10 MB/s worst case). A stalled
 // call must time out here, never turn Send into a no-op.
-export const WAIT_MS = Object.freeze({ metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100 });
+export const WAIT_MS = Object.freeze({ metaMs: 4000, peerMs: 4000, healthMs: 12000, offerMs: 120000, offerPerMbMs: 100, fetchMs: 300000, fetchPerMbMs: 500 });
 let limits = { ...WAIT_MS }; // per initXferUi; tests pass short ones
 let metaCache = { at: 0, value: null, ttl: 0 };
 const META_TTL = 5 * 60 * 1000;
@@ -358,7 +358,13 @@ function startFetch(hash, attempt) {
   st.pct = undefined;
   refresh(hash);
   sink("info", env.invoke ? `fetching ${name} (${fmtSize(st.size)}) via Velta Dash${attempt ? ` (retry ${attempt})` : ""}` : `asking for the email copy of ${name} (no Dash here)`);
-  (async () => transport.receive({ chatId: st.chatId, text: st.text, peers: env.invoke ? await peersOf(st.chatId) : [] }))().then((r) => {
+  // Hard overall cap: every Rust wait is bounded (connect, handshake, read
+  // idle), but a peer that trickles a byte per idle window keeps a fetch
+  // "alive" forever at 0% — the card would spin "Waiting for sender…"
+  // indefinitely. Past the cap the card errors (Retry resumes from the
+  // .part); ~2 MB/s floor plus 5 min of slack.
+  const budget = limits.fetchMs + Math.ceil((Number(st.size) || 0) / 1048576) * limits.fetchPerMbMs;
+  withTimeout((async () => transport.receive({ chatId: st.chatId, text: st.text, peers: env.invoke ? await peersOf(st.chatId) : [] }))(), budget, "xfer_fetch").then((r) => {
     const cur = cardState.get(hash);
     if (!cur) return;
     cur.receiving = false;

@@ -919,10 +919,12 @@ pub async fn xfer_fetch(
     let dir = crate::accounts_dir(&app).join("xfer-in");
     let hash = t.hash.clone();
     let mut last = 0u64;
+    let mut first = true; // the 0-byte event flips the card to "Fetching 0%"
     let peers = peers.unwrap_or_default();
     let res = x
         .fetch_from(&t, &dir, &peers, |done, size| {
-            if done == size || done - last >= 1024 * 1024 {
+            if first || done == size || done - last >= 1024 * 1024 {
+                first = false;
                 last = done;
                 let _ = app.emit("xfer-progress", serde_json::json!({ "hash": hash, "done": done, "size": size }));
             }
