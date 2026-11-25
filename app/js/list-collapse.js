@@ -49,9 +49,23 @@ export function initListCollapse({ app = document.getElementById("app"), getChat
     btn.setAttribute("aria-label", label);
     btn.title = `${label} (${/Mac|iPhone|iPad/.test(globalThis.navigator?.platform || "") ? "⌘" : "Ctrl+"}B)`;
     refreshBadge();
+    lift();
     // #456: the floating + chip hides while the sidebar is collapsed.
     app.dispatchEvent(new CustomEvent("velta-list-collapse", { detail: { collapsed } }));
   };
+
+  // Collapsed, the chevron parks at left:12 — the composer spans the whole
+  // pane there, so the button must ride ABOVE its top edge (it grows with
+  // multiline text; a fixed CSS lift would re-overlap). Expanded, the CSS
+  // bottom stands and this is a no-op.
+  const lift = () => {
+    if (!app.classList.contains("list-collapsed")) { btn.style.bottom = ""; return; }
+    const composer = document.getElementById("main-composer");
+    if (!composer) return;
+    const top = composer.getBoundingClientRect().top;
+    if (top > 0) btn.style.bottom = `${Math.round(globalThis.innerHeight - top + 10)}px`;
+  };
+  globalThis.addEventListener?.("resize", () => { if (app.classList.contains("list-collapsed")) lift(); });
   const toggle = () => {
     if (!wide()) return;
     store()?.setItem(LIST_COLLAPSED_KEY, listCollapsedPref() ? "0" : "1");
