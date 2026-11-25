@@ -195,7 +195,14 @@ export function setXferLightboxOpener(fn) { lightbox = fn; }
 function previewHtml(hash, name, st) {
   const kind = mediaKind(name || st.path);
   if (!kind) return "";
-  if (!st.path) return `<span class="xfer-preview xfer-preview-dead">${escapeHtml(t("Preview unavailable"))}</span>`;
+  // No bytes yet: while the card is still waiting on a fetch the glyph tile
+  // stays — a dead tile under the busy ring reads as "broken", not "wait".
+  // The dead tile is for settled cards that will never have a copy here:
+  // asked/error, or the sender's other device.
+  if (!st.path) {
+    if (!st.outgoing && !st.asked && !st.error) return "";
+    return `<span class="xfer-preview xfer-preview-dead">${escapeHtml(t("Preview unavailable"))}</span>`;
+  }
   const url = escapeAttr(safeFileUrl(st.path));
   // #t=0.001 seeks to the first frame so preload=metadata paints it instead
   // of an empty tile.
@@ -568,10 +575,24 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen,
     });
     // A preview the webview cannot decode (codec, evicted file) degrades to
     // a placeholder tile instead of a broken-image glyph. error does not
-    // bubble; capture catches it for imgs and videos alike.
+    // bubble; capture catches it for imgs and videos alike. One retry with
+    // the URL recomputed first: the very first paint can precede the media
+    // server / blobfile probe, baking a convertFileSrc URL that serves the
+    // sealed (VLTA) bytes raw — by the time the error fires, fileUrl
+    // resolves to the decrypting chain and the same file plays.
     document.addEventListener("error", (e) => {
       const el = e.target;
       if (!el?.classList?.contains("xfer-preview")) return;
+      const hash = el.closest?.("[data-xfer]")?.getAttribute("data-xfer");
+      const st = hash ? cardState.get(hash) : null;
+      if (st?.path && !el.dataset.xferRetried) {
+        const fresh = safeFileUrl(st.path);
+        if (fresh && fresh !== "#" && fresh !== (el.getAttribute("src") || "").split("#")[0]) {
+          el.dataset.xferRetried = "1";
+          el.src = el.tagName === "VIDEO" ? `${fresh}#t=0.001` : fresh;
+          return;
+        }
+      }
       el.closest(".xfer-preview-btn")?.querySelector(".xfer-play")?.remove();
       el.replaceWith(Object.assign(document.createElement("span"), { className: "xfer-preview xfer-preview-dead", textContent: t("Preview unavailable") }));
     }, true);
@@ -588,7 +609,9 @@ export function askForEmailCopy(hash) {
 const lastPaint = new Map();
 export function xferProgressEvent(p) {
   const st = p && cardState.get(p.hash);
-  if (!st || st.outgoing || st.done || !(Number(p.size) > 0)) return;
+  // st.error too: a late event from a fetch the UI already gave up on must
+  // not resurrect the busy ring — nothing would ever clear it again.
+  if (!st || st.outgoing || st.done || st.error || !(Number(p.size) > 0)) return;
   st.receiving = true;
   st.pct = Math.min(99, Math.floor((Number(p.done) * 100) / Number(p.size)));
   const now = Date.now();

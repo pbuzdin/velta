@@ -529,6 +529,8 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   await tick();
   assert.match(ui.xferCardHtml(card), /Waiting for sender…/, "never a silent 'Downloading…'");
   assert.match(ui.xferCardHtml(card), /class="xfer-state is-busy"/, "waiting shows the busy ring");
+  assert.doesNotMatch(ui.xferCardHtml(card), /xfer-preview-dead/, "in flight: no dead tile under the busy ring");
+  assert.match(ui.xferCardHtml(card), /xfer-glyph/, "in flight: the file-type glyph stays");
   assert.deepEqual(fetchArgs[0].peers, ["their-relay.example"], "the receiver may dial the sender's own relay (4G: no direct path)");
   ui.xferProgressEvent({ hash: H, done: 34, size: 100 });
   assert.match(ui.xferCardHtml(card), /Fetching via Velta Dash 34%/);
@@ -539,6 +541,10 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./);
   assert.match(ui.xferCardHtml(card), /data-xfer-retry/, "a clear action, not an endless spinner");
   assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/, "no ring once it stopped");
+  assert.match(ui.xferCardHtml(card), /xfer-preview-dead/, "settled without bytes: the tile says why");
+  ui.xferProgressEvent({ hash: H, done: 50, size: 100 });
+  assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/, "a late progress event does not resurrect the ring");
+  assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./, "the settled error stands");
   results.push({ path: "/acc/xfer-in/v.mp4" });
   ui.retryFetch(H);
   await tick();

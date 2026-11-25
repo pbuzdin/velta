@@ -3602,8 +3602,8 @@ object VeltaIcons {
             )
             addPath(
                 pathData = PathData {
-        moveTo(19.0f, 4.0f)
-        lineToRelative(-2.7f, 6.1f)
+        moveTo(20.3f, 4.0f)
+        lineToRelative(-0.5f, 1.5f)
                 },
                 stroke = SolidColor(Color(0xFF000000)),
             strokeLineWidth = 2f,
@@ -3612,8 +3612,18 @@ object VeltaIcons {
             )
             addPath(
                 pathData = PathData {
-        moveTo(14.6f, 14.0f)
-        lineTo(12.0f, 20.0f)
+        moveTo(18.9f, 7.6f)
+        lineToRelative(-0.5f, 1.5f)
+                },
+                stroke = SolidColor(Color(0xFF000000)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                pathData = PathData {
+        moveTo(17.5f, 11.2f)
+        lineToRelative(-1.2f, 3.5f)
                 },
                 stroke = SolidColor(Color(0xFF000000)),
             strokeLineWidth = 2f,
