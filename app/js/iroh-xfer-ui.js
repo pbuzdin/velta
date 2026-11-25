@@ -438,7 +438,13 @@ async function runSweep() {
  *  preview. Legacy classes from an older paint get cleaned up. */
 function paintCard(card, st) {
   const hash = card.getAttribute("data-xfer");
-  const el = card.querySelector(".xfer-state");
+  // .xfer-foot is a SIBLING of [data-xfer] — it spans the bubble under the
+  // card and carries the timestamp — so the state line is resolved through
+  // the parent. Querying inside the card found nothing and live updates
+  // (progress, done, error) silently never landed: a finished fetch kept
+  // showing "Waiting for sender…" until the row happened to re-render.
+  const foot = card.parentElement?.querySelector(":scope > .xfer-foot") || null;
+  const el = (foot || card).querySelector(".xfer-state");
   if (el) {
     el.textContent = stateText(st);
     el.classList.toggle("is-busy", isBusy(st));
@@ -481,8 +487,11 @@ function refresh(hash) {
     // fire it (overflow-anchor: none makes a spurious notify a scroll
     // jump). The first paint stores the height — renderItem's own measure
     // covers it. Only an integer height change dispatches, and the wrap
-    // mutation above happens in this same turn, before the read.
-    const h = card.offsetHeight;
+    // mutation above happens in this same turn, before the read. The foot
+    // is a sibling of the card, so its height (the state line wraps on
+    // errors) counts too.
+    const foot = card.parentElement?.querySelector(":scope > .xfer-foot");
+    const h = card.offsetHeight + (foot?.offsetHeight || 0);
     if (!h || !card.isConnected) continue;
     const prev = card.dataset.xferH;
     if (prev == null) { card.dataset.xferH = String(h); continue; }

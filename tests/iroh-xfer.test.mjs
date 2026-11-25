@@ -395,6 +395,20 @@ test("Velta Dash icon: the brand mark is the site logo byte-exact; P.dash stays 
   assert.match(DASH_SVG, /aria-hidden="true"/);
 });
 
+test("the state line lives OUTSIDE [data-xfer]; paintCard resolves it through the parent", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/js/iroh-xfer-ui.js", import.meta.url), "utf8");
+  // .xfer-foot is a sibling of the card (it spans the bubble and carries the
+  // timestamp). Querying .xfer-state inside [data-xfer] finds nothing, and
+  // live updates silently never land — the "stuck Waiting for sender…" bug.
+  assert.match(src, /card\.parentElement\?\.querySelector\(":scope > \.xfer-foot"\)/, "state line resolved beside the card, not inside it");
+  const ui = await import("../app/js/iroh-xfer-ui.js?foot");
+  const card = fileCardText({ name: "d.bin", size: tk.size, ticket: offerOf({ hash: "0e".repeat(32), name: "d.bin" }) });
+  const html = ui.xferCardHtml(card) || "";
+  const cardEnd = html.indexOf("</span>", html.indexOf("xfer-sub"));
+  assert.ok(html.indexOf('class="xfer-foot"') > cardEnd, "the foot renders after the [data-xfer] span closes");
+});
+
 test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawer toggle is branded", async () => {
   const { readFileSync } = await import("node:fs");
   const html = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
