@@ -994,9 +994,12 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 .xfer-play { position: absolute; inset: 0; margin: auto; width: 34px; height: 34px; display: grid; place-items: center;
   border-radius: 50%; background: #10131a; color: #f1f1f1; }
 .xfer-play svg { width: 18px; height: 18px; }
-/* Preview the webview cannot decode (codec, evicted file): placeholder tile. */
+/* Preview the webview cannot decode (codec, evicted file): placeholder tile.
+   Ink is --text, not --text-dim: measured on the composited tile surface
+   (bubble + bg-hover) dim lands at 4.33 dark / 4.32 brutal — under AA;
+   --text holds 13.1 / 14.6 / 9.7 across the three themes. */
 .xfer-preview-dead { display: grid; place-items: center; width: 100%; height: 120px; padding: 8px;
-  border-radius: 8px; background: var(--bg-hover); color: var(--text-dim); font-size: var(--fs-2); text-align: center; }
+  border-radius: 8px; background: var(--bg-hover); color: var(--text); font-size: var(--fs-2); text-align: center; }
 /* Card actions: Open image / Play video + Show in folder — one row. Chips,
    not bare text: --bg-reply/--border/--text keeps them reading as buttons
    on both the accent outgoing bubble and the plain incoming one (AA pair). */
