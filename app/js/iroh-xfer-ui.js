@@ -14,7 +14,7 @@ import {
   irohXferEnabled, THRESHOLD, routeLabel, CAPABILITY_KEY, peerCapabilityKey, emailReason,
   planRoute, routeText, peerDomains, EMAIL_MAX, offerFailedText, splitFileName, fileKind,
 } from "./iroh-xfer.js";
-import { svg, P } from "./icons.js";
+import { DASH_SVG, svg, P } from "./icons.js";
 import { fileUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { t } from "./i18n.js";
@@ -167,7 +167,7 @@ function routeBadgeHtml(st) {
   const r = routeOf(st);
   if (!r) return "";
   const label = r === "dash" ? t("Dash") : t("Email fallback");
-  return `<span class="xfer-route" data-route="${r}">${r === "dash" ? svg(P.dash) : svg(P.mail)}<span>${escapeHtml(label)}</span></span>`;
+  return `<span class="xfer-route" data-route="${r}">${r === "dash" ? DASH_SVG : svg(P.mail)}<span>${escapeHtml(label)}</span></span>`;
 }
 function canAsk(st) {
   if (st.error === "too-big-recv" || (st.size != null && st.size > EMAIL_MAX)) return false;

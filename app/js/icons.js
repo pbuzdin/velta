@@ -157,10 +157,17 @@ export const CLOSE_SVG = ICON.close;
 // geometry). The original card icon — shared by the hub card and the drawer.
 export const LOOP_SVG = `<svg viewBox="0 0 624 590" width="21" height="20" aria-hidden="true"><g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)"><polygon points="0,0 191,0 402,420 314,590"/><polygon points="434,0 624,0 420,385 341,225"/></g><path d="M510,267.1 A200,200 0 0 1 386.9,480.4" fill="none" stroke="currentColor" stroke-width="40"/><path d="M114,267.1 A200,200 0 0 0 237.1,480.4" fill="none" stroke="currentColor" stroke-width="40"/></svg>`;
 
+/** The Velta Dash brand mark, byte-exact from velta.cc/dash-logo.svg (the
+ *  user-fixed geometry): left arm carries the point, right arm is cut into
+ *  slanted bands — two thin dashes up top, the lower arm solid into a short
+ *  tip. Filled, like LOOP_SVG; P.dash stays the outline glyph for KMP. */
+export const DASH_SVG = `<svg viewBox="0 0 277 260" width="22" height="21" aria-hidden="true"><g fill="currentColor"><path d="M0 0H79.5L177 187L139.5 260L0 0Z"/><path d="M207.971 131H165.276L148.5 97H225.757L207.971 131Z"/><path d="M186 173L165.276 131H207.971L186 173Z"/><path d="M265.515 21H186.5L197 0H276.5L265.515 21Z"/><path d="M245.636 59H167.5L177 40H255.575L245.636 59Z"/><path d="M225.757 97H148.5L158 78H235.696L225.757 97Z"/></g></svg>`;
+
 /** index.html is static: its icons are `<svg data-icon="name"></svg>`
  *  placeholders, filled from P here (keeps any class). */
 export function hydrateIcons(root = document) {
   for (const el of root.querySelectorAll("svg[data-icon]")) {
+    if (el.dataset.icon === "dash") { el.outerHTML = DASH_SVG; continue; } // brand mark, not a glyph
     const inner = P[el.dataset.icon];
     if (inner) el.outerHTML = svg(inner, el.getAttribute("class") || "");
   }

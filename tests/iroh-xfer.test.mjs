@@ -375,12 +375,24 @@ test("Velta Dash: brand strings, header badge state, explainer hint, fallback re
   assert.match(emailReason({ ...big, available: false }), /PWA/);
 });
 
-test("Velta Dash icon: house-style outline glyph, not Beam or Loop", async () => {
-  const { P, ICON } = await import("../app/js/icons.js");
+test("Velta Dash icon: the brand mark is the site logo byte-exact; P.dash stays the outline KMP glyph", async () => {
+  const { P, ICON, DASH_SVG } = await import("../app/js/icons.js");
   assert.ok(P.dash && P.dash !== P.loop);
   assert.doesNotMatch(P.dash, /fill="currentColor"/);
-  assert.match(ICON.dash, /stroke-width="2"/);
   assert.match(ICON.dash, /aria-hidden="true"/);
+  // The UI brand mark is velta.cc/dash-logo.svg verbatim (viewBox + all six
+  // filled paths of the user-fixed geometry).
+  assert.match(DASH_SVG, /viewBox="0 0 277 260"/);
+  for (const d of [
+    "M0 0H79.5L177 187L139.5 260L0 0Z",
+    "M207.971 131H165.276L148.5 97H225.757L207.971 131Z",
+    "M186 173L165.276 131H207.971L186 173Z",
+    "M265.515 21H186.5L197 0H276.5L265.515 21Z",
+    "M245.636 59H167.5L177 40H255.575L245.636 59Z",
+    "M225.757 97H148.5L158 78H235.696L225.757 97Z",
+  ]) assert.ok(DASH_SVG.includes(`d="${d}"`), `mark path ${d}`);
+  assert.match(DASH_SVG, /fill="currentColor"/);
+  assert.match(DASH_SVG, /aria-hidden="true"/);
 });
 
 test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawer toggle is branded", async () => {
@@ -396,7 +408,7 @@ test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawe
   assert.match(rule, /min-width: 44px/);
   assert.match(rule, /min-height: 44px/);
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
-  assert.match(ui, /data-setting="dash">\$\{ICON\.dash\}/);
+  assert.match(ui, /data-setting="dash">\$\{DASH_SVG\}/);
   assert.match(ui, /toggleText\("Velta Dash"/);
   assert.match(ui, /new CustomEvent\("velta-dash"/);
   assert.doesNotMatch(ui, /Send large files directly/);

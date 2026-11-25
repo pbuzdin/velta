@@ -17,7 +17,7 @@ import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.j
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
 import { glassComposerAvailable } from "./glass-composer.js";
 import { markLangCardDone } from "./lang-cards.js";
-import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { DASH_SVG, ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { mountInviteDomains } from "./invite-domains.js";
 
 const popups = () => document.getElementById("popups");
@@ -1409,7 +1409,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Loop", p2pOn ? "on" : "off"))}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="${escapeHtml(t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."))}">${ICON.typing}<span>${escapeHtml(toggleText("Typing indicator", localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item">${ICON.lock}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Encrypt stored media", localStorage.getItem("velta-p2p-seal") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Stored on this device only. Transfers stay end-to-end encrypted either way."))}</span></span><input type="checkbox" role="switch" data-toggle="p2p-seal"${localStorage.getItem("velta-p2p-seal") !== "0" ? " checked" : ""}></label>` : ""}
-      ${tauriInvoke() ? `<label class="ctx-item" data-setting="dash">${ICON.dash}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Dash", localStorage.getItem("velta-iroh-xfer") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Fast transfer for files over 6 MB, directly between devices. It starts with a Velta contact after you both exchange a message; email is the fallback."))}</span></span><input type="checkbox" role="switch" data-toggle="iroh-xfer"${localStorage.getItem("velta-iroh-xfer") !== "0" ? " checked" : ""}></label>` : ""}
+      ${tauriInvoke() ? `<label class="ctx-item" data-setting="dash">${DASH_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Dash", localStorage.getItem("velta-iroh-xfer") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Fast transfer for files over 6 MB, directly between devices. It starts with a Velta contact after you both exchange a message; email is the fallback."))}</span></span><input type="checkbox" role="switch" data-toggle="iroh-xfer"${localStorage.getItem("velta-iroh-xfer") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
       <details class="drawer-details">
         <summary>${ICON.palette}<span data-theme-summary>${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[theme] || "Auto") })}</span></summary>
