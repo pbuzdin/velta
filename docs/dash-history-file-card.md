@@ -107,7 +107,7 @@ Unmounted rows are kept in `_rowCache` and reused when the signature matches. `r
 
 - KMP. `FileCard` in `velta-kmp/composeApp/src/commonMain/kotlin/org/velta/kmp/ui/App.kt` is the core `viewtype == "File"` card (44dp accent circle, `viewTypeIcon`, two-line ellipsis). `markdownAnnotated` (`Markdown.kt`) has no `VXFER1:` short-circuit, so a Dash offer on KMP still renders as plain text, ticket included. This design does not port Dash or hide that ticket.
 - Changing `chooseRoute`, thresholds (6 MB / 22 MB), tickets, `xfer.rs`, or the email fallback.
-- Turning the Dash message into a core file/video message, or embedding a `<video>` / lightbox poster. A video row with no dimensions is the 260px `.msg-video` band, and that height is the jump this card avoids. Open stays the way out.
+- Turning a ticket that has no preview into a core file/video message, or giving that ticket a `<video>` / lightbox poster. A video row with no dimensions is the 260px `.msg-video` band, and that height is the jump the ticket card avoids. When history already paints `.msg-image` or `.msg-video`, that preview stays. See Image and video.
 - A progress bar. Percent stays in the status string.
 - Moving time, ticks, stars, bot/admin chips, or “edited” out of `.msg-meta`.
 - Rewriting `.msg-file` (core attachments), `.msg-webxdc`, or `.msg-transfer` (Loop). They are the patterns to copy, not the thing being restyled.
@@ -485,6 +485,35 @@ On the dark theme, at a desktop history width (`#history` max-width 728px, bubbl
 - 01:24 with the double check, and 01:30, stay bottom-right of the bubble.
 - Replacing the status from `Fetching via Velta Dash 9%` to `Fetching via Velta Dash 34%` to `Received` and inserting Open does not change `offsetHeight` on that width, and does not call `onItemHeightDidChange`.
 
+### Image and video
+
+Two states. A Dash message with no preview is the file row above: 44px type tile, one-line name, size row, timestamp row. A Dash message that already shows a picture or a video poster keeps that preview and uses the same caption rows under it. The preview replaces the tile. It does not sit beside a 44px icon.
+
+```text
+incoming image
+┌──────────────────────────────────────────────┐
+│ [photo, radius-media, the open control]      │
+│ 1795562108894-unknown_….png                  │
+│ 6.8 MB   Dash                 Show in folder │
+│ Received with Velta Dash                02:15│
+└──────────────────────────────────────────────┘
+
+outgoing video
+┌──────────────────────────────────────────────┐
+│ [poster + .velta-video-play]                 │
+│ 1795566026819-Untitled video ….mp4           │
+│ 7.2 MB   Dash                 Show in folder │
+│ Sent with Velta Dash                 03:20 ✓✓│
+└──────────────────────────────────────────────┘
+```
+
+- The name is one line and keeps the extension, same `splitFileName` rule. A generated name does not get its own stack of rows.
+- The size row is the byte count, the Dash chip, and `Show in folder`. No `Open image` pill. No `Play video` pill. The picture is the open control for an image. `.velta-video-play` (54px disc, `pointer-events: none`, taps fall through to the existing lightbox route) is the open control for a video.
+- `Show in folder` is `<button type="button" class="btn-text">`. It is a button because it does something. It does not look like a filled or outlined button. No fill, no border, no pill. Weight 600, 14px, padding `4px 8px`, so it reads as a verb next to the 12.5px size. Incoming uses the `.btn-text` verb colors. Outgoing dark and light use `--out-link`, because `.msg-row.out .btn-text` would paint `--text-meta-out` and the control would disappear into the size line. Brutal outgoing uses `--nb-main-ink`. A history is a list, so this is not `.btn-primary`.
+- The status sentence shares `.xfer-foot` with `.msg-meta`, same as the file row. `Received with Velta Dash` on an incoming image. `Sent with Velta Dash` on an outgoing video. The chip stays on the size row.
+- Media geometry stays the existing rules in `app/css/main.css`: `.msg-image .img-wrap`, `.msg-video`, `.velta-video-play`. This pass does not invent a new poster size. The caption does not change the media box, so a percent tick still must not change row height.
+- Static previews: `docs/dash-history-file-card-preview.html` (no media) and `docs/media-card-preview.html` (image and video).
+
 ## API / Interface Changes
 
 No JSON-RPC, no Tauri command, no ticket field.
@@ -608,6 +637,7 @@ Settled. None of these four is still open.
 8. **No new hex, no inner card surface, no progress bar, no feature flag.** Rollback is revert. The type tile stays `--accent` / `--on-accent`. Incoming size, status, and the Dash chip move from `--text-dim` to `--text-meta-in`. Outgoing meta stays `--text-meta-out`.
 9. **The Dash badge is a status chip on the meta tokens.** `.xfer-route` uses `--text-meta-in` incoming and `--text-meta-out` outgoing, never `--accent`, `--green`, or unread ink. It is not a button and gets no pill chrome. Card spacing is the 2px grid, so `row-gap` is 2px. Open is not an icon button and has no loading state. The busy ring stays on `.xfer-state`. The ≥44px touch-target note (#182) is not applied to this control.
 10. **Status shares the timestamp row.** `Sent with Velta Dash`, `Received with Velta Dash`, progress, and error sentences sit in `.xfer-foot` with `.msg-meta`. The size row keeps the byte count, the Dash chip, and Open, Retry, or Ask. Incoming steady copy changes from `Received` to `Received with Velta Dash`. The chip still names the route, because email fallback is a different sentence (`Sent by email`) and a different chip. The icon grid is only the name and the size row, so an error wrap does not move the tile.
+11. **A preview replaces the tile.** Image and video messages that already paint `.msg-image` or `.msg-video` keep that preview. The caption under it is the same rows: one-line name, size plus Dash chip plus `Show in folder`, status on the timestamp row. `Open image` and `Play video` are not caption buttons. `Show in folder` is a `.btn-text` button with no fill, border, or pill. Outgoing uses `--out-link` (brutal: `--nb-main-ink`) so it does not sink into the meta ink.
 
 ## PR Plan
 
@@ -630,7 +660,7 @@ Settled. None of these four is still open.
 - **Title:** `docs: describe the Dash history file card`
 - **Files:** `docs/agents/p2p.md` (the “File card” bullet under Velta Dash; the receiver-card state list stays)
 - **Depends on:** PR 1. Can merge before PR 2 if the bullet says height notify lands with the scroller follow-up; better to land after PR 2 so the doc matches the tree.
-- **Description:** Record the grid (one-line name, `.tar.gz` / `.tar.bz2` kept whole, 44px type tile, meta row, `.msg-meta` untouched), that an error sentence is a second line on `.is-error` only, that Open is a `.btn-text` button and this pass uses `openHttp`, that the Dash chip uses the meta tokens rather than accent, that `--fs-2` is not the chat font size, and that a Dash card must not change row height on a progress tick. No README change. No relay hostnames. No KMP parser.
+- **Description:** Record the grid (one-line name, `.tar.gz` / `.tar.bz2` kept whole, 44px type tile, size row, status on the timestamp row), that an error sentence wraps in `.xfer-foot` only, that Open and `Show in folder` are `.btn-text` buttons with no pill chrome, that a preview replaces the tile on image and video, that the Dash chip uses the meta tokens rather than accent, that `--fs-2` is not the chat font size, and that a Dash card must not change row height on a progress tick. No README change. No relay hostnames. No KMP parser.
 
 ### Follow-up — not a PR in this plan
 
