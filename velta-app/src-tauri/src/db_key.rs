@@ -112,13 +112,34 @@ pub fn decide_key(lookup: Lookup, has_encrypted: bool) -> (Option<String>, bool,
 }
 
 #[cfg(not(target_os = "android"))]
-fn keychain_entry() -> Option<keyring::Entry> {
-    match keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_USER) {
-        Ok(e) => Some(e),
-        Err(e) => {
-            log(&format!("keychain unavailable: {e}"));
-            None
+fn keychain_entry_legacy() -> Option<keyring::Entry> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_USER)
+        .map_err(|e| log(&format!("keychain unavailable: {e}")))
+        .ok()
+}
+
+/// #527: the DEK credential is scoped per identity. The pre-fix item was
+/// ONE SHARED credential (fixed service + user) that every Velta build on
+/// the machine read and rewrote — a test-rig build re-keyed the real
+/// profile's store with its own fresh key. The scope is the tauri
+/// identifier.
+fn keychain_entry(identity: &str) -> Option<keyring::Entry> {
+    keyring::Entry::new(&format!("{KEYCHAIN_SERVICE}.{identity}"), KEYCHAIN_USER)
+        .map_err(|e| log(&format!("keychain unavailable: {e}")))
+        .ok()
+}
+
+/// Startup DEK selection with the #527 legacy adoption: the scoped item
+/// wins; without it, the pre-scoping shared DEK is adopted only when it
+/// demonstrably opens this identity's databases (a foreign key must never
+/// encrypt a plaintext store it cannot be recovered for).
+fn startup_lookup(scoped: Lookup, legacy_hex: Option<String>, opens_ours: bool) -> Lookup {
+    match scoped {
+        Lookup::Found(hex) => Lookup::Found(hex),
+        Lookup::NoEntry if legacy_hex.is_some() && opens_ours => {
+            Lookup::Found(legacy_hex.expect("checked"))
         }
+        other => other,
     }
 }
 
@@ -469,7 +490,7 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
 /// a Windows Hello wrap is the key root: the session starts LOCKED (keyless
 /// sidecar) until `pin_unlock` or `hello_unlock`.
 #[cfg(not(target_os = "android"))]
-pub fn startup(accounts_data_dir: &Path) -> (Option<String>, Option<KeyIssue>, bool) {
+pub fn startup(accounts_data_dir: &Path, identity: &str) -> (Option<String>, Option<KeyIssue>, bool) {
     let t0 = Instant::now();
     // A wrap is the key root (the keychain item was removed when it was
     // set): no keychain read at all, no new key ever.
@@ -478,8 +499,24 @@ pub fn startup(accounts_data_dir: &Path) -> (Option<String>, Option<KeyIssue>, b
         return (None, None, true);
     }
     let root = accounts_data_dir.join("accounts");
-    let entry = keychain_entry();
-    let (mut hex, create, mut issue) = decide_key(keychain_lookup(entry.as_ref()), has_encrypted(&root));
+    let entry = keychain_entry(identity);
+    let mut lookup = keychain_lookup(entry.as_ref());
+    if matches!(lookup, Lookup::NoEntry | Lookup::Unavailable) {
+        // #527: adopt the pre-scoping shared DEK only when it opens this
+        // identity's databases — the shared item may belong to another
+        // Velta build on this machine.
+        if let Lookup::Found(legacy_hex) = keychain_lookup(keychain_entry_legacy().as_ref()) {
+            let ours = account_dbs(&root).iter().any(|db| opens(db, Some(legacy_hex.as_str())));
+            lookup = startup_lookup(lookup, Some(legacy_hex.clone()), ours);
+            if let Lookup::Found(_) = lookup {
+                if let Some(e) = entry.as_ref() {
+                    let _ = e.set_password(&legacy_hex);
+                    log("adopted the legacy shared DEK into this identity's scoped item");
+                }
+            }
+        }
+    }
+    let (mut hex, create, mut issue) = decide_key(lookup, has_encrypted(&root));
     if create {
         hex = create_dek(entry.as_ref());
         if hex.is_none() {
@@ -677,7 +714,7 @@ pub fn pin_wrap_open(path: &Path, pin: &str) -> PinOpen {
 /// same DEK. The DEK itself never changes, so a running keyed session is
 /// unaffected.
 #[cfg(not(target_os = "android"))]
-pub fn pin_set(data_dir: &Path, old_pin: Option<&str>, new_pin: &str) -> Result<(), String> {
+pub fn pin_set(data_dir: &Path, old_pin: Option<&str>, new_pin: &str, identity: &str) -> Result<(), String> {
     let path = pin_wrap_path(data_dir);
     let dek = if path.is_file() {
         let Some(old) = old_pin else { return Err("current-pin-required".to_string()) };
@@ -696,7 +733,7 @@ pub fn pin_set(data_dir: &Path, old_pin: Option<&str>, new_pin: &str) -> Result<
             return Err("no-key".to_string());
         }
     } else {
-        match keychain_lookup(keychain_entry().as_ref()) {
+        match keychain_lookup(keychain_entry(identity).as_ref()) {
             Lookup::Found(dek) => dek,
             Lookup::NoEntry => return Err("no-key".to_string()),
             Lookup::Unavailable => return Err("keychain-unavailable".to_string()),
@@ -708,7 +745,7 @@ pub fn pin_set(data_dir: &Path, old_pin: Option<&str>, new_pin: &str) -> Result<
         let _ = std::fs::remove_file(&path);
         return Err("wrap verify failed".to_string());
     }
-    if let Some(entry) = keychain_entry() {
+    if let Some(entry) = keychain_entry(identity) {
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(e) => log(&format!("keychain delete failed: {e}")),
@@ -722,7 +759,7 @@ pub fn pin_set(data_dir: &Path, old_pin: Option<&str>, new_pin: &str) -> Result<
 /// A Windows Hello wrap that is still present stays the key root — the
 /// keychain item is not restored.
 #[cfg(not(target_os = "android"))]
-pub fn pin_clear(data_dir: &Path, pin: &str) -> Result<(), String> {
+pub fn pin_clear(data_dir: &Path, pin: &str, identity: &str) -> Result<(), String> {
     let path = pin_wrap_path(data_dir);
     let dek = match pin_wrap_open(&path, pin) {
         PinOpen::Dek(dek) => dek,
@@ -734,7 +771,7 @@ pub fn pin_clear(data_dir: &Path, pin: &str) -> Result<(), String> {
         log("app-lock PIN removed; Windows Hello remains the key root");
         return Ok(());
     }
-    let Some(entry) = keychain_entry() else {
+    let Some(entry) = keychain_entry(identity) else {
         return Err("keychain-unavailable".to_string());
     };
     entry
@@ -821,8 +858,8 @@ fn hello_dek(data_dir: &Path) -> Result<String, String> {
 }
 
 #[cfg(windows)]
-fn drop_keychain() {
-    if let Some(entry) = keychain_entry() {
+fn drop_keychain(identity: &str) {
+    if let Some(entry) = keychain_entry(identity) {
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(e) => log(&format!("keychain delete failed: {e}")),
@@ -832,7 +869,7 @@ fn drop_keychain() {
 
 /// Read the current DEK from the PIN wrap, the Hello wrap, or the keychain.
 #[cfg(windows)]
-fn current_dek(data_dir: &Path, pin: Option<&str>) -> Result<String, String> {
+fn current_dek(data_dir: &Path, pin: Option<&str>, identity: &str) -> Result<String, String> {
     let path = pin_wrap_path(data_dir);
     if path.is_file() {
         let Some(pin) = pin else { return Err("current-pin-required".to_string()) };
@@ -845,7 +882,7 @@ fn current_dek(data_dir: &Path, pin: Option<&str>) -> Result<String, String> {
     if hello_locked(data_dir) {
         return hello_dek(data_dir);
     }
-    match keychain_lookup(keychain_entry().as_ref()) {
+    match keychain_lookup(keychain_entry(identity).as_ref()) {
         Lookup::Found(dek) => Ok(dek),
         Lookup::NoEntry => Err("no-key".to_string()),
         Lookup::Unavailable => Err("keychain-unavailable".to_string()),
@@ -856,11 +893,11 @@ fn current_dek(data_dir: &Path, pin: Option<&str>) -> Result<String, String> {
 /// Hello prompt total (the sign in `seal`; creation rides it on first use).
 /// The PIN wrap, if any, stays as the fallback.
 #[cfg(windows)]
-pub fn hello_set(data_dir: &Path, pin: Option<&str>) -> Result<(), String> {
+pub fn hello_set(data_dir: &Path, pin: Option<&str>, identity: &str) -> Result<(), String> {
     if hello_locked(data_dir) {
         return Ok(());
     }
-    let dek_hex = current_dek(data_dir, pin)?;
+    let dek_hex = current_dek(data_dir, pin, identity)?;
     let dek = data_encoding::HEXLOWER
         .decode(dek_hex.as_bytes())
         .map_err(|_| "bad dek".to_string())?;
@@ -871,7 +908,7 @@ pub fn hello_set(data_dir: &Path, pin: Option<&str>) -> Result<(), String> {
     file.extend_from_slice(&ct);
     let path = hello_wrap_path(data_dir);
     std::fs::write(&path, &file).map_err(|e| format!("wrap write failed: {e}"))?;
-    drop_keychain();
+    drop_keychain(identity);
     log("Windows Hello is now a key root; keychain item removed");
     Ok(())
 }
@@ -879,7 +916,7 @@ pub fn hello_set(data_dir: &Path, pin: Option<&str>) -> Result<(), String> {
 /// Unwrap with Hello. If a PIN wrap remains, only the Hello wrap is
 /// removed. Otherwise the DEK goes back to the keychain.
 #[cfg(windows)]
-pub fn hello_clear(data_dir: &Path) -> Result<(), String> {
+pub fn hello_clear(data_dir: &Path, identity: &str) -> Result<(), String> {
     let dek = hello_dek(data_dir)?;
     let path = hello_wrap_path(data_dir);
     if pin_locked(data_dir) {
@@ -887,7 +924,7 @@ pub fn hello_clear(data_dir: &Path) -> Result<(), String> {
         log("Windows Hello removed; app-lock PIN remains the key root");
         return Ok(());
     }
-    let Some(entry) = keychain_entry() else {
+    let Some(entry) = keychain_entry(identity) else {
         return Err("keychain-unavailable".to_string());
     };
     entry
@@ -901,13 +938,13 @@ pub fn hello_clear(data_dir: &Path) -> Result<(), String> {
 /// Prompt Hello and migrate any plaintext databases. Returns the raw key
 /// for the respawned sidecar env.
 #[cfg(windows)]
-pub fn hello_unlock(data_dir: &Path, accounts_root: &Path) -> Result<String, String> {
+pub fn hello_unlock(data_dir: &Path, accounts_root: &Path, identity: &str) -> Result<String, String> {
     let hex = hello_dek(data_dir)?;
     let report = prepare(accounts_root, Some(&hex));
     if !report.use_key {
         return Err("prepare-failed".to_string());
     }
-    drop_keychain();
+    drop_keychain(identity);
     log(&format!(
         "hello unlock: {} migrated, {} already encrypted, {} locked",
         report.migrated, report.already, report.locked
@@ -1195,12 +1232,12 @@ mod tests {
     fn hello_wrap_file_starts_locked_and_pin_clear_keeps_it() {
         let dir = tmpdir();
         std::fs::write(hello_wrap_path(&dir), hello_wrap_bytes(b"VLTHW", 1)).unwrap();
-        let (key, issue, locked) = startup(&dir);
+        let (key, issue, locked) = startup(&dir, "test");
         assert!(key.is_none() && issue.is_none() && locked);
         assert!(hello_locked(&dir));
 
         pin_wrap_write(&pin_wrap_path(&dir), "123456", KEY).unwrap();
-        pin_clear(&dir, "123456").unwrap();
+        pin_clear(&dir, "123456", "test").unwrap();
         assert!(!pin_wrap_path(&dir).exists());
         assert!(hello_locked(&dir));
     }

@@ -37,7 +37,7 @@ test("#197 desktop: db key heartbeat before sidecar; transports after proxy/ws b
   assert.ok(spawned > 0 && rpc > spawned, "sidecar then rpc");
   assert.ok(proxy > rpc && ws > proxy && transports > ws, "transports after proxy/ws boot");
 
-  const setup = lib.slice(lib.indexOf("db_key::startup(&accounts)"), lib.indexOf("spawn_sidecar(&app_handle, db_key, true)"));
+  const setup = lib.slice(lib.indexOf("db_key::startup(&accounts, app.config().identifier.as_str())"), lib.indexOf("spawn_sidecar(&app_handle, db_key, true)"));
   assert.match(setup, /boot: db key applied/);
   assert.match(setup, /boot: db key keyless/);
 });
