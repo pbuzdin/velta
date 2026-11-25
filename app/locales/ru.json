@@ -308,6 +308,7 @@
   "unknown server": "неизвестный сервер",
   "Add DNS tunnel?": "Добавить DNS-туннель?",
   "Replace": "Заменить",
+  "Resize photos to 2k": "Уменьшать фото до 2k",
   "Enable": "Включить",
   "Disable": "Отключить",
   "Relay paused — it stops sending and fetching (fetch stops at the next reconnect)": "Реле приостановлено — оно не отправляет и не получает (получение остановится при следующем подключении)",

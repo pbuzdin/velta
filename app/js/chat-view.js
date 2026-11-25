@@ -4822,12 +4822,15 @@ export class ChatView {
       // so it takes the write-to-uploads branch below.
       let sendBlob = pm.blob;
       const ic = pm.kind === "image" && pm.blob ? await import("./image-compress.js") : null; // lazy (fix 5)
-      if (ic?.compressEnabled()) {
+      // WebP (Compress photos) and the 2k resize are separate settings; the
+      // step runs when either is on, so a resize can happen with WebP off.
+      if (ic && (ic.compressEnabled() || ic.resizeEnabled())) {
         const r = await ic.compressImage(pm.blob, {
           name: pm.name, quality: mediaQualitySetting(),
+          webp: ic.compressEnabled(), resize: ic.resizeEnabled(),
         });
         diagnosticsSink.append("info", r.transcoded
-          ? `media: photo → webp ${r.from} → ${r.to} bytes`
+          ? `media: photo transcoded ${r.from} → ${r.to} bytes`
           : `media: photo sent as is (${r.reason})`);
         if (r.transcoded) { sendBlob = r.blob; filePath = null; }
       }

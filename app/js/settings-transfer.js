@@ -138,6 +138,7 @@ export const SETTINGS = [
   onByDefault("notify-calls", "Call notifications", "velta-notify-calls"),
   oneOf("image-quality", "Image quality", "velta-media-quality", [["standard", "0"], ["compact", "1"]], "0"),
   onByDefault("compress-photos", "Compress photos", "velta-compress-photos"),
+  onByDefault("resize-photos", "Resize photos to 2k", "velta-resize-photos"),
   (() => {
     const dl = oneOf("auto-download-limit", "Auto-download limit", "velta-download-limit", DL, "0");
     const read = dl.read, parse = dl.parse;

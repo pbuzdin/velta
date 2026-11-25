@@ -170,6 +170,9 @@ export function decideTranscode({ bytes, info, quality = "0", enabled = true }) 
 export function webpWins(origBytes, webpBytes, plan) {
   if (!(webpBytes > 0)) return false;
   if (plan?.targetBytes != null) return webpBytes <= plan.targetBytes && webpBytes < origBytes;
+  // The 2k cap shrank the picture on purpose: "smaller" is enough, the
+  // MIN_SAVING bar is for conversions that only change the codec.
+  if (plan?.scaled) return webpBytes < origBytes;
   return webpBytes <= origBytes * MIN_SAVING;
 }
 
@@ -178,6 +181,25 @@ export function scaledSize(w, h, maxPixels) {
   if (!(w > 0 && h > 0)) return { width: 1, height: 1 };
   const k = Math.min(1, Math.sqrt(maxPixels / (w * h)));
   return { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) };
+}
+
+// "Resize photos to 2k": the longest side never exceeds RESIZE_MAX_SIDE when
+// the setting is on. Independent of the WebP setting — with WebP off, an
+// oversized photo re-encodes as JPEG once, at RESIZE_JPEG_QUALITY.
+export const RESIZE_KEY = "velta-resize-photos"; // "0" = off, unset = on
+export const RESIZE_MAX_SIDE = 2048;
+export const RESIZE_JPEG_QUALITY = 0.92;
+
+export function resizeEnabled() {
+  try { return localStorage.getItem(RESIZE_KEY) !== "0"; } catch { return true; }
+}
+
+// Longest-side cap; never upscales. Null when the image already fits.
+export function scaledSideCap(w, h, maxSide = RESIZE_MAX_SIDE) {
+  if (!(w > 0 && h > 0)) return null;
+  if (Math.max(w, h) <= maxSide) return null;
+  const k = maxSide / Math.max(w, h);
+  return { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)), scaled: true };
 }
 
 export function webpName(name) {
@@ -195,36 +217,63 @@ async function defaultDecode(blob) {
   return { width: bmp.width, height: bmp.height, source: bmp, close: () => bmp.close?.() };
 }
 
-async function defaultEncode(decoded, width, height, quality) {
+async function defaultEncode(decoded, width, height, quality, type = "image/webp") {
   if (typeof OffscreenCanvas === "function") {
     const c = new OffscreenCanvas(width, height);
     c.getContext("2d").drawImage(decoded.source, 0, 0, width, height);
-    return c.convertToBlob({ type: "image/webp", quality });
+    return c.convertToBlob({ type, quality });
   }
   const c = document.createElement("canvas");
   c.width = width; c.height = height;
   c.getContext("2d").drawImage(decoded.source, 0, 0, width, height);
-  return new Promise(res => c.toBlob(res, "image/webp", quality));
+  return new Promise(res => c.toBlob(res, type, quality));
 }
 
 // → { blob, name, transcoded, reason?, from?, to? } — always usable: on any
 // problem it returns the input blob unchanged (transcoded: false).
-export async function compressImage(blob, { name = null, quality = "0", enabled = true, deps = {} } = {}) {
+export async function compressImage(blob, { name = null, quality = "0", enabled = true, webp = true, resize = true, deps = {} } = {}) {
   const decode = deps.decode || defaultDecode;
   const encode = deps.encode || defaultEncode;
   const same = reason => ({ blob, name, transcoded: false, reason });
   try {
-    if (!enabled) return same("disabled");
+    if (!enabled || (!webp && !resize)) return same("disabled");
     if (!blob || blob.size > MAX_INPUT_BYTES) return same("too-big");
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const info = sniffImage(bytes);
+    // WebP off: only the dimension cap acts — oversized JPEG/opaque-WebP
+    // re-encodes as JPEG once. Alpha PNGs are lossless on purpose and GIFs
+    // are animated; neither is touched here (and the WebP path skips them
+    // through decideTranscode as before).
+    if (!webp && resize) {
+      if (info.format !== "jpeg" && info.format !== "webp") return same(info.format === "heic" ? "heic-needs-webp" : "no-resize-format");
+      if (info.animated || info.alpha) return same("no-resize-format");
+      const decoded = await decode(blob);
+      try {
+        const at = scaledSideCap(decoded.width, decoded.height);
+        if (!at) return same("within-2k");
+        const out = await encode(decoded, at.width, at.height, RESIZE_JPEG_QUALITY, "image/jpeg");
+        if (!out || !(out.size < bytes.length)) return same("not-smaller");
+        return { blob: out, name, transcoded: true, from: bytes.length, to: out.size };
+      } finally { decoded.close?.(); }
+    }
     const plan = decideTranscode({ bytes: bytes.length, info, quality, enabled });
     if (!plan.try) return same(plan.reason);
+    if (resize && plan.maxPixels !== Infinity) {
+      const cap = RESIZE_MAX_SIDE * RESIZE_MAX_SIDE;
+      if (cap < plan.maxPixels) plan.maxPixels = cap;
+    } else if (resize) {
+      plan.maxPixels = RESIZE_MAX_SIDE * RESIZE_MAX_SIDE;
+    }
     const decoded = await decode(blob);
     try {
-      const { width, height } = scaledSize(decoded.width, decoded.height, plan.maxPixels);
+      const at = scaledSize(decoded.width, decoded.height, plan.maxPixels);
+      // The pixel budget is area-based (the core's rule); the 2k setting is
+      // about the longest side, so clamp it too when resize is on.
+      const side = resize ? scaledSideCap(at.width, at.height) : null;
+      if (side) { at.width = side.width; at.height = side.height; }
+      if (at.width * at.height < decoded.width * decoded.height) plan.scaled = true;
       for (const q of plan.targetBytes != null ? QUALITIES : QUALITIES.slice(0, 1)) {
-        const out = await encode(decoded, width, height, q);
+        const out = await encode(decoded, at.width, at.height, q);
         if (!out || out.type !== "image/webp") return same("no-webp-encoder");
         if (webpWins(bytes.length, out.size, plan)) {
           return { blob: out, name: webpName(name), transcoded: true, from: bytes.length, to: out.size };

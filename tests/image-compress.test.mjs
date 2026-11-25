@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  sniffImage, decideTranscode, webpWins, scaledSize, webpName, coreLimits, compressImage,
-  MIN_BYTES, MIN_SAVING, COMPRESS_KEY,
+  sniffImage, decideTranscode, webpWins, scaledSize, scaledSideCap, webpName, coreLimits, compressImage,
+  MIN_BYTES, MIN_SAVING, COMPRESS_KEY, RESIZE_JPEG_QUALITY,
 } from "../app/js/image-compress.js";
 
 // #81: outgoing photos → lossy WebP only when it clearly pays. Everything here
@@ -321,4 +321,63 @@ test("HEIC picks are converted on Android, and elsewhere count as photos only wh
   assert.match(kt, /Build\.VERSION_CODES\.P/, "Android 8 and older cannot decode HEIC: the original is sent");
   assert.match(kt, /MAX_PIXELS = 24_000_000L/, "a 108 or 200 megapixel shot is sampled down before it is decoded");
   assert.match(kt, /catch \(_: OutOfMemoryError\)/, "a failed decode sends the original instead of crashing");
+});
+
+// ---- the 2k resize setting (independent of the WebP setting) ----
+
+test("scaledSideCap: longest side never exceeds 2k, never upscales", () => {
+  assert.deepEqual(scaledSideCap(4000, 3000), { width: 2048, height: 1536, scaled: true });
+  assert.deepEqual(scaledSideCap(8000, 1000), { width: 2048, height: 256, scaled: true });
+  assert.deepEqual(scaledSideCap(1000, 500), null);
+  assert.deepEqual(scaledSideCap(2048, 1536), null);
+});
+
+test("compressImage: WebP off + resize on → oversized JPEG re-encodes as JPEG at 2k", async () => {
+  const f = fakes({ w: 4000, h: 3000, sizes: [800_000], type: "image/jpeg" });
+  const r = await compressImage(blobOf(big(3_000_000)), { name: "IMG_1.jpg", webp: false, deps: f.deps });
+  assert.equal(r.transcoded, true);
+  assert.equal(r.name, "IMG_1.jpg", "keeps its name and extension");
+  assert.deepEqual([f.calls.encode[0].width, f.calls.encode[0].height], [2048, 1536]);
+  assert.equal(f.calls.encode[0].q, RESIZE_JPEG_QUALITY);
+  assert.equal(f.calls.encode.length, 1, "one shot, no ladder");
+});
+
+test("compressImage: WebP off, image already within 2k → untouched", async () => {
+  const f = fakes({ w: 1200, h: 900 });
+  const input = blobOf(big(600_000));
+  const r = await compressImage(input, { webp: false, deps: f.deps });
+  assert.equal(r.transcoded, false);
+  assert.equal(r.reason, "within-2k");
+  assert.equal(r.blob, input);
+  assert.equal(f.calls.encode.length, 0, "nothing re-encoded");
+});
+
+test("compressImage: WebP off skips alpha PNGs, GIFs and unknown formats", async () => {
+  for (const bytes of [pngFile(6, {}), gif(), bytesOf("not-an-image")]) {
+    const f = fakes({});
+    const r = await compressImage(blobOf(bytes), { webp: false, deps: f.deps });
+    assert.equal(r.transcoded, false, bytes.length + " bytes");
+    assert.equal(f.calls.decode, 0);
+  }
+});
+
+test("compressImage: both settings off → disabled, nothing decoded", async () => {
+  const f = fakes({});
+  const r = await compressImage(blobOf(big(3_000_000)), { webp: false, resize: false, deps: f.deps });
+  assert.equal(r.transcoded, false);
+  assert.equal(r.reason, "disabled");
+  assert.equal(f.calls.decode, 0);
+});
+
+test("compressImage: the 2k cap lowers the acceptance bar to 'smaller'", async () => {
+  // A 4000px photo whose WebP is only 5 % smaller used to go out unscaled
+  // (MIN_SAVING); with the resize on, the cap is the point — take it.
+  const f = fakes({ w: 4000, h: 3000, sizes: [570_000] });
+  const r = await compressImage(blobOf(big(600_000)), { deps: f.deps });
+  assert.equal(r.transcoded, true);
+  assert.equal(f.calls.encode[0].width, 2048);
+  // ...and with the resize setting off the old bar holds.
+  const g = fakes({ w: 4000, h: 3000, sizes: [570_000] });
+  const kept = await compressImage(blobOf(big(600_000)), { resize: false, deps: g.deps });
+  assert.equal(kept.transcoded, false);
 });
