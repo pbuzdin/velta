@@ -265,6 +265,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/modals-audit-and-plan.md # modal/overlay/popup inventory + native <dialog> plan
 ├── docs/native-elements.md       # where native HTML elements can replace custom JS/ARIA
 ├── docs/accessibility-and-keybindings.md # DC Desktop shortcut reference, Velta keyboard/a11y audit + plan (K1–K8, N1–N13)
+├── docs/test-two-instances.md    # run two isolated desktop instances (identifier patch, sidecar, CDP automation) for 1:1/Dash testing
 ├── docs/iroh-layer-plan.md        # iroh second layer over chatmail: iroh folder + chip, link protocol, dedup, calls, phases (proposal)
 ├── docs/research/iroh-layer-research.md # what core 2.62's iroh exposes (webxdc realtime, backup), keys, calls, upstream, wasm — file:line cites
 ├── docs/research/android-native-hybrid-ui.md # Android native chat list/history + WebView for the rest: options, cost, WebView hotspots, recommendation (research)
