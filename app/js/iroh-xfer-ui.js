@@ -195,14 +195,11 @@ export function setXferLightboxOpener(fn) { lightbox = fn; }
 function previewHtml(hash, name, st) {
   const kind = mediaKind(name || st.path);
   if (!kind) return "";
-  // No bytes yet: while the card is still waiting on a fetch the glyph tile
-  // stays — a dead tile under the busy ring reads as "broken", not "wait".
-  // The dead tile is for settled cards that will never have a copy here:
-  // asked/error, or the sender's other device.
-  if (!st.path) {
-    if (!st.outgoing && !st.asked && !st.error) return "";
-    return `<span class="xfer-preview xfer-preview-dead">${escapeHtml(t("Preview unavailable"))}</span>`;
-  }
+  // No bytes yet: the kind tile falls back (small file icon) — a big dead
+  // tile reads as broken, and stacked repaints used to duplicate it (#519
+  // feedback). The runtime decode-failure tile (bytes present, codec
+  // refused) is separate and stays.
+  if (!st.path) return "";
   const url = escapeAttr(safeFileUrl(st.path));
   // #t=0.001 seeks to the first frame so preload=metadata paints it instead
   // of an empty tile.
@@ -456,7 +453,7 @@ function paintCard(card, st) {
   // lightbox (the render path already has it; refresh catches the card
   // that finished while on screen).
   const want = previewHtml(hash, name, st);
-  const have = card.querySelector(".xfer-preview-btn");
+  const have = card.querySelector(".xfer-preview-btn, .xfer-preview-dead");
   if (want && !have) {
     card.querySelector(".xfer-glyph")?.remove();
     card.insertAdjacentHTML("afterbegin", want);

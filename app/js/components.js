@@ -471,10 +471,14 @@ class VeltaChatHead extends Elena(HTMLElement) {
     const oneToOne = !!c.contactId && !c.isP2pGroup
       && !["group", "channel", "saved", "device", "deaddrop"].includes(c.kind);
     const prismH = oneToOne ? Math.round(nameHue(c.avatarColor || c.name)) : null;
-    if (prismH == null) this.classList.remove("prism-head");
-    else {
-      this.style.setProperty("--prism-h", String(prismH));
+    const bar = this.closest(".chat-head");
+    if (prismH == null) {
+      this.classList.remove("prism-head");
+      bar?.classList.remove("prism-bar");
+    } else {
       this.classList.add("prism-head");
+      bar?.classList.add("prism-bar");
+      bar?.style.setProperty("--prism-h", String(prismH));
     }
     const st = this.statusLine();
     const online = typeof st === "object" && st.online;

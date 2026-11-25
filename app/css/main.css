@@ -2081,15 +2081,30 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 /* #519 follow-up: a 1:1 header wears the contact's Prism hue — the drawer
    fingerprint gradient rotated to their color, lightness pinned at 30/33%
    (the drawer sweep holds #f4f4f4 at >=4.79:1 on the worst hue — that IS
-   the dim version; both themes share the gradient and the light ink). */
-velta-chat-head.prism-head {
+   the dim version; both themes share the gradient and the light ink).
+   Full-bleed: the gradient is the whole header bar, edge to edge, and the
+   header controls switch to light ink (the accent Dash badge would vanish
+   on a same-hue gradient). */
+.chat-head.prism-bar {
   background: linear-gradient(135deg,
     hsl(var(--prism-h, 215) 45% 30%),
     hsl(calc(var(--prism-h, 215) + 40) 30% 33%));
-  border-radius: 10px;
-  padding: 5px 10px;
-  color: #f4f4f4;
+  border-bottom-color: transparent;
 }
+.chat-head.prism-bar .cht-name,
+.chat-head.prism-bar .cht-name-text,
+.chat-head.prism-bar .icon-btn,
+.chat-head.prism-bar .dash-badge { color: rgba(244, 244, 244, .88); }
+.chat-head.prism-bar .cht-status { color: rgba(244, 244, 244, .95); }
+.chat-head.prism-bar .cht-status.online { color: #f4f4f4; }
+.chat-head.prism-bar .ci-badge { background: rgba(244, 244, 244, .2); color: #f4f4f4; }
+html[data-theme="brutal"] .chat-head.prism-bar,
+html[data-theme="light"] .chat-head.prism-bar {
+  background: linear-gradient(135deg,
+    hsl(var(--prism-h, 215) 45% 30%),
+    hsl(calc(var(--prism-h, 215) + 40) 30% 33%));
+}
+velta-chat-head.prism-head { color: #f4f4f4; }
 velta-chat-head.prism-head .cht-name,
 velta-chat-head.prism-head .cht-name-text { color: #f4f4f4; }
 velta-chat-head.prism-head .cht-status { color: rgba(244, 244, 244, .95); }
