@@ -34,19 +34,17 @@ if (!/CriOS|FxiOS|EdgiOS/.test(ua) && /Chrome\/|Chromium\/|Edg\//.test(ua)) {
 function composerFieldSized() {
   return typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 }
-// Expanding-composer state on #main-composer: `expanded` = field spans the
-// composer with the buttons on a row below (typing anywhere, or focus on
-// touch); `has-text` = the sticker trigger is gone, a sticker send is a
-// message of its own and never rides alongside text.
+// Composer state on #main-composer: `armed` = the send arrow has something
+// to act on — trimmed text, an open media strip, or a voice take. No layout
+// class: the footer is one flex row at every width, so the slot never moves.
 function syncComposerState(input) {
   const bar = input?.closest?.(".composer");
-  if (!bar) return;
+  if (!bar || bar.id !== "main-composer") return;
   const hasText = input.value.trim().length > 0;
-  bar.classList.toggle("has-text", hasText);
-  // DOM-mock test environments have neither matchMedia nor layout state.
-  const touch = globalThis.matchMedia?.("(pointer: coarse)")?.matches === true;
-  bar.classList.toggle("expanded",
-    hasText || (touch && document.activeElement === input));
+  const media = document.getElementById("media-preview");
+  const voice = document.getElementById("voice-rec");
+  bar.classList.toggle("armed",
+    hasText || media?.hidden === false || voice?.hidden === false);
 }
 function sizeComposer(input) {
   if (!input) return;
@@ -428,12 +426,8 @@ const FWD_LABELS = { picture: "Forwarded a picture", video: "Forwarded a video",
 // to 2 to keep single replies chip-only.
 export const THREAD_BUTTON_MIN_REPLIES = 1;
 
-// #278: drawer → Chat appearance. "1" = Attach → Stickers, no composer button.
-export const stickersInAttach = () => { try { return localStorage.getItem("velta-stickers-in-attach") === "1"; } catch { return false; } };
-
 // Drawer "Chat appearance" toggles write these keys; absence = enabled.
 const sendLaterEnabled = () => localStorage.getItem("velta-send-later") !== "0";
-const commandsButtonEnabled = () => localStorage.getItem("velta-cmds-button") !== "0";
 
 const ICO = {
   sticker: ICON.sticker,
@@ -971,7 +965,6 @@ export class ChatView {
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
-      this._applyGroupComposer(chat);
       this._tracked = tracked;
       this.hasMore = hasMore;
       this.hasNewer = !!hasNewer;
@@ -1250,17 +1243,6 @@ export class ChatView {
     return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(fileUrl(m.avatar))}"` : ""}></velta-avatar>`;
   }
 
-  _applyGroupComposer(chat) {
-    const b = document.getElementById("btn-sticker");
-    if (b) b.hidden = !!chat?.isP2pGroup || stickersInAttach();
-    const cmds = document.getElementById("btn-commands");
-    if (cmds) cmds.hidden = !commandsButtonEnabled();
-    // Same gates as the attach-menu rows: local chats don't schedule
-    // (this.scheduled is instance-wide, set once by app.js).
-    const sl = document.getElementById("btn-send-later");
-    if (sl) sl.hidden = !!chat?.isP2p || !sendLaterEnabled();
-  }
-
   // One TypingSender per open local chat; switching chats stops the old one.
   _typingFor(chatId) {
     if (this._typing && this._typing.chatId === chatId) return this._typing.sender;
@@ -1323,7 +1305,6 @@ export class ChatView {
     this._stopSettling?.();
     if (this.pinnedBar) this.pinnedBar.hidden = true;
     this.chat = null;
-    this._applyGroupComposer(null);
     this.hasMore = false;
     this.loadingMore = false;
     this.hasNewer = false;
@@ -4361,10 +4342,6 @@ export class ChatView {
     input.autocomplete = "off";
     input.enterKeyHint = localStorage?.getItem("velta-send-enter") !== "0" ? "send" : "enter";
     input.addEventListener("input", () => { grow(); this._scheduleLinkPreview(); });
-    // Focus/blur drive the touch-only half of `expanded` (typing is covered
-    // by the input listener via sizeComposer -> syncComposerState).
-    input.addEventListener("focus", () => syncComposerState(input));
-    input.addEventListener("blur", () => syncComposerState(input));
     // Typing hint (local chats only; core.sendTyping is a no-op when the
     // setting is off). Empty box = stopped.
     input.addEventListener("input", () => {
@@ -4454,50 +4431,9 @@ export class ChatView {
       });
       for (const ev of ["pointerup", "pointercancel", "pointerleave"]) send.addEventListener(ev, clear);
     }
-    document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
-    window.addEventListener("velta-stickers-pref", () => this._applyGroupComposer(this.chat));
-    window.addEventListener("velta-composer-pref", () => this._applyGroupComposer(this.chat));
-    // Desktop quick tools (≥600px): the attach-menu rows people reach for
-    // most, one tap away — Apps/Commands beside Attach, Send later beside
-    // Send. Phones keep everything in the attach menu (no room at 390px).
-    const popAbove = (btn, menu) => {
-      const r = btn.getBoundingClientRect();
-      const x = Math.min(r.left, window.innerWidth - 220);
-      menu.style.top = "auto";
-      menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
-      menu.style.left = x / uiZoom() + "px";
-    };
-    document.getElementById("btn-apps").addEventListener("click", () => {
-      const session = this._session;
-      if (!this._isCurrent(session) || !this.chat) return;
-      const items = recentApps(this.core.accountId).map(a => ({ label: a.name, icon: ICO.webxdc, onClick: () => this._resendStoredApp(session, a) }));
-      if (items.length) items.push("-");
-      items.push({
-        label: "Browse apps…",
-        onClick: () => openAppBrowser({
-          showModal, toast,
-          alive: () => this._isCurrent(session) && !!this.chat,
-          getBytes: (url, ms) => this.core.getHttpResponse(url, ms).then(r => r.bytes),
-          sendApp: (app, bytes) => this._sendCatalogApp(session, app, bytes),
-        }),
-      });
-      popAbove(document.getElementById("btn-apps"), showContextMenu(items, 8, 8));
-    });
-    document.getElementById("btn-commands").addEventListener("click", () => {
-      const session = this._session;
-      if (!this._isCurrent(session) || !this.chat) return;
-      const input = document.getElementById("composer-input");
-      const cmds = recentCommands(this.core.accountId, session.chatId);
-      if (!cmds.length) { toast(t("No commands yet")); return; }
-      const menu = showContextMenu(cmds.map(c => ({ label: c, onClick: () => {
-        input.value = c + " ";
-        try { input.selectionStart = input.selectionEnd = input.value.length; } catch {}
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.focus();
-      } })), 8, 8);
-      popAbove(document.getElementById("btn-commands"), menu);
-    });
-    document.getElementById("btn-send-later").addEventListener("click", () => this._sendLater());
+    // Apps/Commands/Send later moved to the attach menu (appendAttachLists +
+    // the Send later row below); Send later also stays on the Send
+    // long-press/context menu and Ctrl/Cmd+Shift+Enter.
     this._bindFileDrop();
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
     // Replace: the same picker again; cancelling keeps the staged file.
@@ -4534,9 +4470,10 @@ export class ChatView {
         { label: "Video", icon: ICO.video, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
-      // #278: the sticker picker moved here from the composer (same picker,
-      // same quote handling as the button).
-      if (stickersInAttach() && !this.chat?.isP2pGroup) {
+      // Stickers live here only (#278 originally made it a drawer option;
+      // the composer button and that pref are gone). Local groups have no
+      // sticker send — same gate as before.
+      if (!this.chat?.isP2pGroup) {
         attachItems.push({ label: "Stickers", icon: ICO.sticker, onClick: () => this._toggleStickerPicker() });
       }
       // #454: whole folder as one p2p transfer — zip on pick (STORE), the
@@ -4655,8 +4592,9 @@ export class ChatView {
     const pm = this.pendingMedia;
     this._renderMediaRoute();
     thumb.classList.remove("ph-word", "is-video");
-    if (!pm) { bar.hidden = true; thumb.replaceChildren(); name.textContent = ""; crop.hidden = true; replace.hidden = true; return; }
-    bar.hidden = false;
+    if (!pm) { bar.hidden = true; thumb.replaceChildren(); name.textContent = ""; crop.hidden = true; replace.hidden = true; }
+    else {
+      bar.hidden = false;
     thumb.replaceChildren();
     if (pm.kind === "file") {
       // #519: the type icon map, not the extension's first letter — the
@@ -4677,6 +4615,10 @@ export class ChatView {
     name.textContent = pm.name || (pm.kind === "video" ? t("Video") : pm.kind === "file" ? t("File") : t("Photo"));
     crop.hidden = pm.kind !== "image";
     replace.hidden = pm.kind !== "image" && pm.kind !== "video";
+    }
+    // A staged file arms the arrow even with an empty caption (a file with
+    // a blank caption already sends on tap).
+    syncComposerState(document.getElementById("composer-input"));
   }
 
   // Staged video: a button that plays it in Velta's own lightbox player,
@@ -5117,6 +5059,7 @@ export class ChatView {
       const label = document.getElementById("voice-rec-label");
       if (label) label.textContent = t("Recording 0:00");
     }
+    syncComposerState(document.getElementById("composer-input"));
   }
 
   // Record, then send the blob as a Voice message with a real file. A voice

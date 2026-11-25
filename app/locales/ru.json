@@ -1,7 +1,6 @@
 {
   "Account changed; reopen the invite": "Профиль сменился; откройте приглашение заново",
   "Chat closed": "Чат закрыт",
-  "Commands button": "Кнопка «Команды»",
   "Copy to clipboard": "Скопировать в буфер обмена",
   "Couldn't read the file": "Не удалось прочитать файл",
   "Couldn't unlock: {error}": "Не удалось разблокировать: {error}",
@@ -1680,7 +1679,6 @@
   "Diagnostics copied — paste them to share": "Журнал скопирован — вставьте, чтобы поделиться",
   "No matching diagnostics": "Нет подходящих записей",
   "Pure black (AMOLED)": "Чисто чёрная (AMOLED)",
-  "Stickers in attachments menu": "Стикеры в меню вложений",
   "Liquid glass composer": "Поле ввода из жидкого стекла",
   "Hide chat list": "Скрыть список чатов",
   "Show chat list": "Показать список чатов",

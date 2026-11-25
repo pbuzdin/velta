@@ -49,7 +49,7 @@ fix, rotation FGS fix (#378), and the calmer launcher icon (#382).
 (`velta://ws` stays text), sticker sends keep a reply quote
 (`send_msg` viewtype `Sticker`), chat appearance prefs, and an Android
 app-lock PIN beside the biometric lock. Desktop hides the PIN. No
-Windows Hello. Stickers default to the composer button. `velta-stickers-in-attach` `"1"` moves them into Attach. The button hides while the field has text.
+Windows Hello. Stickers open from the Attach menu only — the composer button and its `velta-stickers-in-attach` pref are gone (web parity).
 Reply threads: count, side button, and a panel that keeps sends quoting the parent (`ui/ThreadRules.kt`).
 Forward and share pickers use the same category chips (All / People / Groups / Channels / Bots / Saved). The forward picker also has the known-contacts toggle. Subscribed channels (InBroadcast) are not forward targets. An owned outgoing channel offers Invite via link/QR (`offersChannelInvite`).
 Backgrounding with the connection on waits 5 s, then a silent "Sending…" card stays until `is_sending_finished`.
@@ -142,14 +142,13 @@ production).
   for chat-scale lists); the media 📷 placeholder is web parity.
 - #326 CLOSED: sticker save (`ADD_STICKER_CONFIRM` →
   `misc_save_sticker`), the quote on the sticker send (`send_msg`
-  viewtype `Sticker`), and the visibility switch. Default is the
-  composer button. `"1"` on `velta-stickers-in-attach` moves it into
-  Attach.
+  viewtype `Sticker`), and the visibility switch — retired 2026-11-25:
+  stickers are always the Attach row (web parity; pref + composer button
+  gone).
 - #327 CLOSED: quote-tap fetch-then-jump beyond the loaded window
   (`jumpPlan`, 50×40 cap, toasts on Gone/TooFar).
 - #328 CLOSED: chat appearance — text size, bubble corners,
-  hyphenation, the liquid-glass composer switch, and the
-  stickers-in-attach switch.
+  hyphenation, and the liquid-glass composer switch.
 - #329 CLOSED 2026-11-14 — the full bar + Contacts / Calls / QR /
   New-chat side views shipped (see the 2026-11-14 ledger entry).
 
@@ -767,7 +766,7 @@ tests), and the language radios with NATIVE names (i18n.js LANGS).
   switch language (DOM strings stamped at parse) — KMP applies live via
   compose state, so the reload hint became "Untranslated text stays in
   English."; the chat-appearance extras (message text size, bubble
-  corners, hyphenation, stickers-in-attach, liquid-glass toggle,
+  corners, hyphenation, liquid-glass toggle,
   interface scale) are OUT of #321 step 5's checkbox text and tracked as a
   follow-up issue.
 
