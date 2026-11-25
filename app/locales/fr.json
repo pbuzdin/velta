@@ -1747,6 +1747,8 @@
   "Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network.": "Le chat local est désactivé. Activez-le pour jumeler les appareils proches et utiliser les groupes locaux — tout reste sur votre réseau.",
   "Turn on local chat": "Activer le chat local",
   "Velta Loop is on — local chat on the same network": "Velta Loop est actif — chat local sur le même réseau",
+  "This folder is {size} — over the 2 GB single-transfer limit, so it can't be sent as one transfer": "Ce dossier fait {size} — au-delà de la limite de 2 Go par transfert, impossible de l'envoyer en un seul transfert",
+  "Large folder ({size}) — packing and sending may take a while": "Grand dossier ({size}) — l'emballage et l'envoi peuvent prendre du temps",
   "📎 {name} · {size} — sent with Velta Dash": "📎 {name} · {size} — envoyé avec Velta Dash",
   "Sent with Velta Dash": "Envoyé avec Velta Dash",
   "Velta Dash": "Velta Dash",
