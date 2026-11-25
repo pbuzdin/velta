@@ -1,14 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 590" role="img" aria-label="Velta Dash">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 277 260" role="img" aria-label="Velta Dash">
   <title>Velta Dash</title>
-  <!-- Mono website mark: the brand V's right arm — the exact mirror of the solid left arm — sliced into three horizontal dash bands with air gaps; the V still closes at the shared tip. Fill follows the page theme. -->
+  <!-- Mono website mark: the brand V with the right arm cut into slanted
+       dash bands — two thin dashes up top, the lower arm solid down to the
+       short tip, the left arm carrying the point. Fill follows the page
+       theme. -->
   <style>
     svg { color: #1a1a1a; }
     @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
   </style>
   <g fill="currentColor">
-    <polygon points="0.0,0.0 191.0,0.0 402.0,420.0 314.0,590.0"/>
-    <polygon points="433.0,0.0 624.0,0.0 528.2,180.0 342.6,180.0"/>
-    <polygon points="327.5,210.0 512.2,210.0 419.1,385.0 239.6,385.0"/>
-    <polygon points="224.5,415.0 403.1,415.0 310.0,590.0"/>
+    <path d="M0 0H79.5L177 187L139.5 260L0 0Z"/>
+    <path d="M207.971 131H165.276L148.5 97H225.757L207.971 131Z"/>
+    <path d="M186 173L165.276 131H207.971L186 173Z"/>
+    <path d="M265.515 21H186.5L197 0H276.5L265.515 21Z"/>
+    <path d="M245.636 59H167.5L177 40H255.575L245.636 59Z"/>
+    <path d="M225.757 97H148.5L158 78H235.696L225.757 97Z"/>
   </g>
 </svg>
