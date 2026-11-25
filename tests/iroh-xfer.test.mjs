@@ -293,10 +293,11 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   const ghost = fileCardText({ name: "ghost.mp4", size: tk.size, ticket: offerOf({ hash: H2("ff"), name: "ghost.mp4" }) });
   ui.noteCard(6, ghost, true);
   const ghostHtml = ui.xferCardHtml(ghost);
-  assert.match(ghostHtml, /xfer-preview-dead/, "no bytes: the tile says why");
-  assert.match(ghostHtml, /Preview unavailable/);
+  assert.match(ghostHtml, /xfer-glyph/, "no bytes: the small kind tile instead of a broken-looking block");
+  assert.match(ghostHtml, /data-xfer-open|data-xfer-ask/, "the action still offers the email copy");
+  assert.doesNotMatch(ghostHtml, /xfer-preview-dead/, "#519 feedback: no big dead tile");
+  assert.doesNotMatch(ghostHtml, /Preview unavailable/);
   assert.doesNotMatch(ghostHtml, /src=""/, "never an empty src");
-  assert.doesNotMatch(ghostHtml, /xfer-glyph/, "media never falls back to the letter tile");
 
   // No free space: a clear error, and no email request (the disk is the problem).
   const full = fileCardText({ name: "full.bin", size: tk.size, ticket: offerOf({ hash: H2("bb"), name: "full.bin" }) });
@@ -570,7 +571,7 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./);
   assert.match(ui.xferCardHtml(card), /data-xfer-retry/, "a clear action, not an endless spinner");
   assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/, "no ring once it stopped");
-  assert.match(ui.xferCardHtml(card), /xfer-preview-dead/, "settled without bytes: the tile says why");
+  assert.match(ui.xferCardHtml(card), /xfer-glyph/, "settled without bytes: the small kind tile (#519 feedback)");
   ui.xferProgressEvent({ hash: H, done: 50, size: 100 });
   assert.doesNotMatch(ui.xferCardHtml(card), /is-busy/, "a late progress event does not resurrect the ring");
   assert.match(ui.xferCardHtml(card), /Velta Dash transfer interrupted\./, "the settled error stands");
