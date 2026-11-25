@@ -409,7 +409,7 @@ test("the state line lives OUTSIDE [data-xfer]; paintCard resolves it through th
   assert.ok(html.indexOf('class="xfer-foot"') > cardEnd, "the foot renders after the [data-xfer] span closes");
 });
 
-test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawer toggle is branded", async () => {
+test("Velta Dash header badge: hidden by default, labelled, icon-only accent like #btn-call; drawer toggle is branded", async () => {
   const { readFileSync } = await import("node:fs");
   const html = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
   const btn = /<button[^>]*id="btn-dash"[^>]*>/.exec(html)?.[0] || "";
@@ -417,10 +417,13 @@ test("Velta Dash header badge: hidden by default, labelled, 44px hit area; drawe
   assert.match(btn, /aria-label="Velta Dash is on with this contact"/);
   assert.match(btn, /data-i18n-label="Velta Dash is on with this contact"/);
   assert.match(html, /id="btn-dash"[\s\S]*?data-icon="dash"/);
+  assert.doesNotMatch(html, /dash-pill/, "icon-only: no pill wrapper, no text");
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   const rule = /\.dash-badge \{[^}]*\}/.exec(css)?.[0] || "";
-  assert.match(rule, /min-width: 44px/);
-  assert.match(rule, /min-height: 44px/);
+  assert.match(rule, /width: 40px/);
+  assert.match(rule, /height: 40px/);
+  assert.match(rule, /color: var\(--accent-text\)/, "accent ink is the on signal");
+  assert.doesNotMatch(css, /dash-pill/);
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
   assert.match(ui, /data-setting="dash">\$\{DASH_SVG\}/);
   assert.match(ui, /toggleText\("Velta Dash"/);

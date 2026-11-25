@@ -1088,18 +1088,18 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
    the .btn-text colors, including outgoing --text-meta-out. */
 .msg-row.out .xfer-open.btn-text { color: var(--out-link); }
 html[data-theme="brutal"] .msg-row.out .xfer-open.btn-text { color: var(--nb-main-ink); }
-/* Velta Dash chat-header badge: reads as status, not a button. The button
-   box is the 44px hit area; the pill inside is the visual. accent-text is
-   the AA token for accent text on app surfaces in every theme. */
-.dash-badge { display: inline-flex; align-items: center; justify-content: center;
-  min-width: 44px; min-height: 44px; padding: 0 2px; margin: 0; border: 0;
-  background: none; color: var(--accent-text); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* Velta Dash chat-header badge: an icon button like #btn-call beside it —
+   the mark alone, tinted accent ink (accent-text is the AA token for accent
+   on app surfaces in every theme) to read as "on"; it is only shown when
+   Dash is on with this contact. Tap = the explainer. */
+.dash-badge { width: 40px; height: 40px; flex: none;
+  display: grid; place-items: center; margin: 0; border: 0;
+  border-radius: 50%; background: none; color: var(--accent-text); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: background .15s; }
 .dash-badge[hidden] { display: none; }
-.dash-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 6px;
-  border: 1px solid currentColor; border-radius: 999px; font-size: var(--fs-2); font-weight: 600; line-height: 1.4; }
-.dash-pill svg { width: 14px; height: 14px; flex: none; }
-.dash-badge:focus-visible { outline: none; }
-.dash-badge:focus-visible .dash-pill { outline: 2px solid currentColor; outline-offset: 2px; }
+.dash-badge svg { width: 20px; height: 19px; flex: none; }
+@media (hover: hover) and (pointer: fine) { .dash-badge:hover { background: var(--bg-hover); } }
+.dash-badge:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .dash-explainer-text { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
 .dash-explainer-text svg { width: 20px; height: 20px; flex: none; color: var(--accent-text); margin-top: 1px; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
@@ -1737,65 +1737,10 @@ button.reaction-chip { font: inherit; color: inherit; }
   padding: 6px 14px calc(10px + env(safe-area-inset-bottom));
   width: 100%;
 }
-/* Expanded composer (both skins): the field spans the full row and the
-   tools drop to their own row below — attach cluster left, send cluster
-   right, empty `mid` between. Sticker stays tucked in the field's edge and
-   only exists while the field is empty. */
-.composer.expanded {
-  display: grid;
-  grid-template-columns: auto auto auto 1fr auto auto;
-  grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
-}
-.composer.expanded .composer-input-wrap { grid-area: wrap; }
-.composer.expanded #btn-attach { grid-area: attach; }
-.composer.expanded #btn-apps { grid-area: apps; }
-.composer.expanded #btn-commands { grid-area: cmds; }
-.composer.expanded #btn-send-later { grid-area: slater; }
-.composer.expanded #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
-/* Desktop-only quick tools (Apps/Commands/Send later): phones keep them in
-   the attach menu — the rest row has no room for six buttons. Captioned
-   pills must out-rank `#main-composer .icon-btn`'s fixed 48px box. */
-.desktop-tool { display: none; }
-.desktop-tool[hidden] { display: none; }
-#main-composer .icon-btn.desktop-tool[hidden] { display: none; }
-@media (min-width: 600px) {
-  #main-composer .icon-btn.desktop-tool {
-    display: grid;
-    width: auto;
-    height: 48px;
-    grid-auto-flow: column;
-    align-items: center;
-    gap: 7px;
-    padding: 0 14px 0 10px;
-    border-radius: 24px;
-  }
-}
-#main-composer .icon-btn.desktop-tool .tool-caption {
-  font-size: 13px; line-height: 1; white-space: nowrap; color: inherit;
-}
-/* The drop only animates where the buttons actually move (under the desktop
-   width). On desktop the grid below is permanent, so nothing ever moves. */
-@media (max-width: 599.98px) {
-  .composer.expanded > .icon-btn { animation: composer-drop .18s ease-out; }
-}
-@keyframes composer-drop {
-  from { opacity: 0; transform: translateY(-4px); }
-}
-/* Desktop: always expanded — send lives in one spot, typing never reflows
-   the tools. Mirrors .composer.expanded above; keep the two in sync. */
-@media (min-width: 600px) {
-  #main-composer.composer {
-    display: grid;
-    grid-template-columns: auto auto auto 1fr auto auto;
-    grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
-  }
-  #main-composer .composer-input-wrap { grid-area: wrap; }
-  #main-composer #btn-attach { grid-area: attach; }
-  #main-composer #btn-apps { grid-area: apps; }
-  #main-composer #btn-commands { grid-area: cmds; }
-  #main-composer #btn-send-later { grid-area: slater; }
-  #main-composer #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
-}
+/* One flex row at every width: attach, field, send. Apps/Commands/Send
+   later live in the attach menu (appendAttachLists + the Send later row),
+   not on the row — the labeled pills are gone. Send keeps its slot through
+   typing, growth and clear; only its fill changes (armed, below). */
 /* Lens plate. The list scrolls underneath; at rest the last row sits
    above it (padding), and a drag carries bubbles through the curve.
    Skipped while a strip sits between the list and the field, and while
@@ -1929,6 +1874,9 @@ button.reaction-chip { font: inherit; color: inherit; }
 }
 .voice-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; }
 #voice-rec-label { flex: 1; font-size: 14px; }
+/* Destructive choice gets danger ink, no fill; the strip's Send stays a
+   text button — the filled accent is the composer arrow (_stopVoice(true)). */
+#btn-voice-cancel { color: var(--danger); }
 .lp-draft-body { flex: 1; min-width: 0; }
 .composer-input-wrap {
   flex: 1; display: flex; align-items: flex-end;
@@ -1951,27 +1899,8 @@ button.reaction-chip { font: inherit; color: inherit; }
 @supports (field-sizing: content) {
   #composer-input { field-sizing: content; }
 }
-/* Sticker picker trigger: tucked inside the input wrap's right edge like the
-   official clients' emoji/sticker button — not a separate composer column. */
-#btn-sticker {
-  flex: none; align-self: center; width: 34px; height: 34px;
-  margin-right: 8px; padding: 0; border: 0; border-radius: 50%;
-  background: none; color: var(--text-dim); cursor: pointer; overflow: hidden;
-  transition: width .18s ease-out, margin .18s ease-out, opacity .18s ease-out, transform .18s ease-out;
-}
-/* Typing hides the sticker trigger: a sticker send is a message of its own,
-   never an accompaniment to drafted text. */
-.composer.has-text #btn-sticker {
-  width: 0; margin-right: 0; opacity: 0; transform: scale(.7); pointer-events: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  #btn-sticker, .composer.expanded > .icon-btn { transition: none; animation: none; }
-}
-#btn-sticker svg { width: var(--ico-4); height: var(--ico-4); }
-#btn-sticker:active { color: var(--accent); }
-@media (hover: hover) and (pointer: fine) {
-  #btn-sticker:hover { color: var(--text); }
-}
+/* Stickers open from the attach menu (Attach → Stickers, gated on non-local
+   groups in chat-view); the picker is anchored bottom-right of the view. */
 .sticker-pop {
   position: fixed; z-index: 930;
   right: 10px; bottom: calc(78px + env(safe-area-inset-bottom));
@@ -1996,13 +1925,30 @@ button.reaction-chip { font: inherit; color: inherit; }
 .sticker-note { grid-column: 1 / -1; color: var(--text-dim); font-size: 13px; padding: 8px; line-height: 1.4; }
 /* Demo (mock-core) stickers are emoji text, not files. */
 .sticker-emoji { font-size: 96px; line-height: 1; padding: 6px 10px; }
-.send-btn { color: var(--accent-text); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
-/* Armed send: accent fill while there's text to send — the same
+/* Unarmed send is a dim glyph, not a verb. The (1,1,0) lock beats brutal's
+   html[data-theme="brutal"] .icon-btn:hover (0,3,1), so the hover/active
+   rules below must own the surface: --bg-hover, never --bg-active (that is
+   brutal's gold — it must not sit under a --text-dim glyph). */
+#main-composer .send-btn { color: var(--text-dim); }
+/* Armed send — trimmed text, an open #media-preview, or #voice-rec (see
+   syncComposerState): the one accent fill in the chat column, same
    accent/--on-accent pairing as the primary buttons, AA on every theme. */
-#main-composer.has-text .send-btn:not(:disabled) {
+#main-composer.armed .send-btn:not(:disabled) {
   background: var(--accent);
   color: var(--on-accent);
+}
+@media (hover: hover) and (pointer: fine) {
+  #main-composer.armed .send-btn:not(:disabled):hover { background: var(--accent-hover); }
+}
+#main-composer.armed .send-btn:not(:disabled):active { background: var(--accent-active); }
+@media (hover: hover) and (pointer: fine) {
+  #main-composer:not(.armed) .send-btn:hover { background: var(--bg-hover); }
+}
+#main-composer:not(.armed) .send-btn:active { background: var(--bg-hover); }
+#main-composer .composer-input-wrap:focus-within {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 /* Composer buttons sized to the input line (bottom-aligned like the input,
    no extra offset — a 48px button centers its icon on the text line), with
