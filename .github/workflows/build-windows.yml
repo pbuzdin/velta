@@ -3,6 +3,8 @@ name: Build Windows installer
 on:
   workflow_call:
   workflow_dispatch:
+  pull_request:
+    branches: [master]
 
 env:
   RUST_BACKTRACE: 1
