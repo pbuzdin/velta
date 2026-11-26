@@ -104,7 +104,7 @@ import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
 import { DASH_SVG, ICON, LOOP_SVG, P, svg } from "./icons.js";
-import { dashState, dashExplainer, irohXferEnabled, peerCapabilityKey } from "./iroh-xfer.js";
+import { dashState, dashExplainer, irohXferEnabled, peerCapabilityKey, xferVisibleText } from "./iroh-xfer.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
 
 // #286: module-top so boot-time relay status refreshes never hit a TDZ.
@@ -1635,7 +1635,7 @@ async function flushIncomingNotify(groups, epoch) {
     }
     notifyIncoming(
       msg?.fromContact?.name || msg?.fwdFrom || t("New message"),
-      (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || t("New message"),
+      xferVisibleText(msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || t("New message"),
       {
         chatName: chat?.name || null,
         senderName: msg?.fromContact?.name || null,
@@ -4129,7 +4129,7 @@ function bindChatHeadMenu() {
           const b = document.createElement("button");
           b.type = "button";
           b.className = "ctx-item";
-          b.innerHTML = `<span><b>${escapeHtml(m.fromContact?.name || "")}</b>: ${escapeHtml((m.text || "").slice(0, 80))}</span>`;
+          b.innerHTML = `<span><b>${escapeHtml(m.fromContact?.name || "")}</b>: ${escapeHtml(xferVisibleText(m.text || "").slice(0, 80))}</span>`;
           b.addEventListener("click", () => { closeAllPopups(); chatView._jumpToMessage(m.id); });
           results.appendChild(b);
         }

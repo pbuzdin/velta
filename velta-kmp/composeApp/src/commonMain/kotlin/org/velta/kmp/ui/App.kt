@@ -5333,7 +5333,7 @@ private fun MessageBubble(
                                     )
                                 }
                                 Text(
-                                    quote.text.orEmpty(),
+                                    xferVisibleText(quote.text.orEmpty()),
                                     fontSize = 13.5.sp,
                                     color = quoteText,
                                     maxLines = 1,

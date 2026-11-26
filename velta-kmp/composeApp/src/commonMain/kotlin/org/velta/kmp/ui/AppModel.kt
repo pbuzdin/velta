@@ -4820,7 +4820,7 @@ class AppModel(
     }
 
     fun selectionText(): Pair<String, Int> {
-        val texts = selection.mapNotNull { msgById(it)?.text?.takeIf { t -> t.isNotEmpty() } }
+        val texts = selection.mapNotNull { msgById(it)?.text?.let { xferVisibleText(it) { L.t(it) } }?.takeIf { s -> s.isNotEmpty() } }
         return texts.joinToString("\n") to texts.size
     }
 

@@ -5384,6 +5384,9 @@ fn text_mentions_name(text: &str, name: &str) -> bool {
 #[cfg(any(target_os = "android", test))]
 fn bg_notify_text(text: &str, view_type: &str, file_name: Option<&str>) -> String {
     let text = text.trim();
+    if let Some(shown) = crate::xfer::xfer_display_text(text) {
+        return shown;
+    }
     if !text.is_empty() {
         return text.to_string();
     }
@@ -5413,6 +5416,12 @@ mod bg_notify_text_tests {
         assert_eq!(bg_notify_text("", "File", Some("doc.pdf")), "File: doc.pdf");
         assert_eq!(bg_notify_text("", "File", None), "File");
         assert_eq!(bg_notify_text("", "Text", None), "");
+        let offer = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files of any size straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\nVXFER1:eyJ2IjoxLCJoYXNoIjoiY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZCIsInNpemUiOjcwMDAwMDAsIm5hbWUiOiJmaWxtLm1wNCJ9";
+        assert_eq!(bg_notify_text(offer, "Text", None), "📎 film.mp4 · 6.7 MB");
+        assert_eq!(
+            bg_notify_text(r#"Offering Screenshot_1.jpg (576.7 KB) — open "Velta Beam" to receive"#, "Text", None),
+            "📎 Screenshot_1.jpg · 576.7 KB",
+        );
     }
 }
 

@@ -129,6 +129,145 @@ impl Ticket {
     }
 }
 
+/// Short Velta-facing line for a Dash offer or resend request, or `None`
+/// if `text` is an ordinary message. Used so background notifications do
+/// not show the Delta Chat explainer or the ticket (and still work on
+/// older "Velta Beam" wording).
+#[allow(dead_code)] // called from lib.rs background notifications (Android) and tests
+pub fn xfer_display_text(text: &str) -> Option<String> {
+    if let Some(line) = text
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with(TICKET_PREFIX))
+    {
+        if let Some((name, size)) = ticket_name_size(line) {
+            return Some(format!("📎 {name} · {}", fmt_xfer_size(size)));
+        }
+    }
+    if text.contains("VXFER-RESEND:") {
+        return Some("Asked for the email copy".into());
+    }
+    if looks_like_xfer_explainer(text) {
+        if let Some((name, size)) = extract_name_size(text) {
+            return Some(format!("📎 {name} · {size}"));
+        }
+        return Some("Velta Dash".into());
+    }
+    None
+}
+
+fn ticket_name_size(line: &str) -> Option<(String, u64)> {
+    let raw = line.trim().strip_prefix(TICKET_PREFIX)?;
+    let json = BASE64URL_NOPAD.decode(raw.as_bytes()).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&json).ok()?;
+    let name = v.get("name")?.as_str()?.to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let size = v.get("size")?.as_u64()?;
+    Some((name, size))
+}
+
+fn fmt_xfer_size(n: u64) -> String {
+    if n >= 1_048_576 {
+        format!("{:.1} MB", n as f64 / 1_048_576.0)
+    } else {
+        format!("{} KB", (n as f64 / 1024.0).round().max(1.0) as u64)
+    }
+}
+
+fn looks_like_xfer_explainer(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    let lower = text.to_ascii_lowercase();
+    if text.contains(TICKET_PREFIX)
+        || text.contains("VXFER-RESEND:")
+        || lower.contains("velta.cc/dash")
+    {
+        return true;
+    }
+    if lower.contains("sent with velta dash")
+        || text.contains("envoyé avec Velta Dash")
+        || text.contains("отправлено через Velta Dash")
+    {
+        return true;
+    }
+    if lower.contains("if your app can't open this, the file follows by email")
+        || text.contains("Si votre application ne peut pas l'ouvrir")
+        || text.contains("Если ваше приложение не открывает это")
+    {
+        return true;
+    }
+    if lower.contains(r#"open "velta beam" to receive"#)
+        || text.contains("open “Velta Beam” to receive")
+        || text.contains("open 'Velta Beam' to receive")
+    {
+        return true;
+    }
+    false
+}
+
+fn extract_name_size(text: &str) -> Option<(String, String)> {
+    // Hand-rolled: avoid a regex crate just for these three shapes.
+    for line in text.lines() {
+        if let Some(rest) = line.find('📎').map(|i| &line[i + '📎'.len_utf8()..]) {
+            if let Some((name, size)) = split_dot_size(rest, " · ") {
+                return Some((name, size));
+            }
+        }
+        if let Some(rest) = line.find('📦').map(|i| &line[i + '📦'.len_utf8()..]) {
+            if let Some((name, size)) = split_paren_size(rest) {
+                return Some((name, size));
+            }
+        }
+        if let Some(idx) = line.to_ascii_lowercase().find("offering ") {
+            if let Some((name, size)) = split_paren_size(&line[idx + "offering ".len()..]) {
+                return Some((name, size));
+            }
+        }
+    }
+    None
+}
+
+fn split_dot_size(rest: &str, sep: &str) -> Option<(String, String)> {
+    let rest = rest.trim_start();
+    let at = rest.find(sep)?;
+    let name = rest[..at].trim();
+    let after = rest[at + sep.len()..].trim_start();
+    let size = take_size(after)?;
+    if name.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), size))
+}
+
+fn split_paren_size(rest: &str) -> Option<(String, String)> {
+    let rest = rest.trim_start();
+    let open = rest.find('(')?;
+    let close = rest[open + 1..].find(')')?;
+    let name = rest[..open].trim();
+    let inner = rest[open + 1..open + 1 + close].trim();
+    let size = take_size(inner)?;
+    if name.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), size))
+}
+
+fn take_size(s: &str) -> Option<String> {
+    let s = s.trim();
+    let (num, rest) = s.split_once(char::is_whitespace)?;
+    let unit = rest.trim_start().get(..2)?.to_ascii_uppercase();
+    if !num.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return None;
+    }
+    if unit != "MB" && unit != "KB" {
+        return None;
+    }
+    Some(format!("{num} {unit}"))
+}
+
 /// Why a fetch did not produce the file.
 #[derive(Debug, PartialEq, Eq)]
 pub enum FetchError {
@@ -1314,6 +1453,51 @@ mod tests {
         // Tickets from builds before the secret still decode.
         let old = Ticket { sec: String::new(), ..t.clone() };
         assert!(!old.encode().is_empty() && Ticket::decode(&old.encode()).unwrap().sec.is_empty());
+    }
+
+    #[test]
+    fn display_text_hides_the_explainer_and_parses_old_wording() {
+        let json = serde_json::json!({
+            "v": 1,
+            "hash": "cd".repeat(32),
+            "size": 7_000_000u64,
+            "name": "film.mp4",
+        });
+        let ticket = format!(
+            "{TICKET_PREFIX}{}",
+            BASE64URL_NOPAD.encode(json.to_string().as_bytes())
+        );
+        let text = format!(
+            "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files of any size straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\n{ticket}"
+        );
+        assert_eq!(
+            xfer_display_text(&text).as_deref(),
+            Some("📎 film.mp4 · 6.7 MB")
+        );
+        let beam = format!(
+            "Offering Screenshot_1.jpg (576.7 KB) — open \"Velta Beam\" to receive\n{ticket}"
+        );
+        assert_eq!(
+            xfer_display_text(&beam).as_deref(),
+            Some("📎 film.mp4 · 6.7 MB")
+        );
+        assert_eq!(
+            xfer_display_text("📦 film.mp4 (52.9 MB) was sent with Velta Dash, which sends files")
+                .as_deref(),
+            Some("📎 film.mp4 · 52.9 MB")
+        );
+        assert_eq!(
+            xfer_display_text(
+                "Offering Screenshot_1.jpg (576.7 KB) — open \"Velta Beam\" to receive"
+            )
+            .as_deref(),
+            Some("📎 Screenshot_1.jpg · 576.7 KB")
+        );
+        assert_eq!(xfer_display_text("hello about Velta Dash later"), None);
+        assert_eq!(
+            xfer_display_text(&format!("VXFER-RESEND:{}", "ab".repeat(32))).as_deref(),
+            Some("Asked for the email copy")
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

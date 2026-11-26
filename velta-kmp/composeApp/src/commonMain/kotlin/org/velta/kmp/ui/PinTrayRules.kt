@@ -30,7 +30,7 @@ data class PinTray(
 /** Stable `snippet`: the first 60 chars of the text, else the viewtype
  *  name for media, else "message" (stable's literal, untranslated). */
 fun pinSnippet(m: MessageObject): String {
-    val text = m.text.take(60)
+    val text = xferVisibleText(m.text).take(60)
     if (text.isNotEmpty()) return text
     val vt = stableViewtype(m.viewType)
     return if (vt != "text") vt else "message"
