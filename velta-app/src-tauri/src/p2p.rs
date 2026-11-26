@@ -548,6 +548,25 @@ impl Paused {
     }
 }
 
+/// #551: the blocking half of a 1:1 FileEnd: flush, fsync, length check,
+/// at-rest seal. `Err` carries the failure reason the UI shows; the partial
+/// is gone by then.
+fn seal_rx_blocking(mut t: FileRx) -> std::result::Result<FileRx, &'static str> {
+    use std::io::Write;
+    let flush_ok = match t.out.take() {
+        Some(mut w) => w.flush().and_then(|_| w.get_ref().sync_all()).is_ok(),
+        None => true,
+    };
+    if !flush_ok || t.got != t.size || std::fs::metadata(&t.partial).map(|m| m.len()).unwrap_or(0) != t.size {
+        t.discard();
+        return Err("file ended short");
+    }
+    if !seal_received(&t.partial, t.seal) {
+        return Err("could not store the file");
+    }
+    Ok(t)
+}
+
 /// `false` means the partial was removed and the caller must not publish it.
 fn seal_received(path: &std::path::Path, seal: bool) -> bool {
     if !seal {
@@ -852,6 +871,11 @@ pub struct P2p {
     /// keying by id alone let one paired peer clobber (or finish) another
     /// peer's transfer that happened to use the same id.
     rx_files: Mutex<HashMap<(NodeId, String), FileRx>>,
+    /// #551: 1:1 files between FileEnd and publish (seal on a blocking
+    /// thread), with the extra sessions that asked again meanwhile.
+    rx_finishing: Mutex<HashMap<(NodeId, String), Vec<mpsc::UnboundedSender<Frame>>>>,
+    /// Serializes picking a free final name and renaming onto it.
+    rx_naming: Mutex<()>,
     /// #454: outgoing 1:1 streams by transfer id; set to stop one.
     out_files: Mutex<HashMap<String, (NodeId, Arc<AtomicBool>)>>,
     /// #454: interrupted outgoing 1:1 transfers, resumed when the peer's
@@ -968,6 +992,8 @@ impl P2p {
             dir,
             blobs_dir,
             rx_files: Mutex::new(HashMap::new()),
+            rx_finishing: Mutex::new(HashMap::new()),
+            rx_naming: Mutex::new(()),
             out_files: Mutex::new(HashMap::new()),
             paused: Mutex::new(HashMap::new()),
             resume_waiters: Mutex::new(HashMap::new()),
@@ -2410,6 +2436,10 @@ impl P2p {
                                     continue;
                                 }
                             }
+                            if let Frame::FileEnd { id } = frame {
+                                self.spawn_file_end(node_id, id, &tx);
+                                continue;
+                            }
                             let new_roster = matches!(frame, Frame::GroupState { .. });
                             self.handle_frame(node_id, frame, &tx);
                             if new_roster {
@@ -2498,6 +2528,139 @@ impl P2p {
                 }));
             }
         }
+    }
+
+    fn is_introduced(&self, node_id: &NodeId) -> bool {
+        self.inner.lock().unwrap().peers.get(node_id).is_some_and(|p| p.kind == PeerKind::Introduced)
+    }
+
+    /// #551: a 1:1 FileEnd from the live session. The flush, fsync and
+    /// at-rest seal read and rewrite the whole file, so they run on a
+    /// blocking thread. The reader keeps answering pings, acks and other
+    /// transfers. Completion (Ack, `message` event) still waits for the seal.
+    fn spawn_file_end(self: &Arc<Self>, node_id: NodeId, id: String, tx: &mpsc::UnboundedSender<Frame>) {
+        // handle_frame drops 1:1 frames from introduced members.
+        if self.is_introduced(&node_id) {
+            return;
+        }
+        let Some(t) = self.take_rx_for_end(node_id, &id, tx) else { return };
+        let this = self.clone();
+        let tx = tx.clone();
+        tauri::async_runtime::spawn(async move {
+            let done = tauri::async_runtime::spawn_blocking(move || seal_rx_blocking(t))
+                .await
+                .unwrap_or(Err("could not store the file"));
+            this.complete_rx(node_id, id, done, &tx);
+        });
+    }
+
+    /// Takes a finished 1:1 transfer out of `rx_files` and marks it as
+    /// finishing. `None` when there is nothing to finish: a group id, an
+    /// already stored file (re-Ack), or a FileEnd that repeats while the
+    /// seal runs (that session gets the Ack too).
+    fn take_rx_for_end(&self, node_id: NodeId, id: &str, tx: &mpsc::UnboundedSender<Frame>) -> Option<FileRx> {
+        let key = (node_id, id.to_string());
+        {
+            let rx = self.rx_files.lock().unwrap();
+            if rx.get(&key).is_some_and(|t| t.gid.is_some()) {
+                return None;
+            }
+        }
+        if self.incoming_stored(&node_id, id) {
+            let _ = tx.send(Frame::Ack { id: id.to_string() });
+            return None;
+        }
+        let mut finishing = self.rx_finishing.lock().unwrap();
+        if let Some(waiters) = finishing.get_mut(&key) {
+            if !waiters.iter().any(|w| w.same_channel(tx)) {
+                waiters.push(tx.clone());
+            }
+            return None;
+        }
+        let t = self.rx_files.lock().unwrap().remove(&key)?;
+        finishing.insert(key, Vec::new());
+        Some(t)
+    }
+
+    fn rx_finishing(&self, node_id: &NodeId, id: &str) -> bool {
+        self.rx_finishing.lock().unwrap().contains_key(&(*node_id, id.to_string()))
+    }
+
+    /// Publishes a sealed 1:1 file: final name, history row, Ack, event.
+    fn complete_rx(&self, node_id: NodeId, id: String, done: std::result::Result<FileRx, &'static str>, tx: &mpsc::UnboundedSender<Frame>) {
+        let fail = |reason: &str| {
+            self.sink.emit(json!({
+                "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
+                "failed": true, "reason": reason,
+            }));
+        };
+        let t = match done {
+            Ok(t) => t,
+            Err(reason) => {
+                self.rx_finishing.lock().unwrap().remove(&(node_id, id.clone()));
+                fail(reason);
+                return;
+            }
+        };
+        // unique_path + rename under one lock: two seals finishing at once
+        // must not pick the same free name.
+        let final_path = {
+            let _naming = self.rx_naming.lock().unwrap();
+            let final_path = unique_path(&t.dir, &t.name);
+            if std::fs::rename(&t.partial, &final_path).is_err() {
+                drop(_naming);
+                self.rx_finishing.lock().unwrap().remove(&(node_id, id.clone()));
+                t.discard();
+                fail("could not store the file");
+                return;
+            }
+            final_path
+        };
+        let display = final_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| t.name.clone());
+        {
+            let mut inner = self.inner.lock().unwrap();
+            if let Some(peer) = inner.peers.get_mut(&node_id) {
+                peer.msgs.push(StoredMsg {
+                    id: id.clone(),
+                    ts: t.ts,
+                    dir: "in".into(),
+                    state: "acked".into(),
+                    text: t.caption.clone(),
+                    reply_to: None,
+                    reply_text: None,
+                    file: Some(StoredFile {
+                        name: display.clone(),
+                        size: t.got,
+                        mime: t.mime.clone(),
+                        path: final_path.to_string_lossy().to_string(),
+                    }),
+                    retries: 0,
+                });
+                let row = peer.msgs.last().cloned();
+                drop(inner);
+                self.persist_messages(&node_id, row.as_slice());
+            } else {
+                drop(inner);
+            }
+        }
+        // Stored now: a repeat FileEnd re-Acks through incoming_stored.
+        let waiters = self.rx_finishing.lock().unwrap().remove(&(node_id, id.clone())).unwrap_or_default();
+        tx.send(Frame::Ack { id: id.clone() }).ok();
+        for w in waiters {
+            w.send(Frame::Ack { id: id.clone() }).ok();
+        }
+        self.sink.emit(json!({
+            "kind": "message",
+            "peerId": node_id.to_string(),
+            "id": id,
+            "ts": t.ts,
+            "text": t.caption,
+            "file": { "name": display, "size": t.got, "mime": t.mime,
+                      "path": final_path.to_string_lossy() },
+        }));
     }
 
     fn handle_frame(&self, node_id: NodeId, frame: Frame, tx: &mpsc::UnboundedSender<Frame>) {
@@ -2617,7 +2780,8 @@ impl P2p {
             Frame::FileQuery { id, size } => {
                 // A finished transfer already left rx_files. Answer its size
                 // so a lost Ack does not start the file over.
-                let have = if self.incoming_stored(&node_id, &id) {
+                // A file still sealing after FileEnd has every byte too.
+                let have = if self.incoming_stored(&node_id, &id) || self.rx_finishing(&node_id, &id) {
                     size
                 } else {
                     use std::io::{Seek, SeekFrom, Write};
@@ -2708,6 +2872,11 @@ impl P2p {
                     let _ = tx.send(Frame::Ack { id });
                     return;
                 }
+                // #551: the same id is still sealing; a fresh partial would
+                // collide with it. The Ack follows when the seal is done.
+                if self.rx_finishing(&node_id, &id) {
+                    return;
+                }
                 // V-10/#67: concurrency limits on top of the size cap.
                 {
                     let rx = self.rx_files.lock().unwrap();
@@ -2777,87 +2946,12 @@ impl P2p {
             }
             Frame::FileBytes { id, data } => self.recv_file_bytes(node_id, id, data),
             Frame::FileEnd { id } => {
-                {
-                    let rx = self.rx_files.lock().unwrap();
-                    if rx.get(&(node_id, id.clone())).is_some_and(|t| t.gid.is_some()) {
-                        return;
-                    }
+                // Sync callers (tests) seal inline. The live session reader
+                // goes through `spawn_file_end` so a big seal cannot stall it.
+                if let Some(t) = self.take_rx_for_end(node_id, &id, tx) {
+                    let done = seal_rx_blocking(t);
+                    self.complete_rx(node_id, id, done, tx);
                 }
-                if self.incoming_stored(&node_id, &id) {
-                    let _ = tx.send(Frame::Ack { id });
-                    return;
-                }
-                let done = self.rx_files.lock().unwrap().remove(&(node_id, id.clone()));
-                let Some(mut t) = done else { return };
-                use std::io::Write;
-                let flush_ok = match t.out.take() {
-                    Some(mut w) => w.flush().and_then(|_| w.get_ref().sync_all()).is_ok(),
-                    None => true,
-                };
-                if !flush_ok || t.got != t.size || std::fs::metadata(&t.partial).map(|m| m.len()).unwrap_or(0) != t.size {
-                    t.discard();
-                    self.sink.emit(json!({
-                        "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
-                        "failed": true, "reason": "file ended short",
-                    }));
-                    return;
-                }
-                if !seal_received(&t.partial, t.seal) {
-                    self.sink.emit(json!({
-                        "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
-                        "failed": true, "reason": "could not store the file",
-                    }));
-                    return;
-                }
-                let final_path = unique_path(&t.dir, &t.name);
-                if std::fs::rename(&t.partial, &final_path).is_err() {
-                    t.discard();
-                    self.sink.emit(json!({
-                        "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
-                        "failed": true, "reason": "could not store the file",
-                    }));
-                    return;
-                }
-                let display = final_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| t.name.clone());
-                {
-                    let mut inner = self.inner.lock().unwrap();
-                    if let Some(peer) = inner.peers.get_mut(&node_id) {
-                        peer.msgs.push(StoredMsg {
-                            id: id.clone(),
-                            ts: t.ts,
-                            dir: "in".into(),
-                            state: "acked".into(),
-                            text: t.caption.clone(),
-                            reply_to: None,
-                            reply_text: None,
-                            file: Some(StoredFile {
-                                name: display.clone(),
-                                size: t.got,
-                                mime: t.mime.clone(),
-                                path: final_path.to_string_lossy().to_string(),
-                            }),
-                            retries: 0,
-                        });
-                        let row = peer.msgs.last().cloned();
-                        drop(inner);
-                        self.persist_messages(&node_id, row.as_slice());
-                    } else {
-                        drop(inner);
-                    }
-                }
-                tx.send(Frame::Ack { id: id.clone() }).ok();
-                self.sink.emit(json!({
-                    "kind": "message",
-                    "peerId": node_id.to_string(),
-                    "id": id,
-                    "ts": t.ts,
-                    "text": t.caption,
-                    "file": { "name": display, "size": t.got, "mime": t.mime,
-                              "path": final_path.to_string_lossy() },
-                }));
             }
         }
     }
@@ -6078,6 +6172,66 @@ mod tests {
 
     fn fake_node_id() -> NodeId {
         SecretKey::from_bytes(&crate::random_bytes()).public()
+    }
+
+    /// #551: the live session seals a FileEnd on a blocking thread. While the
+    /// seal runs, a FileQuery hears "all bytes", a repeat FileEnd from another
+    /// session waits for the same Ack, and a FileBegin for the id is ignored.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn file_end_seals_off_the_reader_and_acks_every_asker() {
+        let (engine, _rx) = start("rxseal").await;
+        let (tx, mut frames) = mpsc::unbounded_channel();
+        let (tx2, mut frames2) = mpsc::unbounded_channel();
+        let a = fake_node_id();
+        let begin = || Frame::FileBegin {
+            id: "s1".into(), ts: 1, name: "s.txt".into(), size: 4,
+            mime: "text/plain".into(), caption: String::new(),
+        };
+        engine.handle_frame(a, begin(), &tx);
+        engine.handle_frame(a, Frame::FileBytes { id: "s1".into(), data: b"abcd".to_vec() }, &tx);
+
+        let t = engine.take_rx_for_end(a, "s1", &tx).expect("a finished transfer");
+        assert!(engine.rx_finishing(&a, "s1"));
+        engine.handle_frame(a, Frame::FileQuery { id: "s1".into(), size: 4 }, &tx2);
+        match frames2.try_recv() {
+            Ok(Frame::FileResume { have, .. }) => assert_eq!(have, 4),
+            other => panic!("expected FileResume, got {other:?}"),
+        }
+        engine.handle_frame(a, Frame::FileEnd { id: "s1".into() }, &tx2);
+        engine.handle_frame(a, begin(), &tx2);
+        assert!(frames2.try_recv().is_err(), "no Ack before the seal");
+        assert!(engine.rx_files.lock().unwrap().is_empty(), "FileBegin while sealing is ignored");
+
+        engine.complete_rx(a, "s1".into(), seal_rx_blocking(t), &tx);
+        assert!(matches!(frames.try_recv(), Ok(Frame::Ack { .. })));
+        assert!(matches!(frames2.try_recv(), Ok(Frame::Ack { .. })));
+        assert!(!engine.rx_finishing(&a, "s1"));
+        assert_eq!(std::fs::read(engine.blobs_dir.join(a.to_string()).join("s.txt")).unwrap(), b"abcd");
+
+        // The live path: spawn, then the Ack arrives once the seal is done.
+        let b = fake_node_id();
+        engine.handle_frame(b, Frame::FileBegin {
+            id: "s2".into(), ts: 1, name: "t.txt".into(), size: 3,
+            mime: "text/plain".into(), caption: String::new(),
+        }, &tx);
+        engine.handle_frame(b, Frame::FileBytes { id: "s2".into(), data: b"xyz".to_vec() }, &tx);
+        engine.spawn_file_end(b, "s2".into(), &tx);
+        let ack = tokio::time::timeout(Duration::from_secs(10), frames.recv()).await.unwrap();
+        assert!(matches!(ack, Some(Frame::Ack { ref id }) if id == "s2"));
+        assert_eq!(std::fs::read(engine.blobs_dir.join(b.to_string()).join("t.txt")).unwrap(), b"xyz");
+
+        // A short file still fails and leaves nothing behind.
+        engine.handle_frame(b, Frame::FileBegin {
+            id: "s3".into(), ts: 1, name: "u.txt".into(), size: 9,
+            mime: "text/plain".into(), caption: String::new(),
+        }, &tx);
+        let t = engine.take_rx_for_end(b, "s3", &tx).unwrap();
+        let partial = t.partial.clone();
+        let done = seal_rx_blocking(t);
+        assert!(matches!(done, Err("file ended short")));
+        engine.complete_rx(b, "s3".into(), done, &tx);
+        assert!(!partial.exists());
+        assert!(!engine.rx_finishing(&b, "s3"));
     }
 
     /// The transfer id is chosen by the sender, so two peers may use the same
