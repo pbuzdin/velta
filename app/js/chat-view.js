@@ -169,6 +169,7 @@ function ensureXfer(view) {
     sendText: (chatId, text) => view._sendArchivedAware(chatId, { text }),
     sendFile: (chatId, path, name) => view._sendArchivedAware(chatId, { viewtype: shareViewtype(name), file: path, filename: name }),
     openHttp,
+    toast,
   });
 }
 // Cheap header gate so Saved Messages can offer Apply without pulling
@@ -3326,7 +3327,7 @@ export class ChatView {
       // the same 400ms window as links and hashtags. Otherwise return
       // without stopPropagation so the document-level data-xfer-* listener
       // performs the action (#519).
-      if (e.target.closest("[data-xfer-open], [data-xfer-view], [data-xfer-folder], [data-xfer-retry], [data-xfer-ask]")) {
+      if (e.target.closest("[data-xfer-open], [data-xfer-view], [data-xfer-folder], [data-xfer-save], [data-xfer-share], [data-xfer-retry], [data-xfer-ask]")) {
         if (Date.now() - (this._swipedAt || 0) < 400) { e.stopPropagation(); return; }
         return;
       }

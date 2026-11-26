@@ -85,6 +85,11 @@ function pairs(theme, t) {
     ["out .xfer-name (brutal ink / body text)", theme === "brutal" ? c("--nb-main-ink") : c("--text"), outB, 4.5],
     ["in .xfer-open verb", theme === "brutal" ? c("--accent-2") : c(theme === "light" ? "--accent-text-in" : "--accent-text"), inB, 4.5],
     ["out .xfer-open verb", theme === "brutal" ? c("--nb-main-ink") : c("--out-link"), outB, 4.5],
+    // Save / Share (and the desktop folder verb) use the same tokens as Open.
+    ["in .xfer-save / .xfer-share verb", theme === "brutal" ? c("--accent-2") : c(theme === "light" ? "--accent-text-in" : "--accent-text"), inB, 4.5],
+    ["out .xfer-save / .xfer-share verb", theme === "brutal" ? c("--nb-main-ink") : c("--out-link"), outB, 4.5],
+    ["in .xfer-save.is-busy ring (icon)", theme === "brutal" ? c("--accent-2") : c(theme === "light" ? "--accent-text-in" : "--accent-text"), inB, 3],
+    ["out .xfer-save.is-busy ring (icon)", theme === "brutal" ? c("--nb-main-ink") : c("--out-link"), outB, 3],
     // Busy rings (#470 loaders) are drawn in currentColor: the card status
     // ring on both bubbles, the composer route line (+ ring) on the strip,
     // and the Send ring idle (accent text) or armed (accent fill).

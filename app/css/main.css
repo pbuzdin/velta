@@ -1023,7 +1023,9 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 .xfer-route { margin-left: 6px; }
 /* The row's verb (Show in folder / Open / Retry / Ask) hugs the far end —
    the size + chip stay a compact pair on the left (#519 feedback). */
-.xfer-folder, .xfer-open, .xfer-retry, .xfer-ask { margin-left: auto; }
+.xfer-actions, .xfer-folder, .xfer-open, .xfer-retry, .xfer-ask, .xfer-save, .xfer-share { margin-left: auto; }
+.xfer-actions { display: inline-flex; align-items: center; gap: 2px; flex: none; min-width: 0; }
+.xfer-actions .xfer-folder, .xfer-actions .xfer-save, .xfer-actions .xfer-share { margin-left: 0; }
 .xfer-meta { display: inline; flex: none; font-weight: 400; font-size: 12.5px; }
 .xfer-state {
   flex: 1 1 auto; min-width: 0;
@@ -1042,9 +1044,17 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
    would grow the card on a one-line insert): 14px / line-height 1 /
    4px 8px is about 22px, so name row + gap + button stays inside the 44px
    tile. No fill, no border, no pill. */
-.xfer-open.btn-text, .xfer-ask.btn-text, .xfer-retry.btn-text, .xfer-folder.btn-text {
+.xfer-open.btn-text, .xfer-ask.btn-text, .xfer-retry.btn-text, .xfer-folder.btn-text, .xfer-save.btn-text, .xfer-share.btn-text {
   font-size: 14px; font-weight: 600; line-height: 1;
   padding: 4px 8px; text-decoration: none;
+}
+.xfer-card .btn-text > svg { width: 14px; height: 14px; }
+.xfer-save.is-busy svg, .xfer-share.is-busy svg { display: none; }
+.xfer-save.is-busy, .xfer-share.is-busy { cursor: progress; }
+.xfer-save.is-busy::before, .xfer-share.is-busy::before {
+  content: ""; width: 14px; height: 14px; flex: none;
+  border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
+  animation: ob-spin .8s linear infinite;
 }
 /* Fetched image/video cards lead with a frame that opens the lightbox —
    same treatment as regular media bubbles, never a browser window.
@@ -1089,8 +1099,8 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
    token (raw accent fails AA on the outgoing bubble), which would sink
    Open into the meta ink. Open overrides only itself; Retry and Ask keep
    the .btn-text colors, including outgoing --text-meta-out. */
-.msg-row.out .xfer-open.btn-text { color: var(--out-link); }
-html[data-theme="brutal"] .msg-row.out .xfer-open.btn-text { color: var(--nb-main-ink); }
+.msg-row.out .xfer-open.btn-text, .msg-row.out .xfer-save.btn-text, .msg-row.out .xfer-share.btn-text, .msg-row.out .xfer-folder.btn-text { color: var(--out-link); }
+html[data-theme="brutal"] .msg-row.out .xfer-open.btn-text, html[data-theme="brutal"] .msg-row.out .xfer-save.btn-text, html[data-theme="brutal"] .msg-row.out .xfer-share.btn-text, html[data-theme="brutal"] .msg-row.out .xfer-folder.btn-text { color: var(--nb-main-ink); }
 /* Velta Dash chat-header badge: an icon button like #btn-call beside it —
    the mark alone, tinted accent ink (accent-text is the AA token for accent
    on app surfaces in every theme) to read as "on"; it is only shown when
@@ -1877,7 +1887,7 @@ button.reaction-chip { font: inherit; color: inherit; }
   border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .media-route.is-busy::before, .xfer-state.is-busy::before, .send-btn.is-busy::before { animation-duration: 2.4s; }
+  .media-route.is-busy::before, .xfer-state.is-busy::before, .send-btn.is-busy::before, .xfer-save.is-busy::before, .xfer-share.is-busy::before { animation-duration: 2.4s; }
 }
 .voice-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; }
 #voice-rec-label { flex: 1; font-size: 14px; }
