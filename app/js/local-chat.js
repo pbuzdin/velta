@@ -660,12 +660,22 @@ function viewtypeFor(name, mime = "") {
   return "file";
 }
 
+// Outgoing tick. A live transfer stays on the Sending ring: the single
+// check means the bytes are out, and the ack turns it to Seen.
+function outState(m) {
+  if (m.failed) return "failed";
+  if (m.transfer && !m.transfer.failed) return "pending";
+  if (m.acked) return "read";
+  if (m.queued) return "pending";
+  return "sent";
+}
+
 function mapMsg(p, m) {
   const base = {
     id: m.id, engineId: m.engineId ?? null, chatId: P2P_PREFIX + p.id, kind: "msg",
     viewtype: m.file ? viewtypeFor(m.file.name, m.file.mime) : "text",
     from: m.out ? 1 : 0, text: m.text, ts: m.ts,
-    state: m.out ? (m.failed ? "failed" : m.acked ? "read" : m.queued ? "pending" : "sent") : "read",
+    state: m.out ? outState(m) : "read",
     fromContact: { name: m.out ? "" : p.name, color: colorFor(p.name) },
     starred: false, edited: false, quote: null, reactions: null, fwdFrom: null,
     filePath: null, fileName: null, fileSize: null, fileMime: null,
@@ -739,7 +749,7 @@ function mapChat(p) {
     lastMsg: last ? (last.file ? "📎 " + last.file.name : last.text) : "",
     lastTs: last ? last.ts : 0,
     lastFrom: last ? (last.out ? 1 : 0) : 0,
-    lastState: last && last.out ? (last.acked ? "read" : last.queued ? "pending" : "sent") : null,
+    lastState: last && last.out ? outState(last) : null,
     unread: p.unread, encrypted: false, verified: false,
     pinned: p.msgs.length > 0,
     avatarColor: colorFor(p.name),
@@ -875,6 +885,7 @@ export async function lcRetryTransfer(chatId, msgId, memberId = null) {
     p.msgs.push({
       id: nowId(), engineId: res.id, ts: Date.now(), text: msg.text || "", out: true, acked: false,
       file: { name: file.name || "file", size: file.size || 0, mime: file.mime || "", path: res.path },
+      transfer: { packing: true, dir: "send", pct: 0 },
     });
   } catch (err) {
     p.msgs.push(msg); // still offline — restore the failed card
@@ -921,6 +932,8 @@ async function sendStreamed(chatId, cmd, args, caption, mime) {
   const msg = {
     id: nowId(), engineId: res.id, ts: Date.now(), text: caption, out: true, acked: false,
     file: { name: res.name, size: res.size || 0, mime, path: res.path },
+    // The invoke returns before the bytes move (a folder is still being walked).
+    transfer: { packing: true, dir: "send", pct: 0 },
   };
   p.msgs.push(msg);
   emitChanged();
@@ -980,7 +993,18 @@ function engineInit() {
     const d = ev?.payload || {};
     if (d.kind === "file-progress") {
       const p = peer(d.peerId);
-      const msg = p.msgs.find(x => x.id === d.id || x.engineId === d.id);
+      let msg = p.msgs.find(x => x.id === d.id || x.engineId === d.id);
+      // FileBegin: the card exists before the first chunk, so progress is not dropped.
+      if (d.started && d.dir === "recv" && !msg) {
+        p.msgs.push({
+          id: nowId(), engineId: d.id, ts: Date.now(), text: d.text || "", out: false, acked: true,
+          file: { name: d.name || "file", size: d.size || 0, mime: d.mime || "", path: "" },
+          transfer: { pct: 0, dir: "recv" },
+        });
+        p.online = true;
+        emitChanged();
+        return;
+      }
       if (!msg) return;
       if (d.failed) {
         // Session died, or either side cancelled (#454): the bubble shows
@@ -1006,7 +1030,7 @@ function engineInit() {
       }
       speedOf.set(d.id, sp);
       // Re-render only on 2% steps — chunks arrive in rapid bursts.
-      if (!msg.transfer || pct - (msg.transfer.pct || 0) >= 2 || pct >= 100 || msg.transfer.bps !== sp.bps) {
+      if (!msg.transfer || msg.transfer.packing || pct - (msg.transfer.pct || 0) >= 2 || pct >= 100 || msg.transfer.bps !== sp.bps) {
         msg.transfer = { pct, dir: d.dir, bps: sp.bps };
         emitChanged();
       }
@@ -1022,8 +1046,18 @@ function engineInit() {
     } else if (d.kind === "message") {
       setTyping(P2P_PREFIX + d.peerId, d.peerId, "", false); // a message ends "typing"
       const p = peer(d.peerId);
-      // Skip echoes of our own sends (the engine emits outgoing messages too).
-      if (p.msgs.some(m => m.engineId === d.id)) return;
+      const existing = p.msgs.find(m => m.engineId === d.id);
+      if (existing) {
+        // Placeholder from FileBegin, or an echo of our own send.
+        if (!existing.out) {
+          if (d.file) existing.file = d.file;
+          if (d.text != null) existing.text = d.text;
+          existing.ts = d.ts || existing.ts;
+          delete existing.transfer;
+          emitChanged();
+        }
+        return;
+      }
       p.msgs.push({
         id: nowId(), engineId: d.id, ts: d.ts || Date.now(), text: d.text, out: false, acked: true,
         reply_to: d.reply_to || null,
@@ -1285,7 +1319,8 @@ function handler(prop) {
               .catch(err => { throw new Error(String(err?.message || err)); });
             const msg = {
               id: nowId(), engineId: res.id, ts: Date.now(), text, out: true, acked: false,
-              file: { name, size: 0, mime: "", path: res.path },
+              file: { name: res.name || name, size: res.size || 0, mime: "", path: res.path },
+              transfer: { packing: true, dir: "send", pct: 0 },
             };
             p.msgs.push(msg);
             return mapMsg(p, msg);

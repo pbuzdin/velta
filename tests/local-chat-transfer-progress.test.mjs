@@ -46,15 +46,23 @@ test("file-progress: bar pct, size backfill, done clears, failed marks", async (
   const sent = await core.sendMessage("p2p:x", { text: "", file: "/src/a.bin", filename: "a.bin" });
   assert.equal(typeof sent.id, "number"); // numeric view id, engine id kept aside
   assert.equal(sent.engineId, "E1");
+  assert.equal(sent.transfer.packing, true); // spinner until the first byte is on the wire
+  assert.equal(sent.state, "pending"); // tick stays on Sending until the ack
 
   fire({ kind: "file-progress", peerId: "x", id: "E1", dir: "send", got: 1000, size: 4000 });
   let [m] = await p2pMsgs();
   assert.equal(m.transfer.pct, 25);
+  assert.equal(m.transfer.dir, "send");
+  assert.equal(m.state, "pending");
   assert.equal(m.fileSize, 4000); // send pushed size 0; progress knows the real one
 
   fire({ kind: "file-progress", peerId: "x", id: "E1", dir: "send", got: 0, size: 0, done: true });
   [m] = await p2pMsgs();
   assert.equal(m.transfer, undefined); // bar gone, file card renders instead
+  assert.equal(m.state, "sent"); // bytes are out; the tick waits for the ack
+  fire({ kind: "ack", peerId: "x", id: "E1" });
+  [m] = await p2pMsgs();
+  assert.equal(m.state, "read"); // peer stored the file
 
   await core.sendMessage("p2p:x", { text: "", file: "/src/b.bin", filename: "b.bin" }); // E2
   fire({ kind: "file-progress", peerId: "x", id: "E2", dir: "send", got: 2000, size: 8000 });
@@ -72,7 +80,8 @@ test("lcRetryTransfer swaps the failed message; restores it if the engine says o
   let msgs = await p2pMsgs();
   assert.equal(msgs.length, 2); // swap, not append
   assert.equal(msgs[1].engineId, "E3");
-  assert.equal(msgs[1].transfer, undefined);
+  assert.equal(msgs[1].transfer.packing, true); // spinner again until the new send moves
+  assert.equal(msgs[1].state, "pending");
   assert.equal(msgs[1].filePath, "/stored/copy.bin"); // same stored copy, fresh id
 
   globalThis.__TAURI__.core.invoke = async (cmd) => {

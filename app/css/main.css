@@ -3603,19 +3603,17 @@ progress.pair-bar.is-fail { color: var(--danger); }
 progress.pair-bar.is-fail::-webkit-progress-value { background: var(--danger); }
 progress.pair-bar.is-fail::-moz-progress-bar { background: var(--danger); }
 .update-progress { flex: 1 0 100%; height: 6px; }
-.mfp-pct { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-align: right; }
-/* #544: the pct line sits inside the tinted outgoing bubble, where the
-   panel-surface default fails AA — --text-dim is 2.42:1 on dark #2b5278
-   (12px text). The bubble-scoped meta token is the established surface
-   color (.msg-meta/.file-size use it): 4.58:1 dark, 4.65:1 light,
-   brutal's own on yellow. Cancel already inherits the .msg-row.out
-   .btn-text meta color; the pct div was the one text left on --text-dim. */
+.mfp-pct { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.mfp-pct span:last-child { margin-left: auto; white-space: nowrap; }
+/* The pct line sits inside the tinted outgoing bubble, where --text-dim fails AA. */
 .msg-row.out .mfp-pct { color: var(--text-meta-out); }
 .mfp-fail { font-size: 12.5px; color: var(--danger); margin-top: 6px; }
-/* Raw #e5484d read 2.1:1 on the dark out bubble; the mix lifts to ~4.6:1
-   while keeping the danger hue (light passes via its own --danger). */
 .msg-row.out .mfp-fail { color: color-mix(in srgb, var(--danger) 40%, var(--text)); }
 html[data-theme="brutal"] .msg-row.out .mfp-fail { color: var(--nb-main-ink); }
+.mfp-wait { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--text-dim); }
+.msg-row.out .mfp-wait { color: var(--text-meta-out); }
+.mfp-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(127, 127, 127, .35); border-top-color: var(--accent); animation: ticks-spin .8s linear infinite; flex: none; }
+@media (prefers-reduced-motion: reduce) { .mfp-spin { animation: none; } }
 /* Inline in-bubble / hint actions share one size (AGENTS 6.4 in-bubble rules). */
 .msg-transfer.is-failed .btn-text, .msg-settings-act .btn-text, .md-note-acts .btn-text { padding: 2px 8px; font-size: 13px; }
 .msg-transfer.is-failed .btn-text { margin-top: 4px; }

@@ -2562,13 +2562,16 @@ export class ChatView {
         const why = m.transfer.cancelled ? t("Transfer cancelled") : t("Transfer interrupted");
         const retry = m.transfer.dir === "recv" ? "" : `<button type="button" class="btn-text" data-act="lc-retry">${escapeHtml(t("Retry"))}</button>`;
         bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">${escapeHtml(why)}</div>${retry}</div>`;
+      } else if (m.transfer.packing) {
+        bubble += `<div class="msg-transfer">${head}<div class="mfp-wait"><span class="mfp-spin" aria-hidden="true"></span><span>${escapeHtml(t("Preparing file…"))}</span></div></div>`;
       } else {
         // #454: speed next to the percentage, and Cancel on 1:1 transfers
         // (group sends keep their per-member rows).
         const speed = m.transfer.bps > 0 ? ` · ${formatBytes(m.transfer.bps)}/s` : "";
+        const status = m.transfer.dir === "recv" ? t("Receiving…") : t("Sending…");
         const cancel = this.chat?.isP2p && !this.chat?.isP2pGroup && !m.transfer.members
           ? `<button type="button" class="btn-text" data-act="lc-cancel">${escapeHtml(t("Cancel"))}</button>` : "";
-        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(t("Transfer"))}">${pct}%</progress><div class="mfp-pct">${pct}%${escapeHtml(speed)}</div>${cancel}</div>`;
+        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(status)}">${pct}%</progress><div class="mfp-pct"><span>${escapeHtml(status)}</span><span>${pct}%${escapeHtml(speed)}</span></div>${cancel}</div>`;
       }
     } else if (covered && COVERED_VIEWTYPES.has(m.viewtype)) {
       // Text-only mode (#300): the placeholder replaces the whole media branch
@@ -5554,20 +5557,7 @@ export class ChatView {
     const folder = (Array.isArray(picked) ? picked[0] : picked) || "";
     if (!folder || !this._isCurrent(session)) return;
     if (!android) await invoke("allow_picked_path", { path: folder }).catch(e => rustLog(`allow_picked_path: ${e}`));
-    // #454 feedback: warn, don't block. The engine refuses one transfer over
-    // 2 GB (that case cannot succeed), and anything big enough to matter
-    // gets a heads-up before the packing walk starts.
-    try {
-      const files = await invoke("list_folder_files", { path: folder });
-      const total = (files || []).reduce((sum, f) => sum + (Number(f.size) || 0), 0);
-      if (total > 2 * 1024 * 1024 * 1024) {
-        errToast(t("This folder is {size} — over the 2 GB single-transfer limit, so it can't be sent as one transfer", { size: formatBytes(total) }), 6000);
-        return;
-      }
-      if (total > 512 * 1024 * 1024) toast(t("Large folder ({size}) — packing and sending may take a while", { size: formatBytes(total) }));
-    } catch (e) {
-      diagnosticsSink.append("warning", `folder size probe failed: ${e?.message || e}`);
-    }
+    // One walk, in Rust, after the bubble is up. The engine's limit is free space.
     toast(t("Packing the folder…"));
     try {
       const msg = android
