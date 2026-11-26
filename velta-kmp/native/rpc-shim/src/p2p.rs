@@ -280,7 +280,10 @@ struct FileRx {
 }
 
 /// Cap for one local-chat media transfer.
-const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
+// Parity with the desktop engine (#546): 1:1 Loop sends stream from disk
+// into a .part file, so the ceiling is disk space, not a fixed number. The
+// 1 TB sanity bound keeps a corrupt size header from pinning the receiver.
+const MAX_FILE_BYTES: u64 = 1 << 40;
 // V-10/#67: a peer must not pin memory/fds with many parallel inbound
 // transfers on top of the per-file 256 MB cap. Global bound across peers
 // keeps the whole engine bounded too.
@@ -1091,7 +1094,6 @@ impl P2p {
         caption: &str,
     ) -> Result<(String, PathBuf)> {
         const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
-        const MAX_FILE: u64 = 256 * 1024 * 1024;
         let node_id = NodeId::from_str(peer_str)?;
         // Before the file is copied anywhere: only paired devices get 1:1 media.
         self.require_paired(&node_id)?;
@@ -1099,8 +1101,8 @@ impl P2p {
         if !meta.is_file() {
             bail!("not a file");
         }
-        if meta.len() > MAX_FILE {
-            bail!("file too large for local chat (cap 256 MB)");
+        if meta.len() > MAX_FILE_BYTES {
+            bail!("file too large for local chat");
         }
         let safe = sanitize_name(name);
         let mime = mime_for(&safe);
@@ -6896,5 +6898,12 @@ mod tests {
         got.clear();
         std::io::Read::read_to_end(&mut open_plain(&partial, Some(&key)).unwrap(), &mut got).unwrap();
         assert_eq!(got, raw);
+    }
+
+    /// #546: parity with the desktop engine — the ceiling is disk space, not
+    /// a fixed 2 GB/256 MB number.
+    #[test]
+    fn no_fixed_file_cap_below_a_tb() {
+        assert!(MAX_FILE_BYTES > 2 * 1024 * 1024 * 1024, "no 2 GB cap any more");
     }
 }
