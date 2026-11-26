@@ -99,6 +99,22 @@ test("concurrent first opens share one request", async () => {
   assert.equal(calls.filter(c => c.peerId === "c").length, 1);
 });
 
+test("a 1:1 reply sends the engine id string, not the numeric view id", async () => {
+  const quoted = (await msgsOf("a")).find(m => m.text === "hi back");
+  const seen = [];
+  const prev = globalThis.__TAURI__.core.invoke;
+  globalThis.__TAURI__.core.invoke = async (cmd, args = {}) => {
+    if (cmd === "p2p_send") seen.push(args);
+    return prev(cmd, args);
+  };
+  const sent = await core.sendMessage("p2p:a", { text: "re", quoteId: quoted.id, quoteText: "hi back" });
+  globalThis.__TAURI__.core.invoke = prev;
+  assert.equal(typeof quoted.id, "number");
+  assert.equal(seen[0].replyTo, "m2");
+  assert.equal(seen[0].replyText, "hi back");
+  assert.equal(sent.quote.id, quoted.id);
+  assert.equal(sent.quote.text, "hi back");
+});
 test("a live event that raced the hydration is not duplicated and stays after the history", async () => {
   history.d = [row("d1", "in", "old 1"), row("d2", "in", "old 2"), row("d3", "in", "arrived during load")];
   let release; gate = new Promise(r => { release = r; });

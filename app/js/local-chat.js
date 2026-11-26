@@ -683,10 +683,10 @@ function mapMsg(p, m) {
     downloadState: "Done",
   };
   if (m.reply_to) {
-    const orig = p.msgs.find(x => x.id === m.reply_to);
+    const orig = p.msgs.find(x => x.engineId === m.reply_to || x.id === m.reply_to);
     const author = orig ? (orig.out ? "You" : p.name) : p.name;
     base.quote = {
-      id: m.reply_to,
+      id: orig ? orig.id : m.reply_to,
       text: m.reply_text ?? (orig ? orig.text : ""),
       fromContact: { name: author, color: colorFor(author) },
     };
@@ -1361,13 +1361,18 @@ function handler(prop) {
           return mapMsg(p, msg);
         }
 
+        // The composer quotes by the adapter's numeric id; the wire carries
+        // the engine id. A number here is rejected: replyTo must be a string.
+        const target = quoteId != null ? p.msgs.find(x => x.id === quoteId) : null;
+        const replyTo = target?.engineId ?? null;
+        const replyText = replyTo != null ? (quoteText ?? target?.text ?? null) : null;
         const msg = {
           id: nowId(), engineId: null, ts: Date.now(), text, out: true, acked: false,
-          reply_to: quoteId, reply_text: quoteText,
+          reply_to: replyTo, reply_text: replyText,
         };
         p.msgs.push(msg);
         if (isTauri()) {
-          invoke()("p2p_send", { peerId, text, replyTo: quoteId, replyText: quoteText }).then((res) => {
+          invoke()("p2p_send", { peerId, text, replyTo, replyText }).then((res) => {
             msg.engineId = res.id;
             if (res.queued) {
               // Engine holds it until the peer reconnects — bubble shows a
