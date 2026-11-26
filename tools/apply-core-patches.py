@@ -3032,6 +3032,28 @@ async fn test_velta_xfer_capability_echo() -> Result<()> {
 
 """,
     ),
+    # ---- VENDORISSUES #32 (#547): sealed vCards break parse/import ----
+    # Attachment sealing encrypts blobs in place (default on), but the
+    # jsonrpc vCard paths read the files with raw fs::read — ciphertext
+    # failed from_utf8 ("invalid utf-8 sequence of 1 bytes from index 7";
+    # byte 7 is the 0x80 in the VLTA magic), the shared-contact card fell
+    # back to the message summary as its name, and Import errored out.
+    dict(
+        id="#32 parse_vcard reads sealed blobs (jsonrpc api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="deltachat::blob::open_blob(&ctx, Path::new(&path))?.read_all()",
+        anchor='    async fn parse_vcard(&self, path: String) -> Result<Vec<VcardContact>> {\n        let vcard = fs::read(Path::new(&path)).await?;\n        let vcard = str::from_utf8(&vcard)?;\n',
+        where="replace",
+        text='    async fn parse_vcard(&self, path: String) -> Result<Vec<VcardContact>> {\n        // Velta patch (#547): attachments may be sealed on store — read\n        // through the seal-aware blob reader, or a sealed .vcf fails\n        // from_utf8 and every shared-contact card shows the message\n        // summary instead of the contact name.\n        let vcard = match self.get_selected_account_id().await {\n            Some(id) => {\n                let ctx = self.get_context(id).await?;\n                String::from_utf8(\n                    deltachat::blob::open_blob(&ctx, Path::new(&path))?.read_all()?,\n                )?\n            }\n            // No selected account: no sealing either (headless/tests).\n            None => str::from_utf8(&fs::read(Path::new(&path)).await?)?.to_string(),\n        };\n',
+    ),
+    dict(
+        id="#32 import_vcard reads sealed blobs (jsonrpc api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="String::from_utf8(deltachat::blob::open_blob(&ctx, Path::new(&path))?.read_all()?)",
+        anchor='        let ctx = self.get_context(account_id).await?;\n        let vcard = tokio::fs::read(Path::new(&path)).await?;\n        let vcard = str::from_utf8(&vcard)?;\n        Ok(deltachat::contact::import_vcard(&ctx, vcard)\n',
+        where="replace",
+        text='        let ctx = self.get_context(account_id).await?;\n        // Velta patch (#547): seal-aware read — see parse_vcard above.\n        let vcard = String::from_utf8(deltachat::blob::open_blob(&ctx, Path::new(&path))?.read_all()?)?;\n        Ok(deltachat::contact::import_vcard(&ctx, &vcard)\n',
+    ),
 ]
 
 

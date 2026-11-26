@@ -743,3 +743,18 @@ nothing goes upstream. The fifth op is a test only
 (`test_velta_xfer_capability_echo`): an empty reaction is an encrypted
 message, so it carries the header too; the app uses it to echo the
 capability back to a peer it has only received from.
+
+## #547 — sealed vCards break shared-contact parse/import
+
+**Status: patched locally (quilt ops "#32 …", 2 ops, 1 file).** Attachment
+sealing encrypts blobs in place on keyed accounts (default on), but the
+jsonrpc `parse_vcard`/`import_vcard` read the attachment with raw
+`fs::read` — a sealed `.vcf` failed `str::from_utf8` ("invalid utf-8
+sequence of 1 bytes from index 7"; byte 7 is the `0x80` inside the VLTA
+magic `VLTA\x01\0\0\x80`). Every shared-contact card then fell back to the
+message summary as its display name ("Chat with Бот теперь умеет…"
+instead of the bot's real name) and tapping Import errored. Both paths now
+read through the seal-aware `blob::open_blob(...).read_all()` (the selected
+account provides the key); `parse_vcard` falls back to the raw read when no
+account is selected (headless/tests). Velta-only sealing, so nothing goes
+upstream.
