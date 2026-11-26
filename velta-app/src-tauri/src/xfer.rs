@@ -1219,22 +1219,31 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
 }
 
 /// SHA-256 of a file (the first `limit` bytes if set), lowercase hex.
+/// #551: one blocking-thread pass with plain reads: a whole-file hash on
+/// tokio::fs costs a blocking-pool hop per read and parks nothing else.
 pub async fn sha256_file(path: &Path, limit: Option<u64>) -> Result<String> {
-    use tokio::io::AsyncReadExt;
-    let mut f = tokio::fs::File::open(path).await?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; CHUNK];
-    let mut left = limit.unwrap_or(u64::MAX);
-    while left > 0 {
-        let want = buf.len().min(left.min(usize::MAX as u64) as usize);
-        let n = f.read(&mut buf[..want]).await?;
-        if n == 0 {
-            break;
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<String> {
+        let mut f = std::fs::File::open(&path)?;
+        let mut h = Sha256::new();
+        let mut buf = vec![0u8; 1024 * 1024];
+        let mut left = limit.unwrap_or(u64::MAX);
+        while left > 0 {
+            let want = buf.len().min(left.min(usize::MAX as u64) as usize);
+            let n = match f.read(&mut buf[..want]) {
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
+            };
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+            left -= n as u64;
         }
-        h.update(&buf[..n]);
-        left -= n as u64;
-    }
-    Ok(HEXLOWER.encode(&h.finalize()))
+        Ok(HEXLOWER.encode(&h.finalize()))
+    })
+    .await?
 }
 
 async fn write_frame(s: &mut iroh035::endpoint::SendStream, b: &[u8]) -> Result<()> {

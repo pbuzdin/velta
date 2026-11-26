@@ -1,6 +1,11 @@
+# #551: aes 0.8 / polyval 0.6 use the ARMv8 AES and PMULL instructions only
+# with these cfgs; without them every aarch64 build runs the software
+# AES-GCM (~10x slower). Cargo joins rustflags arrays across config files,
+# so CI's ~/.cargo/config.toml entries add to these. A RUSTFLAGS env var
+# replaces them: CI steps that set RUSTFLAGS repeat the cfgs.
 [target.aarch64-linux-android]
 linker = "C:/Users/pave/AppData/Local/Android/Sdk/ndk/r27c/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe"
-rustflags = ["-C", "link-arg=--target=aarch64-linux-android24"]
+rustflags = ["-C", "link-arg=--target=aarch64-linux-android24", "--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
 
 [target.armv7-linux-androideabi]
 linker = "C:/Users/pave/AppData/Local/Android/Sdk/ndk/r27c/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe"
@@ -13,3 +18,12 @@ rustflags = ["-C", "link-arg=--target=i686-linux-android24"]
 [target.x86_64-linux-android]
 linker = "C:/Users/pave/AppData/Local/Android/Sdk/ndk/r27c/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe"
 rustflags = ["-C", "link-arg=--target=x86_64-linux-android24"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]

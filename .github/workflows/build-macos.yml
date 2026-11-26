@@ -93,7 +93,9 @@ jobs:
       - name: Build Tauri macOS app + DMG
         working-directory: ./velta-app
         env:
-          RUSTFLAGS: "-D warnings"
+          # RUSTFLAGS replaces .cargo/config.toml rustflags, so the #551 ARMv8
+          # AES/PMULL cfgs are repeated here (they only act on aarch64 code).
+          RUSTFLAGS: "-D warnings --cfg aes_armv8 --cfg polyval_armv8"
           # Signs the updater artifact (Velta.app.tar.gz.sig), same secrets
           # as the Windows build.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

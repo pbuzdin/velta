@@ -24,6 +24,35 @@ debug = false
 #   cargo build --release --target aarch64-linux-android --target x86_64-linux-android
 # Output: target/<triple>/release/libvelta_rpc_shim.so → jniLibs/<abi>/
 
+# #551: crypto and hashing run at opt-level 3 inside the size-tuned build.
+# At "s", AES-GCM measured 386 MB/s vs 1429 MB/s at 3 (x86 with AES-NI),
+# and VLTA reads 341 vs 1095 MB/s. The QUIC packet path (noq-proto for
+# Loop on iroh 1.x, iroh-quinn-proto for Dash on iroh 0.35) is on every byte.
+[profile.release.package.aes]
+opt-level = 3
+[profile.release.package.aes-gcm]
+opt-level = 3
+[profile.release.package.polyval]
+opt-level = 3
+[profile.release.package.ghash]
+opt-level = 3
+[profile.release.package.universal-hash]
+opt-level = 3
+[profile.release.package.ctr]
+opt-level = 3
+[profile.release.package.cipher]
+opt-level = 3
+[profile.release.package.sha2]
+opt-level = 3
+[profile.release.package.base64]
+opt-level = 3
+[profile.release.package.velta-attachment]
+opt-level = 3
+[profile.release.package.noq-proto]
+opt-level = 3
+[profile.release.package.iroh-quinn-proto]
+opt-level = 3
+
 [lib]
 name = "velta_rpc_shim"
 # cdylib: Android JNI (.so). rlib: the desktop sidecar bin (#424) links the
