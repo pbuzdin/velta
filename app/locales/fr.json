@@ -1539,6 +1539,8 @@
   "App-lock PIN (6+ characters)": "Code PIN de déverrouillage (6+ caractères)",
   "Repeat PIN": "Répétez le code PIN",
   "Save PIN": "Enregistrer le code PIN",
+  "Fetch failed — the offer is still open, tap Retry.": "Échec de la récupération — l'offre est encore ouverte, appuyez sur Réessayer.",
+  "The offer has expired and the file is too large for email — ask the sender to resend while you are both online.": "L'offre a expiré et le fichier est trop volumineux pour l'e-mail — demandez à l'expéditeur de le renvoyer lorsque vous êtes tous les deux en ligne.",
   "Copy image": "Copier l'image",
   "Save image": "Enregistrer l'image",
   "Image copied": "Image copiée",
