@@ -3854,8 +3854,7 @@ async fn save_to_collection(app: tauri::AppHandle, src: String, name: String, ki
             let js = jni::objects::JString::from(j);
             env.get_string(&js).map(|s| s.into()).map_err(|e| e.to_string())
         })?;
-        let (dest, folder) = started.split_once('
-').unwrap_or((started.as_str(), ""));
+        let (dest, folder) = started.split_once('\n').unwrap_or((started.as_str(), ""));
         if dest.is_empty() {
             return Err("couldn't create the save location".into());
         }
