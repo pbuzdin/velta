@@ -61,6 +61,22 @@ test("tracker: 0 after progress = failed", () => {
   assert.equal(tr.state.stage, "failed");
 });
 
+test("tracker: terminal permille wins and stale events can't regress it (#557)", () => {
+  const listeners = new Set();
+  const core = { addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f) };
+  const tr = createTransferTracker({ core, kind: "receive" });
+  [...listeners].forEach(f => f({ detail: { progress: 999 } }));
+  assert.equal(tr.state.permille, 999);
+  [...listeners].forEach(f => f({ detail: { progress: 1000 } }));
+  assert.equal(tr.state.permille, 1000);
+  assert.equal(tr.state.stage, "done");
+  // An out-of-order event from a lagging emitter must not roll the finished
+  // tracker back to 99% (the 99% stall).
+  [...listeners].forEach(f => f({ detail: { progress: 999 } }));
+  assert.equal(tr.state.permille, 1000);
+  assert.equal(tr.state.stage, "done");
+});
+
 test("wired into send, receive, export and import; Android notification command exists", () => {
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
   for (const k of ["send", "receive", "export", "import"]) assert.match(app, new RegExp(`createTransferTracker\\(\\{ core[^}]*kind: "${k}"`));

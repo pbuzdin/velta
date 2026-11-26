@@ -80,18 +80,19 @@ function saveCards() {
  *  outgoing cards just lose the dead preview. */
 const validatedCopies = new Set();
 function revalidateStoredCopy(hash, st, incomingText) {
-  if (!env?.invoke || validatedCopies.has(hash)) return;
-  // Direction flip: the peer resent the same content (same hash) while the
-  // known state is OUR old outgoing offer whose copy is already gone — after
-  // a profile recreate the engine even lost the offer itself (its
-  // offers.json was sealed under the old key, so the sweep reports it
-  // "missing"). The dead outgoing state must not block the incoming card:
-  // the peer's fresh ticket is fetchable.
+  // The guard must FOLLOW the async check, not precede it: a same-hash
+  // resend in one session (peer resent while our stale outgoing state is
+  // still in cardState) has to revalidate each time, or the stale "done"
+  // flag suppresses the re-fetch and the card shows a phantom "Received"
+  // over a dead copy. The set is per-account (useAccount clears it) and a
+  // direction flip rebuilds the state, so the fetch never stays blocked.
+  if (!env?.invoke) return;
+  if (validatedCopies.has(hash) && !st.outgoing && st.path) return;
   if (incomingText && st.outgoing && !st.path) { convertToIncoming(hash, st, incomingText); return; }
   if (!st.path) return;
-  validatedCopies.add(hash);
   withTimeout(env.invoke("xfer_file_size", { path: st.path }), limits.metaMs, "xfer_file_size").then((len) => {
     if (st.size == null && Number.isFinite(len)) { st.size = len; saveCards(); }
+    validatedCopies.add(hash); // size read worked under the live key: revalidated
   }).catch(() => {
     const cur = cardState.get(hash);
     if (!cur) return;
@@ -653,6 +654,8 @@ function useAccount(id) {
   peerCache.clear();
   health = { at: 0, value: null };
   resendSeen.clear();
+  validatedCopies.clear(); // per-account like the card store: a same-hash
+                           // resend after switching profiles must revalidate
   loadCards();
   transport?.setStore?.(jsonStore(`velta-xfer-pending:${account}`));
 }
