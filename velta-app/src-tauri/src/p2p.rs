@@ -58,15 +58,18 @@ const ALPN_V1: &[u8] = b"/velta/p2p/1";
 /// negotiated by TLS before any frame so later versions can add frame types
 /// that a v1 peer will never see (it only offers/accepts v1).
 const ALPN_V2: &[u8] = b"/velta/p2p/2";
+/// Protocol 3: v2 frames, plus raw 1:1 file chunks (no base64 JSON). A peer
+/// that only offers v2 or v1 never sees the raw marker.
+const ALPN_V3: &[u8] = b"/velta/p2p/3";
 /// ALPNs this build accepts and offers, preferred first. The first entry is
 /// the primary ALPN of an outgoing dial, the rest are fallbacks.
 fn default_alpns() -> Vec<Vec<u8>> {
-    vec![ALPN_V2.to_vec(), ALPN_V1.to_vec()]
+    vec![ALPN_V3.to_vec(), ALPN_V2.to_vec(), ALPN_V1.to_vec()]
 }
-/// Protocol number of an established connection (negotiated ALPN); anything
-/// that is not v2 is v1.
+/// Protocol number of an established connection (negotiated ALPN).
 fn proto_of(conn: &Connection) -> u8 {
     match conn.alpn() {
+        a if a == ALPN_V3 => 3,
         a if a == ALPN_V2 => 2,
         _ => 1,
     }
@@ -124,6 +127,9 @@ enum Frame {
     /// `caption` is optional for wire compatibility with older peers.
     FileBegin { id: String, ts: u64, name: String, size: u64, mime: String, #[serde(default)] caption: String },
     FileChunk { id: String, data: String },
+    /// Raw 1:1 chunk on the session channel. Protocol 3 writes a length-prefixed
+    /// blob; an older peer gets a [`Frame::FileChunk`]. Not a wire JSON type.
+    FileBytes { id: String, data: Vec<u8> },
     FileEnd { id: String },
     /// #454: "stop this 1:1 transfer" from either side (cancel, or a
     /// receiver refusing it, e.g. for free space). A 1.5.x peer skips it as
@@ -348,6 +354,30 @@ const MAX_INBOUND_FILES_TOTAL: usize = 8;
 const MAX_GROUP_FILE_BYTES: u64 = 32 * 1024 * 1024;
 /// Raw bytes per group file chunk (base64 ~128 KB < MAX_FRAME).
 const GROUP_FILE_CHUNK: usize = 96 * 1024;
+/// Raw 1:1 chunk on protocol 3 (no base64, so it can be larger than the JSON
+/// path and still one frame). Older peers stay at [`GROUP_FILE_CHUNK`] so the
+/// base64 line fits in [`MAX_FRAME`].
+const FILE_CHUNK_RAW: usize = 192 * 1024;
+
+fn chunk_raw(proto: u8) -> usize {
+    if proto >= 3 { FILE_CHUNK_RAW } else { GROUP_FILE_CHUNK }
+}
+
+fn file_chunk_frame(proto: u8, id: &str, raw: &[u8]) -> Frame {
+    if proto >= 3 {
+        Frame::FileBytes { id: id.to_string(), data: raw.to_vec() }
+    } else {
+        Frame::FileChunk { id: id.to_string(), data: BASE64.encode(raw) }
+    }
+}
+
+/// True when the integer percent moved, or this is the first or last byte.
+fn pct_crossed(prev: u64, got: u64, size: u64) -> bool {
+    if size == 0 || got >= size || prev == 0 {
+        return true;
+    }
+    prev * 100 / size != got * 100 / size
+}
 /// Chunks one sender may have queued on a session at a time: the session
 /// writer hands a credit back after each chunk hit the wire, so a slow
 /// receiver holds the sender back and memory stays O(chunk) per recipient.
@@ -604,7 +634,7 @@ struct PeersFile {
 struct LiveHandle {
     id: u64,
     tx: mpsc::UnboundedSender<Frame>,
-    /// Negotiated protocol of this session (1 or 2).
+    /// Negotiated protocol of this session (1, 2, or 3).
     proto: u8,
     /// Backpressure for bulk group media: see [`GROUP_FILE_CREDITS`].
     credits: Arc<tokio::sync::Semaphore>,
@@ -733,6 +763,7 @@ struct FileLink {
     tx: FrameTx,
     credits: Arc<tokio::sync::Semaphore>,
     handle: u64,
+    proto: u8,
 }
 
 fn v2_link(peers: &HashMap<NodeId, Peer>, node: &NodeId) -> Option<FileLink> {
@@ -741,7 +772,7 @@ fn v2_link(peers: &HashMap<NodeId, Peer>, node: &NodeId) -> Option<FileLink> {
         .live
         .iter()
         .find(|h| h.proto >= 2 && !h.tx.is_closed())
-        .map(|h| FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id })
+        .map(|h| FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id, proto: h.proto })
 }
 
 /// Outgoing group media: what is sent and how it went for each member. In
@@ -1242,17 +1273,23 @@ impl P2p {
         if !meta.is_file() {
             bail!("not a file");
         }
-        if meta.len() > MAX_FILE_BYTES {
+        // Uploads are sealed (VLTA). metadata() is the ciphertext length;
+        // the stream sends plaintext. Declaring the ciphertext size made
+        // `total != size` after the last chunk, so FileEnd was never sent
+        // and the bar sat at 99%.
+        let size = open_plain(std::path::Path::new(src), attachment_key().as_ref())
+            .context("open the file")?
+            .len();
+        if size > MAX_FILE_BYTES {
             bail!("file too large for local chat");
         }
         self.require_online(&node_id)?;
         let safe = sanitize_name(name);
         let dest_dir = self.blobs_dir.join("self");
         std::fs::create_dir_all(&dest_dir)?;
-        require_space(&dest_dir, meta.len())?;
+        require_space(&dest_dir, size)?;
         let id = random_id();
         let dest = dest_dir.join(format!("{id}_{safe}"));
-        let size = meta.len();
         self.note_outgoing(node_id, &id, size, &safe, caption, &dest)?;
         let begin = Frame::FileBegin { id: id.clone(), ts: now_ms(), name: safe.clone(), size, mime: mime_for(&safe), caption: caption.to_string() };
         self.launch(Paused {
@@ -1420,7 +1457,7 @@ impl P2p {
     fn file_link(&self, node: &NodeId) -> Option<FileLink> {
         let inner = self.inner.lock().unwrap();
         inner.peers.get(node).and_then(|p| {
-            p.live.iter().find(|h| !h.tx.is_closed()).map(|h| FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id })
+            p.live.iter().find(|h| !h.tx.is_closed()).map(|h| FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id, proto: h.proto })
         })
     }
 
@@ -1524,6 +1561,9 @@ impl P2p {
                 if !cancelled && link.tx.is_closed() && job.can_resume() {
                     this.paused.lock().unwrap().insert(id.clone(), job.clone());
                 }
+                if !cancelled && !link.tx.is_closed() {
+                    let _ = link.tx.send(Frame::FileCancel { id: id.clone(), reason: format!("{e:#}") });
+                }
                 this.sink.emit(json!({
                     "kind": "file-progress", "peerId": job.node.to_string(), "id": id, "dir": "send",
                     "failed": true, "cancelled": cancelled, "reason": format!("{e:#}"),
@@ -1543,7 +1583,7 @@ impl P2p {
         };
         let link = {
             let inner = self.inner.lock().unwrap();
-            inner.peers.get(&node_id).and_then(|p| p.live.iter().find(|h| !h.tx.is_closed())).map(|h| (FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id }, h.proto))
+            inner.peers.get(&node_id).and_then(|p| p.live.iter().find(|h| !h.tx.is_closed())).map(|h| (FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id, proto: h.proto }, h.proto))
         };
         let Some((link, proto)) = link else {
             self.clone().trigger_connect(node_id);
@@ -1633,7 +1673,7 @@ impl P2p {
     #[allow(clippy::too_many_arguments)]
     async fn stream_one(&self, id: &str, path: &std::path::Path, size: u64, from: u64, begin: Option<Frame>, link: &FileLink, cancel: &AtomicBool) -> Result<()> {
         use std::io::{Read, Seek};
-        const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
+        let chunk_raw = chunk_raw(link.proto);
         let closed = || anyhow!("session closed");
         let mut f = open_plain(path, attachment_key().as_ref()).context("open the stored copy")?;
         if from > 0 {
@@ -1642,7 +1682,7 @@ impl P2p {
         if let Some(begin) = begin {
             link.tx.send(begin).map_err(|_| closed())?;
         }
-        let mut buf = vec![0u8; CHUNK_RAW];
+        let mut buf = vec![0u8; chunk_raw];
         let mut total = from;
         loop {
             let mut n = 0;
@@ -1666,7 +1706,7 @@ impl P2p {
                 link.credits.add_permits(1);
                 bail!("cancelled");
             }
-            link.tx.send(Frame::FileChunk { id: id.to_string(), data: BASE64.encode(&buf[..n]) }).map_err(|_| closed())?;
+            link.tx.send(file_chunk_frame(link.proto, id, &buf[..n])).map_err(|_| closed())?;
         }
         if total != size {
             bail!("the file changed while sending");
@@ -1680,7 +1720,7 @@ impl P2p {
     /// time. `from` is the byte the receiver already has.
     async fn stream_origin(&self, job: &Paused, from: u64, begin: Option<Frame>, link: &FileLink, cancel: &AtomicBool) -> Result<()> {
         use std::io::{Read, Seek, SeekFrom, Write};
-        const CHUNK: usize = 96 * 1024;
+        let chunk_raw = chunk_raw(link.proto);
         let closed = || anyhow!("session closed");
         let id = match &job.begin {
             Frame::FileBegin { id, .. } => id.as_str(),
@@ -1703,8 +1743,9 @@ impl P2p {
         if let Some(begin) = begin {
             link.tx.send(begin).map_err(|_| closed())?;
         }
-        let mut buf = vec![0u8; CHUNK];
+        let mut buf = vec![0u8; chunk_raw];
         let mut total = from;
+        let mut out = std::io::BufWriter::with_capacity(1024 * 1024, out);
         loop {
             let mut n = 0;
             while n < buf.len() {
@@ -1722,19 +1763,19 @@ impl P2p {
                 bail!("the file changed while sending");
             }
             out.write_all(&buf[..n])?;
-            out.flush()?;
             let permit = link.credits.acquire().await.map_err(|_| closed())?;
             permit.forget();
             if cancel.load(Ordering::Relaxed) {
                 link.credits.add_permits(1);
                 bail!("cancelled");
             }
-            link.tx.send(Frame::FileChunk { id: id.to_string(), data: BASE64.encode(&buf[..n]) }).map_err(|_| closed())?;
+            link.tx.send(file_chunk_frame(link.proto, id, &buf[..n])).map_err(|_| closed())?;
         }
+        out.flush()?;
         if total != job.size {
             bail!("the file changed while sending");
         }
-        out.sync_all()?;
+        out.get_mut().sync_all()?;
         drop(out);
         self.finish_xfer(id, &job.path, link).await
     }
@@ -1953,8 +1994,8 @@ impl P2p {
     }
 
     /// Opens a connection to `addr`, offering our ALPNs in preference order
-    /// (v2 first, v1 as fallback). A released 1.4.x peer only knows v1, so
-    /// TLS settles on v1 and the session behaves exactly as before.
+    /// (v3, then v2, then v1). A released 1.4.x peer only knows v1, so TLS
+    /// settles on v1 and the session behaves exactly as before.
     async fn dial(&self, addr: NodeAddr) -> Result<Connection> {
         let (primary, rest) = self.alpns.split_first().context("no ALPN configured")?;
         let opts = ConnectOptions::new().with_additional_alpns(rest.to_vec());
@@ -2032,7 +2073,10 @@ impl P2p {
                 }
                 let mut rows = Vec::new();
                 for msg in peer.msgs.iter_mut() {
-                    if msg.dir != "out" || msg.state != "sent" || msg.retries >= ACK_RESEND_MAX {
+                    // File rows are not text. Resending them as Msg made the
+                    // peer Ack the id (sender looks delivered) and store an
+                    // inbound row with no file, which wiped the receive bar.
+                    if msg.dir != "out" || msg.state != "sent" || msg.retries >= ACK_RESEND_MAX || msg.file.is_some() {
                         continue;
                     }
                     if now.saturating_sub(msg.ts) < ACK_RESEND_MS as u64 {
@@ -2201,6 +2245,7 @@ impl P2p {
         mut rx: mpsc::UnboundedReceiver<Frame>,
         credits: Arc<tokio::sync::Semaphore>,
         send_progress: Arc<Mutex<HashMap<String, (u64, u64)>>>,
+        proto: u8,
     ) {
         let mut next_ping = tokio::time::Instant::now() + Duration::from_secs(20);
         loop {
@@ -2219,6 +2264,32 @@ impl P2p {
                     }
                     // Count a chunk only after it is on the wire. FileEnd is the
                     // whole file: show 100% now. Ack still clears the bar.
+                    if let Frame::FileBytes { id, data } = frame {
+                        let n = data.len() as u64;
+                        let ok = if proto >= 3 {
+                            write_raw_chunk(&mut send, &id, &data).await.is_ok()
+                        } else {
+                            write_json(&mut send, &Frame::FileChunk { id: id.clone(), data: BASE64.encode(&data) }).await.is_ok()
+                        };
+                        if !ok {
+                            break;
+                        }
+                        let base = self.resume_base.lock().unwrap().get(&id).copied().unwrap_or((0, 0));
+                        let mut prog = send_progress.lock().unwrap();
+                        let e = prog.entry(id.clone()).or_insert(base);
+                        let prev = e.0;
+                        e.0 += n;
+                        let (got, size) = *e;
+                        drop(prog);
+                        if pct_crossed(prev, got, size) {
+                            self.sink.emit(json!({
+                                "kind": "file-progress", "peerId": node_id.to_string(),
+                                "id": id, "dir": "send", "got": got, "size": size,
+                            }));
+                        }
+                        credits.add_permits(1);
+                        continue;
+                    }
                     if let Frame::FileBegin { id, size, .. } = &frame {
                         send_progress.lock().unwrap().insert(id.clone(), (0, *size));
                     }
@@ -2233,13 +2304,16 @@ impl P2p {
                         let base = self.resume_base.lock().unwrap().get(id).copied().unwrap_or((0, 0));
                         let mut prog = send_progress.lock().unwrap();
                         let e = prog.entry(id.clone()).or_insert(base);
+                        let prev = e.0;
                         e.0 += decoded;
                         let (got, size) = *e;
                         drop(prog);
-                        self.sink.emit(json!({
-                            "kind": "file-progress", "peerId": node_id.to_string(),
-                            "id": id, "dir": "send", "got": got, "size": size,
-                        }));
+                        if pct_crossed(prev, got, size) {
+                            self.sink.emit(json!({
+                                "kind": "file-progress", "peerId": node_id.to_string(),
+                                "id": id, "dir": "send", "got": got, "size": size,
+                            }));
+                        }
                     }
                     if let Frame::FileEnd { id } = &frame {
                         let size = send_progress.lock().unwrap().remove(id).map(|(_, size)| size).unwrap_or(0);
@@ -2278,14 +2352,14 @@ impl P2p {
         rx: mpsc::UnboundedReceiver<Frame>,
         mut framer: Framer,
     ) {
-        let (handle_id, credits) = {
+        let (handle_id, credits, proto) = {
             let inner = self.inner.lock().unwrap();
             inner
                 .peers
                 .get(&node_id)
                 .and_then(|p| p.live.iter().find(|h| h.tx.same_channel(&tx)))
-                .map(|h| (h.id, h.credits.clone()))
-                .unwrap_or_else(|| (0, Arc::new(tokio::sync::Semaphore::new(0))))
+                .map(|h| (h.id, h.credits.clone(), h.proto))
+                .unwrap_or_else(|| (0, Arc::new(tokio::sync::Semaphore::new(0)), 0))
         };
         let send_progress = Arc::new(Mutex::new(HashMap::new()));
         if std::env::var("VELTA_P2P_DEBUG").is_ok() {
@@ -2304,6 +2378,7 @@ impl P2p {
             rx,
             credits.clone(),
             send_progress.clone(),
+            proto,
         ));
         let mut writer_done = false;
         loop {
@@ -2311,10 +2386,15 @@ impl P2p {
                 biased;
                 _ = self.cancel.cancelled() => break,
                 _ = &mut writer, if !writer_done => {
+                    // The write half can die (peer reset our send) while the
+                    // peer is still sending. Keep reading so a FileEnd is not
+                    // dropped and the partial is not left locked at 0.
+                    // Close credits too: the sender already forgot its permit,
+                    // and a dead writer will never hand it back.
                     writer_done = true;
-                    break;
+                    credits.close();
                 }
-                read = framer.read_frame(&mut recv) => {
+                read = framer.read_session(&mut recv, proto) => {
                     match read {
                         Ok(Some(frame)) => {
                             if std::env::var("VELTA_P2P_DEBUG").is_ok() {
@@ -2380,6 +2460,44 @@ impl P2p {
         credits.close();
         self.group_files_failed(node_id, handle_id);
         self.remove_live(node_id, handle_id);
+    }
+
+    /// Writes one plaintext 1:1 chunk. The BufWriter flushes itself; FileEnd
+    /// and FileQuery flush before they trust the length. Progress fires when
+    /// the integer percent moves, not on every chunk.
+    fn recv_file_bytes(&self, node_id: NodeId, id: String, bytes: Vec<u8>) {
+        use std::io::Write;
+        let key = (node_id, id.clone());
+        let wrote = {
+            let mut rx = self.rx_files.lock().unwrap();
+            let Some(t) = rx.get_mut(&key).filter(|t| t.gid.is_none()) else { return };
+            if t.got + bytes.len() as u64 <= t.size && t.out.as_mut().is_some_and(|w| w.write_all(&bytes).is_ok()) {
+                let prev = t.got;
+                t.got += bytes.len() as u64;
+                Some((prev, t.got, t.size))
+            } else {
+                None
+            }
+        };
+        match wrote {
+            Some((prev, got, size)) => {
+                if pct_crossed(prev, got, size) {
+                    self.sink.emit(json!({
+                        "kind": "file-progress", "peerId": node_id.to_string(),
+                        "id": id, "dir": "recv", "got": got, "size": size,
+                    }));
+                }
+            }
+            None => {
+                if let Some(t) = self.rx_files.lock().unwrap().remove(&key) {
+                    if t.gid.is_none() { t.discard(); }
+                }
+                self.sink.emit(json!({
+                    "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
+                    "failed": true, "reason": "could not write the file",
+                }));
+            }
+        }
     }
 
     fn handle_frame(&self, node_id: NodeId, frame: Frame, tx: &mpsc::UnboundedSender<Frame>) {
@@ -2627,7 +2745,7 @@ impl P2p {
                             (node_id, id.clone()),
                             FileRx {
                                 partial, dir, name: safe_name.clone(), size, mime: mime.clone(), caption: caption.clone(), ts, got: 0, gid: None, seal: seal_media(),
-                                out: Some(std::io::BufWriter::with_capacity(256 * 1024, f)),
+                                out: Some(std::io::BufWriter::with_capacity(1024 * 1024, f)),
                             },
                         );
                         self.sink.emit(json!({
@@ -2642,7 +2760,6 @@ impl P2p {
                 }
             }
             Frame::FileChunk { id, data } => {
-                use std::io::Write;
                 let key = (node_id, id.clone());
                 let bytes = match BASE64.decode(data.as_bytes()) {
                     Ok(b) => b,
@@ -2656,34 +2773,9 @@ impl P2p {
                         return;
                     }
                 };
-                let wrote = {
-                    let mut rx = self.rx_files.lock().unwrap();
-                    let Some(t) = rx.get_mut(&key).filter(|t| t.gid.is_none()) else { return };
-                    if t.got + bytes.len() as u64 <= t.size
-                        && t.out.as_mut().is_some_and(|w| w.write_all(&bytes).and_then(|_| w.flush()).is_ok())
-                    {
-                        t.got += bytes.len() as u64;
-                        Some((t.got, t.size))
-                    } else {
-                        None
-                    }
-                };
-                match wrote {
-                    Some((got, size)) => self.sink.emit(json!({
-                        "kind": "file-progress", "peerId": node_id.to_string(),
-                        "id": id, "dir": "recv", "got": got, "size": size,
-                    })),
-                    None => {
-                        if let Some(t) = self.rx_files.lock().unwrap().remove(&key) {
-                            if t.gid.is_none() { t.discard(); }
-                        }
-                        self.sink.emit(json!({
-                            "kind": "file-progress", "peerId": node_id.to_string(), "id": id, "dir": "recv",
-                            "failed": true, "reason": "could not write the file",
-                        }));
-                    }
-                }
+                self.recv_file_bytes(node_id, id, bytes);
             }
+            Frame::FileBytes { id, data } => self.recv_file_bytes(node_id, id, data),
             Frame::FileEnd { id } => {
                 {
                     let rx = self.rx_files.lock().unwrap();
@@ -4984,6 +5076,25 @@ struct Framer {
 }
 
 impl Framer {
+    /// Appends one socket read. The bytes live on the heap: a 64KB stack
+    /// array inside this future overflowed the tokio worker.
+    async fn pull(&mut self, recv: &mut RecvStream) -> Result<()> {
+        let start = self.buf.len();
+        self.buf.resize(start + 64 * 1024, 0);
+        let n = match recv.read(&mut self.buf[start..]).await? {
+            Some(0) | None => 0,
+            Some(n) => n,
+        };
+        self.buf.truncate(start + n);
+        if n == 0 {
+            bail!("stream ended");
+        }
+        if std::env::var("VELTA_P2P_DEBUG").is_ok() {
+            eprintln!("[p2p-dbg] framer read {} bytes", n);
+        }
+        Ok(())
+    }
+
     async fn read_json_frame<T: for<'de> Deserialize<'de>>(
         &mut self,
         recv: &mut RecvStream,
@@ -4996,15 +5107,7 @@ impl Framer {
             if self.buf.len() > MAX_FRAME {
                 bail!("frame too large");
             }
-            let mut chunk = [0u8; 4096];
-            let n = recv
-                .read(&mut chunk)
-                .await?
-                .ok_or_else(|| anyhow!("stream ended"))?;
-            if std::env::var("VELTA_P2P_DEBUG").is_ok() {
-                eprintln!("[p2p-dbg] framer read {} bytes", n);
-            }
-            self.buf.extend_from_slice(&chunk[..n]);
+            self.pull(recv).await?;
         }
     }
 
@@ -5015,6 +5118,61 @@ impl Framer {
     ) -> Result<Option<T>> {
         self.read_json_frame(recv).await.map(Some)
     }
+
+    /// JSON frames, or a protocol-3 raw file chunk (leading 0x01).
+    async fn read_session(&mut self, recv: &mut RecvStream, proto: u8) -> Result<Option<Frame>> {
+        if self.buf.is_empty() {
+            self.pull(recv).await?;
+        }
+        if proto >= 3 && self.buf.first() == Some(&RAW_CHUNK_MARK) {
+            return self.read_raw_chunk(recv).await.map(Some);
+        }
+        self.read_json_frame(recv).await.map(Some)
+    }
+
+    async fn fill_buf(&mut self, recv: &mut RecvStream, need: usize) -> Result<()> {
+        while self.buf.len() < need {
+            self.pull(recv).await?;
+        }
+        Ok(())
+    }
+
+    async fn read_raw_chunk(&mut self, recv: &mut RecvStream) -> Result<Frame> {
+        self.fill_buf(recv, 2).await?;
+        let id_len = self.buf[1] as usize;
+        if id_len == 0 || id_len > 64 {
+            bail!("bad chunk id");
+        }
+        self.fill_buf(recv, 2 + id_len + 4).await?;
+        let id = std::str::from_utf8(&self.buf[2..2 + id_len]).context("chunk id")?.to_string();
+        let len = u32::from_be_bytes(self.buf[2 + id_len..6 + id_len].try_into().unwrap()) as usize;
+        if len > FILE_CHUNK_RAW {
+            bail!("chunk too large");
+        }
+        let total = 6 + id_len + len;
+        self.fill_buf(recv, total).await?;
+        let data = self.buf[6 + id_len..total].to_vec();
+        self.buf.drain(..total);
+        Ok(Frame::FileBytes { id, data })
+    }
+}
+
+const RAW_CHUNK_MARK: u8 = 0x01;
+
+async fn write_raw_chunk(send: &mut SendStream, id: &str, data: &[u8]) -> Result<()> {
+    let idb = id.as_bytes();
+    if idb.len() > 64 || data.len() > FILE_CHUNK_RAW {
+        bail!("chunk too large");
+    }
+    let mut hdr = [0u8; 70];
+    let n = 2 + idb.len();
+    hdr[0] = RAW_CHUNK_MARK;
+    hdr[1] = idb.len() as u8;
+    hdr[2..n].copy_from_slice(idb);
+    hdr[n..n + 4].copy_from_slice(&(data.len() as u32).to_be_bytes());
+    send.write_all(&hdr[..n + 4]).await?;
+    send.write_all(data).await?;
+    Ok(())
 }
 
 async fn write_json<T: Serialize>(send: &mut SendStream, value: &T) -> Result<()> {
@@ -6085,12 +6243,12 @@ mod tests {
         wait_for(b_rx, 20, |e| e["kind"] == "ack" && e["id"] == m2["id"]);
     }
 
-    /// Two current builds negotiate ALPN v2, remember it per session and per
+    /// Two current builds negotiate ALPN v3, remember it per session and per
     /// persisted peer, and 1:1 chat works exactly as before.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn existing_pair_and_chat_still_passes_on_alpn_v2() {
-        let (alice, alice_rx) = start("alice-v2").await;
-        let (bob, bob_rx) = start("bob-v2").await;
+    async fn existing_pair_and_chat_still_passes_on_alpn_v3() {
+        let (alice, alice_rx) = start("alice-v3").await;
+        let (bob, bob_rx) = start("bob-v3").await;
         let (alice_id, bob_id) = (alice.node_id(), bob.node_id());
 
         let ticket = alice.create_invite().await.unwrap();
@@ -6098,13 +6256,13 @@ mod tests {
         wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
         chat_roundtrip(&alice, &alice_rx, &bob, &bob_rx).await;
 
-        assert_eq!(proto_seen(&bob, &alice_id), (2, 2), "dialer side");
-        assert_eq!(proto_seen(&alice, &bob_id), (2, 2), "accepting side");
+        assert_eq!(proto_seen(&bob, &alice_id), (3, 3), "dialer side");
+        assert_eq!(proto_seen(&alice, &bob_id), (3, 3), "accepting side");
         let live_protos = |p: &Arc<P2p>, o: &NodeId| -> Vec<u8> {
             p.inner.lock().unwrap().peers[o].live.iter().map(|h| h.proto).collect()
         };
-        assert!(live_protos(&alice, &bob_id).iter().all(|p| *p == 2));
-        assert!(live_protos(&bob, &alice_id).iter().all(|p| *p == 2));
+        assert!(live_protos(&alice, &bob_id).iter().all(|p| *p == 3));
+        assert!(live_protos(&bob, &alice_id).iter().all(|p| *p == 3));
     }
 
     /// A released 1.4.x build only knows ALPN v1. Pairing and chat must keep
@@ -7955,6 +8113,48 @@ mod tests {
         let on_alice = wait_for(&alice_rx, 60, |e| e["kind"] == "message" && e["file"]["name"] == "b.bin");
         assert_eq!(std::fs::read(on_bob["file"]["path"].as_str().unwrap()).unwrap(), adata);
         assert_eq!(std::fs::read(on_alice["file"]["path"].as_str().unwrap()).unwrap(), bdata);
+    }
+
+    /// A sealed upload's on-disk length is ciphertext. The wire has to announce
+    /// and send the plaintext length, or the sender bails before FileEnd and
+    /// the bar sits at 99%.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn sealed_upload_streams_plaintext_and_finishes() {
+        let key = velta_attachment::AttachmentKey::from_db_key(
+            "x'00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'",
+        )
+        .unwrap()
+        .unwrap();
+        let prev = {
+            let mut guard = crate::ATTACHMENT_KEY.lock().unwrap_or_else(|e| e.into_inner());
+            let prev = guard.clone();
+            *guard = Some(key.clone());
+            prev
+        };
+        struct Restore(Option<velta_attachment::AttachmentKey>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                *crate::ATTACHMENT_KEY.lock().unwrap_or_else(|e| e.into_inner()) = self.0.take();
+            }
+        }
+        let _restore = Restore(prev);
+
+        let (alice, alice_rx) = start("seal-send-a").await;
+        let (bob, bob_rx) = start("seal-send-b").await;
+        pair(&alice, &alice_rx, &bob).await;
+        let raw: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let plain = alice.dir.join("plain.bin");
+        std::fs::write(&plain, &raw).unwrap();
+        let sealed = alice.dir.join("sealed.vlta");
+        velta_attachment::encrypt_file(&key, &plain, &sealed).unwrap();
+        let cipher = std::fs::metadata(&sealed).unwrap().len();
+        assert_ne!(cipher, raw.len() as u64);
+        alice.send_file(&bob.node_id().to_string(), &sealed.to_string_lossy(), "photo.bin", "").unwrap();
+        let msg = wait_for(&bob_rx, 30, |e| e["kind"] == "message" && e["file"]["name"] == "photo.bin");
+        assert_eq!(msg["file"]["size"].as_u64().unwrap(), raw.len() as u64);
+        assert_eq!(std::fs::read(msg["file"]["path"].as_str().unwrap()).unwrap(), raw);
+        let done = wait_for(&alice_rx, 15, |e| e["kind"] == "file-progress" && e["done"] == true);
+        assert_eq!(done["dir"], "send");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

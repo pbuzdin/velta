@@ -1062,10 +1062,12 @@ function engineInit() {
       if (existing) {
         // Placeholder from FileBegin, or an echo of our own send.
         if (!existing.out) {
-          if (d.file) existing.file = d.file;
+          if (d.file) {
+            existing.file = d.file;
+            delete existing.transfer;
+          }
           if (d.text != null) existing.text = d.text;
           existing.ts = d.ts || existing.ts;
-          delete existing.transfer;
           emitChanged();
           emitMsg(P2P_PREFIX + p.id, mapMsg(p, existing));
         }
