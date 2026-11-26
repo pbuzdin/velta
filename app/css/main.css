@@ -3605,6 +3605,9 @@ progress.pair-bar.is-fail::-moz-progress-bar { background: #ff6b6b; }
 .update-progress { flex: 1 0 100%; height: 6px; }
 .mfp-pct { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-align: right; }
 .mfp-fail { font-size: 12.5px; color: #e5484d; margin-top: 6px; }
+.mfp-wait { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--text-dim); }
+.mfp-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(127, 127, 127, .35); border-top-color: var(--accent); animation: ticks-spin .8s linear infinite; flex: none; }
+@media (prefers-reduced-motion: reduce) { .mfp-spin { animation: none; } }
 /* Inline in-bubble / hint actions share one size (AGENTS 6.4 in-bubble rules). */
 .msg-transfer.is-failed .btn-text, .msg-settings-act .btn-text, .md-note-acts .btn-text { padding: 2px 8px; font-size: 13px; }
 .msg-transfer.is-failed .btn-text { margin-top: 4px; }

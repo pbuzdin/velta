@@ -46,6 +46,7 @@ test("file-progress: bar pct, size backfill, done clears, failed marks", async (
   const sent = await core.sendMessage("p2p:x", { text: "", file: "/src/a.bin", filename: "a.bin" });
   assert.equal(typeof sent.id, "number"); // numeric view id, engine id kept aside
   assert.equal(sent.engineId, "E1");
+  assert.equal(sent.transfer.packing, true); // spinner until the first byte is on the wire
 
   fire({ kind: "file-progress", peerId: "x", id: "E1", dir: "send", got: 1000, size: 4000 });
   let [m] = await p2pMsgs();
