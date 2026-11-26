@@ -118,7 +118,9 @@ and do not swipe.
   starts both swipes (#139). The click the WebView still fires on finger-up
   does not open the lightbox. A `<video controls>` still opts out so its
   scrubber keeps the finger. An invite card starts both swipes (#87). The
-  click that follows does not join, copy, or open the card. Other buttons
+  click that follows does not join, copy, or open the card. A Velta Dash
+  card starts both swipes too (the poster and the card actions are
+  buttons); the click that follows does not open or act. Other buttons
   still opt out.
 - Reply-right and back-left do not
   run on the same finger (`_replySwipe` / `_backSwipe`). Any `touchmove`

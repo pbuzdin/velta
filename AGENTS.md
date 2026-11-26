@@ -1432,7 +1432,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   swipes (#139); the click that follows does not open the lightbox.
   A `<video controls>` still opts out so its scrubber keeps the finger.
   An invite card starts both swipes (#87); the click that follows does
-  not join, copy, or open the card. Other buttons still opt out.
+  not join, copy, or open the card. A Velta Dash card starts both swipes
+  too (the poster and Open / Show in folder / Retry / Ask are buttons);
+  the click that follows does not open or act. Other buttons still opt out.
   Reply-right and back-left do not run together
   (`_replySwipe` / `_backSwipe`). `close()` cancels a back drag so the
   column is not left translated. A committed swipe parks `#main` at

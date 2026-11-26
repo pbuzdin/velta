@@ -689,9 +689,12 @@ function cssZoom() {
 // A video poster is the same (#139). Native controls still scrub, so a
 // <video controls> keeps opting out. An invite card is buttons, but a swipe
 // still starts on it (#87); the join/copy click after the swipe is swallowed.
+// A Velta Dash card is the same: the poster is a <button>, and so are Open /
+// Show in folder / Retry / Ask, but a swipe still starts on the card (and
+// its foot, a sibling of .xfer-card); the follow-up click does not open or act.
 export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio";
 export function gestureSkipTarget(target) {
-  if (target?.closest?.(".invite-card, .ivc, .lang-card")) return false;
+  if (target?.closest?.(".invite-card, .ivc, .lang-card, .xfer-card, .xfer-foot")) return false;
   if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
@@ -3318,13 +3321,12 @@ export class ChatView {
         }
         return; // non-http hrefs: browser default, never row selection
       }
-      // Dash Open (#519): a button, so GESTURE_SKIP_SELECTOR already stops
-      // a swipe from STARTING on it. This guard is for a swipe that began
-      // elsewhere on the bubble and whose synthesised click lands on Open —
-      // same 400ms window as the hashtag and code-copy buttons. Otherwise
-      // this branch returns without stopPropagation: the document-level
-      // data-xfer-open listener performs the open.
-      if (e.target.closest("[data-xfer-open]")) {
+      // Dash card actions (preview, Open, Show in folder, Retry, Ask): a
+      // swipe may start on these buttons. Swallow the synthesised click in
+      // the same 400ms window as links and hashtags. Otherwise return
+      // without stopPropagation so the document-level data-xfer-* listener
+      // performs the action (#519).
+      if (e.target.closest("[data-xfer-open], [data-xfer-view], [data-xfer-folder], [data-xfer-retry], [data-xfer-ask]")) {
         if (Date.now() - (this._swipedAt || 0) < 400) { e.stopPropagation(); return; }
         return;
       }
