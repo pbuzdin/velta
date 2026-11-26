@@ -2,13 +2,13 @@
   <title>Velta Loop</title>
   <!-- Mono website mark: the brand V as two solid arm wedges (facets
        merged, Beam-style) with two side arcs — no saddle over the top, the
-       apex breaks the bottom, and every arc end sits well clear of the V.
+       apex breaks the bottom. The wedges fill the viewBox.
        Fill follows the page theme. -->
   <style>
     svg { color: #1a1a1a; }
     @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
   </style>
-  <g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)">
+  <g fill="currentColor">
     <polygon points="0,0 191,0 402,420 314,590"/>
     <polygon points="434,0 624,0 420,385 341,225"/>
   </g>
