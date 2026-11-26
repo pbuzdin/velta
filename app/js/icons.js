@@ -168,6 +168,8 @@ export const DASH_SVG = `<svg viewBox="0 0 277 260" width="22" height="21" aria-
 export function hydrateIcons(root = document) {
   for (const el of root.querySelectorAll("svg[data-icon]")) {
     if (el.dataset.icon === "dash") { el.outerHTML = DASH_SVG; continue; } // brand mark, not a glyph
+    // Header badge uses the filled mark. The bar button keeps the stroke glyph.
+    if (el.dataset.icon === "loop" && el.closest("#btn-loop")) { el.outerHTML = LOOP_SVG; continue; }
     const inner = P[el.dataset.icon];
     if (inner) el.outerHTML = svg(inner, el.getAttribute("class") || "");
   }

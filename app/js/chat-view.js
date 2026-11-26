@@ -1551,6 +1551,8 @@ export class ChatView {
       if (item?.msg && item.msg !== m
         && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype
           || item.msg.state !== m.state || item.msg.text !== m.text
+          || item.msg.filePath !== m.filePath
+          || this._transferKey(item.msg) !== this._transferKey(m)
           || JSON.stringify(item.msg.reactions) !== JSON.stringify(m.reactions))) {
         this.onMsgUpdated(this.chat.id, m);
         updated++;
@@ -1691,11 +1693,20 @@ export class ChatView {
     }
   }
 
+  // Packing, direction, speed, and cancel flip the card without moving pct.
+  _transferKey(m) {
+    const t = m?.transfer;
+    if (!t) return "";
+    return [t.pct, !!t.failed, !!t.packing, t.dir || "", t.bps || 0, !!t.cancelled, t.members || 0].join("|");
+  }
+
   _rowSignature(m) {
+    const t = m.transfer;
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
-      m.originalMsgId, m.transfer?.pct, m.transfer?.failed, m.replies || 0,
+      m.originalMsgId, t?.pct, t?.failed, !!t?.packing, t?.dir || "", t?.bps || 0, !!t?.cancelled, t?.members || 0,
+      m.replies || 0,
       // @mention chips depend on the member list (names + codes).
       m.text?.includes("@") ? this._mentionKey || "" : "",
     ]);
@@ -1742,7 +1753,7 @@ export class ChatView {
     try {
       const fa = JSON.parse(a), fb = JSON.parse(b);
       // Same order as _rowSignature.
-      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId","transferPct","transferFailed","replies","mentions"];
+      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId","transferPct","transferFailed","transferPacking","transferDir","transferBps","transferCancelled","transferMembers","replies","mentions"];
       const diffs = [];
       for (let i = 0; i < names.length; i++) {
         if (JSON.stringify(fa[i]) !== JSON.stringify(fb[i])) {
@@ -1752,7 +1763,7 @@ export class ChatView {
       // Expected one-off rebuilds (reply count, mention names, transfer
       // progress) and identical signatures are not news: log only a real
       // content flip — that is what this line exists to catch.
-      const benign = /^(replies|mentions|transferPct|transferFailed): /;
+      const benign = /^(replies|mentions|transferPct|transferFailed|transferPacking|transferDir|transferBps|transferCancelled|transferMembers): /;
       const real = diffs.filter(d => !benign.test(d));
       if (real.length) diagnosticsSink.append("warning", `row ${key} rebuilt: ${real.join("; ")}`);
       else debugLog(`row ${key} rebuilt: ${diffs.join("; ") || "no field diff"}`);
@@ -1763,8 +1774,15 @@ export class ChatView {
 
   onMsgUpdated(chatId, msg) {
     if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
+    const queued = this._arrivals?.list?.find(e => e.msg?.id === msg.id);
+    if (queued && !this.msgIndex.has(msg.id)) { queued.msg = msg; return; }
     const item = this.msgIndex.get(msg.id);
-    if (!item) return;
+    // FileBegin is a new id. msgs-changed would insert it on the next 2s
+    // refetch; a live card has to land now. Mail updates have no transfer.
+    if (!item) {
+      if (msg.transfer) { this._queueArrival(msg, msg.from === 1); this.flushArrivals(); }
+      return;
+    }
     msg = this._withReplies(msg); // refetched copies carry no reply count
     const sig = this._rowSignature(msg);
     const prevSig = this._rowSigCache.get(item.key);

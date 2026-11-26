@@ -200,6 +200,66 @@ test("a reaction on an unmounted cached row patches the cache and does not notif
   assert.equal(view.vs.heightCalls.length, 0);
 });
 
+test("loop transfer progress rebuilds the open row", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const row = document.createElement("div");
+  row.dataset.msgid = "10";
+  node("history").appendChild(row);
+  const packing = message(10, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { packing: true, dir: "send", pct: 0 },
+  });
+  view.onMsgUpdated(7, packing);
+  const afterPack = view.vs.heightCalls.length;
+  view.onMsgUpdated(7, packing);
+  assert.equal(view.vs.heightCalls.length, afterPack, "identical transfer does not rebuild");
+  view.onMsgUpdated(7, message(10, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { dir: "send", pct: 40, bps: 1000 },
+  }));
+  assert.equal(view.vs.heightCalls.length, afterPack + 1);
+  assert.match(node("history").children[0].innerHTML, /Sending/);
+  assert.match(node("history").children[0].innerHTML, /40%/);
+});
+
+test("an unseen receive card is inserted from msg-updated", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  view.onMsgUpdated(7, message(11, 7, {
+    from: 0, viewtype: "file", fileName: "b.bin", filePath: "",
+    transfer: { pct: 0, dir: "recv" },
+  }));
+  assert.equal(view.msgIndex.get(11).msg.transfer.dir, "recv");
+  view.onMsgUpdated(7, message(11, 7, {
+    from: 0, viewtype: "file", fileName: "b.bin", filePath: "",
+    transfer: { pct: 20, dir: "recv" },
+  }));
+  assert.equal(view.msgIndex.get(11).msg.transfer.pct, 20);
+});
+
+test("a transfer-only tail refetch updates the open row", async t => {
+  const { view, core, node } = setup(t);
+  await view.open(7);
+  const row = document.createElement("div");
+  row.dataset.msgid = "10";
+  node("history").appendChild(row);
+  const base = message(10, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin",
+    transfer: { pct: 0, dir: "recv" },
+  });
+  view.msgIndex.get(10).msg = base;
+  view._rowSigCache.set("m10", view._rowSignature(base));
+  view.tailRefetchGapMs = 0;
+  core.getMessages = async () => page(message(10, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin",
+    transfer: { pct: 50, dir: "recv" },
+  }));
+  await view.onMsgsChanged(7, {});
+  assert.match(node("history").children[0].innerHTML, /50%/);
+  assert.match(node("history").children[0].innerHTML, /Receiving/);
+});
+
 test("msgs-changed bursts collapse into one refetch per gap with fresh carried through", async t => {
   const { view, core } = setup(t);
   await view.open(7);

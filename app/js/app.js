@@ -2941,6 +2941,7 @@ async function openChat(chatId) {
   videoBtn.onclick = callBtn.onclick ? () => startCallIfMicOk(chat, { video: true }) : null;
   refreshChannelAuthorButton(chat, current);
   refreshDashBadge(chat, current);
+  refreshLoopBadge(chat);
   // Device messages are read-only system posts — no composer. Every open
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
   // rights check: members without posting rights get no composer either.
@@ -3013,6 +3014,7 @@ function closeChatUI() {
   if (chatView) chatView.readOnly = false;
   $("chat-head-actions").style.visibility = "";
   hideDashBadge();
+  hideLoopBadge();
   hideChannelAuthorButton();
   renderChatList();
 }
@@ -3043,6 +3045,14 @@ function hideDashBadge() {
   dashBadgeChat = null;
   const btn = $("btn-dash");
   if (btn) { btn.hidden = true; btn.onclick = null; }
+}
+function refreshLoopBadge(chat) {
+  const btn = $("btn-loop");
+  if (btn) btn.hidden = !chat?.isP2p;
+}
+function hideLoopBadge() {
+  const btn = $("btn-loop");
+  if (btn) btn.hidden = true;
 }
 function showDashExplainer(st) {
   const body = document.createElement("div");

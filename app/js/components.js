@@ -486,12 +486,14 @@ class VeltaChatHead extends Elena(HTMLElement) {
     const stHtml = (c.contact?.lastSeen && typeof st === "string" && st.startsWith("last seen"))
       ? timeTag(c.contact.lastSeen, st)
       : escapeHtml(stText);
+    // Loop chats wear the mark in the header actions (#btn-loop), not a wifi glyph on the name.
+    const nameBadges = c.isP2p ? "" : nameBadgesFor(c);
     return html`
       <div class="chat-head-avatar">
         ${unsafeHTML(`<velta-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.contact?.addr ? ` addr="${escapeAttr(c.contact.addr)}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>`)}
       </div>
       <div class="chat-head-text">
-        <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML(nameBadgesFor(c))}</div>
+        <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML(nameBadges)}</div>
         <div class="cht-status${online ? " online" : ""}">${unsafeHTML(stHtml)}</div>
       </div>`;
   }

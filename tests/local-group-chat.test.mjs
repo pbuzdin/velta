@@ -405,6 +405,12 @@ test("UI guards exist for p2pg: header line, hidden relay-only actions, gated en
   const comp = read("components.js"), view = read("chat-view.js"), app = read("app.js"), ui = read("ui.js");
   assert.match(ui, /p2pAvailable \|\| p2pOn \? `<label class="ctx-item">[\s\S]{0,500}Velta Loop"/, "the off switch stays when local chat is on without an engine");
   assert.match(comp, /isP2pGroup[\s\S]{0,200}members[\s\S]{0,40}online/, "header shows N members · M online");
+  const head = comp.slice(comp.indexOf("class VeltaChatHead"), comp.indexOf("VeltaChatHead.define()"));
+  assert.match(head, /c\.isP2p \? "" : nameBadgesFor\(c\)/, "open Loop header has no wifi glyph");
+  assert.match(app, /function refreshLoopBadge\(chat\) \{\s*const btn = \$\("btn-loop"\);\s*if \(btn\) btn\.hidden = !chat\?\.isP2p;/, "Loop mark shows only in a Loop chat");
+  const html = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
+  const actions = html.slice(html.indexOf('id="chat-head-actions"'), html.indexOf('id="selection-bar"'));
+  assert.ok(actions.indexOf('id="btn-loop"') !== -1 && actions.indexOf('id="btn-loop"') < actions.indexOf('id="btn-chat-search"'), "Loop mark sits before search");
   for (const label of ["Forward", "Save to Saved Messages", "Delete"]) {
     assert.ok(view.includes(label), label);
   }

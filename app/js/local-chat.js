@@ -341,6 +341,7 @@ function applyFileProgress(d) {
   // Chunks arrive in bursts: re-render on 2% steps and on any state change.
   if (prev?.state !== upd.state || Math.abs(after - before) >= 2 || after >= 100 || tickBefore !== groupFileState(g, m)) {
     emitChanged(); chatUpdated(g.id);
+    emitMsg(P2PG_PREFIX + g.id, mapGroupMsg(g, m));
   }
 }
 
@@ -760,6 +761,13 @@ function emitChanged() {
   core()?.dispatchEvent?.(new CustomEvent("msgs-changed", { detail: {} }));
 }
 
+// The open row listens to msg-updated. msgs-changed only refetches the tail
+// every 2s and skips a row whose text and state did not change, so a live
+// transfer card never moved.
+function emitMsg(chatId, msg) {
+  if (msg) core()?.dispatchEvent?.(new CustomEvent("msg-updated", { detail: { chatId, msg } }));
+}
+
 // Called by the engine bridge / simulator whenever a message arrives.
 function incoming(peerId, text, ts = Date.now()) {
   const p = peer(peerId);
@@ -1003,6 +1011,7 @@ function engineInit() {
         });
         p.online = true;
         emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, p.msgs[p.msgs.length - 1]));
         return;
       }
       if (!msg) return;
@@ -1012,11 +1021,13 @@ function engineInit() {
         // resumes by itself when the peer reconnects (progress replaces this).
         msg.transfer = { failed: true, cancelled: !!d.cancelled, pct: msg.transfer?.pct || 0, dir: d.dir };
         emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, msg));
         return;
       }
       if (d.done) {
         delete msg.transfer; // swap the bar for the finished file card
         emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, msg));
         return;
       }
       if (d.size && msg.file && !msg.file.size) msg.file.size = d.size;
@@ -1033,6 +1044,7 @@ function engineInit() {
       if (!msg.transfer || msg.transfer.packing || pct - (msg.transfer.pct || 0) >= 2 || pct >= 100 || msg.transfer.bps !== sp.bps) {
         msg.transfer = { pct, dir: d.dir, bps: sp.bps };
         emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, msg));
       }
     } else if (d.kind === "group-file-progress") {
       applyFileProgress(d);
@@ -1055,6 +1067,7 @@ function engineInit() {
           existing.ts = d.ts || existing.ts;
           delete existing.transfer;
           emitChanged();
+          emitMsg(P2P_PREFIX + p.id, mapMsg(p, existing));
         }
         return;
       }

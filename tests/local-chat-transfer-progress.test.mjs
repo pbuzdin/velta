@@ -31,10 +31,11 @@ const fire = payload => listener.current({ payload });
 
 const { withLocalChat, lcRetryTransfer } = await import("../app/js/local-chat.js");
 
+const events = [];
 const inner = {
   accountEpoch: 1,
   async getChatList() { return []; },
-  dispatchEvent() {},
+  dispatchEvent(e) { events.push(e); },
 };
 const core = withLocalChat(inner);
 const p2pMsgs = async () => (await core.getMessages("p2p:x")).messages;
@@ -52,6 +53,7 @@ test("file-progress: bar pct, size backfill, done clears, failed marks", async (
   fire({ kind: "file-progress", peerId: "x", id: "E1", dir: "send", got: 1000, size: 4000 });
   let [m] = await p2pMsgs();
   assert.equal(m.transfer.pct, 25);
+  assert.ok(events.some(e => e.type === "msg-updated" && e.detail.msg.transfer?.pct === 25), "open row hears the step");
   assert.equal(m.transfer.dir, "send");
   assert.equal(m.state, "pending");
   assert.equal(m.fileSize, 4000); // send pushed size 0; progress knows the real one
@@ -59,6 +61,8 @@ test("file-progress: bar pct, size backfill, done clears, failed marks", async (
   fire({ kind: "file-progress", peerId: "x", id: "E1", dir: "send", got: 0, size: 0, done: true });
   [m] = await p2pMsgs();
   assert.equal(m.transfer, undefined); // bar gone, file card renders instead
+  assert.equal(events.at(-1).type, "msg-updated");
+  assert.equal(events.at(-1).detail.msg.transfer, undefined);
   assert.equal(m.state, "sent"); // bytes are out; the tick waits for the ack
   fire({ kind: "ack", peerId: "x", id: "E1" });
   [m] = await p2pMsgs();
