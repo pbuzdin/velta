@@ -269,7 +269,7 @@ bubble: `p2p_send` returns `{id, queued}`, a reconnect flush emits a
 `msg-state` event to upgrade the clock to ticks, and the peer's ack completes
 the read state. A text whose send fails outright renders a Retry button too
 (resendMessage re-sends the same text and quote as a fresh message; the
-failed bubble is restored if the engine still rejects it). A Loop chat in
+failed bubble is restored if the engine still rejects it). A reply sends the engine's message id, not the number the chat uses on screen, so the other device can find the quoted message. A Loop chat in
 the list shows the Velta Loop mark immediately before the time. The open
 chat puts that mark before the search icon. The transport is QUIC/TLS with pairing-pinned
 identities.

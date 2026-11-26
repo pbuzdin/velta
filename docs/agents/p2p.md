@@ -190,6 +190,14 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   `>` — string ids silently drop every message from the "append only new"
   filter (local-chat.js learned this the hard way; its ids are
   `1e9 + seq`).
+- 1:1 replies use that split on purpose. The composer quotes the numeric id.
+  `p2p_send`'s `replyTo` is the engine id string (and `replyText` the quoted
+  text). `sendMessage` maps `quoteId` to `msgs[].engineId` before the invoke,
+  the same rule as group `p2p_group_send`. Passing the number fails in Tauri
+  (`invalid type: integer, expected a string`). `mapMsg` resolves `reply_to`
+  by `engineId` or numeric id and sets `quote.id` to the numeric id. A row
+  that has no engine id yet is sent with no quote. `p2p_send_file` still has
+  no reply fields. Pinned by `tests/local-chat-hydration.test.mjs`.
 - History hydration (local group chat Phase 0a): the adapter store is
   memory-only, the engine's `messages-<id>.jsonl` is the source of truth.
   `hydratePeer` in local-chat.js loads it through `p2p_messages` ONCE per peer

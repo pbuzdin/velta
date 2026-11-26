@@ -212,15 +212,15 @@ Limits that are already enforced, and that this document does not lift:
 |---|---|
 | Off unless the user turns it on | `p2p.rs` startup gate, drawer in `p2p.js` |
 | Tauri shells only for the real engine | `local-chat.js` `isTauri()`; the browser path is an in-page simulator |
-| 1:1 text and files up to 256 MB | `p2p.rs` file frames, base64, 96 KB raw per frame |
+| 1:1 text and files up to 1 TiB | `p2p.rs` `MAX_FILE_BYTES` (`1 << 40`). v3 chunks are raw 192 KiB; v1/v2 stay 96 KiB base64 |
 | Groups: you plus up to 4 peers (5 devices) | `p2p.rs` `groups` module, `MAX_GROUP_MEMBERS` |
 | Group files up to 32 MB, online members only | README "Local groups"; offline members get no file |
 | No voice messages, no audio calls, no edit | README; composer hides the items; `chat-view.js` does not offer Resend-via-core on `isP2p` |
 | Text to an offline peer is queued in the engine | `p2p_send` returns `{id, queued}` |
 | Media to an offline 1:1 peer waits on `p.queue`. The tray chip `#lc-queue-chip` is created in `app.js` | `local-chat.js` `sendMessage` pushes the file when `p.online === false`. `app/js/app.js` creates the element (`getElementById("lc-queue-chip")`). CSS is `app/css/main.css` |
-| No resume of a failed file transfer | retry sends the stored copy from byte zero |
+| A failed 1:1 file resumes from the bytes the peer still holds | `p2p_resume_file`. If the engine has nothing to resume, the stored copy is sent again from byte zero |
 | Typing hints are live only | `app/js/typing.js`, not stored |
-| ALPN `/velta/p2p/2` then `/velta/p2p/1` | a v2-only frame must not be sent on a v1 session |
+| ALPN `/velta/p2p/3`, then `/velta/p2p/2`, then `/velta/p2p/1` | v3 framing must not go out on an older session |
 
 `p2p:` is 1:1. `p2pg:` is a group. The group prefix does not start with `p2p:`, so 1:1 branches stay 1:1. Deleting a local chat calls `removePeer` / the engine, not core `delete_chat`. A string id must not reach the core.
 
@@ -233,7 +233,7 @@ sequenceDiagram
 
   CV->>Proxy: sendMessage("p2p:" + peerId, payload)
   alt text
-    Proxy->>Eng: invoke p2p_send
+    Proxy->>Eng: invoke p2p_send (replyTo is the engine id string)
     alt session up
       Eng->>Peer: JSON msg frame on the QUIC stream
       Peer-->>Eng: ack frame

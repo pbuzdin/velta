@@ -12,21 +12,17 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 ---
 
-## Unreleased master state (since v1.5.6)
+## Shipped in v1.5.7
 
-The latest numbered app release is `v1.5.6` at `badb5636` (2026-11-21). The
-following work is merged on `master` but is not in that release; do not
-describe it as shipped in a numbered version or move the tag to include it.
-The rows for content that shipped in v1.5.6 (the KMP 0.9.x wave, the 11-20
-composer/drawer batch, WebKit boot fix, i18n #423, …) left this table with
-the release — see the release notes and `docs/agents/release-ci.md` for
-that history. master carries the
-`v1.5.7` version fields as a TEST TRAIN (`tools/bump.mjs`, 11-25): no tag
-exists, `release.yml` stays idle, and nothing below may be described as
-shipped in 1.5.7.
+`v1.5.7` is the numbered Tauri release (tag `v1.5.7`, 2026-11-27). It is
+everything on master after `v1.5.6` (`badb5636`, 2026-11-21). The version
+fields had been a test train with no tag; the tag is the release, and the
+rows below shipped in it. Nothing is unreleased past this tag. v1.5.6
+history stays in the release notes and `docs/agents/release-ci.md`.
 
 | Area | Issue / change | Landed solution and regression constraint |
 |---|---|---|
+| Loop 1:1 replies | `acdaeb21` | `p2p_send` `replyTo` is `Option<String>`, the engine message id. The 1:1 composer passed the adapter's numeric id (`1e9+seq`, e.g. `1000000036`), and Tauri rejected it: `invalid type: integer, expected a string`. `sendMessage` now maps `quoteId` to `engineId` before the invoke, the same way `p2p_group_send` already did. `mapMsg` finds the quoted row by `engineId` or numeric id and keeps the numeric id on `quote.id` so a jump still works. A quoted row with no engine id yet goes out with no quote. File sends still carry no reply: `p2p_send_file` has no reply fields. |
 | Dash card preview + spinner | `fix/dash-card-preview-spinner` (PR #526) | The "received fine but the card shows dead tiles and spins 'Waiting for sender…' forever" cluster, five defects: (1) ROOT CAUSE of the stuck text — `paintCard` queried `.xfer-state` inside `[data-xfer]`, but the state line lives in `.xfer-foot`, a SIBLING (it carries the timestamp); the lookup was always null, so no live state change ever painted. Resolved through `card.parentElement`; the row-resize height counts card+foot. (2) The "Preview unavailable" dead tile only renders on SETTLED copyless cards (asked/error, or the sender's other device) — an in-flight fetch keeps the file-type glyph, never a dead tile under the busy ring (superseded by #539: byteless media now shows the small kind tile; the dead tile is decode-failure only). (3) A preview media error retries once with `fileUrl` recomputed before going dead: the first paint can precede the media server / blobfile probe, and the `convertFileSrc` fallback serves VLTA-sealed bytes raw. (4) `xferProgressEvent` ignores cards settled with an error — a late event must not resurrect the busy ring. (5) Fetch bounds: the request/response handshake rides the read-idle bound (a peer that accepts and never answers stalls out resumable — `xfer.rs` `set_read_idle`), and `startFetch` caps the whole receive (`fetchMs` 5 min + `fetchPerMbMs`, ~2 MB/s floor) so a trickling peer cannot spin forever; the 0-byte progress event flips the card to "Fetching 0%" when the stream opens. `VeltaIcons.kt` regenerated (was stale after the P.dash glyph change). Details: `docs/agents/p2p.md` "Receiver card states". |
 | p2p media encrypted at rest | #465/#473 (`37fdbac6`) after #448/#451/#450 | Both engines (desktop `velta-app/src-tauri/src/p2p.rs`, shim `velta-kmp/native/rpc-shim/src/p2p.rs`): stored media is VLTA-ciphertext under THIS device's attachment key — `store_outgoing` seals on store (the wire still announces plaintext length), received files seal in place on FileEnd (plaintext partial removed first; Windows cannot rename over a live file), reads decrypt via `open_plain`. Drawer toggle "Encrypt stored media" opts out per device (`velta-p2p-seal`, boot-applied, `setLoopSeal` on KMP) — never affects the wire; keyless accounts stay plaintext; already-stored files keep their state. History: `copy_plain` (#450) decrypts VLTA upload sources on copy — before #473 the blobs copy itself rested as plaintext; media transferred BEFORE the #450 fix is permanently undecryptable — re-send after both ends update. |
 | Link previews: browser UA + icon gate | #453 (`a62d0929`) | The preview agent sends a browser UA + Accept (bot walls challenge bare `ureq/x` — habr's QRATOR served a variant whose og:image was the site's touch icon, which got baked and sent) and a 10 s timeout (mobile cold TLS beat 5 s). og:image responses are gated: favicon/apple-touch-icon/logo URL paths rejected, sniffed PNG/JPEG square ≤256 px rejected — the bake falls back to a text-only card. |
@@ -38,7 +34,7 @@ shipped in 1.5.7.
 
 | KMP perf + CI split | #506/#507 (`721dd6a3`, `1f63c497`, `eaacac38`) | Android unit tests moved to their own job on AGP's `androidUnitTest` classpath (JUnit 4 — JUnit 5 annotations silently ran zero tests); image memory cache + recomposition quick wins; `baselineprofile` module with stability conf. Core edits stay quilt ops. |
 | Media scope: uploads served | #508 (`15480e86`, `942da2a1`, `bd3ac33c`) | blobfile + the loopback media server scoped their gate to `accounts/` only while staged composer attachments live in `AppLocalData/uploads/` (a SIBLING) — every #504 composer video preview 404'd both URLs on Android AND desktop (PWA fine: blob: URLs). Both gates now serve the app-local data root (`media_scope_allows`); CORS origin gate unchanged, thumb cache stays `<root>/thumbs`. Lesson: velta-app does not compile locally (openssl-sys Configure fails even with the perl PATH recipe) — CI is the only compiler; hand-audit diffs for borrow errors. |
-| Photos: 2k resize + WebP split | #509 (`af69c97f`) | "Resize photos to 2k" (`velta-resize-photos`, default on) caps the longest side at 2048 px on send, independent of "Compress photos" (WebP). WebP off + resize on = single JPEG q0.92 re-encode (alpha PNG/GIF untouched; decode-only-HEIC reports `heic-needs-webp`). While the cap shrinks the picture the WebP acceptance bar drops from 10% saving to "smaller". Off = byte-exact old behavior. String wired en/ru/fr; design docs + README pin regenerate on ANY bump (suite enforces). v1.5.7 = test train, no tag. |
+| Photos: 2k resize + WebP split | #509 (`af69c97f`) | "Resize photos to 2k" (`velta-resize-photos`, default on) caps the longest side at 2048 px on send, independent of "Compress photos" (WebP). WebP off + resize on = single JPEG q0.92 re-encode (alpha PNG/GIF untouched; decode-only-HEIC reports `heic-needs-webp`). While the cap shrinks the picture the WebP acceptance bar drops from 10% saving to "smaller". Off = byte-exact old behavior. String wired en/ru/fr; design docs + README pin regenerate on ANY bump (suite enforces). |
 | Attachment seal persist | #510 (`43e49b11`, `39103015`) | The plaintext handle is closed before persisting a sealed upload — the Windows rename-over-live-file path left the plaintext temp behind alongside the VLTA ciphertext. |
 | Dash card previews | #517/#518 wave (`f018c897`, `f171e9d9`, `ea80598e`, `27e0b5b1`) | A fetched Dash card leads with the real image/video preview (video via `#t=0.001` first-frame seek) that opens the image/player lightbox — never a browser window; desktop adds Show in folder (reveals the decrypted copy; NOT `open_document` — the sealed `accounts/xfer-in/` path would hand the OS ciphertext). A media ticket with no local bytes shows a "Preview unavailable" tile instead of an empty frame. The sender's staged path persists at offer time (saveCards only ran on fetch/ask events — a restart dropped it and killed the outgoing preview). Placeholder ink = `--text` (dim failed AA on the composited tile). |
 | Dash mark + glyph | #520 (`92664801`) + website + `46ca61e7` | dash-logo.svg on velta.cc (user-fixed geometry: right arm cut into slanted bands, two thin dashes up top, lower arm solid into a short tip) + inventory row 02. The UI brand mark is `DASH_SVG` (icons.js) — the site SVG byte-exact, filled, following the `LOOP_SVG` precedent; used by the header badge (`hydrateIcons` special case), drawer toggle, card route badge and explainer. `P.dash` stays the house-style OUTLINE glyph only as the KMP sync source (`VeltaIcons.kt`); never render it in the Tauri/PWA UI. `tests/iroh-xfer.test.mjs` pins the exact mark geometry. |
@@ -2743,7 +2739,7 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 231 files, 1544 tests as of 2026-11-26 (6 skip without
+whole set — 231 files, 1551 tests as of 2026-11-27 (6 skip without
 python3+websockets: 5 in `tests/ws-proxy-auth.test.mjs`, 1 in `tests/ws-proxy-relays.test.mjs`; 1 more when the sidecar
 binary is absent in `tests/release-version-pins.test.mjs`. A sidecar that is
 present but older than vendored core fails that pin instead of skipping.
