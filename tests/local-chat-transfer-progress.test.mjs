@@ -77,6 +77,28 @@ test("file-progress: bar pct, size backfill, done clears, failed marks", async (
   assert.equal(msgs[1].transfer.pct, 25);
 });
 
+test("a finished receive keeps the video path and drops the bar", async () => {
+  fire({ kind: "presence", peerId: "y", online: true });
+  fire({
+    kind: "file-progress", peerId: "y", id: "V1", dir: "recv", started: true,
+    name: "clip.mp4", mime: "video/mp4", size: 1000, text: "",
+  });
+  const yMsgs = () => core.getMessages("p2p:y").then(p => p.messages);
+  let card = (await yMsgs()).find(m => m.engineId === "V1");
+  assert.equal(card.viewtype, "video");
+  assert.equal(card.filePath, "");
+  assert.equal(card.transfer.dir, "recv");
+  fire({
+    kind: "message", peerId: "y", id: "V1", ts: Date.now(), text: "",
+    file: { name: "clip.mp4", size: 1000, mime: "video/mp4", path: "C:/recv/clip.mp4" },
+  });
+  card = (await yMsgs()).find(m => m.engineId === "V1");
+  assert.equal(card.filePath, "C:/recv/clip.mp4");
+  assert.equal(card.viewtype, "video");
+  assert.equal(card.downloadState, "Done");
+  assert.equal(card.transfer, undefined);
+});
+
 test("lcRetryTransfer swaps the failed message; restores it if the engine says offline", async () => {
   const msgsBefore = await p2pMsgs();
   const failed = msgsBefore[1]; // E2, showing the Retry button

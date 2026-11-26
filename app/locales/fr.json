@@ -76,6 +76,7 @@
   "Not enough free space to receive this file.": "Pas assez d'espace libre pour recevoir ce fichier.",
   "This file is too large to receive.": "Ce fichier est trop volumineux pour être reçu.",
   "The file is no longer available.": "Le fichier n'est plus disponible.",
+  "The file is not on this device yet": "Le fichier n'est pas encore sur cet appareil",
   "Attach": "Joindre",
   "Audio": "Audio",
   "Audio call": "Appel audio",

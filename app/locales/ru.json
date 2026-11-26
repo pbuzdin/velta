@@ -76,6 +76,7 @@
   "Not enough free space to receive this file.": "Недостаточно свободного места, чтобы получить этот файл.",
   "This file is too large to receive.": "Этот файл слишком большой, чтобы его получить.",
   "The file is no longer available.": "Файл больше недоступен.",
+  "The file is not on this device yet": "Файла ещё нет на этом устройстве",
   "Attach": "Прикрепить",
   "Audio": "Аудио",
   "Audio call": "Аудиозвонок",

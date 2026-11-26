@@ -75,6 +75,12 @@ function pairs(theme, t) {
     // status token.
     ["in .xfer-meta / .xfer-state / .xfer-route", c("--text-meta-in"), inB, 4.5],
     ["out .xfer-meta / .xfer-state / .xfer-route", c("--text-meta-out"), outB, 4.5],
+    // Failed image / video / audio (.media-fail): opaque bubble fill + the
+    // meta ink. The icon is the same color, so the 3:1 bar is the same pair.
+    ["in .media-fail", c("--text-meta-in"), inB, 4.5],
+    ["out .media-fail", c("--text-meta-out"), outB, 4.5],
+    ["in .media-fail icon", c("--text-meta-in"), inB, 3],
+    ["out .media-fail icon", c("--text-meta-out"), outB, 3],
     ["in/out .xfer-glyph", c("--on-accent"), c("--accent"), 4.5],
     ["out .xfer-name (brutal ink / body text)", theme === "brutal" ? c("--nb-main-ink") : c("--text"), outB, 4.5],
     ["in .xfer-open verb", theme === "brutal" ? c("--accent-2") : c(theme === "light" ? "--accent-text-in" : "--accent-text"), inB, 4.5],
@@ -109,6 +115,17 @@ function check(label, theme, t) {
   }
   return bad;
 }
+
+test("failed-media placeholder is the in-bubble meta pair, icon unfaded", () => {
+  const fail = block(".media-fail");
+  assert.match(fail, /background:\s*var\(--bg-bubble-in\)/);
+  assert.match(fail, /color:\s*var\(--text-meta-in\)/);
+  assert.doesNotMatch(fail, /--text-dim/);
+  const out = block(".msg-row.out .media-fail");
+  assert.match(out, /background:\s*var\(--bg-bubble-out\)/);
+  assert.match(out, /color:\s*var\(--text-meta-out\)/);
+  assert.doesNotMatch(block(".media-fail-ico svg"), /opacity/);
+});
 
 test("dim in-bubble labels reach AA with the theme accents", () => {
   const bad = Object.entries(THEMES).flatMap(([th, t]) => check("default", th, t));

@@ -631,7 +631,7 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
 /* flex-wrap lets the 100%-width day chip take its own line inside the row */
 .msg-row { display: flex; flex-wrap: wrap; padding: 2px 6px; position: relative; }
 .msg-row.out { justify-content: flex-end; }
-.msg-row.service { justify-content: flex-start; padding-right: 34px; }
+.msg-row.service { justify-content: flex-start; }
 .msg-row.selectable { cursor: pointer; border-radius: 8px; }
 .msg-row.selected { background: color-mix(in srgb, var(--accent-tint) 16%, transparent); }
 
@@ -853,9 +853,10 @@ body.chat-read-only .msg-hover-more { display: flex; }
 .msg-row.selectable .msg-action-bar { display: none; }
 
 /* Diagnostics entries render as console lines (Chrome DevTools look):
-   monospace, left-aligned, in a soft pill, with a hover copy button
-   in the row's top-right corner. */
+   monospace, left-aligned, in a soft pill. Hover lays "Copy text" over
+   the leading timestamp so the row does not grow. */
 .service-msg {
+  position: relative;
   font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
   font-size: 12.5px; line-height: 1.5;
   color: #d7d7de;
@@ -874,19 +875,21 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
 .service-msg.webxdc-info { cursor: pointer; }
 .service-msg.webxdc-info:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .service-msg .webxdc-info-icon { width: 1.25em; height: 1.25em; border-radius: 4px; object-fit: cover; vertical-align: -0.25em; margin-right: .35em; }
-.diag-copy {
-  position: absolute; top: 5px; right: 7px;
-  width: var(--ico-4); height: var(--ico-4); padding: 0; border: none; border-radius: 6px;
-  background: transparent; color: var(--text-dim);
-  display: none; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 12px;
+.diag-copy-btn {
+  position: absolute; left: 8px; top: 4px;
+  margin: 0; padding: 0 4px; border: 0; border-radius: 4px;
+  background: var(--bg-chat); color: #d7d7de;
+  font: inherit; line-height: 1.5; cursor: pointer;
+  display: none;
 }
-.diag-copy svg { width: var(--ico-1); height: var(--ico-1); }
+html[data-theme="light"] .diag-copy-btn { color: #464b55; }
+.diag-copy-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 @media (hover: hover) and (pointer: fine) {
-  .msg-row.service:hover .diag-copy { display: flex; }
+  .msg-row.service:hover .diag-copy-btn,
+  .msg-row.service:focus-within .diag-copy-btn { display: inline; }
 }
-@media (hover: hover) and (pointer: fine) {
-  .diag-copy:hover { background: var(--bg-hover); color: var(--text); }
+@media (hover: none), (pointer: coarse) {
+  .diag-copy-btn { display: inline; }
 }
 
 .msg-sender {
@@ -3148,13 +3151,20 @@ html[data-theme="light"] .acct-pop .ctx-item {
 }
 
 /* ---------- failed media placeholder ---------- */
+/* In-bubble meta pair, same as .msg-meta. --text-dim is the canvas pair:
+   2.41 on the dark outgoing bubble, 1.32 on brutal yellow. Opaque bubble
+   fill so the image hover tint and the video's #101010 are not the surface.
+   The icon is the same ink at full strength — .55 opacity missed 3:1. */
 .media-fail {
   width: 100%; min-height: 130px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; padding: 18px 12px;
-  color: var(--text-dim); font-size: 13px; text-align: center;
+  background: var(--bg-bubble-in); color: var(--text-meta-in);
+  font-size: 13px; text-align: center; text-shadow: none;
 }
-.media-fail-ico svg { width: 30px; height: 30px; opacity: .55; }
+.msg-row.out .media-fail { background: var(--bg-bubble-out); color: var(--text-meta-out); }
+.msg-video .media-fail { height: 100%; }
+.media-fail-ico svg { width: 30px; height: 30px; }
 
 /* ===== Boot error banner (pre-app.js safety net, see js/boot-net.js) ===== */
 #boot-error {

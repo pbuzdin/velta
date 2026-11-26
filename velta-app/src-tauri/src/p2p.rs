@@ -2235,8 +2235,8 @@ impl P2p {
                             if std::env::var("VELTA_P2P_DEBUG").is_ok() {
                                 eprintln!("[p2p-dbg] session writing frame to {}", node_id);
                             }
-                            // Count a chunk only after it is on the wire. FileEnd waits
-                            // for the peer's Ack before the UI is told it is done.
+                            // Count a chunk only after it is on the wire. FileEnd is the
+                            // whole file: show 100% now. Ack still clears the bar.
                             if let Frame::FileBegin { id, size, .. } = &frame {
                                 send_progress.insert(id.clone(), (0, *size));
                             }
@@ -2260,7 +2260,13 @@ impl P2p {
                                 }));
                             }
                             if let Frame::FileEnd { id } = &frame {
-                                send_progress.remove(id);
+                                let size = send_progress.remove(id).map(|(_, size)| size).unwrap_or(0);
+                                if size > 0 {
+                                    self.sink.emit(json!({
+                                        "kind": "file-progress", "peerId": node_id.to_string(),
+                                        "id": id, "dir": "send", "got": size, "size": size,
+                                    }));
+                                }
                                 self.file_awaiting_ack.lock().unwrap().insert(id.clone(), node_id);
                             }
                             // Group media: a chunk on the wire hands its credit

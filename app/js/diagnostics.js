@@ -1,6 +1,5 @@
 // diagnostics.js — local-only startup/core log presented as a device chat.
 import { tauriInvoke } from "./tauri.js";
-import { ICON } from "./icons.js";
 import { t } from "./i18n.js";
 export const DIAGNOSTICS_CHAT_ID = -9007199254740991;
 
@@ -140,8 +139,8 @@ export class DiagnosticsStore extends EventTarget {
 
 // Console-style row (Chrome DevTools look) for a diagnostics entry, shared by
 // the direct renderer in app.js and chat-view's fallback path. Each row is a
-// left-aligned monospace pill with a hover copy-to-clipboard button in its
-// top-right corner.
+// left-aligned monospace pill. Hover covers the leading timestamp with a
+// "Copy text" button (the raw line, not the formatted time).
 const LEVEL_EMOJI = { error: "❌", warning: "⚠️", info: "ℹ️" };
 export const DIAG_LEVELS = ["error", "warning", "info"];
 const LEVEL_TOKEN = {
@@ -188,9 +187,6 @@ export function diagnosticsShareLink(levels) {
   return `velta://diagnostics?${new URLSearchParams({ show: show.join(","), copy: "1" })}`;
 }
 
-const COPY_SVG =
-  ICON.copy;
-
 export function diagnosticRow(message) {
   const row = document.createElement("div");
   row.className = "msg-row service";
@@ -198,17 +194,18 @@ export function diagnosticRow(message) {
   const bubble = document.createElement("div");
   bubble.className = "service-msg";
   bubble.textContent = diagnosticLine(message);
+  const label = t("Copy text");
   const copy = document.createElement("button");
   copy.type = "button";
-  copy.className = "diag-copy";
-  copy.title = t("Copy to clipboard");
-  copy.setAttribute("aria-label", "Copy to clipboard");
-  copy.innerHTML = COPY_SVG;
+  copy.className = "diag-copy-btn";
+  copy.textContent = label;
+  copy.title = label;
+  copy.setAttribute("aria-label", label);
   copy.addEventListener("click", async e => {
     e.stopPropagation();
     const done = ok => {
-      copy.innerHTML = ok ? ICON.check : ICON.close;
-      setTimeout(() => { copy.innerHTML = COPY_SVG; }, 1200);
+      copy.textContent = ok ? t("Copied") : t("Couldn't copy");
+      setTimeout(() => { copy.textContent = label; }, 1200);
     };
     try {
       await navigator.clipboard.writeText(message.text);
@@ -217,8 +214,8 @@ export function diagnosticRow(message) {
       done(false);
     }
   });
+  bubble.appendChild(copy);
   row.appendChild(bubble);
-  row.appendChild(copy);
   return row;
 }
 

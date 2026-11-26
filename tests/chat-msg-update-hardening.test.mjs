@@ -200,6 +200,47 @@ test("a reaction on an unmounted cached row patches the cache and does not notif
   assert.equal(view.vs.heightCalls.length, 0);
 });
 
+test("loop transfer percent patches the bar in place", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const row = document.createElement("div");
+  row.dataset.msgid = "10";
+  row.className = "msg-row";
+  const bar = document.createElement("progress");
+  bar.className = "mfp-bar";
+  const pct = document.createElement("div");
+  pct.className = "mfp-pct";
+  const status = document.createElement("span");
+  status.textContent = "Sending…";
+  const num = document.createElement("span");
+  num.textContent = "40%";
+  pct.append(status, num);
+  row.append(bar, pct);
+  node("history").appendChild(row);
+  const base = message(10, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { dir: "send", pct: 40, bps: 1000 },
+  });
+  view.msgIndex.get(10).msg = base;
+  view._rowSigCache.set("m10", view._rowSignature(base));
+  view._rowCache.set("m10", row);
+
+  view.onMsgUpdated(7, message(10, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { dir: "send", pct: 60, bps: 2000 },
+  }));
+  assert.equal(node("history").children[0], row);
+  assert.equal(view.vs.heightCalls.length, 0);
+  assert.equal(Number(bar.value), 60);
+  assert.equal(num.textContent, "60% · 2.0 KB/s");
+
+  view.onMsgUpdated(7, message(10, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { dir: "send", pct: 60, bps: 2000 },
+  }));
+  assert.equal(view.vs.heightCalls.length, 0, "identical percent does not rebuild");
+});
+
 test("loop transfer progress rebuilds the open row", async t => {
   const { view, node } = setup(t);
   await view.open(7);
@@ -236,6 +277,84 @@ test("an unseen receive card is inserted from msg-updated", async t => {
     transfer: { pct: 20, dir: "recv" },
   }));
   assert.equal(view.msgIndex.get(11).msg.transfer.pct, 20);
+});
+
+test("a stale tail refetch does not wipe a newer file path or percent", async t => {
+  const { view, core, node } = setup(t);
+  await view.open(7);
+  view.tailRefetchGapMs = 0;
+  const row = document.createElement("div");
+  row.dataset.msgid = "10";
+  node("history").appendChild(row);
+  const mid = message(10, 7, {
+    from: 0, viewtype: "video", fileName: "clip.mp4", filePath: "",
+    downloadState: "Done", transfer: { pct: 40, dir: "recv" },
+  });
+  view.msgIndex.get(10).msg = mid;
+  view._rowSigCache.set("m10", view._rowSignature(mid));
+  const done = message(10, 7, {
+    from: 0, viewtype: "video", fileName: "clip.mp4", filePath: "/tmp/clip.mp4",
+    downloadState: "Done",
+  });
+  core.getMessages = async () => {
+    view.onMsgUpdated(7, done);
+    return page(mid);
+  };
+  await view.onMsgsChanged(7, {});
+  const html = node("history").children[0].innerHTML;
+  assert.match(html, /velta-video/);
+  assert.equal(view.msgIndex.get(10).msg.filePath, "/tmp/clip.mp4");
+  assert.equal(view.msgIndex.get(10).msg.transfer, undefined);
+
+  const bar = document.createElement("progress");
+  bar.className = "mfp-bar";
+  const pct = document.createElement("div");
+  pct.className = "mfp-pct";
+  const num = document.createElement("span");
+  num.textContent = "40%";
+  pct.append(document.createElement("span"), num);
+  const live = document.createElement("div");
+  live.dataset.msgid = "11";
+  live.append(bar, pct);
+  node("history").appendChild(live);
+  const at40 = message(11, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { dir: "send", pct: 40, bps: 1000 },
+  });
+  view.msgIndex.set(11, { type: "msg", key: "m11", msg: at40 });
+  view._rowSigCache.set("m11", view._rowSignature(at40));
+  const at100 = message(11, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { dir: "send", pct: 100, bps: 1000 },
+  });
+  const at98 = message(11, 7, {
+    viewtype: "file", fileName: "a.bin", filePath: "/a.bin", state: "pending",
+    transfer: { dir: "send", pct: 98, bps: 1000 },
+  });
+  core.getMessages = async () => {
+    view.onMsgUpdated(7, at100);
+    return page(at98);
+  };
+  await view.onMsgsChanged(7, {});
+  assert.equal(Number(bar.value), 100);
+  assert.equal(view.msgIndex.get(11).msg.transfer.pct, 100);
+});
+
+test("a loop download click does not ask core for a synthetic id", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  view.chat.isP2p = true;
+  let called = false;
+  core.downloadFullMessage = () => { called = true; };
+  await view._downloadMedia(10);
+  assert.equal(called, false);
+  view.msgIndex.get(10).msg.filePath = "/tmp/clip.mp4";
+  view.msgIndex.get(10).msg.fileName = "clip.mp4";
+  let opened = null;
+  view._openFile = (p, n) => { opened = [p, n]; };
+  await view._downloadMedia(10);
+  assert.equal(called, false);
+  assert.deepEqual(opened, ["/tmp/clip.mp4", "clip.mp4"]);
 });
 
 test("a transfer-only tail refetch updates the open row", async t => {

@@ -1520,6 +1520,11 @@ export class ChatView {
     const reload = ++session.reload;
     let maxId = 0;
     for (const it of this.items) if (it.type === "msg" && it.msg.id > maxId) maxId = it.msg.id;
+    // A live msg-updated during this await is newer than the snapshot.
+    // Applying the snapshot anyway puts an older percent back, or wipes the
+    // file path the message event just set (the receive card then offers a
+    // core download for a numeric Loop id).
+    const since = this._eventGen || 0;
     let messages;
     try {
       ({ messages } = await this.core.getMessages(session.chatId, { limit: 40, fresh }));
@@ -1547,6 +1552,7 @@ export class ChatView {
     // dropped self-heals here instead of leaving a stuck sending spinner.
     let updated = 0;
     for (const m of messages) {
+      if ((this._eventAt?.get(m.id) || 0) > since) continue;
       const item = this.msgIndex.get(m.id);
       if (item?.msg && item.msg !== m
         && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype
@@ -1714,6 +1720,8 @@ export class ChatView {
 
   // Reactions sit at index 6 of _rowSignature. A reaction must not rebuild
   // the row: that reloads images and restarts video (#33).
+  // Percent and speed are indexes 14 and 18. Those tick every couple of
+  // percent and about once a second; rebuilding the row blinks the card.
   _onlyReactionsChanged(prev, next) {
     let reactionsDiffer = false;
     const a = JSON.parse(this._rowSignature(prev));
@@ -1747,6 +1755,40 @@ export class ChatView {
     return true;
   }
 
+  _onlyTransferProgressChanged(prev, next) {
+    const live = m => m?.transfer && !m.transfer.failed && !m.transfer.packing;
+    if (!live(prev) || !live(next)) return false;
+    if ((prev.transfer.dir || "") !== (next.transfer.dir || "")) return false;
+    const a = JSON.parse(this._rowSignature(prev));
+    const b = JSON.parse(this._rowSignature(next));
+    let moved = false;
+    for (let i = 0; i < a.length; i++) {
+      const same = JSON.stringify(a[i]) === JSON.stringify(b[i]);
+      if (i === 14 || i === 18) { if (!same) moved = true; }
+      else if (!same) return false;
+    }
+    return moved;
+  }
+
+  // The bar and the percent line only. A missing bar means the card shape
+  // changed (spinner, failure, finished file) and the caller rebuilds.
+  _patchTransfer(row, transfer) {
+    const bar = row.querySelector?.(".mfp-bar");
+    const pctEl = row.querySelector?.(".mfp-pct");
+    const spans = pctEl?.querySelectorAll?.("span");
+    if (!bar || !spans || spans.length < 2) return false;
+    const pct = Math.max(0, Math.min(100, transfer.pct || 0));
+    const status = transfer.dir === "recv" ? t("Receiving…") : t("Sending…");
+    const speed = transfer.bps > 0 ? ` · ${formatBytes(transfer.bps)}/s` : "";
+    bar.value = pct;
+    bar.setAttribute?.("value", String(pct));
+    bar.setAttribute?.("aria-label", status);
+    bar.textContent = `${pct}%`;
+    spans[0].textContent = status;
+    spans[1].textContent = `${pct}%${speed}`;
+    return true;
+  }
+
   // Report which render-relevant fields flip-flopped between polls — this is
   // how we catch data that alternates between fetches and loops re-renders.
   _logSignatureDiff(key, a, b) {
@@ -1774,6 +1816,8 @@ export class ChatView {
 
   onMsgUpdated(chatId, msg) {
     if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
+    this._eventGen = (this._eventGen || 0) + 1;
+    (this._eventAt ??= new Map()).set(msg.id, this._eventGen);
     const queued = this._arrivals?.list?.find(e => e.msg?.id === msg.id);
     if (queued && !this.msgIndex.has(msg.id)) { queued.msg = msg; return; }
     const item = this.msgIndex.get(msg.id);
@@ -1801,6 +1845,19 @@ export class ChatView {
         if (live) this._rowCache.set(item.key, live);
         this._rowSigCache.set(item.key, sig);
         if (live) this.vs?.onItemHeightDidChange?.(item);
+        return;
+      }
+    }
+    // Percent and speed only: write the bar in place. No height notify —
+    // the line is one nowrap row, and a rebuild restarts video and images.
+    if (item.msg && prevSig !== undefined && this._onlyTransferProgressChanged(item.msg, msg)) {
+      const live = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
+      const cached = this._rowCache.get(item.key);
+      const targets = [...new Set([live, cached].filter(Boolean))];
+      if (targets.every(el => this._patchTransfer(el, msg.transfer))) {
+        item.msg = msg;
+        if (live) this._rowCache.set(item.key, live);
+        this._rowSigCache.set(item.key, sig);
         return;
       }
     }
@@ -2365,6 +2422,8 @@ export class ChatView {
   _chipServiceRow(row, m, alive) {
     const bubble = row.querySelector(".service-msg");
     if (!bubble) return;
+    const copy = bubble.querySelector(".diag-copy-btn");
+    copy?.remove();
     const text = String(m.text || "");
     const full = bubble.textContent || "";
     const at = full.lastIndexOf(text);
@@ -2372,6 +2431,7 @@ export class ChatView {
     const html = serviceChipsHtml(text, m.people);
     if (!html.includes("svc-chip")) return;
     bubble.innerHTML = escapeHtml(full.slice(0, at)) + html + escapeHtml(full.slice(at + text.length));
+    if (copy) bubble.appendChild(copy);
     bubble.addEventListener("click", e => {
       const chip = e.target?.closest?.(".svc-chip");
       if (!chip || !alive()) return;
@@ -2408,7 +2468,7 @@ export class ChatView {
     if (cached?.name) setIcon(cached);
     else loadInfoWithRetry(parentId, { alive }).then(setIcon).catch(() => {});
     const open = e => {
-      if (e.target?.closest?.(".svc-chip, .diag-copy") || !alive()) return;
+      if (e.target?.closest?.(".svc-chip, .diag-copy-btn") || !alive()) return;
       e.stopPropagation();
       const name = infoFor(parentId)?.name || "Webxdc app";
       const parent = this.msgIndex?.get(parentId)?.msg;
@@ -2429,15 +2489,18 @@ export class ChatView {
     const own = s?.id === 1; // own: a plain "You" chip, there is no self profile to open
     const name = own ? t("You") : String(s?.name || "").trim();
     if (!s || !name) return;
+    const copy = bubble.querySelector(".diag-copy-btn");
+    copy?.remove();
     const text = String(m.text || "");
     const full = bubble.textContent || "";
     const at = full.lastIndexOf(text);
-    if (!text || at < 0) return;
+    if (!text || at < 0) { if (copy) bubble.appendChild(copy); return; }
     const real = String(s.name || "").trim();
     const lead = !!real && text.startsWith(real) && !/^[\p{L}\p{N}]/u.test(text.slice(real.length));
     const rest = lead ? text.slice(real.length) : " " + text;
     const chip = own ? `<span class="svc-chip is-self">${escapeHtml(name)}</span>` : `<button type="button" class="svc-chip" data-contact-id="${Number(s.id)}" aria-label="${escapeAttr(t("Open profile of {name}", { name }))}">${escapeHtml(name)}</button>`;
     bubble.innerHTML = escapeHtml(full.slice(0, at)) + chip + escapeHtml(rest) + escapeHtml(full.slice(at + text.length));
+    if (copy) bubble.appendChild(copy);
     bubble.addEventListener("click", e => {
       if (!e.target?.closest?.("button.svc-chip") || !alive()) return;
       e.stopPropagation();
@@ -6031,6 +6094,16 @@ export class ChatView {
   async _downloadMedia(msgId) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
+    // Loop ids are numeric view ids (1e9+). Core has never seen them and
+    // answers "Message Msg#… does not exist". The file is already on disk
+    // once the transfer's message event set the path; until then there is
+    // nothing to fetch from a relay.
+    if (this.chat.isP2p) {
+      const m = this.msgIndex.get(msgId)?.msg;
+      if (m?.filePath) { this._openFile(m.filePath, m.fileName); return; }
+      errToast(t("The file is not on this device yet"));
+      return;
+    }
     try {
       await this.core.downloadFullMessage(msgId);
       if (!this._isCurrent(session)) return;

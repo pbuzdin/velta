@@ -77,7 +77,10 @@ test("ChatView chips the service row and opens the tapped contact's profile", as
   const m = { id: 9, kind: "service", text: "Member Bob added by Alice.", ts: 0,
     people: [{ id: 11, name: "Alice" }, { id: 12, name: "Bob" }] };
   const row = diagnosticRow(m);
+  assert.equal(row.querySelector(".diag-copy"), null);
+  assert.equal(row.querySelector(".diag-copy-btn").textContent, "Copy text");
   ChatView.prototype._chipServiceRow.call({}, row, m, () => true);
+  assert.equal(row.querySelector(".diag-copy-btn").textContent, "Copy text");
   const bubble = row.querySelector(".service-msg");
   assert.match(bubble.innerHTML, /<button type="button" class="svc-chip" data-contact-id="12"[^>]*>Bob<\/button> added by <button[^>]*data-contact-id="11"/);
   const opened = [];
