@@ -2568,9 +2568,10 @@ export class ChatView {
         // #454: speed next to the percentage, and Cancel on 1:1 transfers
         // (group sends keep their per-member rows).
         const speed = m.transfer.bps > 0 ? ` · ${formatBytes(m.transfer.bps)}/s` : "";
+        const status = m.transfer.dir === "recv" ? t("Receiving…") : t("Sending…");
         const cancel = this.chat?.isP2p && !this.chat?.isP2pGroup && !m.transfer.members
           ? `<button type="button" class="btn-text" data-act="lc-cancel">${escapeHtml(t("Cancel"))}</button>` : "";
-        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(t("Transfer"))}">${pct}%</progress><div class="mfp-pct">${pct}%${escapeHtml(speed)}</div>${cancel}</div>`;
+        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(status)}">${pct}%</progress><div class="mfp-pct"><span>${escapeHtml(status)}</span><span>${pct}%${escapeHtml(speed)}</span></div>${cancel}</div>`;
       }
     } else if (covered && COVERED_VIEWTYPES.has(m.viewtype)) {
       // Text-only mode (#300): the placeholder replaces the whole media branch
