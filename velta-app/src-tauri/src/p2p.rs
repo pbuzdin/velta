@@ -96,6 +96,16 @@ const BEACON_PORT: u16 = 53717;
 const BEACON_INTERVAL: Duration = Duration::from_secs(2);
 /// A neighbor heard this long ago is considered gone.
 const NEIGHBOR_TTL: Duration = Duration::from_secs(10);
+/// #544: an outbound text unacked this long is re-sent. A frame accepted by
+/// a dying session's channel (the write fails after the task pops it, or the
+/// peer's ack rides a session that drops) used to sit at "sent" forever while
+/// the UI's tick said delivered — one side's log had the message, the
+/// other's didn't.
+const ACK_RESEND_MS: u64 = 10_000;
+/// Timer-driven re-sends per message. Past the cap the message falls back to
+/// the session-open flush (queued), so a long-offline peer gets it on its
+/// next connect instead of the engine resending forever.
+const ACK_RESEND_MAX: u32 = 12;
 
 // ---------------------------------------------------------------------------
 // Wire types
@@ -260,6 +270,12 @@ struct StoredMsg {
     /// Present for media messages (phase 2 local chat media).
     #[serde(default)]
     file: Option<StoredFile>,
+    /// How many times the ack sweep has re-sent this outbound text (#544).
+    /// Bounds the timer path: past the cap only a session (re)connect
+    /// flush carries the message, so a peer that stays offline cannot be
+    /// spammed forever.
+    #[serde(default)]
+    retries: u32,
 }
 
 /// Where a media file lives on THIS device once the transfer completed.
@@ -1106,6 +1122,7 @@ impl P2p {
                 reply_to: reply_to.map(|s| s.to_string()),
                 reply_text: reply_text.map(|s| s.to_string()),
                 file: None,
+                retries: 0,
             };
             if !sent_now {
                 peer.queued.push(stored.clone());
@@ -1285,6 +1302,7 @@ impl P2p {
             reply_to: None,
             reply_text: None,
             file: Some(StoredFile { name: safe.clone(), size, mime: mime.clone(), path: dest.to_string_lossy().to_string() }),
+            retries: 0,
         };
         {
             let mut inner = self.inner.lock().unwrap();
@@ -1656,6 +1674,71 @@ impl P2p {
         self.persist_messages(&node_id, &flipped);
     }
 
+    /// #544: re-send outbound texts that were put on the wire but never
+    /// acked. `send()` marks "sent" when a session's channel accepts the
+    /// frame — that is a queue accept, not a delivery: the session task can
+    /// lose the connection right after popping the frame, and the peer's ack
+    /// itself can ride a session that drops. Either side's log then lacks the
+    /// message while the sender's tick says delivered (observed on the test
+    /// rig: a text acked nowhere, present in neither log). Re-sends carry the
+    /// ORIGINAL id, so the receiver's dedupe folds them; the ack finally
+    /// flips the row. Past [`ACK_RESEND_MAX`] timer resends the message parks
+    /// as "queued" — the session-open flush carries it on the next connect.
+    fn ack_sweep(self: &Arc<Self>) {
+        let now = now_ms();
+        let mut flipped: Vec<(NodeId, Vec<StoredMsg>)> = Vec::new();
+        let mut dials: Vec<NodeId> = Vec::new();
+        {
+            let mut inner = self.inner.lock().unwrap();
+            for (node_id, peer) in inner.peers.iter_mut() {
+                if peer.kind != PeerKind::Paired {
+                    continue;
+                }
+                let mut rows = Vec::new();
+                for msg in peer.msgs.iter_mut() {
+                    if msg.dir != "out" || msg.state != "sent" || msg.retries >= ACK_RESEND_MAX {
+                        continue;
+                    }
+                    if now.saturating_sub(msg.ts) < ACK_RESEND_MS as u64 {
+                        continue;
+                    }
+                    peer.live.retain(|h| !h.tx.is_closed());
+                    let frame = Frame::Msg {
+                        id: msg.id.clone(),
+                        ts: msg.ts,
+                        text: msg.text.clone(),
+                        reply_to: msg.reply_to.clone(),
+                        reply_text: msg.reply_text.clone(),
+                    };
+                    msg.retries += 1;
+                    match peer.live.first() {
+                        Some(handle) if handle.tx.send(frame).is_ok() => {}
+                        _ => {
+                            // No usable session: park it for the connect flush.
+                            msg.state = "queued".into();
+                            peer.queued.push(msg.clone());
+                            dials.push(*node_id);
+                            self.sink.emit(json!({
+                                "kind": "msg-state", "peerId": node_id.to_string(),
+                                "id": msg.id.clone(), "state": "queued",
+                            }));
+                        }
+                    }
+                    rows.push(msg.clone());
+                }
+                if !rows.is_empty() {
+                    flipped.push((*node_id, rows));
+                }
+            }
+        }
+        for (node_id, rows) in flipped {
+            self.persist_messages(&node_id, &rows);
+        }
+        for node_id in dials {
+            self.clone().trigger_connect(node_id);
+        }
+    }
+
     fn remove_live(&self, node_id: NodeId, handle_id: u64) {
         let now_offline = {
             let mut inner = self.inner.lock().unwrap();
@@ -2005,6 +2088,7 @@ impl P2p {
                             reply_to: reply_to.clone(),
                             reply_text: reply_text.clone(),
                             file: None,
+                            retries: 0,
                         });
                         let row = peer.msgs.last().cloned();
                         drop(inner);
@@ -2204,6 +2288,7 @@ impl P2p {
                                 mime: t.mime.clone(),
                                 path: final_path.to_string_lossy().to_string(),
                             }),
+                            retries: 0,
                         });
                         let row = peer.msgs.last().cloned();
                         drop(inner);
@@ -2468,6 +2553,9 @@ impl P2p {
                 }
                 _ = tokio::time::sleep_until(next_send) => {
                     next_send = tokio::time::Instant::now() + BEACON_INTERVAL;
+                    // #544: piggyback the unacked-outbound sweep on the beacon
+                    // tick — one timer, 2 s granularity against a 10 s budget.
+                    self.ack_sweep();
                     let na = self.endpoint.addr();
                     let mut targets: Vec<SocketAddr> =
                         vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::BROADCAST), BEACON_PORT)];
@@ -5609,7 +5697,7 @@ mod tests {
     fn stored_out(id: &str, text: &str, state: &str) -> StoredMsg {
         StoredMsg {
             id: id.into(), ts: 1, dir: "out".into(), state: state.into(), text: text.into(),
-            reply_to: None, reply_text: None, file: None,
+            reply_to: None, reply_text: None, file: None, retries: 0,
         }
     }
 
@@ -8011,5 +8099,111 @@ mod tests {
         got.clear();
         std::io::Read::read_to_end(&mut open_plain(&partial, Some(&key)).unwrap(), &mut got).unwrap();
         assert_eq!(got, raw);
+    }
+
+    /// #544: a "sent" text whose frame died with its session is re-sent by
+    /// the ack sweep (original id → the receiver's dedupe folds repeats),
+    /// the ack flips the row, and the retry cap keeps a long-offline peer
+    /// from being hammered.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ack_sweep_resends_unacked_sent_texts() {
+        let (alice, alice_rx) = start("alice10").await;
+        let (bob, bob_rx) = start("bob10").await;
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+        let bob_id = bob.node_id();
+
+        // The loss, injected: a "sent" row older than the resend budget whose
+        // frame no session will ever carry (live handles cleared).
+        let id = random_id();
+        let ts = now_ms() - ACK_RESEND_MS as u64 - 5_000;
+        {
+            let mut inner = alice.inner.lock().unwrap();
+            let peer = inner.peers.get_mut(&bob_id).unwrap();
+            peer.live.clear();
+            peer.msgs.push(StoredMsg {
+                id: id.clone(),
+                ts,
+                dir: "out".into(),
+                state: "sent".into(),
+                text: "lost in the wire".into(),
+                reply_to: None,
+                reply_text: None,
+                file: None,
+                retries: 0,
+            });
+        }
+
+        // First pass: no session → parks as queued and dials; the connect
+        // flush puts it on the wire, Bob acks, the row flips.
+        alice.ack_sweep();
+        let got = wait_for(&bob_rx, 20, |e| {
+            e["kind"] == "message" && e["text"] == "lost in the wire"
+        });
+        assert_eq!(got["id"], json!(id));
+        wait_for(&alice_rx, 15, |e| e["kind"] == "ack" && e["id"] == id);
+        {
+            let inner = alice.inner.lock().unwrap();
+            let peer = inner.peers.get(&bob_id).unwrap();
+            let row = peer.msgs.iter().find(|m| m.id == id).unwrap();
+            assert_eq!(row.state, "acked");
+            assert_eq!(row.retries, 1);
+        }
+
+        // Exactly-once: a fresh delivered row is not re-sent, and repeats of
+        // an already-received id are folded by Bob's dedupe.
+        alice.ack_sweep();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let count = {
+            let inner = bob.inner.lock().unwrap();
+            inner
+                .peers
+                .get(&alice.node_id())
+                .unwrap()
+                .msgs
+                .iter()
+                .filter(|m| m.id == id)
+                .count()
+        };
+        assert_eq!(count, 1, "dedupe folds the re-sent id");
+
+        // The cap: a row past ACK_RESEND_MAX is left alone by the timer.
+        let stale_id = random_id();
+        {
+            let mut inner = alice.inner.lock().unwrap();
+            let peer = inner.peers.get_mut(&bob_id).unwrap();
+            peer.msgs.push(StoredMsg {
+                id: stale_id.clone(),
+                ts,
+                dir: "out".into(),
+                state: "sent".into(),
+                text: "past the cap".into(),
+                reply_to: None,
+                reply_text: None,
+                file: None,
+                retries: ACK_RESEND_MAX,
+            });
+        }
+        alice.ack_sweep();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        {
+            let inner = alice.inner.lock().unwrap();
+            let peer = inner.peers.get(&bob_id).unwrap();
+            let row = peer.msgs.iter().find(|m| m.id == stale_id).unwrap();
+            assert_eq!(row.state, "sent", "capped rows are left for the connect flush");
+            assert_eq!(row.retries, ACK_RESEND_MAX);
+        }
+        let got_cap = {
+            let inner = bob.inner.lock().unwrap();
+            inner
+                .peers
+                .get(&alice.node_id())
+                .unwrap()
+                .msgs
+                .iter()
+                .any(|m| m.id == stale_id)
+        };
+        assert!(!got_cap, "capped row must not reach the peer via the timer");
     }
 }
