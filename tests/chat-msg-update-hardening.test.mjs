@@ -1085,16 +1085,18 @@ test("#98: back-swipe commits on the diagnostics surface (externalSurface, no se
 
 // Tiny DOM chain: just enough of closest() for the selectors the gesture code
 // uses ("a:not(.link-preview)", "button", ".bubble", "a[href]").
-function node(tag, cls = "", parent = null) {
+function node(tag, cls = "", parent = null, attrs = {}) {
   const n = {
-    tag, cls: cls.split(/\s+/).filter(Boolean), parent, style: {},
-    getAttribute: name => (name === "href" ? "https://example.com/x" : null),
+    tag, cls: cls.split(/\s+/).filter(Boolean), parent, style: {}, attrs,
+    getAttribute: name => (name in attrs ? attrs[name] : name === "href" ? "https://example.com/x" : null),
     closest(sel) {
       for (let cur = n; cur; cur = cur.parent) {
         for (const part of sel.split(",").map(p => p.trim())) {
           if (part.startsWith(".") && cur.cls.includes(part.slice(1))) return cur;
           if (part === "a[href]" && cur.tag === "a") return cur;
           if (part === "a:not(.link-preview)" && cur.tag === "a" && !cur.cls.includes("link-preview")) return cur;
+          const attr = part.match(/^\[([a-z0-9-]+)\]$/i);
+          if (attr && cur.attrs?.[attr[1]] != null) return cur;
           if (part === cur.tag && part !== "a") return cur;
         }
       }
@@ -1126,6 +1128,17 @@ test("gestureSkipTarget lets links and cards swipe but not buttons, inputs or me
   const line = node("span", "invite-line", join);
   assert.equal(gestureSkipTarget(join), false, "an invite card swipes");
   assert.equal(gestureSkipTarget(line), false, "text inside the invite card swipes too");
+  const dash = node("span", "xfer-card", bubble);
+  const preview = node("button", "xfer-preview-btn", dash, { "data-xfer-view": "ab" });
+  const dashPoster = node("video", "xfer-preview", preview);
+  const folder = node("button", "xfer-folder", dash, { "data-xfer-folder": "ab" });
+  const name = node("span", "xfer-name", dash);
+  const foot = node("span", "xfer-foot", bubble);
+  assert.equal(gestureSkipTarget(preview), false, "a Dash poster button swipes");
+  assert.equal(gestureSkipTarget(dashPoster), false, "the video inside the Dash poster swipes");
+  assert.equal(gestureSkipTarget(folder), false, "Show in folder swipes");
+  assert.equal(gestureSkipTarget(name), false, "the Dash filename swipes");
+  assert.equal(gestureSkipTarget(foot), false, "the Dash foot swipes");
   const poster = node("video", "", bubble);
   poster.controls = false;
   assert.equal(gestureSkipTarget(poster), false, "a video poster swipes");
@@ -1320,6 +1333,67 @@ test("swipe on an invite card replies and goes back; the follow-up click does no
   } finally {
     globalThis.MutationObserver = prevMO;
     globalThis.document = doc;
+  }
+});
+
+test("swipe on a Velta Dash card replies and goes back; the follow-up click does not open", async t => {
+  const { gestureSwipeRecent } = await import("../app/js/components.js");
+  const { view, node: byId } = setup(t);
+  let backs = 0;
+  view.onBack = () => { backs++; };
+  await view.open(7);
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const bubble = node("div", "bubble");
+  const card = node("span", "xfer-card", bubble);
+  const preview = node("button", "xfer-preview-btn", card, { "data-xfer-view": "ab" });
+  const poster = node("video", "xfer-preview", preview);
+  const folder = node("button", "xfer-folder", card, { "data-xfer-folder": "ab" });
+  const foot = node("span", "xfer-foot", bubble);
+  const touches = (x, y) => [{ clientX: x, clientY: y }];
+
+  for (const target of [preview, poster, folder, foot]) {
+    view.replyTo = null;
+    await row.fire("touchstart", { touches: touches(10, 40), target });
+    await row.fire("touchmove", { touches: touches(200, 42), target, cancelable: true, preventDefault() {} });
+    assert.equal(bubble.style.transform, "translateX(64px)", `reply swipe starts on ${target.cls[0] || target.tag}`);
+    await row.fire("touchend", { touches: [] });
+    assert.equal(view.replyTo.id, 10);
+    assert.equal(gestureSwipeRecent(), true, "the follow-up click must not open the card");
+  }
+
+  // A mostly-vertical move stays a scroll: the bubble does not follow.
+  view.replyTo = null;
+  await row.fire("touchstart", { touches: touches(10, 40), target: preview });
+  await row.fire("touchmove", { touches: touches(14, 80), target: preview, cancelable: true, preventDefault() {} });
+  assert.equal(bubble.style.transform, "", "a vertical move on the poster is not a reply swipe");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo, null);
+
+  const scroller = byId("history-scroll");
+  const main = byId("main");
+  await scroller.fire("touchstart", { touches: touches(200, 80), target: poster });
+  await scroller.fire("touchmove", { touches: touches(120, 84), target: poster, cancelable: true, preventDefault() {} });
+  assert.equal(main.style.transform, "translateX(-80px)");
+  await scroller.fire("touchend", { touches: [] });
+  await main.fire("transitionend");
+  assert.equal(backs, 1);
+  assert.equal(gestureSwipeRecent(), true);
+
+  const click = { target: preview, preventDefault() { click.defaultPrevented = true; }, stopPropagation() { click.stopped = true; } };
+  await row.fire("click", click);
+  assert.equal(click.stopped, true, "the row swallows the synthesised click so the preview does not open");
+
+  // A plain tap, after the swipe window, still bubbles to the document listener.
+  const now = Date.now;
+  Date.now = () => now() + 1000;
+  try {
+    view._swipedAt = now() - 1000;
+    const late = { target: preview, preventDefault() { late.defaultPrevented = true; }, stopPropagation() { late.stopped = true; } };
+    await row.fire("click", late);
+    assert.equal(late.stopped, undefined, "a tap still bubbles to open the preview");
+  } finally {
+    Date.now = now;
   }
 });
 

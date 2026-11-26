@@ -650,6 +650,7 @@
   "Delete older than {label}": "Supprimer plus ancien que {label}",
   "Chats in common": "Discussions en commun",
   "Saved": "Enregistré",
+  "Saved to {folder}": "Enregistré dans {folder}",
   "Couldn't save: ": "Impossible d'enregistrer : ",
   "Member added": "Membre ajouté",
   "{n} members added": "{n} membres ajoutés",

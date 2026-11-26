@@ -20,6 +20,7 @@ import { diagnosticsSink } from "./diagnostics.js";
 import { t } from "./i18n.js";
 import { escapeHtml } from "./format.js";
 import { withTimeout } from "./load-retry.js";
+import { isAndroid } from "./tauri.js";
 
 let env = null;  // { core, invoke } — invoke null in the PWA
 let transport = null;
@@ -341,23 +342,100 @@ export function xferCardHtml(text) {
   return null;
 }
 
-function actionsHtml(hash, name, st) {
+/** MediaStore collection for a Dash Save: videos → Movies/Velta, images →
+ *  Pictures/Velta, everything else → Download/Velta. */
+export function xferSaveKind(name) {
+  const k = fileKind(name);
+  return k === "video" ? "video" : k === "image" ? "image" : "file";
+}
+export function xferSaveFolder(kind) {
+  return kind === "video" ? "Movies/Velta" : kind === "image" ? "Pictures/Velta" : "Download/Velta";
+}
+/** Which trailing actions a fetched card shows. Exported for tests. */
+export function xferPlatformActions({ tauri = !!env?.invoke, android = isAndroid() } = {}) {
+  if (tauri && android) return "save-share";
+  if (tauri) return "folder";
+  return "save"; // PWA: a download
+}
+function actionBtn(cls, attr, hash, icon, label) {
+  return `<button type="button" class="${cls} btn-text" ${attr}="${escapeAttr(hash)}">${svg(P[icon], "", 'aria-hidden="true"')}<span>${escapeHtml(label)}</span></button>`;
+}
+function platformActionHtml(hash, platform = xferPlatformActions()) {
+  if (platform === "save-share") {
+    return `<span class="xfer-actions">${actionBtn("xfer-save", "data-xfer-save", hash, "download", t("Save"))}${actionBtn("xfer-share", "data-xfer-share", hash, "share", t("Share"))}</span>`;
+  }
+  if (platform === "folder") {
+    return `<span class="xfer-actions">${actionBtn("xfer-folder", "data-xfer-folder", hash, "folder", t("Show in folder"))}</span>`;
+  }
+  return `<span class="xfer-actions">${actionBtn("xfer-save", "data-xfer-save", hash, "download", t("Save"))}</span>`;
+}
+function actionsHtml(hash, name, st, platform = xferPlatformActions()) {
   if (st.path) {
     // Media: the preview itself is the open control (the picture opens the
     // image, .xfer-play opens the video) — no caption open button (#519).
-    // Desktop adds Show in folder (the shell reveals the decrypted copy).
-    if (mediaKind(name || st.path)) {
-      const folder = env?.invoke ? `<button type="button" class="xfer-folder btn-text" data-xfer-folder="${escapeAttr(hash)}">${escapeHtml(t("Show in folder"))}</button>` : "";
-      return folder;
-    }
+    // Desktop keeps Show in folder. Android replaces it with Save + Share.
+    // The PWA offers a download.
+    const extras = platformActionHtml(hash, platform);
+    if (mediaKind(name || st.path)) return extras;
     // Documents: Open is a button — an action, not navigation. The URL is
     // computed at click time from cardState (data-xfer-open); never an href.
-    return `<button type="button" class="xfer-open btn-text" data-xfer-open="${escapeAttr(hash)}">${escapeHtml(t("Open"))}</button>`;
+    // Desktop keeps Open only (Show in folder was a media action). Android
+    // and the PWA also offer Save / Share.
+    const open = `<button type="button" class="xfer-open btn-text" data-xfer-open="${escapeAttr(hash)}">${escapeHtml(t("Open"))}</button>`;
+    return platform === "folder" ? open : open + extras;
   }
   let out = "";
   if (canRetry(st)) out += `<button type="button" class="xfer-retry btn-text" data-xfer-retry="${escapeAttr(hash)}">${escapeHtml(t("Retry"))}</button>`;
   if (canAsk(st) && cardState.has(hash)) out += `<button type="button" class="xfer-ask btn-text" data-xfer-ask="${escapeAttr(hash)}">${escapeHtml(t("Ask for the email copy"))}</button>`;
   return out;
+}
+
+export { actionsHtml as xferActionsHtml };
+function setActionBusy(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle("is-busy", on);
+  btn.toggleAttribute("aria-busy", on);
+  btn.toggleAttribute("disabled", on);
+}
+async function saveCard(hash, btn) {
+  const st = cardState.get(hash);
+  if (!st?.path || btn?.classList.contains("is-busy")) return;
+  setActionBusy(btn, true);
+  try {
+    const name = st.name || "file";
+    const kind = xferSaveKind(name);
+    if (env?.invoke && isAndroid()) {
+      const folder = await env.invoke("save_to_collection", { src: st.path, name, kind });
+      hooks?.toast?.(t("Saved to {folder}", { folder: folder || xferSaveFolder(kind) }), 4000);
+    } else {
+      const url = safeFileUrl(st.path);
+      if (!url || url === "#") throw new Error(t("This attachment isn't available yet"));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      hooks?.toast?.(t("Saved"), 3000);
+    }
+  } catch (err) {
+    hooks?.toast?.(t("Couldn't save: ") + (err?.message || err), 4000, { danger: true });
+  } finally {
+    setActionBusy(btn, false);
+  }
+}
+async function shareCard(hash, btn) {
+  const st = cardState.get(hash);
+  if (!st?.path || !env?.invoke || btn?.classList.contains("is-busy")) return;
+  setActionBusy(btn, true);
+  try {
+    await env.invoke("share_file", { src: st.path, name: st.name || "file", mime: null });
+  } catch (err) {
+    hooks?.toast?.(t("Couldn't share: ") + (err?.message || err), 4000, { danger: true });
+  } finally {
+    setActionBusy(btn, false);
+  }
 }
 const escapeAttr = escapeHtml;
 function fmtSize(n) {
@@ -530,7 +608,7 @@ function paintCard(card, st) {
     have.remove();
   }
   if (sub) {
-    for (const old of card.querySelectorAll(".xfer-route, .xfer-actions, .xfer-open, .xfer-ask, .xfer-retry, .xfer-folder")) old.remove();
+    for (const old of card.querySelectorAll(".xfer-route, .xfer-actions, .xfer-open, .xfer-ask, .xfer-retry, .xfer-folder, .xfer-save, .xfer-share")) old.remove();
     sub.insertAdjacentHTML("beforeend", routeBadgeHtml(st) + actionsHtml(hash, name, st));
   }
 }
@@ -581,12 +659,12 @@ function useAccount(id) {
 
 /** Wire once from boot: shell handles + the composer's send hooks. In the
  *  PWA (no invoke) the transport has no iroh: cards ask for the email copy. */
-export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen, openHttp, timeouts = {} }) {
+export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen, openHttp, toast, timeouts = {} }) {
   if (transport) return; // never re-init
   env = { core, invoke: invoke || null };
   limits = { ...WAIT_MS, ...timeouts };
   metadataFn = metadata || (async () => null);
-  hooks = { sendText, sendFile, lastSent: () => lastSent, openHttp };
+  hooks = { sendText, sendFile, lastSent: () => lastSent, openHttp, toast };
   account = String(core?.accountId ?? "0");
   loadCards();
   let store = jsonStore(`velta-xfer-pending:${account}`);
@@ -640,6 +718,10 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen,
       if (view) { openInLightbox(view.getAttribute("data-xfer-view")); return; }
       const folder = e.target.closest?.("[data-xfer-folder]");
       if (folder) { showInFolder(folder.getAttribute("data-xfer-folder")); return; }
+      const save = e.target.closest?.("[data-xfer-save]");
+      if (save) { saveCard(save.getAttribute("data-xfer-save"), save); return; }
+      const share = e.target.closest?.("[data-xfer-share]");
+      if (share) { shareCard(share.getAttribute("data-xfer-share"), share); return; }
       const open = e.target.closest?.("[data-xfer-open]");
       if (open) {
         // Selection mode: the row listener toggled selection and returned

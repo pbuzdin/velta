@@ -3820,6 +3820,119 @@ async fn save_attachment(src: String, uri: String) -> Result<(), String> {
     Err("saving to a chosen location is only supported on Android".into())
 }
 
+// Stream a decrypted copy to dest: a content: URI (MediaStore) or a
+// filesystem path (API 24–28 public Movies/Pictures/Download/Velta).
+#[cfg(target_os = "android")]
+fn write_decrypted_to_dest(src: &std::path::Path, dest: &str) -> Result<(), String> {
+    if dest.starts_with("content:") {
+        return copy_path_to_content_uri(src, dest);
+    }
+    let mut input = open_attachment(src)?;
+    let mut file = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+    std::io::copy(&mut input, &mut file).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Android Dash card Save: stream-decrypt into Movies/Velta, Pictures/Velta
+/// or Download/Velta. Returns the folder label for the toast.
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn save_to_collection(app: tauri::AppHandle, src: String, name: String, kind: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let canon = scoped_accounts_path(&app, &src)?;
+        let kind = match kind.as_str() {
+            "video" | "image" => kind,
+            _ => "file".into(),
+        };
+        let safe = safe_open_name(Some(&name), &canon);
+        let started = with_android_class(&APP_FILE_OPEN_CLASS, "FileOpen", |env, context, class_ref| {
+            let kind_j = env.new_string(&kind).map_err(|e| e.to_string())?;
+            let name_j = env.new_string(&safe).map_err(|e| e.to_string())?;
+            let j = env
+                .call_static_method(
+                    class_ref,
+                    "beginSave",
+                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                    &[(&context).into(), (&kind_j).into(), (&name_j).into()],
+                )
+                .map_err(|e| e.to_string())?
+                .l()
+                .map_err(|e| e.to_string())?;
+            if j.is_null() {
+                return Ok(String::new());
+            }
+            let js = jni::objects::JString::from(j);
+            env.get_string(&js).map(|s| s.into()).map_err(|e| e.to_string())
+        })?;
+        let (dest, folder) = started.split_once('\n').unwrap_or((started.as_str(), ""));
+        if dest.is_empty() {
+            return Err("couldn't create the save location".into());
+        }
+        let dest = dest.to_string();
+        let folder = if folder.is_empty() { "Download/Velta".into() } else { folder.to_string() };
+        let written = write_decrypted_to_dest(&canon, &dest);
+        let ok = written.is_ok();
+        let _ = with_android_class(&APP_FILE_OPEN_CLASS, "FileOpen", |env, context, class_ref| {
+            let dest_j = env.new_string(&dest).map_err(|e| e.to_string())?;
+            env.call_static_method(
+                class_ref,
+                "finishSave",
+                "(Landroid/content/Context;Ljava/lang/String;Z)V",
+                &[(&context).into(), (&dest_j).into(), jni::objects::JValue::Bool(u8::from(ok))],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        });
+        written?;
+        Ok(folder)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+async fn save_to_collection(_src: String, _name: String, _kind: String) -> Result<String, String> {
+    Err("saving to the gallery is only on Android".into())
+}
+
+/// Android Dash card Share: decrypt to the open-docs cache (swept after a
+/// day) and open the system share sheet through the FileProvider.
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn share_file(app: tauri::AppHandle, src: String, name: Option<String>, mime: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = decrypted_open_copy(&app, &src, name.as_deref())?;
+        let path = out.to_string_lossy().into_owned();
+        let title = out.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+        let mime = mime.unwrap_or_default();
+        let shown = with_android_class(&APP_SHARE_CLASS, "Share", |env, context, class_ref| {
+            let path_j = env.new_string(&path).map_err(|e| e.to_string())?;
+            let mime_j = env.new_string(&mime).map_err(|e| e.to_string())?;
+            let title_j = env.new_string(&title).map_err(|e| e.to_string())?;
+            env.call_static_method(
+                class_ref,
+                "file",
+                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z",
+                &[(&context).into(), (&path_j).into(), (&mime_j).into(), (&title_j).into()],
+            )
+            .map_err(|e| e.to_string())?
+            .z()
+            .map_err(|e| e.to_string())
+        })?;
+        if shown { Ok(()) } else { Err("no app can handle the share request".into()) }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+async fn share_file(_src: String, _name: Option<String>, _mime: Option<String>) -> Result<(), String> {
+    Err("sharing a file is only on Android".into())
+}
+
 // #279: open a document in the system's default app. Blobs are encrypted at
 // rest (VLTA) under hash names, so handing the blobdir path to another app
 // gives it ciphertext. Decrypt to open-docs/<random>/<name> (the
@@ -5996,7 +6109,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, stage_upload, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, convert_heic_photo, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, copy_image_to_clipboard, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, stage_upload, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, convert_heic_photo, prep_backup, backup_scratch_dir, publish_backup, save_attachment, save_to_collection, share_file, open_document, media_base_url, read_media_bytes, copy_image_to_clipboard, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

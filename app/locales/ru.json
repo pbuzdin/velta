@@ -650,6 +650,7 @@
   "Delete older than {label}": "Удалить старше {label}",
   "Chats in common": "Общие чаты",
   "Saved": "Сохранено",
+  "Saved to {folder}": "Сохранено в {folder}",
   "Couldn't save: ": "Не удалось сохранить: ",
   "Member added": "Участник добавлен",
   "{n} members added": "Добавлено участников: {n}",
