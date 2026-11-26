@@ -119,7 +119,8 @@ jobs:
           cat > ~/.cargo/config.toml <<EOF
           [target.aarch64-linux-android]
           linker = "$NDK/bin/aarch64-linux-android24-clang"
-          rustflags = ["-C", "link-arg=--target=aarch64-linux-android24"]
+          # #551: ARMv8 AES/PMULL for aes 0.8 + polyval 0.6 (software AES-GCM otherwise).
+          rustflags = ["-C", "link-arg=--target=aarch64-linux-android24", "--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
 
           [target.armv7-linux-androideabi]
           linker = "$NDK/bin/armv7a-linux-androideabi24-clang"

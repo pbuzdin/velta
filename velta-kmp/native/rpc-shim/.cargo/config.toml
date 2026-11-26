@@ -1,0 +1,14 @@
+# #551: aes 0.8 / polyval 0.6 use the ARMv8 AES and PMULL instructions only
+# with these cfgs (aes 0.9 / polyval 0.7 ignore them). Cargo joins rustflags
+# arrays across config files; a RUSTFLAGS env var replaces them.
+[target.aarch64-linux-android]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
