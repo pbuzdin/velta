@@ -666,6 +666,14 @@ pub fn extract_to<R: Read + Seek>(r: &mut R, dest: &mut dyn Dest, mut progress: 
         }
         let skip = le16(&h, 26) as i64 + le16(&h, 28) as i64;
         r.seek(SeekFrom::Current(skip))?;
+        // Velta's own zips are STORE-only (#454). A deflate (or any other
+        // method) entry must be refused up front with a clear error — never
+        // copied as plaintext and never left as a silently-empty/garbage
+        // file (#557).
+        let method = le16(&h, 8);
+        if method != 0 {
+            bail!("{}: unsupported compression method {method} (Velta zips are STORE-only)", e.name);
+        }
         let res: Result<()> = (|| {
             let mut out = std::io::BufWriter::with_capacity(BUF, dest.create(&rel)?);
             let mut left = e.size;
@@ -759,6 +767,26 @@ mod tests {
         };
         assert!(o.status.success(), "python zipfile: {}", String::from_utf8_lossy(&o.stderr));
         assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), z.entry_count().to_string());
+    }
+
+    #[test]
+    fn deflate_entry_is_refused_not_copied() {
+        // Velta zips are STORE-only (#454); an older/foreign zip carrying a
+        // deflate local header must be refused up front (#557), never copied
+        // as plaintext. Twist one STORE entry's method byte to 8.
+        let src = tree();
+        let z = FolderZip::plan(src.path()).unwrap();
+        let mut bytes = zip_bytes(&z);
+        // Velta zips are STORE-only (#454); an older/foreign zip carrying a
+        // deflate local header must be refused up front (#557), never copied
+        // as plaintext. Twist every STORE entry's method byte to 8.
+        for i in 0..bytes.len().saturating_sub(4) {
+            if bytes[i..i + 4] == [0x50, 0x4b, 0x03, 0x04] { bytes[i + 8] = 8; }
+        }
+        let out = tempfile::tempdir().unwrap();
+        let err = extract(&mut std::io::Cursor::new(&bytes), &out.path().join("x"), |_, _| {}).unwrap_err();
+        assert!(err.to_string().contains("unsupported compression method 8"), "{err}");
+        assert!(!out.path().join("x").join("top.txt").exists(), "no file was written before the refusal");
     }
 
     #[test]

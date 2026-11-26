@@ -1567,6 +1567,27 @@ mod tests {
         b.close().await;
     }
 
+    /// #557 regression: a `.part` left by a different (larger) ticket — or a
+    /// torn write past the ticket size — must be discarded, never counted
+    /// against free space (the u64 wrap) and never written past the size.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn part_larger_than_the_ticket_is_discarded() {
+        let (a, b) = pair("t11").await;
+        let src = tmp("src11");
+        let bytes = data(1024 * 1024, 11);
+        std::fs::write(src.join("r.bin"), &bytes).unwrap();
+        let t = a.offer(&src.join("r.bin"), None, DEFAULT_TTL).await.unwrap();
+        // An interrupted run left a 3 MiB partial under this ticket's hash.
+        std::fs::create_dir_all(b.dir.join("part")).unwrap();
+        std::fs::write(b.dir.join("part").join(format!("{}.part", t.hash)), vec![0u8; 3 * 1024 * 1024]).unwrap();
+        let dst = tmp("dst11");
+        let out = b.fetch(&t, &dst, |_, _| {}).await.unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), bytes, "full content, no clamped-need wrap");
+        assert_eq!(std::fs::read_dir(b.dir.join("part")).unwrap().count(), 0, "oversized partial discarded");
+        a.close().await;
+        b.close().await;
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn hash_mismatch_is_rejected_and_the_partial_deleted() {
         let (a, b) = pair("t3").await;
