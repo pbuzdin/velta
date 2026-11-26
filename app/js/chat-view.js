@@ -3598,6 +3598,39 @@ export class ChatView {
     }).catch(() => {});
   }
 
+  // #548: Copy image — the decrypted bytes as an image/png on the system
+  // clipboard (the browser clipboard only accepts PNG, so non-PNG sources
+  // are re-encoded through a canvas; photos are ≤2k since #509).
+  async _copyImage(m) {
+    const invoke = tauriInvoke();
+    try {
+      if (!m.filePath) throw new Error(t("This attachment isn't available yet"));
+      if (isAndroid() && invoke) {
+        // The WebView clipboard can't take images: the shell unseals the
+        // attachment into a cache copy and clips it through the FileProvider.
+        await invoke("copy_image_to_clipboard", { src: m.filePath, name: m.fileName || null, mime: m.fileMime || null });
+        toast(t("Image copied"));
+        return;
+      }
+      const blob = await (await fetch(fileUrl(m.filePath))).blob();
+      let png = blob;
+      if (blob.type !== "image/png") {
+        const bmp = await createImageBitmap(blob);
+        const canvas = document.createElement("canvas");
+        canvas.width = bmp.width;
+        canvas.height = bmp.height;
+        canvas.getContext("2d").drawImage(bmp, 0, 0);
+        bmp.close();
+        png = await new Promise((resolve, reject) => canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("canvas encode failed"))), "image/png"));
+      }
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      toast(t("Image copied"));
+    } catch (err) {
+      errToast(t("Couldn't copy image: ") + (err?.message || err));
+    }
+  }
+
   // Tap on a shared-contact card: import the vCard and open the DM chat.
   async _openVcardContact(m) {
     try {
@@ -3676,10 +3709,33 @@ export class ChatView {
     }
     // Image, video, and file bubbles. Stickers keep Save sticker. A file that
     // is still on the server (downloadState not Done) is fetched first.
-    if (!covered && (m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
+    // Images say "Save image" (the user reads the menu, not transports) and
+    // get Copy image (#548): the decrypted bytes go to the clipboard as PNG
+    // through the blobfile URL — desktop only, the PWA has no image
+    // clipboard write on http.
+    // Android's WebView clipboard only carries text — the bytes go through
+    // the native copy_image_to_clipboard command (ClipData over the
+    // FileProvider) instead of navigator.clipboard.
+    const canCopyImage = isAndroid() ? !!tauriInvoke()
+      : typeof navigator !== "undefined" && !!navigator.clipboard?.write;
+    if (!covered && m.viewtype === "image" && tauriInvoke() && canCopyImage
+      && m.filePath && (!m.downloadState || m.downloadState === "Done")) {
+      items.push({
+        label: "Copy image", short: t("Copy"), pair: "file", icon: ICO.copy, menuId: "copy-image",
+        onClick: () => this._copyImage(m),
+      });
+    }
+    if (!covered && m.viewtype === "image"
       && (m.filePath || (m.downloadState && m.downloadState !== "Done"))) {
       items.push({
-        label: "Download", short: t("Download"), pair: "file", icon: ICO.download,
+        label: "Save image", short: t("Save"), pair: "file", icon: ICO.download, menuId: "save-image",
+        onClick: () => this._saveAttachment(m.id),
+      });
+    }
+    if (!covered && (m.viewtype === "video" || m.viewtype === "file")
+      && (m.filePath || (m.downloadState && m.downloadState !== "Done"))) {
+      items.push({
+        label: "Download", short: t("Download"), pair: "file", icon: ICO.download, menuId: "download",
         onClick: () => this._saveAttachment(m.id),
       });
     }
