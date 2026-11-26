@@ -2014,9 +2014,21 @@ impl CommandApi {
 
     /// Parses a vCard file located at the given path. Returns contacts in their original order.
     async fn parse_vcard(&self, path: String) -> Result<Vec<VcardContact>> {
-        let vcard = fs::read(Path::new(&path)).await?;
-        let vcard = str::from_utf8(&vcard)?;
-        Ok(deltachat_contact_tools::parse_vcard(vcard)
+        // Velta patch (#547): attachments may be sealed on store — read
+        // through the seal-aware blob reader, or a sealed .vcf fails
+        // from_utf8 and every shared-contact card shows the message
+        // summary instead of the contact name.
+        let vcard = match self.get_selected_account_id().await {
+            Some(id) => {
+                let ctx = self.get_context(id).await?;
+                String::from_utf8(
+                    deltachat::blob::open_blob(&ctx, Path::new(&path))?.read_all()?,
+                )?
+            }
+            // No selected account: no sealing either (headless/tests).
+            None => str::from_utf8(&fs::read(Path::new(&path)).await?)?.to_string(),
+        };
+        Ok(deltachat_contact_tools::parse_vcard(&vcard)
             .into_iter()
             .map(|c| c.into())
             .collect())
@@ -2027,9 +2039,9 @@ impl CommandApi {
     /// Returns the ids of created/modified contacts in the order they appear in the vCard.
     async fn import_vcard(&self, account_id: u32, path: String) -> Result<Vec<u32>> {
         let ctx = self.get_context(account_id).await?;
-        let vcard = tokio::fs::read(Path::new(&path)).await?;
-        let vcard = str::from_utf8(&vcard)?;
-        Ok(deltachat::contact::import_vcard(&ctx, vcard)
+        // Velta patch (#547): seal-aware read — see parse_vcard above.
+        let vcard = String::from_utf8(deltachat::blob::open_blob(&ctx, Path::new(&path))?.read_all()?)?;
+        Ok(deltachat::contact::import_vcard(&ctx, &vcard)
             .await?
             .into_iter()
             .map(|c| c.to_u32())

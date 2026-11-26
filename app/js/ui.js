@@ -141,6 +141,7 @@ export function showContextMenu(items, x, y) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "ctx-item" + (it.danger ? " danger" : "") + (it.pressed ? " pressed" : "");
+    if (it.menuId) b.dataset.menuId = it.menuId; // stable hook for tests/automation
     if (it.pressed !== undefined) b.setAttribute("aria-pressed", it.pressed ? "true" : "false");
     if (it.ariaLabel) b.setAttribute("aria-label", t(it.ariaLabel));
     b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.label || "")) + "</span>";
@@ -206,6 +207,7 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
     const b = document.createElement("button");
     b.type = "button";
     b.className = "msg-bar-chip" + (it.danger ? " danger" : "");
+    if (it.menuId) b.dataset.menuId = it.menuId;
     if (it.ariaLabel) b.setAttribute("aria-label", t(it.ariaLabel));
     b.title = t(it.label || "");
     b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label || "")) + "</span>";
@@ -317,6 +319,7 @@ function sheetAction(it) {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "ctx-item" + (it.danger ? " danger" : "");
+  if (it.menuId) b.dataset.menuId = it.menuId;
   b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label)) + "</span>";
   b.addEventListener("click", () => { closeAllPopups(); it.onClick?.(); });
   return b;

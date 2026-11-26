@@ -148,8 +148,11 @@ on its own.
    Watch out: build from `core/` but compose PATH from the *repo root*
    absolute path — `$PWD\tools\...` inside `core/` silently yields a PATH
    without perl and openssl-sys fails with `Command 'perl' not found`.
-3. Verify: the shim bin speaks JSON-RPC on stdio (no `--version`; its identity
-   is the vendored core it compiled against, pinned by the release-version-pins test).
+3. Verify: the shim bin speaks JSON-RPC on stdio; `--version` prints
+   `velta-rpc-server <DC_VERSION_STR>` and exits (#529) — its identity
+   is the vendored core it compiled against, pinned by the release-version-pins test
+   (which runs the staged sidecar with `--version`; before #529 the shim had
+   no handler and the test skipped in CI / failed wherever `binaries/` exists).
 4. Copy to all three destinations:
    - `velta-app/src-tauri/binaries/velta-rpc-server-x86_64-pc-windows-msvc.exe`
    - `velta-app/src-tauri/binaries/velta-rpc-server.exe`

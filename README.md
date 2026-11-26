@@ -1047,12 +1047,12 @@ flight. P2P local chats retry through their own engine instead.
 
 Stickers (Delta Chat's <code>Sticker</code> view type) render the way the
 official clients show them: floating on the chat background without a bubble
-around them, at a compact size. An empty composer shows a sticker button
-on the right edge that opens a picker fed by the account's sticker
+around them, at a compact size. They open from the attach menu
+(Attach → Stickers), which shows a picker fed by the account's sticker
 folder (the same mechanism as Delta Chat desktop — collections are folders
 under the account's <code>stickers/</code> directory, shared with a desktop
-install of the same account). The button hides once you type, because a
-sticker is sent as its own message and is not attached to a draft. Tap a
+install of the same account). A sticker is sent as its own message, not
+attached to a draft. Tap a
 sticker you received and Velta offers
 to add it to your collection — like the official mobile clients; the
 context menu's **Save sticker** adds it directly. In demo mode the picker

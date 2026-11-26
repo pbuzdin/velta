@@ -479,7 +479,8 @@ never run Gradle on the Windows side.
   Markdown = Markdown.kt + BareLinks.kt + Mentions.kt (invites →
   .invite-card → Join flow; a deltachat.id short link is fetched once
   and the first invite URL in the page becomes the card; code spans
-  click-to-copy). `> ` quote LINES render the web blockquote: ▎bar in
+  click-to-copy; lines starting `VXFER1:`/`VXFER-RESEND:` are dropped —
+  the Dash wire ticket stays hidden like the web's file card, #536). `> ` quote LINES render the web blockquote: ▎bar in
   the accent (out rows `quoteNameOut`) + dim ink / `outLink` on out
   rows, no italic — Compose spans cannot draw a border, so the glyph is
   the bar (`markdownAnnotated(quoteBar, quoteInk)`; #429). Mentions:
