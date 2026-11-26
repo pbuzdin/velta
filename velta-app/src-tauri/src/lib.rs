@@ -3855,6 +3855,44 @@ async fn open_document(app: tauri::AppHandle, src: String, name: Option<String>,
     .map_err(|e| e.to_string())?
 }
 
+/// Android (#548): Copy image — ClipData through the manifest FileProvider.
+/// decrypted_open_copy already lands the plaintext bytes in the cache dir
+/// the provider exposes; Android clipboards carry images by content URI, so
+/// nothing is decoded here (paste targets read the granted URI lazily).
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn copy_image_to_clipboard(app: tauri::AppHandle, src: String, name: Option<String>, mime: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = decrypted_open_copy(&app, &src, name.as_deref())?;
+        let path = out.to_string_lossy().into_owned();
+        let mime = mime.unwrap_or_default();
+        with_android_class(&APP_FILE_OPEN_CLASS, "FileOpen", |env, context, class_ref| {
+            let path_j = env.new_string(&path).map_err(|e| e.to_string())?;
+            let mime_j = env.new_string(&mime).map_err(|e| e.to_string())?;
+            env.call_static_method(
+                class_ref,
+                "copyImage",
+                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)I",
+                &[(&context).into(), (&path_j).into(), (&mime_j).into()],
+            )
+            .map_err(|e| e.to_string())?
+            .i()
+            .map_err(|e| e.to_string())
+        })?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Desktop: the WebView clipboard already handles image copies (the page
+/// never invokes this — the handler list just needs the symbol to exist).
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+async fn copy_image_to_clipboard() -> Result<(), String> {
+    Err("copy image is only wired on Android".into())
+}
+
 /// Android: ACTION_VIEW through the manifest FileProvider (cache-path).
 /// Returns "" when an app took it, Err("no-app") when none can.
 #[cfg(target_os = "android")]
@@ -5909,7 +5947,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, stage_upload, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, convert_heic_photo, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, stage_upload, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, convert_heic_photo, prep_backup, backup_scratch_dir, publish_backup, save_attachment, open_document, media_base_url, read_media_bytes, copy_image_to_clipboard, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

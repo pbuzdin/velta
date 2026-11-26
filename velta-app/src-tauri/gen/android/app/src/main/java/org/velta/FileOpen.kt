@@ -1,6 +1,8 @@
 package org.velta
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.webkit.MimeTypeMap
@@ -27,6 +29,24 @@ object FileOpen {
             0
         } catch (e: ActivityNotFoundException) {
             1
+        } catch (e: Exception) {
+            2
+        }
+    }
+
+    // #548: Copy image — Android clipboards carry images by content URI, so
+    // the decrypted cache copy goes out as ClipData through the same
+    // FileProvider that powers ACTION_VIEW. Paste targets read the bytes
+    // lazily through the granted URI; nothing is decoded here.
+    @JvmStatic
+    fun copyImage(context: Context, path: String, mimeHint: String): Int {
+        return try {
+            val file = File(path)
+            if (!file.exists()) return 2
+            val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+            val clip = ClipData.newUri(context.contentResolver, mimeFor(file.name, mimeHint), uri)
+            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+            0
         } catch (e: Exception) {
             2
         }
