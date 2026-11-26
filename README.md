@@ -111,7 +111,9 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
   the route (Dash or email) before you send, the file card in the chat keeps
   a one-line name, size, route chip and a live status, and a fetched image
   or video previews right in the card (opens in Velta's own viewer; desktop
-  can reveal the file in the file manager). While a peer is offline, smaller
+  can reveal the file in the file manager). A failed fetch while the offer
+  is still open says to tap Retry; an expired offer asks the sender to
+  resend. While a peer is offline, smaller
   files fall back to email. Turn the capability on per chat in the drawer
   ("Velta Dash"); the chat header shows a Dash badge when both sides are on.
 - **@mentions** — type `@` in a group to pick a member; the message carries
@@ -204,13 +206,17 @@ either way. Already-stored files keep their state when you flip the toggle.
 list and opens in the standard chat view (adapter: `app/js/local-chat.js`
 wraps the core, so the virtualized list, composer, drafts and read-tick
 rendering all work unchanged). Text and **media files** (images, video, audio,
-any file up to 2 GB) are supported: files stream as base64-chunked frames
-over the same encrypted session (read straight from disk — a large send
-does not load the file into memory), land in `p2p-blobs/<peer>/` under the
-accounts directory and render through the regular media pipeline. Whole
+any file up to 1 TiB) are supported: current peers stream 1:1 files as raw
+chunks on the encrypted session (ALPN `/velta/p2p/3`, 192 KiB; an older peer
+still gets base64 frames of 96 KiB). The send reads plaintext straight from
+disk — a sealed upload is announced at its plaintext length, not the
+ciphertext size on disk — and does not load the file into memory. Files land
+in `p2p-blobs/<peer>/` under the accounts directory and render through the
+regular media pipeline. Whole
 **folders** go as one transfer: Attach → **Send folder…** zips the picked
 folder (relative paths preserved, hidden files skipped) and the archive
-travels like any file; a received folder zip offers **Extract here**, which
+travels like any file. A folder over 512 MB warns first; a folder over
+2 GB is refused. A received folder zip offers **Extract here**, which
 unpacks it under a destination you choose. Media must fit in one send while
 the peer is online (text queues offline) — media transferred before the
 plaintext-storage fix (v1.5.6-era builds) is undecryptable on the receiving
@@ -248,11 +254,14 @@ indicator" under the Local chat switch turns it off in both directions
 (default on).
 
 **Transfer and queue states are surfaced in the UI.** An outbound file shows a
-progress bar fed by `file-progress` events (2% steps); a completed transfer
-swaps the bar for the file card, and a session death mid-transfer marks the
-message failed with a Retry button (re-sends the stored copy from byte zero —
-there is no resume; the receiving side simply discards bad partials). Media
-picked while the peer is offline parks in a queue chip at the right edge of
+progress bar fed by `file-progress` events (the engine emits when the percent
+changes; the row repaints the bar in place, at 2% steps). The bar reaches
+100% when FileEnd is written and swaps for the file card when the peer acks.
+A session death mid-transfer marks the message failed. Retry continues from
+the bytes the peer already holds; if the engine has nothing to resume, the
+stored copy is sent again from byte zero. Tapping a Loop file that is not on
+this device yet shows a toast and does not ask the mail core to download it.
+Media picked while the peer is offline parks in a queue chip at the right edge of
 the composer (`#lc-queue-chip` → popup with per-item send-now/remove); the
 queue auto-flushes, oldest first, on the peer's next `presence` online event.
 Offline texts are queued inside the engine and show a pending clock in the
@@ -262,7 +271,7 @@ the read state. A text whose send fails outright renders a Retry button too
 (resendMessage re-sends the same text and quote as a fresh message; the
 failed bubble is restored if the engine still rejects it). A Loop chat in
 the list shows the Velta Loop mark immediately before the time. The open
-chat uses the header mark. The transport is QUIC/TLS with pairing-pinned
+chat puts that mark before the search icon. The transport is QUIC/TLS with pairing-pinned
 identities.
 
 **Interface scale and theme live in the drawer.** Velta pins the WebView's
@@ -539,7 +548,7 @@ last chose.
 <summary>Shared contacts (vCards)</summary>
 
 When someone sends a **person contact** into a chat (a `.vcf` vCard attachment),
-Velta renders it as a compact contact card — avatar, display name and email
+Velta reads the card through the seal-aware blob reader, then renders it as a compact contact card — avatar, display name and email
 address — styled like the invite cards. Tapping the card imports the contact
 (the vCard carries the contact's public key, which is the point of contact
 gossip) and opens the direct-message chat. Re-sharing a received contact is the
@@ -995,7 +1004,7 @@ Right-clicking a bubble (desktop) or long-pressing one (phone) opens the message
 
 On a phone, swipe a bubble to the right to reply. The bubble slides a short way with your finger, and letting go far enough sets the reply and focuses the composer, the same as Reply in the menu. A short swipe snaps the bubble back. Swipe left on the message history to go back to the chat list: the chat screen follows your finger, the list shows underneath, and letting go far enough leaves the chat, the same as the back button. A short swipe snaps back. Scrolling up and down stays a scroll. A swipe that starts on a video poster or an invite card still replies or goes back, and the tap the phone fires afterwards does not play the video or join the invite. A video that is already showing its controls keeps the finger for scrubbing. A read-only chat can swipe back, and it does not swipe to reply. Neither swipe runs on desktop.
 
-On a phone, long-press a bubble to open the message menu. That hold does not start the system's text selection. Choose **Select text** when you want the handles. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; on desktop a small Reply chip quotes the selection (the floating chip is desktop-only — touch quotes through this Select-text flow). **Download** on an image, video, or file saves it. Android asks where to put the file. Desktop and the browser save it from the page.
+On a phone, long-press a bubble to open the message menu. That hold does not start the system's text selection. Choose **Select text** when you want the handles. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; on desktop a small Reply chip quotes the selection (the floating chip is desktop-only — touch quotes through this Select-text flow). **Download** on an image, video, or file saves it. An image also offers **Copy image** and **Save image**. Copy image puts the picture on the clipboard (desktop). On Android it hands a decrypted cache copy to the system clipboard. Save image is the same save as Download. Android asks where to put the file. Desktop and the browser save it from the page.
 
 Note: other Delta Chat clients render the core's markdown subset (bold, italic, strikethrough, code). Velta's backticks are a click-to-copy button, and the text inside is not parsed as a link, emphasis, or tag. Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
 

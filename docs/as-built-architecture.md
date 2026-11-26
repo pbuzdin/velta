@@ -23,6 +23,14 @@ This document records the product that is in the tree at `cd59531` (app 1.4.67).
 > `worker-wasm.js` owns OPFS snapshot persistence, and WebSocket mail tunnels
 > terminate IMAP/SMTP TLS inside wasm. Signed proxy invitations select only
 > administratively registered relays and use authenticated `/cm-new/` signup.
+
+> **Loop wire (2026-11-26):** the local-chat limits table below is the
+> `cd59531` snapshot (base64 96 KB frames, 256 MB, no resume, ALPN v2 then
+> v1). Current desktop and Tauri Android behavior is `docs/agents/p2p.md`:
+> ALPN `/velta/p2p/3` first, raw 192 KiB 1:1 chunks, plaintext length on the
+> wire, resume via FileQuery, and `GROUP_FILE_CREDITS` = 8. Group chunks stay
+> 96 KiB base64. The KMP shim was not part of that change.
+
 > The wasm patch series is still an opt-in apply-on-copy layer for producing
 > that artifact; the working PWA does **not** authorize merging those patches
 > into production `core/`. Read the snapshot's "PWA unfinished" and "not a

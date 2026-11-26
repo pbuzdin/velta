@@ -52,19 +52,21 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
   (background connect retries) go to the Diagnostics chat, never toasts —
   several queued connects can fail at once and the store collapses
   identical consecutive entries into one counted row.
-- Protocol versions (local group chat Phase 0b): the endpoint accepts and
-  dials ALPN `/velta/p2p/2` first and falls back to `/velta/p2p/1`
-  (`connect_with_opts` + `additional_alpns`); the negotiated ALPN is read from
-  the connection (`proto_of`) and stored per live session (`LiveHandle.proto`)
-  and per peer in `peers.json` (`proto`, `#[serde(default)]`, 0 = unknown;
-  also reported as `proto` by `p2p_status`). v2 carries the same frames as
-  v1 today. KEEP: a frame that only v2 understands must never be sent on a
-  v1 session — the ALPN decides, not a flag inside a frame. `Frame` and
-  `Hello` have `#[serde(other)] Unknown`, so a future frame type is skipped
-  instead of ending the session (a known type with a broken body still ends
-  it). Inbound file transfers are keyed by `(node id, transfer id)`.
+- Protocol versions: the endpoint accepts and dials ALPN `/velta/p2p/3`
+  first, then `/velta/p2p/2`, then `/velta/p2p/1` (`connect_with_opts` +
+  `additional_alpns`); the negotiated ALPN is read from the connection
+  (`proto_of`) and stored per live session (`LiveHandle.proto`) and per peer
+  in `peers.json` (`proto`, `#[serde(default)]`, 0 = unknown; also reported
+  as `proto` by `p2p_status`). v3 is v2 plus raw 1:1 file chunks. v2 carries
+  the same JSON frames as v1. KEEP: a frame that only a newer protocol
+  understands must never be sent on an older session — the ALPN decides, not
+  a flag inside a frame. `Frame` and `Hello` have `#[serde(other)] Unknown`,
+  so a future frame type is skipped instead of ending the session (a known
+  type with a broken body still ends it). Inbound file transfers are keyed
+  by `(node id, transfer id)`.
 - Rust tests: `cargo test --lib p2p::` (loopback pairing, offline queue
-  flush, ALPN v2 + v1-only peer, unknown frames, transfer keying).
+  flush, ALPN v3 + v1-only peer, sealed-upload plaintext length, unknown
+  frames, transfer keying).
 
 ## Rendering in the chat UI (1.3.38)
 
@@ -110,10 +112,19 @@ SOCKS proxy was #29 and does not start this work.
 
 Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
 
-- Media goes over FileBegin/FileChunk/FileEnd frames (base64, 96 KB raw per
-  frame; the sender streams chunks from the blobs copy through a bounded
-  channel into a frame-builder task — no whole-file RAM buffer (#459) —
-  2 GB sanity cap shared with the receiver) in p2p.rs and lands in
+- Media goes over FileBegin / chunk / FileEnd frames in `p2p.rs`. On ALPN v3
+  a 1:1 chunk is a raw length-prefixed blob (`FileBytes`, 192 KiB), not a
+  base64 JSON line. v1 and v2 still send `FileChunk` base64 at 96 KiB, and
+  every group chunk stays that base64 frame. The sender streams plaintext
+  from disk (a sealed upload is announced at `open_plain`'s length, never
+  `metadata().len()` of the ciphertext — that mismatch bailed before FileEnd
+  and left the bar at 98% or 99%). Chunks are credit-paced
+  (`GROUP_FILE_CREDITS` = 8) on the session semaphore; the reader and the
+  writer are separate tasks, so one direction's `write_all` cannot stall the
+  other's FileEnd. FileEnd is queued before the local seal. Writes are
+  buffered (1 MB) and flushed on FileEnd, not per chunk. Progress events fire
+  when the integer percent changes. The engine cap is `MAX_FILE_BYTES`
+  (1 TiB); the folder picker still refuses above 2 GB. Files land in
   `<accounts>/p2p-blobs/<nodeId>/` — that directory MUST stay under the
   accounts dir because blobfile/media-server refuse paths outside it, and
   that check is the sandbox: peer-supplied file names are sanitized
@@ -146,11 +157,17 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   KEEP (1.4.28): peer-supplied **transfer ids** go through
   `is_safe_transfer_id` before joining the `partial-{id}` path — the id is
   also peer input; only short `[A-Za-z0-9_-]` tokens pass.
-- Transfer and queue states ARE rendered (since 1.4.1): `file-progress`
-  events drive a bubble progress bar (2% steps); a `done` event clears it
-  for the file card, and a `failed` event (session died mid-send) renders
-  a Retry card — `lcRetryTransfer` re-sends the stored blobs from byte
-  zero (NO resume; the engine discards bad partials).
+- Transfer and queue states ARE rendered: `file-progress` events drive a
+  bubble progress bar (engine emits on a percent change; the row patches the
+  bar in place, UI steps of 2%). The sender shows 100% once FileEnd is
+  written; the peer's ack (`done`) clears the bar for the file card. A
+  `failed` event renders a Retry card. `lcRetryTransfer` calls
+  `p2p_resume_file` first (FileQuery; the sender continues from the bytes the
+  receiver still holds). If the engine has nothing to resume, the stored
+  copy is sent again from byte zero. A message event with no `file` must not
+  clear a live receive bar — `ack_sweep` does not resend file rows as text.
+  Tapping a Loop bubble whose `filePath` is empty toasts and never calls
+  core `downloadFullMessage`.
 - Media picked while the peer is offline parks in the composer queue chip
   (`#lc-queue-chip`, popup: send-now/remove) and auto-flushes oldest-first
   on the peer's `presence` online transition.
@@ -199,11 +216,11 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   events (the adapter would create a `p2p:` chat), `send`/`send_file`/
   `messages`/`remove_peer` refuse them, and `handle_frame` drops every
   non-group frame from them. `rebuild_introduced`/`gc_introduced` keep them
-  in step with the rosters. KEEP: group frames go only to ALPN v2
-  sessions (`v2_tx`); invitees must be Paired and have
-  `proto >= 2`. First contact for a group is accepted only from its creator
+  in step with the rosters. KEEP: group frames go only on sessions with
+  `proto >= 2` (v2 and v3; the helper is still `v2_tx`); invitees must be
+  Paired and have `proto >= 2`. First contact for a group is accepted only from its creator
   if paired; later states from any member (relay).
-- Local groups, messages over the mesh (Phase 2). Frames (v2 sessions only,
+- Local groups, messages over the mesh (Phase 2). Frames (`proto >= 2` only,
   lowercase tags `groupstate|groupsync|groupmsg|groupack|groupleave|groupgone`):
   every session sends `GroupSync{gid,epoch,have,name}` per shared group right
   after its opening Ping (`group_session_open`); a creator whose invitee has
@@ -342,12 +359,12 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   `id` = transfer id, `file{name,size,mime,path}`; counters and `scan_log`
   ignore `seq 0`), then starts one `stream_group_file` task per online member.
   It reads 96 KB from the copy, takes a credit from the session handle's
-  semaphore (`GROUP_FILE_CREDITS` = 4) and queues the chunk; the session writer
+  semaphore (`GROUP_FILE_CREDITS` = 8) and queues the chunk; the session writer
   hands the credit back after the chunk hit the wire. So memory is O(chunk) per
   recipient however big the file or slow the receiver (the session channel is
-  still unbounded for everything else; only bulk chunks are gated). The 1:1
-  `send_file` is unchanged (it still builds all its frames up front, 256 MB
-  cap). A dying session closes its semaphore and fails its own sends only.
+  still unbounded for everything else; only bulk chunks are gated). 1:1 sends
+  use that same semaphore; they do not build the whole file into frames first.
+  A dying session closes its semaphore and fails its own sends only.
 - Per-member state, in memory (`group_xfers`, by transfer id): `sending |
   done | failed | offline` + bytes written. `done` = the End frame was written
   to the wire (there is no receiver ack for files). Events `group-file-progress
@@ -538,9 +555,10 @@ default), `sec` (random per-ticket secret).
 - Files over `EMAIL_MAX` (22 MiB, chatmail's 30 MiB limit minus overhead)
   are never mailed: not on a failed offer (`send` returns `route: "none"`
   and the composer says why — nothing reaches the receiver), not from the
-  sweep, and the receiver never asks for an email copy of one (card: "Too
-  large for email: ask the sender to resend while you are both online",
-  with Retry).
+  sweep, and the receiver never asks for an email copy of one. A failed
+  fetch on a live offer says "Fetch failed — the offer is still open, tap
+  Retry." An expired offer says the file is too large for email and asks
+  for a resend.
 - A broken or stalled stream (`Io`) resumes over iroh by itself after 5 s and
   15 s (`RETRY_DELAYS_MS`), then the card shows "Velta Dash transfer
   interrupted." with Retry.
