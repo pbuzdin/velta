@@ -504,18 +504,14 @@ async function resolveAttachmentPath(originalPath, filename) {
   let absDest = "";
   try {
     const destName = `${Date.now()}-${filename || "file"}`;
-    // resolve_upload_path already puts everything under uploads/
-    absDest = await invoke("resolve_upload_path", { filename: destName });
+    // stage_upload copies + seals in one streaming Rust pass. A thrown stage
+    // is a real copy/seal failure (#444) — dest stays set so the catch
+    // surfaces it. Only an empty return keeps the original-path salvage.
+    absDest = destName;
+    const staged = await invoke("stage_upload", { src: originalPath, filename: destName });
+    absDest = staged || "";
     rustLog(`resolveAttachmentPath original=${originalPath} dest=${absDest}`);
-    if (!absDest) throw new Error("resolve_upload_path returned empty");
-
-    // Read original bytes and write to app-local destination. write_file
-    // takes the path header and a raw byte body (see _sendImageBlob).
-    const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: originalPath }));
-    await invoke("plugin:fs|write_file", bytes, {
-      headers: { path: encodeURIComponent(absDest) },
-    });
-    await invoke("encrypt_upload", { path: absDest });
+    if (!absDest) throw new Error("stage_upload returned empty");
     return absDest;
   } catch (e) {
     rustLog(`resolveAttachmentPath failed: ${e}`);
@@ -4555,21 +4551,64 @@ export class ChatView {
     });
   }
 
+  // Paint the strip now. Copy + seal (and, on Android, the content:// copy)
+  // finish behind the thumb spinner; Send awaits `staging` via `planning`.
+  _queueStagedMedia(src, name, viewtype, content = false) {
+    const invoke = tauriInvoke();
+    const staging = (async () => {
+      const dest = content
+        ? await invoke("resolve_content_uri", { uri: src, filename: String(Date.now()), encrypt: true })
+        : await resolveAttachmentPath(src, name);
+      const size = invoke ? await invoke("xfer_file_size", { path: dest }).catch(() => null) : null;
+      const stagedName = String(dest || name).replace(/\\/g, "/").split("/").pop() || name;
+      return {
+        corePath: dest,
+        url: viewtype === "video" ? fileUrl(dest) : null,
+        size: size != null ? Number(size) : null,
+        viewtype,
+        name: content ? stagedName : null,
+      };
+    })();
+    this._setPendingMedia(viewtype === "video" ? "video" : "file", null, null, name, { staging, viewtype });
+  }
+
   // Pending attachment (official-client pattern): the picked media shows as a
   // strip above the composer input, the caption IS the composer text, Send
   // sends both. src is a Blob (paste/crop — object URL owned by us) or an
   // already-resolved URL string (videos — never read big files into RAM);
   // corePath is the core-readable path when one exists (picker), else null
   // (clipboard blobs are written to the uploads directory on send).
-  _setPendingMedia(kind, src, corePath = null, name = null, { size = null, viewtype = null } = {}) {
+  _setPendingMedia(kind, src, corePath = null, name = null, { size = null, viewtype = null, staging = null } = {}) {
     this._clearPendingMedia();
-    const owned = typeof src !== "string";
-    this.pendingMedia = {
+    const owned = src != null && typeof src !== "string";
+    const pm = this.pendingMedia = {
       kind, blob: owned ? src : null,
       url: owned && kind !== "file" ? URL.createObjectURL(src) : owned ? null : src,
-      corePath, name, size, viewtype,
+      corePath, name, size, viewtype, staging,
     };
-    this.pendingMedia.planning = this._planPendingRoute(this.pendingMedia);
+    // A big pick stages in the background (copy + seal): the strip shows at
+    // once with a spinner, and the route check runs when the bytes land.
+    pm.planning = (async () => {
+      if (staging) {
+        let r;
+        try { r = await staging; } catch (e) {
+          if (this.pendingMedia === pm) {
+            this._clearPendingMedia();
+            errToast(t("Could not send file: ") + (e?.message || e), 4000);
+          }
+          return;
+        }
+        if (this.pendingMedia !== pm) return;
+        pm.corePath = r.corePath ?? pm.corePath;
+        pm.url = r.url ?? pm.url;
+        pm.size = r.size ?? pm.size;
+        pm.viewtype = r.viewtype ?? pm.viewtype;
+        if (r.name) pm.name = r.name;
+        pm.staging = null;
+        this._renderMediaPreview();
+      }
+      await this._planPendingRoute(pm);
+    })();
     this._renderMediaPreview();
     this._scheduleLinkPreview();
     document.getElementById("composer-input").focus(); // caption = input (#5)
@@ -4592,6 +4631,7 @@ export class ChatView {
     const pm = this.pendingMedia;
     this._renderMediaRoute();
     thumb.classList.remove("ph-word", "is-video");
+    if (pm?.staging) thumb.setAttribute("aria-busy", "true"); else thumb.removeAttribute("aria-busy");
     if (!pm) { bar.hidden = true; thumb.replaceChildren(); name.textContent = ""; crop.hidden = true; replace.hidden = true; }
     else {
       bar.hidden = false;
@@ -4604,9 +4644,23 @@ export class ChatView {
       glyph.setAttribute("aria-hidden", "true");
       glyph.innerHTML = svg(P[{ video: "video", audio: "mic", image: "photo", archive: "archive", file: "file" }[fileKind(pm.name)] || "file"]);
       thumb.append(glyph);
+      if (pm.staging) { const sp = document.createElement("span"); sp.className = "mp-spinner"; sp.setAttribute("aria-hidden", "true"); thumb.append(sp); }
     } else if (pm.kind === "video") {
       thumb.classList.add("is-video");
-      thumb.append(this._composerVideoCard(pm));
+      if (pm.url) {
+        thumb.append(this._composerVideoCard(pm));
+      } else {
+        // Still staging (copy + seal running): kind glyph + spinner until
+        // the file URL exists; the video card needs it for the first frame.
+        const glyph = document.createElement("span");
+        glyph.className = "xfer-glyph";
+        glyph.setAttribute("aria-hidden", "true");
+        glyph.innerHTML = svg(P.video);
+        const sp = document.createElement("span");
+        sp.className = "mp-spinner";
+        sp.setAttribute("aria-hidden", "true");
+        thumb.append(glyph, sp);
+      }
     } else {
       const media = document.createElement("img");
       media.src = pm.url; media.alt = "";
@@ -4676,6 +4730,7 @@ export class ChatView {
   // a core lock) must not turn the send button into a no-op.
   async _planPendingRoute(pm) {
     pm.checking = true;
+    if (this.pendingMedia === pm) this._renderMediaRoute();
     try {
       const chat = this.chat;
       let size = pm.size ?? pm.blob?.size ?? null;
@@ -4712,7 +4767,7 @@ export class ChatView {
     // Size unknown yet (xfer_file_size still reading a sealed upload): the
     // check is running all the same, so say so.
     const checking = pm?.checking && (pm.size == null || Number(pm.size) > XFER_THRESHOLD);
-    const stage = pm?.stage === "dash" ? t("Preparing for Velta Dash…") : "";
+    const stage = pm?.staging ? t("Preparing file…") : pm?.stage === "dash" ? t("Preparing for Velta Dash…") : "";
     el.textContent = [pm?.size != null ? formatBytes(pm.size) : "", stage || plan?.text || (checking ? t("Checking how to send…") : "")]
       .filter(Boolean).join(" · ");
     el.dataset.route = plan?.route || "";
@@ -5546,6 +5601,36 @@ export class ChatView {
         if (msg) { this.appendOutgoing(msg); this.onChatsChanged(); }
         return;
       }
+      // Desktop video / big-file picks stage in the background: the strip
+      // (kind glyph + spinner + "Preparing file…") appears at once instead of
+      // after the copy+seal pass. Images stay synchronous (small), content://
+      // URIs already stream in Rust, and a small file still sends at once.
+      const pickedNameEarly = String(picked).replace(/\\/g, "/").split("/").pop() || "";
+      const imageExt = kind !== "video" && ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(extOf(pickedNameEarly).toLowerCase());
+      if (!imageExt && !/^content:\/\//.test(picked) && (kind === "video" || (kind === "file" && !this.chat?.isP2p))) {
+        const pickedName = pickedNameEarly || "attachment";
+        const pickedExt = extOf(pickedName).toLowerCase();
+        const pickedView = ["mp4", "mov", "mkv", "avi", "webm"].includes(pickedExt) ? "video"
+          : ["mp3", "m4a", "ogg", "wav", "flac"].includes(pickedExt) ? "audio" : "file";
+        // A plain file only strips over the Dash threshold; the plaintext
+        // original's size is instant to read.
+        let big = kind === "video";
+        if (!big) {
+          const s = await invoke("xfer_file_size", { path: picked }).catch(() => null);
+          if (!this._isCurrent(session)) return;
+          big = s != null && Number(s) > XFER_THRESHOLD;
+        }
+        if (big) {
+          this._queueStagedMedia(picked, pickedName, pickedView);
+          return;
+        }
+      }
+      // Android video picks are content:// — the copy is already a Rust stream,
+      // but it used to finish before the strip existed. Same spinner.
+      if (kind === "video" && /^content:\/\//.test(picked)) {
+        this._queueStagedMedia(picked, t("Video"), "video", true);
+        return;
+      }
       let resolved;
       if (/^content:\/\//.test(picked)) {
         resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()), encrypt: true });
@@ -5633,14 +5718,27 @@ export class ChatView {
     try {
       // The drop is the user's consent, as with the picker (V-07/#65).
       await invoke("allow_picked_path", { path: picked }).catch(e => rustLog(`allow_picked_path: ${e}`));
-      const resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
-      if (!this._isCurrent(session)) return;
-      const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
-      const ext = extOf(resolved).toLowerCase();
-      const images = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+      const name = picked.replace(/\\/g, "/").split("/").pop() || "attachment";
+      const ext = extOf(name).toLowerCase();
       if (["mp4", "mov", "mkv", "avi", "webm", "m4v"].includes(ext)) {
-        this._setPendingMedia("video", fileUrl(resolved), resolved, name);
-      } else if (images[ext]) {
+        this._queueStagedMedia(picked, name, "video");
+        diagnosticsSink.append("info", `drop: staged ${name}`);
+        return;
+      }
+      const images = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+      if (!images[ext] && !this.chat?.isP2p) {
+        const s = await invoke("xfer_file_size", { path: picked }).catch(() => null);
+        if (!this._isCurrent(session)) return;
+        const viewtype = ["mp3", "m4a", "ogg", "wav", "flac"].includes(ext) ? "audio" : "file";
+        if (s != null && Number(s) > XFER_THRESHOLD) {
+          this._queueStagedMedia(picked, name, viewtype);
+          diagnosticsSink.append("info", `drop: staged ${name}`);
+          return;
+        }
+      }
+      const resolved = await resolveAttachmentPath(picked, name);
+      if (!this._isCurrent(session)) return;
+      if (images[ext]) {
         const bytes = await attachmentBytes(this.core, resolved);
         if (!this._isCurrent(session)) return;
         this._setPendingMedia("image", new Blob([bytes], { type: images[ext] }), resolved, name);
@@ -5705,6 +5803,22 @@ export class ChatView {
       if (can) this.readOnly = false;
     }
     if (this.readOnly) throw new Error(t("You can't write in this chat"));
+    // One video from Send to / Open with: strip first, copy behind the spinner.
+    if (files.length === 1 && invoke && !/^content:\/\//i.test(files[0]) && shareViewtype(files[0]) === "video") {
+      const file = files[0];
+      const name = String(file).replace(/\\/g, "/").split("/").pop() || "video";
+      await invoke("allow_picked_path", { path: file }).catch(e => rustLog(`allow_picked_path: ${e}`));
+      if (!this._isCurrent(session)) return null;
+      this._queueStagedMedia(file, name, "video");
+      const input = document.getElementById("composer-input");
+      if (text && input) {
+        input.value = input.value.trim() ? `${input.value}\n${text}` : text;
+        sizeComposer(input);
+        this._scheduleLinkPreview();
+      }
+      input?.focus();
+      return "staged";
+    }
     const resolved = [];
     for (const file of files) {
       let path = file;

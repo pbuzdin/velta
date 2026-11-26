@@ -1798,6 +1798,7 @@ button.reaction-chip { font: inherit; color: inherit; }
 /* 96x64 box, object-fit: contain — the real aspect ratio shows letterboxed
    instead of being cropped to a square. */
 #media-preview-thumb {
+  position: relative;
   width: 96px; height: 64px; flex: none;
   display: grid; place-items: center;
   border-radius: 8px; background: var(--bg-hover); overflow: hidden;
