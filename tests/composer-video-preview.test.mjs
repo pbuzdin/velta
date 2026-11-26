@@ -92,6 +92,16 @@ test("strip wiring: lightbox player, streamed URL, replace, loader, paste and dr
   assert.match(cv, /listen\("tauri:\/\/drag-drop"/);
   // Staged videos are never read whole: the strip gets a URL, not bytes.
   assert.match(cv, /this\._setPendingMedia\("video", fileUrl\(resolved\), resolved, name\)/);
+  // A video pick paints the strip before copy+seal. Dash route check is after.
+  const queue = cv.slice(cv.indexOf("_queueStagedMedia(src"), cv.indexOf("_setPendingMedia(kind, src"));
+  assert.match(queue, /resolveAttachmentPath/);
+  assert.match(queue, /fileUrl\(dest\)/);
+  const pick = cv.slice(cv.indexOf("async _sendAttachment(kind)"), cv.indexOf("listen(\"tauri://drag-drop\""));
+  const paint = pick.indexOf("_queueStagedMedia(picked, pickedName, pickedView)");
+  const copy = pick.indexOf("resolved = await resolveAttachmentPath");
+  assert.ok(paint >= 0 && paint < copy, "picker strip before the copy");
+  const drop = cv.slice(cv.indexOf("async _stageDroppedFiles"), cv.indexOf("async _heicToPhoto"));
+  assert.ok(drop.indexOf('_queueStagedMedia(picked, name, "video")') < drop.indexOf("await resolveAttachmentPath"), "drop strip before the copy");
   assert.doesNotMatch(cv.slice(cv.indexOf("_composerVideoCard(pm) {"), cv.indexOf("// #470: which way the pending attachment")), /attachmentBytes|arrayBuffer|read_media_bytes/);
   // The Dash route line stays in the strip, next to the name.
   assert.match(html, /id="media-preview-name"[\s\S]*id="media-route" class="media-route" role="status"/);
@@ -102,7 +112,7 @@ test("strip wiring: lightbox player, streamed URL, replace, loader, paste and dr
 test("new strings exist in ru and fr", () => {
   for (const lang of ["ru", "fr"]) {
     const pack = JSON.parse(read(`../app/locales/${lang}.json`));
-    for (const k of ["Play video: {name}", "Preview video", "Drop one file at a time", "Replace", "Crop"]) {
+    for (const k of ["Play video: {name}", "Preview video", "Drop one file at a time", "Replace", "Crop", "Preparing file…"]) {
       assert.ok(pack[k], `${lang} ${k}`);
       if (k.includes("{name}")) assert.ok(pack[k].includes("{name}"));
     }

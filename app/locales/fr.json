@@ -1794,5 +1794,6 @@
   "Velta Dash couldn't prepare the file ({error}), and it is too big for email (max {n} MB). Nothing was sent.": "Velta Dash n'a pas pu préparer le fichier ({error}) et il est trop gros pour l'e-mail (max. {n} Mo). Rien n'a été envoyé.",
   "unknown error": "erreur inconnue",
   "Preparing for Velta Dash…": "Préparation pour Velta Dash…",
+  "Preparing file…": "Préparation du fichier…",
   "Velta Dash didn't work, so the file went by email": "Velta Dash n'a pas fonctionné, le fichier est donc parti par e-mail"
 }

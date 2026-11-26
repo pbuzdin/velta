@@ -18,7 +18,7 @@ function shell(view, files = {}) {
   window.__TAURI__ = { core: { invoke: async (cmd, args) => {
     calls.push([cmd, args]);
     if (cmd === "resolve_content_uri") return files[args.uri];
-    if (cmd === "resolve_upload_path") return `/acc/uploads/${args.filename}`;
+    if (cmd === "resolve_upload_path" || cmd === "stage_upload") return `/acc/uploads/${args.filename}`;
     if (cmd === "plugin:fs|read_file" || cmd === "read_media_bytes") return [1, 2, 3];
     return null;
   } } };
@@ -75,7 +75,7 @@ test("a Windows Send to path is allowed and copied before it is staged", async t
   const { view } = await opened(t);
   const calls = shell(view);
   assert.equal(await view.receiveShare({ text: "", files: ["C:\\Users\\p\\Pictures\\cat.png"] }), "staged");
-  assert.deepEqual(calls.map(c => c[0]).slice(0, 2), ["allow_picked_path", "resolve_upload_path"]);
+  assert.deepEqual(calls.map(c => c[0]).slice(0, 2), ["allow_picked_path", "stage_upload"]);
   assert.equal(view.pendingMedia?.kind, "image");
   assert.match(view.pendingMedia.corePath, /^\/acc\/uploads\/\d+-cat\.png$/);
 });

@@ -33,6 +33,7 @@ window.__TAURI__ = {
     if (cmd === "xfer_offer") return sh.offer(args);
     if (cmd === "plugin:dialog|open") return sh.pick;
     if (cmd === "resolve_upload_path") return `/acc/uploads/${args.filename}`;
+    if (cmd === "stage_upload") return sh.holdStage || `/acc/uploads/${args.filename}`;
     if (cmd === "plugin:fs|read_file" || cmd === "read_media_bytes") return [1, 2, 3];
     return null;
   } },
@@ -92,6 +93,31 @@ test("a big file dropped on the desktop window stages with its Dash route line",
   assert.match(route.textContent, /50(\.0)? MB · Velta Dash: direct to Kay/);
   assert.equal(route.classList.contains("is-busy"), false, "no ring once the route is known");
   assert.equal(sent.length, 0, "nothing sent before Send");
+  view._clearPendingMedia();
+});
+
+test("a video pick shows the strip and a spinner while the copy is still running", async () => {
+  let release;
+  sh.holdStage = new Promise((r) => { release = r; });
+  sh.pick = "/home/p/clip.mp4";
+  const health = () => sh.calls.filter(([c]) => c === "xfer_health").length;
+  const before = health();
+  const pending = view._sendAttachment("video");
+  await until(() => view.pendingMedia?.staging, "strip during copy");
+  assert.equal(node("media-preview").hidden, false);
+  assert.equal(node("media-preview-name").textContent, "clip.mp4");
+  assert.equal(node("media-preview-thumb").getAttribute("aria-busy"), "true");
+  assert.ok(node("media-preview-thumb").querySelector(".mp-spinner"));
+  assert.match(node("media-route").textContent, /Preparing file…/);
+  assert.equal(node("media-route").classList.contains("is-busy"), true);
+  assert.equal(health(), before, "Dash route check waits until the file is staged");
+  release("/acc/uploads/1-clip.mp4");
+  sh.holdStage = null;
+  await pending;
+  await view.pendingMedia.planning;
+  assert.equal(view.pendingMedia.corePath, "/acc/uploads/1-clip.mp4");
+  assert.equal(view.pendingMedia.staging, null);
+  assert.ok(node("media-preview-thumb").querySelector(".mp-video"));
   view._clearPendingMedia();
 });
 
