@@ -340,6 +340,38 @@ test("a stale tail refetch does not wipe a newer file path or percent", async t 
   assert.equal(view.msgIndex.get(11).msg.transfer.pct, 100);
 });
 
+test("a tail refetch does not replace a live receive bar with an empty card", async t => {
+  const { view, core, node } = setup(t);
+  await view.open(7);
+  view.tailRefetchGapMs = 0;
+  const row = document.createElement("div");
+  row.dataset.msgid = "12";
+  row.innerHTML = "Receiving… 99%";
+  node("history").appendChild(row);
+  const live = message(12, 7, {
+    from: 0, viewtype: "image", fileName: "shot.webp", filePath: "",
+    downloadState: "Done", transfer: { pct: 99, dir: "recv" },
+  });
+  view.msgIndex.set(12, { type: "msg", key: "m12", msg: live });
+  view._rowSigCache.set("m12", view._rowSignature(live));
+  core.getMessages = async () => page(message(12, 7, {
+    from: 0, viewtype: "image", fileName: "shot.webp", filePath: "",
+    downloadState: "Done",
+  }));
+  await view.onMsgsChanged(7, {});
+  assert.equal(view.msgIndex.get(12).msg.transfer.pct, 99);
+  assert.equal(row.innerHTML, "Receiving… 99%");
+
+  const opened = message(12, 7, {
+    from: 0, viewtype: "image", fileName: "shot.webp", filePath: "/tmp/shot.webp",
+    downloadState: "Done",
+  });
+  core.getMessages = async () => page(opened);
+  await view.onMsgsChanged(7, {});
+  assert.equal(view.msgIndex.get(12).msg.filePath, "/tmp/shot.webp");
+  assert.equal(view.msgIndex.get(12).msg.transfer, undefined);
+});
+
 test("a loop download click does not ask core for a synthetic id", async t => {
   const { view, core } = setup(t);
   await view.open(7);

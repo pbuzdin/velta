@@ -1554,6 +1554,13 @@ export class ChatView {
     for (const m of messages) {
       if ((this._eventAt?.get(m.id) || 0) > since) continue;
       const item = this.msgIndex.get(m.id);
+      // A tail refetch that copied the row before the latest progress event
+      // must not walk the bar backwards, or swap it for an empty-path card.
+      const live = item?.msg?.transfer;
+      if (live && !live.failed && !live.packing) {
+        if (!m.transfer && !m.filePath) continue;
+        if (m.transfer && !m.transfer.failed && (m.transfer.pct || 0) < (live.pct || 0)) continue;
+      }
       if (item?.msg && item.msg !== m
         && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype
           || item.msg.state !== m.state || item.msg.text !== m.text

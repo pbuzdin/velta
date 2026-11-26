@@ -1671,6 +1671,8 @@ impl P2p {
         if total != size {
             bail!("the file changed while sending");
         }
+        // Windows cannot seal a file this reader still has open.
+        drop(f);
         self.finish_xfer(id, path, link).await
     }
 
@@ -1737,17 +1739,23 @@ impl P2p {
         self.finish_xfer(id, &job.path, link).await
     }
 
-    /// Seals a finished plaintext copy, then queues FileEnd. A sealed file
-    /// (a resume of one) is left as it is.
+    /// Queues FileEnd, then seals the local copy. The peer already has every
+    /// byte; sealing first wedged both sides at 99% when a seal (or the
+    /// runtime it blocked) delayed FileEnd. A sealed file is left as it is.
     async fn finish_xfer(&self, id: &str, path: &std::path::Path, link: &FileLink) -> Result<()> {
+        link.tx.send(Frame::FileEnd { id: id.to_string() }).map_err(|_| anyhow!("session closed"))?;
         if seal_media() {
             if let Some(key) = attachment_key() {
-                if !velta_attachment::is_encrypted(path).unwrap_or(false) {
-                    seal_in_place(path, &key)?;
-                }
+                let path = path.to_path_buf();
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    if velta_attachment::is_encrypted(&path).unwrap_or(false) {
+                        return Ok(());
+                    }
+                    seal_in_place(&path, &key)
+                })
+                .await;
             }
         }
-        link.tx.send(Frame::FileEnd { id: id.to_string() }).map_err(|_| anyhow!("session closed"))?;
         Ok(())
     }
 
@@ -2183,17 +2191,91 @@ impl P2p {
         drop(conn);
     }
 
-    /// The single writer/reader for one session. Exits on stream end; cleans
-    /// up its live handle afterwards. `framer` must be carried over from the
-    /// handshake: it may already hold buffered bytes that arrived in the same
-    /// read as the handshake frame.
-    async fn session_task(
+    /// Writes queued frames. Split from the reader: one task cannot read
+    /// while `write_all` waits for the peer, so two Loop sends at once stall
+    /// forever just short of FileEnd (bar stuck at 99%, file never opens).
+    async fn session_writer(
         self: Arc<Self>,
         node_id: NodeId,
         mut send: SendStream,
+        mut rx: mpsc::UnboundedReceiver<Frame>,
+        credits: Arc<tokio::sync::Semaphore>,
+        send_progress: Arc<Mutex<HashMap<String, (u64, u64)>>>,
+    ) {
+        let mut next_ping = tokio::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            tokio::select! {
+                _ = self.cancel.cancelled() => break,
+                _ = tokio::time::sleep_until(next_ping) => {
+                    next_ping = tokio::time::Instant::now() + Duration::from_secs(20);
+                    if write_json(&mut send, &Frame::Ping).await.is_err() {
+                        break;
+                    }
+                }
+                frame = rx.recv() => {
+                    let Some(frame) = frame else { break };
+                    if std::env::var("VELTA_P2P_DEBUG").is_ok() {
+                        eprintln!("[p2p-dbg] session writing frame to {}", node_id);
+                    }
+                    // Count a chunk only after it is on the wire. FileEnd is the
+                    // whole file: show 100% now. Ack still clears the bar.
+                    if let Frame::FileBegin { id, size, .. } = &frame {
+                        send_progress.lock().unwrap().insert(id.clone(), (0, *size));
+                    }
+                    if write_json(&mut send, &frame).await.is_err() {
+                        if std::env::var("VELTA_P2P_DEBUG").is_ok() {
+                            eprintln!("[p2p-dbg] write to {} failed", node_id);
+                        }
+                        break;
+                    }
+                    if let Frame::FileChunk { id, data } = &frame {
+                        let decoded = b64_raw_len(data);
+                        let base = self.resume_base.lock().unwrap().get(id).copied().unwrap_or((0, 0));
+                        let mut prog = send_progress.lock().unwrap();
+                        let e = prog.entry(id.clone()).or_insert(base);
+                        e.0 += decoded;
+                        let (got, size) = *e;
+                        drop(prog);
+                        self.sink.emit(json!({
+                            "kind": "file-progress", "peerId": node_id.to_string(),
+                            "id": id, "dir": "send", "got": got, "size": size,
+                        }));
+                    }
+                    if let Frame::FileEnd { id } = &frame {
+                        let size = send_progress.lock().unwrap().remove(id).map(|(_, size)| size).unwrap_or(0);
+                        if size > 0 {
+                            self.sink.emit(json!({
+                                "kind": "file-progress", "peerId": node_id.to_string(),
+                                "id": id, "dir": "send", "got": size, "size": size,
+                            }));
+                        }
+                        self.file_awaiting_ack.lock().unwrap().insert(id.clone(), node_id);
+                    }
+                    match &frame {
+                        Frame::FileChunk { .. } => credits.add_permits(1),
+                        Frame::GroupFileChunk { id, data, .. } => {
+                            credits.add_permits(1);
+                            self.group_file_wrote(node_id, id, b64_raw_len(data));
+                        }
+                        Frame::GroupFileEnd { id, .. } => self.group_file_done(node_id, id),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reads one session. The writer runs beside it. Exits on stream end and
+    /// cleans up its live handle afterwards. `framer` must be carried over
+    /// from the handshake: it may already hold buffered bytes that arrived
+    /// in the same read as the handshake frame.
+    async fn session_task(
+        self: Arc<Self>,
+        node_id: NodeId,
+        send: SendStream,
         mut recv: RecvStream,
         tx: mpsc::UnboundedSender<Frame>,
-        mut rx: mpsc::UnboundedReceiver<Frame>,
+        rx: mpsc::UnboundedReceiver<Frame>,
         mut framer: Framer,
     ) {
         let (handle_id, credits) = {
@@ -2205,7 +2287,7 @@ impl P2p {
                 .map(|h| (h.id, h.credits.clone()))
                 .unwrap_or_else(|| (0, Arc::new(tokio::sync::Semaphore::new(0))))
         };
-        let mut send_progress: HashMap<String, (u64, u64)> = HashMap::new();
+        let send_progress = Arc::new(Mutex::new(HashMap::new()));
         if std::env::var("VELTA_P2P_DEBUG").is_ok() {
             eprintln!("[p2p-dbg] session task started for {}", node_id);
         }
@@ -2216,74 +2298,21 @@ impl P2p {
         self.resume_paused(node_id);
         self.confirm_awaiting(node_id, tx.clone());
         let mut group_window = (std::time::Instant::now(), 0u32);
-        // Keepalive: without traffic QUIC idles out after IDLE_TIMEOUT and the
-        // peer shows offline even though both engines are healthy.
-        let mut next_ping = tokio::time::Instant::now() + Duration::from_secs(20);
+        let mut writer = tauri::async_runtime::spawn(self.clone().session_writer(
+            node_id,
+            send,
+            rx,
+            credits.clone(),
+            send_progress.clone(),
+        ));
+        let mut writer_done = false;
         loop {
             tokio::select! {
                 biased;
                 _ = self.cancel.cancelled() => break,
-                _ = tokio::time::sleep_until(next_ping) => {
-                    next_ping = tokio::time::Instant::now() + Duration::from_secs(20);
-                    if write_json(&mut send, &Frame::Ping).await.is_err() {
-                        break;
-                    }
-                }
-                frame = rx.recv() => {
-                    match frame {
-                        Some(frame) => {
-                            if std::env::var("VELTA_P2P_DEBUG").is_ok() {
-                                eprintln!("[p2p-dbg] session writing frame to {}", node_id);
-                            }
-                            // Count a chunk only after it is on the wire. FileEnd is the
-                            // whole file: show 100% now. Ack still clears the bar.
-                            if let Frame::FileBegin { id, size, .. } = &frame {
-                                send_progress.insert(id.clone(), (0, *size));
-                            }
-                            if write_json(&mut send, &frame).await.is_err() {
-                                if std::env::var("VELTA_P2P_DEBUG").is_ok() {
-                                    eprintln!("[p2p-dbg] write to {} failed", node_id);
-                                }
-                                break;
-                            }
-                            if let Frame::FileChunk { id, data } = &frame {
-                                let decoded = b64_raw_len(data);
-                                // A resumed send has no FileBegin: start at what
-                                // the receiver already held.
-                                let e = send_progress
-                                    .entry(id.clone())
-                                    .or_insert_with(|| self.resume_base.lock().unwrap().get(id).copied().unwrap_or((0, 0)));
-                                e.0 += decoded;
-                                self.sink.emit(json!({
-                                    "kind": "file-progress", "peerId": node_id.to_string(),
-                                    "id": id, "dir": "send", "got": e.0, "size": e.1,
-                                }));
-                            }
-                            if let Frame::FileEnd { id } = &frame {
-                                let size = send_progress.remove(id).map(|(_, size)| size).unwrap_or(0);
-                                if size > 0 {
-                                    self.sink.emit(json!({
-                                        "kind": "file-progress", "peerId": node_id.to_string(),
-                                        "id": id, "dir": "send", "got": size, "size": size,
-                                    }));
-                                }
-                                self.file_awaiting_ack.lock().unwrap().insert(id.clone(), node_id);
-                            }
-                            // Group media: a chunk on the wire hands its credit
-                            // back to the streaming task and moves the progress.
-                            match &frame {
-                                // #454: 1:1 chunks are paced by the same credits.
-                                Frame::FileChunk { .. } => credits.add_permits(1),
-                                Frame::GroupFileChunk { id, data, .. } => {
-                                    credits.add_permits(1);
-                                    self.group_file_wrote(node_id, id, b64_raw_len(data));
-                                }
-                                Frame::GroupFileEnd { id, .. } => self.group_file_done(node_id, id),
-                                _ => {}
-                            }
-                        }
-                        None => break, // all senders dropped
-                    }
+                _ = &mut writer, if !writer_done => {
+                    writer_done = true;
+                    break;
                 }
                 read = framer.read_frame(&mut recv) => {
                     match read {
@@ -2318,9 +2347,18 @@ impl P2p {
                 }
             }
         }
+        if !writer_done {
+            writer.abort();
+            let _ = writer.await;
+        }
         // Session ended with transfers still in flight: their tail frames were
         // lost on the dead stream. Tell the UI which sends failed so it can
         // offer retry — there is no resume.
+        let send_progress: Vec<(String, (u64, u64))> = send_progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain()
+            .collect();
         for (id, _) in send_progress {
             self.sink.emit(json!({
                 "kind": "file-progress", "peerId": node_id.to_string(),
@@ -7898,6 +7936,25 @@ mod tests {
             }
         }
         assert_eq!(got, data);
+    }
+
+    /// Two Loop sends on one session, opposite directions. One task that
+    /// cannot read while it writes stalls both just short of FileEnd.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn simultaneous_one_to_one_sends_both_finish() {
+        let (alice, alice_rx) = start("sim-a").await;
+        let (bob, bob_rx) = start("sim-b").await;
+        pair(&alice, &alice_rx, &bob).await;
+        let aid = alice.node_id().to_string();
+        let bid = bob.node_id().to_string();
+        let (ap, adata) = write_blob(&alice, "a.bin", 3_000_000);
+        let (bp, bdata) = write_blob(&bob, "b.bin", 3_000_000);
+        alice.send_file(&bid, &ap, "a.bin", "").unwrap();
+        bob.send_file(&aid, &bp, "b.bin", "").unwrap();
+        let on_bob = wait_for(&bob_rx, 60, |e| e["kind"] == "message" && e["file"]["name"] == "a.bin");
+        let on_alice = wait_for(&alice_rx, 60, |e| e["kind"] == "message" && e["file"]["name"] == "b.bin");
+        assert_eq!(std::fs::read(on_bob["file"]["path"].as_str().unwrap()).unwrap(), adata);
+        assert_eq!(std::fs::read(on_alice["file"]["path"].as_str().unwrap()).unwrap(), bdata);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
