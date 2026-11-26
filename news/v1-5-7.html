@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.5.7: Loop transfers that finish, a composer in one row, and a Dash that explains itself — Velta</title>
+  <meta name="description" content="Loop two-way transfers no longer stall at 99%, the desktop composer collapses to a single armed row, the Dash card explains itself to Delta Chat users and stops showing ghost copies. Plus image Copy/Save in the message menu, the sealed vCard parse fix, folder size pre-flight, and a per-identity keychain.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.5.7: Loop transfers that finish, a composer in one row, and a Dash that explains itself</h1>
+    <p><time>27 November 2026</time> · 4 min read</p>
+    <p>Two-way Loop transfers no longer freeze at 99%, the desktop composer collapses to a single armed row, and the Dash card learns to explain itself to Delta Chat users — and stops showing ghost copies after a profile is remade. Plus image Copy/Save in the message menu, the sealed-vCard import fix, a folder size pre-flight, and a keychain scoped per identity.</p>
+    <div class="body">
+<p>1.5.7 is a repair release with three things you will notice the first time you open a chat: a transfer that was stuck at 99% now lands, the composer no longer rearranges itself when you start typing, and the Dash card a Delta Chat user sees next to your file says what it is — and, in Velta, disappears when it should.</p>
+<h2>Transfers that finish</h2>
+<p>Two-way Loop copies could stall at 99%: the last frames of a dying session were never re-sent, so the receiver waited on data that had already been lost. Outbound texts that went unacked are now re-sent, and a live transfer is labeled <strong>Sending</strong> until the ack arrives instead of reporting done early. Progress repaints in place — the card fills to 100% where it sits rather than jumping away — and sealed sends finish their last chunk instead of hanging on the stream.</p>
+<p>Files are now streamed while they copy instead of buffered whole, a received file is sealed off the session reader so a closed session can't read past it, and the Dash copy is honest about failure: Android enforces the same file cap as desktop, and when a fetch fails the card says so instead of reporting success. The transfer limit is printed as the real <strong>2 GB</strong>, not "any size". The card's own meta text now passes AA on the outgoing bubble.</p>
+<h2>The composer moves to one row</h2>
+<p>The desktop composer stopped waiting for the first keystroke to expand. At every width it is one flex row: the field and the tools side by side, send in a fixed place from the moment a chat opens. Send shows its state — it fills with the accent color while there is text in the field and goes back to the quiet outline arrow when empty — so one glance tells you the message is armed.</p>
+<p>Stickers leave the composer entirely and live in the attach menu, where the phone already kept them. And while a video copies, the strip shows the video itself instead of a placeholder — a preview that renders as it lands.</p>
+<h2>The Dash explains itself</h2>
+<p>The transfer card now carries a line that explains the Dash to a Delta Chat user — what the board is, why a file arrived there — and Velta hides that explainer for its own users, who already know. On Android the card's row verbs became <strong>Save</strong> and <strong>Share</strong> instead of <em>Show in folder</em>, which has no meaning on a phone. Swipe-to-reply and swipe-back now work on Dash cards, the header badge shrank to an icon-only accent button, and the Prism header goes full-bleed behind it. Byteless media shows its kind tile instead of an empty card.</p>
+<p>A quieter fix: after a profile is recreated, persisted Dash copies are revalidated, so a <em>Received</em> card can no longer linger for a file that no longer exists.</p>
+<h2>Images you can keep</h2>
+<p>The message menu gained <strong>Copy image</strong> and <strong>Save image</strong> — the picture, not the message. On Android Tauri, Copy goes through the FileProvider as real ClipData, so it pastes into other apps as an image rather than a path. And the shared-contact glitch is fixed: a <code>.vcf</code> sealed as an attachment is now parsed and imported through the seal-aware blob reader, so a vCard that arrived encrypted no longer opens as raw bytes.</p>
+<h2>Before you send</h2>
+<p>Folders get a size pre-flight. A folder over 512 MB warns before it is zipped onto the send; a folder over the engine's 2 GB transfer limit is refused outright rather than failing mid-stream. You find out at pick time, not at 99%.</p>
+<h2>Also in this release</h2>
+<ul>
+<li><strong>The keychain is scoped per identity</strong> — the database DEK credential is minted for the profile it unlocks, which is the root cause of the bricked-profile bug; the keychain helpers are gated off Android, where the credential store is a different shape.</li>
+<li><strong>A quieter bubble</strong> — the KMP client's <code>VXFER1</code> / <code>VXFER-RESEND</code> ticket lines no longer leak into message bubbles.</li>
+<li><strong>1:1 header wears the contact's Prism hue</strong> — the personal accent on a one-to-one chat, a follow-up to #519.</li>
+<li><strong>Windows installers build on PRs</strong> — a PR to master now builds the Windows bundle in CI instead of only on merge.</li>
+<li><strong>Sealed vCard import is covered</strong> — the <code>parse_vcard</code> core op guards its own call line, so a regression there fails a test, not a user.</li>
+<li><strong>One webxdc chip keeps its copy button</strong> — the sender chip on a webxdc bubble no longer swallows the copy action.</li>
+<li><strong>4 MiB range cap</strong> — a blobfile Range answer is capped at 4 MiB, so a single fetch can't hold a connection open.</li>
+</ul>
+<h2>Under the hood</h2>
+<p>Attachment crypto streams instead of buffering: each chunk is decrypted once and encrypted in place, aarch64 uses hardware AES-GCM, and the crypto path runs at <code>opt-level 3</code>. The 99% stall, the sealed-send finish, and the cheapened chunk stream are the same change seen from three sides.</p>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.7">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.5.6...v1.5.7">Compare 1.5.6 with 1.5.7</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=9"></script>
+</body>
+</html>
