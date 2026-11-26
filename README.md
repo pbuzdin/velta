@@ -260,9 +260,10 @@ bubble: `p2p_send` returns `{id, queued}`, a reconnect flush emits a
 `msg-state` event to upgrade the clock to ticks, and the peer's ack completes
 the read state. A text whose send fails outright renders a Retry button too
 (resendMessage re-sends the same text and quote as a fresh message; the
-failed bubble is restored if the engine still rejects it). Chat names carry a
-green wifi badge instead of the relay chats' open lock (the transport is
-QUIC/TLS with pairing-pinned identities).
+failed bubble is restored if the engine still rejects it). A Loop chat in
+the list shows the Velta Loop mark immediately before the time. The open
+chat uses the header mark. The transport is QUIC/TLS with pairing-pinned
+identities.
 
 **Interface scale and theme live in the drawer.** Velta pins the WebView's
 `textZoom` to 100 (system font scale otherwise inflates text out of its

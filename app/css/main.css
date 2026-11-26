@@ -1098,6 +1098,9 @@ html[data-theme="brutal"] .msg-row.out .xfer-open.btn-text { color: var(--nb-mai
   -webkit-tap-highlight-color: transparent; transition: background .15s; }
 .dash-badge[hidden] { display: none; }
 .dash-badge svg { width: 20px; height: 19px; flex: none; }
+/* Loop shares .dash-badge with the Dash mark. That 20px box is the Dash
+   logo. The Loop mark sits beside Search, whose glyph is the 24px svg rule. */
+#btn-loop svg { width: 24px; height: 24px; }
 @media (hover: hover) and (pointer: fine) { .dash-badge:hover { background: var(--bg-hover); } }
 .dash-badge:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .dash-explainer-text { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
@@ -2048,8 +2051,9 @@ velta-chat-item { display: block; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
 .ci-lock { width: var(--ico-1); height: var(--ico-1); color: var(--green); flex: none; }
 .ci-lock.open { color: var(--text-dim); }
-.ci-wifi { width: var(--ico-1); height: var(--ico-1); color: var(--green); flex: none; }
 .ci-time { font-size: 12px; color: var(--text-dim); flex: none; }
+.ci-loop { display: inline-flex; vertical-align: middle; margin-inline-end: 4px; }
+.ci-loop svg { width: 16px; height: 16px; }
 .ci-bottom { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .ci-last { flex: 1; min-width: 0; font-size: 14px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci-last .draft { color: var(--danger); }

@@ -115,10 +115,19 @@ function convertToIncoming(hash, st, text) {
 
 /** True when the contact has proved it runs Velta with the transfer: core
  *  patch #31 stored the time of its last encrypted, signed message carrying
- *  Chat-Velta-Xfer. Unknown contacts (and Delta Chat) get email. */
+ *  Chat-Velta-Xfer. False when it has not. null when that config read timed
+ *  out or failed — a busy core, not a "no". Send still tries Dash. */
 export async function peerCanXfer(contactId) {
   if (contactId == null || !env?.core?.getConfig) return false;
-  try { return !!(await withTimeout(env.core.getConfig(peerCapabilityKey(contactId)), limits.peerMs, "get_config")); } catch { return false; }
+  try { return !!(await withTimeout(env.core.getConfig(peerCapabilityKey(contactId)), limits.peerMs, "get_config")); } catch { return null; }
+}
+
+/** Proven for a send. null from peerCanXfer is not "they don't run Dash". */
+async function routeProven(oneToOne, contactId) {
+  if (!oneToOne || !env?.invoke) return false;
+  const can = await peerCanXfer(contactId);
+  if (can == null) sink("info", `Dash capability check timed out for contact ${contactId} — trying Velta Dash`);
+  return can !== false;
 }
 
 /** This device announces the capability (core adds the header) while the
@@ -142,7 +151,7 @@ async function selfChatId() {
  */
 export async function maybeSend({ chatId, path, name, size, oneToOne, contactId }) {
   if (!(Number(size) > THRESHOLD)) return { handled: false };
-  const can = oneToOne && !!env?.invoke && await peerCanXfer(contactId);
+  const can = await routeProven(oneToOne, contactId);
   // #489 diagnostics: say why a large file went by email.
   const why = emailReason({ size, oneToOne, proven: can, enabled: irohXferEnabled(), available: !!(transport && env?.invoke) });
   if (why) { sink("info", `sent ${name} (${fmtSize(size)}) by email: ${why}`); return { handled: false }; }
@@ -710,7 +719,7 @@ async function maybeEcho(m) {
   try {
     const chat = await env.core.getChat?.(m.chatId);
     if (chat?.chatType !== "Single" || Number(chat.contactId) !== contactId) return;
-    if (!await peerCanXfer(contactId)) return; // they run Dash: tell them we do too
+    if (await peerCanXfer(contactId) !== true) return; // proven only; a timed-out read does not echo
     await announce();
     await env.core.clearReaction(m.id);
     lsSet(key, String(Date.now()));
@@ -741,7 +750,7 @@ async function dashHealth() {
   return v;
 }
 export async function planSend({ size, oneToOne, contactId, peerName = "" }) {
-  const proven = oneToOne && !!env?.invoke && await peerCanXfer(contactId);
+  const proven = await routeProven(oneToOne, contactId);
   const base = { size, oneToOne, proven, enabled: irohXferEnabled(), available: !!(transport && env?.invoke) };
   let plan = planRoute(base);
   if (plan.route === "dash") plan = planRoute({ ...base, health: await dashHealth() });

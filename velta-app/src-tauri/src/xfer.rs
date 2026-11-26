@@ -296,9 +296,104 @@ impl<R: Read> Read for HashingReader<'_, R> {
     }
 }
 
+/// Owns `inner` and hashes every plaintext byte read through it.
+pub(crate) struct PlainHasher<R> {
+    inner: R,
+    h: Sha256,
+}
+
+impl<R> PlainHasher<R> {
+    pub(crate) fn new(inner: R) -> Self {
+        Self { inner, h: Sha256::new() }
+    }
+
+    pub(crate) fn finish(self) -> [u8; 32] {
+        let dig = self.h.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&dig);
+        out
+    }
+}
+
+impl<R: Read> Read for PlainHasher<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.h.update(&buf[..n]);
+        Ok(n)
+    }
+}
+
+/// `{path}.sha256` — the extension stays, so `clip.mp4` is not `clip.sha256`.
+pub(crate) fn sha_sidecar(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".sha256");
+    PathBuf::from(name)
+}
+
+/// Records the plaintext SHA-256 next to a sealed upload. A failed write
+/// removes a stale sidecar so the offer falls back to hashing the file.
+pub(crate) fn write_plaintext_hash(dest: &Path, hash: &[u8]) {
+    let side = sha_sidecar(dest);
+    if std::fs::write(&side, HEXLOWER.encode(hash)).is_err() {
+        let _ = std::fs::remove_file(&side);
+    }
+}
+
+fn read_sha_sidecar(src: &Path) -> Option<String> {
+    let raw = std::fs::read(sha_sidecar(src)).ok()?;
+    let text = std::str::from_utf8(&raw).ok()?;
+    let s = text.trim();
+    if s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        Some(s.to_string())
+    } else {
+        None
+    }
+}
+
+/// Same bytes as `src` at `dest`. Hard link when the volume allows it;
+/// otherwise a temp copy renamed into place so a crash cannot leave a short file.
+fn link_or_copy(src: &Path, dest: &Path) -> Result<()> {
+    if dest.exists() || std::fs::hard_link(src, dest).is_ok() || dest.exists() {
+        return Ok(());
+    }
+    let tmp = dest.with_file_name(format!(".{}", dest.file_name().unwrap_or_default().to_string_lossy()));
+    std::fs::copy(src, &tmp).with_context(|| format!("copying {}", src.display()))?;
+    std::fs::File::open(&tmp)?.sync_all()?;
+    if std::fs::rename(&tmp, dest).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        if !dest.exists() {
+            bail!("could not store {}", dest.display());
+        }
+    }
+    Ok(())
+}
+
+/// Sidecar from seal time: link the sealed bytes. A sidecar on plaintext
+/// while a key is set is ignored — that hash is not of these bytes.
+fn try_link_stored(src: &Path, out_dir: &Path, key: Option<&AttachmentKey>) -> Result<Option<(String, u64, PathBuf)>> {
+    let Some(hash) = read_sha_sidecar(src) else { return Ok(None) };
+    let len = match key {
+        Some(k) => {
+            if !velta_attachment::is_encrypted(src).unwrap_or(false) {
+                return Ok(None);
+            }
+            AttachmentReader::open(src, Some(k))?.len()
+        }
+        None => std::fs::metadata(src)?.len(),
+    };
+    std::fs::create_dir_all(out_dir)?;
+    let dest = out_dir.join(&hash);
+    link_or_copy(src, &dest)?;
+    Ok(Some((hash, len, dest)))
+}
+
 /// Copies `src` (plaintext or a VLTA upload) into `out_dir/<sha256>`, sealed
-/// under `key` when set. Returns (hash, plaintext size, stored path).
+/// under `key` when set. A seal-time sidecar links those bytes instead of
+/// decrypting and sealing them again. Returns (hash, plaintext size, stored path).
 fn store_copy(src: &Path, out_dir: &Path, key: Option<&AttachmentKey>) -> Result<(String, u64, PathBuf)> {
+    if let Some(hit) = try_link_stored(src, out_dir, key)? {
+        return Ok(hit);
+    }
     let mut reader = AttachmentReader::open(src, key).with_context(|| format!("opening {}", src.display()))?;
     let len = reader.len();
     std::fs::create_dir_all(out_dir)?;
@@ -1350,6 +1445,45 @@ mod tests {
         assert!(e.wants_email());
         assert!(!FetchError::Io("x".into()).wants_email(), "a broken stream resumes over iroh");
         b.close().await;
+    }
+
+    /// Seal-time sidecar: offer links the sealed upload. A sidecar on
+    /// plaintext, or one that is not lowercase hex, still reseals.
+    #[test]
+    fn sealed_sidecar_is_linked_plaintext_sidecar_is_not() {
+        let k = akey(0x31);
+        let src = tmp("linksrc");
+        let bytes = data(64 * 1024, 3);
+        std::fs::write(src.join("plain.bin"), &bytes).unwrap();
+        let upload = src.join("up.bin");
+        velta_attachment::encrypt_file(&k, &src.join("plain.bin"), &upload).unwrap();
+        let mut h = Sha256::new();
+        h.update(&bytes);
+        let dig = h.finalize();
+        let expect = HEXLOWER.encode(&dig);
+        write_plaintext_hash(&upload, &dig);
+
+        let (hash, len, stored) = store_copy(&upload, &tmp("linkout"), Some(&k)).unwrap();
+        assert_eq!(hash, expect);
+        assert_eq!(len, bytes.len() as u64);
+        assert_eq!(std::fs::read(&stored).unwrap(), std::fs::read(&upload).unwrap());
+        assert_eq!(AttachmentReader::open(&stored, Some(&k)).unwrap().read_all().unwrap(), bytes);
+        std::fs::remove_file(&stored).unwrap();
+        assert!(upload.exists(), "dropping the offer name keeps the upload");
+
+        write_plaintext_hash(&src.join("plain.bin"), &dig);
+        let (_, _, resealed) = store_copy(&src.join("plain.bin"), &tmp("plainout"), Some(&k)).unwrap();
+        assert!(velta_attachment::is_encrypted(&resealed).unwrap());
+        assert_ne!(std::fs::read(&resealed).unwrap(), std::fs::read(src.join("plain.bin")).unwrap());
+
+        std::fs::write(sha_sidecar(&upload), "A".repeat(64)).unwrap();
+        let (_, _, slow) = store_copy(&upload, &tmp("badside"), Some(&k)).unwrap();
+        assert_ne!(std::fs::read(&slow).unwrap(), std::fs::read(&upload).unwrap());
+
+        let (h2, len2, linked) = store_copy(&src.join("plain.bin"), &tmp("keyless"), None).unwrap();
+        assert_eq!(h2, expect);
+        assert_eq!(len2, bytes.len() as u64);
+        assert_eq!(std::fs::read(linked).unwrap(), bytes);
     }
 
     /// Offers survive a restart of the sender's app, sealed at rest.

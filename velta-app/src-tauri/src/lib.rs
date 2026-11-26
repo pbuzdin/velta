@@ -1051,23 +1051,32 @@ fn prepare_builtin_xdc(app: tauri::AppHandle, name: String) -> Result<String, St
     Ok(dest.to_string_lossy().to_string())
 }
 
+/// Streams `input` into `temp` and returns the SHA-256 of the plaintext.
+/// Drops `input` before returning: on Windows the source handle must be
+/// closed before persist replaces that same path.
+fn seal_streaming(key: Option<&velta_attachment::AttachmentKey>, input: std::fs::File, len: u64, temp: &mut std::fs::File) -> Result<[u8; 32], String> {
+    let mut hashed = crate::xfer::PlainHasher::new(input);
+    match key {
+        Some(k) => velta_attachment::encrypt(k, &mut hashed, len, temp).map_err(|e| e.to_string())?,
+        None => {
+            std::io::copy(&mut hashed, temp).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(hashed.finish())
+}
+
 fn encrypt_upload_blocking(path: &Path) -> Result<(), String> {
     let Some(key) = ATTACHMENT_KEY.lock().unwrap().clone() else { return Ok(()) };
     if velta_attachment::is_encrypted(path).map_err(|e| e.to_string())? {
         return Ok(());
     }
-    let mut input = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let input = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let len = input.metadata().map_err(|e| e.to_string())?.len();
     let mut temp = tempfile::Builder::new().prefix("tmp-").tempfile_in(path.parent().ok_or("upload has no parent")?).map_err(|e| e.to_string())?;
-    velta_attachment::encrypt(&key, &mut input, len, temp.as_file_mut()).map_err(|e| e.to_string())?;
-    // Windows: `input` (std::fs::File::open shares READ|WRITE but not DELETE)
-    // must be closed before persist — MoveFileExW(REPLACE_EXISTING) replaces
-    // the very file that handle is still open on, which fails with
-    // "Access is denied (os error 5)" and killed every attachment send while
-    // attachment sealing was on.
-    drop(input);
+    let hash = seal_streaming(Some(&key), input, len, temp.as_file_mut())?;
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
     temp.persist(path).map_err(|e| e.error.to_string())?;
+    crate::xfer::write_plaintext_hash(path, &hash);
     Ok(())
 }
 
@@ -1113,20 +1122,16 @@ async fn stage_upload(app: tauri::AppHandle, src: String, filename: String) -> R
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let key = ATTACHMENT_KEY.lock().unwrap().clone();
-        let mut input = std::fs::File::open(&src).map_err(|e| e.to_string())?;
+        let input = std::fs::File::open(&src).map_err(|e| e.to_string())?;
         let len = input.metadata().map_err(|e| e.to_string())?.len();
         let mut temp = tempfile::Builder::new()
             .prefix("tmp-")
             .tempfile_in(dest.parent().ok_or("upload has no parent")?)
             .map_err(|e| e.to_string())?;
-        match key {
-            Some(k) => velta_attachment::encrypt(&k, &mut input, len, temp.as_file_mut()).map_err(|e| e.to_string())?,
-            None => { std::io::copy(&mut input, temp.as_file_mut()).map_err(|e| e.to_string())?; }
-        }
-        // Windows: close the source before persist (see encrypt_upload_blocking).
-        drop(input);
+        let hash = seal_streaming(key.as_ref(), input, len, temp.as_file_mut())?;
         temp.as_file().sync_all().map_err(|e| e.to_string())?;
         temp.persist(&dest).map_err(|e| e.error.to_string())?;
+        crate::xfer::write_plaintext_hash(&dest, &hash);
         Ok(dest.to_string_lossy().into_owned())
     })
     .await
@@ -1873,18 +1878,7 @@ static APP_JAVA_VM: Mutex<Option<jni::JavaVM>> = Mutex::new(None);
 // HTTP server with Range support works on every platform and every WebView.
 static MEDIA_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 static MEDIA_TOKEN: Mutex<String> = Mutex::new(String::new());
-static MEDIA_CONNECTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 const MEDIA_MAX_CONNECTIONS: usize = 64;
-
-/// Releases a media-server connection slot when the serving thread ends,
-/// panics included.
-struct MediaConnectionSlot;
-
-impl Drop for MediaConnectionSlot {
-    fn drop(&mut self) {
-        MEDIA_CONNECTIONS.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-    }
-}
 
 /// Compares the URL token with the server's without an early exit, so the
 /// response time does not reveal how much of a guessed token matched.
@@ -1953,6 +1947,39 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
     // go through convertFileSrc, which percent-encodes it into asset URLs
     // (asset.localhost/%2F%2F%3F%2F... -> 404).
     Ok(without_verbatim(&canon))
+}
+
+#[cfg(test)]
+mod seal_hash_tests {
+    use super::seal_streaming;
+    use data_encoding::HEXLOWER;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn seal_streaming_sidecar_is_the_plaintext_hash() {
+        let dir = std::env::temp_dir().join(format!("velta-seal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bytes = b"hello dash prepare";
+        let key = velta_attachment::AttachmentKey::from_db_key(&format!("x'{}'", "ab".repeat(32))).unwrap().unwrap();
+        let plain = dir.join("plain.bin");
+        std::fs::write(&plain, bytes).unwrap();
+        let input = std::fs::File::open(&plain).unwrap();
+        let mut temp = tempfile::Builder::new().prefix("tmp-").tempfile_in(&dir).unwrap();
+        let hash = seal_streaming(Some(&key), input, bytes.len() as u64, temp.as_file_mut()).unwrap();
+        let dest = dir.join("up.bin");
+        temp.persist(&dest).unwrap();
+        crate::xfer::write_plaintext_hash(&dest, &hash);
+        let mut h = Sha256::new();
+        h.update(bytes);
+        assert_eq!(hash.as_slice(), h.finalize().as_slice());
+        assert_eq!(
+            std::fs::read(crate::xfer::sha_sidecar(&dest)).unwrap(),
+            HEXLOWER.encode(&hash).into_bytes()
+        );
+        assert!(velta_attachment::is_encrypted(&dest).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]
@@ -2846,20 +2873,19 @@ fn start_media_server(root: PathBuf) {
             };
             MEDIA_PORT.store(port, std::sync::atomic::Ordering::Relaxed);
             log(&format!("media http server on 127.0.0.1:{port}"));
+            // Count live workers by their handles. A separate atomic stuck
+            // at the cap after those threads had already exited, and then
+            // every image and Dash video preview was refused.
+            let mut workers: Vec<std::thread::JoinHandle<()>> = Vec::new();
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
-                // Any local process can connect to a loopback port: cap the
-                // thread-per-connection fan-out so one can't exhaust threads.
-                // The WebView needs a handful (images + a few media ranges).
-                if MEDIA_CONNECTIONS.fetch_add(1, std::sync::atomic::Ordering::AcqRel) >= MEDIA_MAX_CONNECTIONS {
-                    MEDIA_CONNECTIONS.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+                workers.retain(|w| !w.is_finished());
+                if workers.len() >= MEDIA_MAX_CONNECTIONS {
                     eprintln!("[media] connection limit reached; dropping one");
                     continue;
                 }
                 let root = root.clone();
-                std::thread::spawn(move || {
-                    let _slot = MediaConnectionSlot;
-                    // Connection-level diagnostics reach logcat via stderr.
+                match std::thread::Builder::new().name("media-conn".into()).spawn(move || {
                     let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
                     eprintln!("[media] accept from {peer}");
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2869,7 +2895,10 @@ fn start_media_server(root: PathBuf) {
                         eprintln!("[media] serve_media_connection PANICKED for {peer}");
                     }
                     eprintln!("[media] done {peer}");
-                });
+                }) {
+                    Ok(handle) => workers.push(handle),
+                    Err(e) => eprintln!("[media] thread spawn failed: {e}"),
+                }
             }
         })
         .ok();
@@ -6217,6 +6246,30 @@ mod media_tests {
 
         let err = checked_media_read(&path).unwrap_err();
         assert!(err.contains("too large"), "{err}");
+    }
+
+    #[test]
+    fn many_requests_do_not_stick_the_connection_cap() {
+        let dir = temp_media_dir("cap");
+        *super::MEDIA_TOKEN.lock().unwrap() = "cap-token".into();
+        let path = make_media_file(&dir, "clip.mp4", 64);
+        super::start_media_server(dir);
+        let started = std::time::Instant::now();
+        let port = loop {
+            let p = super::MEDIA_PORT.load(std::sync::atomic::Ordering::Relaxed);
+            if p != 0 {
+                break p;
+            }
+            if started.elapsed() > std::time::Duration::from_secs(2) {
+                panic!("media server did not bind");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        let file = path.to_string_lossy().to_string();
+        for i in 0..80 {
+            let response = get(port, "cap-token", &file, Some("bytes=0-7"));
+            assert!(head(&response).starts_with("HTTP/1.1 206"), "request {i}: {}", head(&response));
+        }
     }
 }
 

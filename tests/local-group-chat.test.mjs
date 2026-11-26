@@ -407,10 +407,17 @@ test("UI guards exist for p2pg: header line, hidden relay-only actions, gated en
   assert.match(comp, /isP2pGroup[\s\S]{0,200}members[\s\S]{0,40}online/, "header shows N members · M online");
   const head = comp.slice(comp.indexOf("class VeltaChatHead"), comp.indexOf("VeltaChatHead.define()"));
   assert.match(head, /c\.isP2p \? "" : nameBadgesFor\(c\)/, "open Loop header has no wifi glyph");
+  const item = comp.slice(comp.indexOf("class VeltaChatItem"), comp.indexOf("VeltaChatItem.define()"));
+  assert.match(item, /class="ci-loop"/, "list marks a Loop chat with the Loop logo");
+  assert.match(item, /ci-time">\$\{unsafeHTML\(loopMark\)\}/, "Loop logo sits before the list time");
+  assert.doesNotMatch(comp, /WIFI_SVG|ci-wifi/, "chat list no longer uses the wifi glyph");
   assert.match(app, /function refreshLoopBadge\(chat\) \{\s*const btn = \$\("btn-loop"\);\s*if \(btn\) btn\.hidden = !chat\?\.isP2p;/, "Loop mark shows only in a Loop chat");
   const html = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
   const actions = html.slice(html.indexOf('id="chat-head-actions"'), html.indexOf('id="selection-bar"'));
   assert.ok(actions.indexOf('id="btn-loop"') !== -1 && actions.indexOf('id="btn-loop"') < actions.indexOf('id="btn-chat-search"'), "Loop mark sits before search");
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  assert.match(css, /#btn-loop svg \{ width: 24px; height: 24px; \}/, "Loop mark matches the 24px search glyph");
+  assert.match(css, /\.ci-loop svg \{ width: 16px; height: 16px; \}/, "list Loop mark is sized for the time row");
   for (const label of ["Forward", "Save to Saved Messages", "Delete"]) {
     assert.ok(view.includes(label), label);
   }

@@ -514,6 +514,41 @@ test("Send never waits forever: a stalled route check, health call or offer time
   for (const pack of ["ru", "fr"]) assert.ok(JSON.parse(readFileSync(new URL(`../app/locales/${pack}.json`, import.meta.url), "utf8"))["Checking how to send…"], `${pack} has the string`);
 });
 
+test("a capability-check timeout still tries Dash", async () => {
+  const ui = await import("../app/js/iroh-xfer-ui.js?peer-timeout");
+  const diag = [];
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: (_lvl, text) => diag.push(text) } });
+  const core = fakeCore();
+  core.getConfig = () => new Promise(() => {});
+  const calls = [];
+  ui.initXferUi({
+    core,
+    invoke: async (cmd, args) => {
+      calls.push(cmd);
+      if (cmd === "xfer_health") return { ready: true, relay: "https://r.example/", relayConnected: true };
+      if (cmd === "xfer_offer") return offerOf({ hash: "ab".repeat(32), name: args.name });
+      return null;
+    },
+    sendText: async (_chatId, text) => ({ id: 1, text }),
+    sendFile: async () => { throw new Error("must not email"); },
+    metadata: async () => ({ "me@relay.example": { irohRelay: "https://r.example/" } }),
+    timeouts: { metaMs: 50, peerMs: 20, healthMs: 50, offerMs: 50, offerPerMbMs: 0 },
+  });
+  const huge = EMAIL_MAX + 1;
+  const plan = await ui.planSend({ size: huge, oneToOne: true, contactId: 12, peerName: "K" });
+  assert.equal(plan.route, "dash", "a timed-out read is not 'too big for email'");
+  assert.equal(await ui.peerCanXfer(12), null);
+  const out = await ui.maybeSend({ chatId: 5, path: "/f", name: "v.mp4", size: huge, oneToOne: true, contactId: 12 });
+  assert.equal(out.handled, true);
+  assert.equal(out.failed, undefined);
+  assert.ok(calls.includes("xfer_offer"));
+  assert.match(diag.join("\n"), /capability check timed out/);
+  core.getConfig = async () => null;
+  const blocked = await ui.planSend({ size: huge, oneToOne: true, contactId: 12, peerName: "K" });
+  assert.equal(blocked.route, "blocked");
+  assert.equal(blocked.reason, "too-big", "an empty answer still means they have not proved Dash");
+});
+
 test("transport: never mails what the relay would bounce; never asks for an email copy over the cap", async () => {
   const mailed = [];
   const email = { sendFile: async (c, f) => mailed.push(["file", f.name]), sendText: async (c, t) => mailed.push(["text", t]) };
