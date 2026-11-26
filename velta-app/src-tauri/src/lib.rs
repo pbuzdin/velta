@@ -1559,6 +1559,16 @@ fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     }
 }
 
+/// #551: most bytes one blobfile Range answer carries. A protocol response
+/// is a whole in-memory body, and a `<video>` opens with `bytes=0-`: without
+/// a cap a 1 GB clip was decrypted into RAM before its first frame. A 206
+/// with the real (shorter) end is valid HTTP; the player asks for the rest.
+const MAX_BLOB_RANGE_BYTES: u64 = 4 * 1024 * 1024;
+
+fn capped_range_end(start: u64, end: u64) -> u64 {
+    end.min(start.saturating_add(MAX_BLOB_RANGE_BYTES - 1))
+}
+
 fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     let not_found = |msg: &str| {
         tauri::http::Response::builder()
@@ -1670,6 +1680,7 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
 
     if let Some(range) = request.headers().get("range").and_then(|v| v.to_str().ok().map(|s| s.to_string())) {
         if let Some((start, end)) = parse_range(&range, len) {
+            let end = capped_range_end(start, end);
             let take = (end - start + 1) as usize;
             let buf = match open_attachment(Path::new(&serve_path))
                 .and_then(|reader| reader.read_range(start, take).map_err(|e| e.to_string()))
@@ -6157,6 +6168,21 @@ mod media_tests {
         assert_eq!(media_cors(Some("null")), Err(()));
         assert_eq!(media_cors(Some("http://webxdc.localhost")), Err(()));
         assert_eq!(media_cors(Some("https://example.com")), Err(()));
+    }
+
+    #[test]
+    fn blob_ranges_are_capped_to_a_few_mib() {
+        let cap = super::MAX_BLOB_RANGE_BYTES;
+        // bytes=0- on a 1 GB file: the first 4 MiB, real end in Content-Range.
+        let (s, e) = parse_range("bytes=0-", 1 << 30).unwrap();
+        assert_eq!(super::capped_range_end(s, e), cap - 1);
+        // Small and tail ranges are untouched.
+        assert_eq!(super::capped_range_end(0, 1), 1);
+        let (s, e) = parse_range("bytes=-200", 1000).unwrap();
+        assert_eq!(super::capped_range_end(s, e), 999);
+        // A big explicit range mid-file is capped from its start.
+        assert_eq!(super::capped_range_end(10_000, 900_000_000), 10_000 + cap - 1);
+        assert_eq!(super::capped_range_end(u64::MAX - 5, u64::MAX - 1), u64::MAX - 1);
     }
 
     #[test]
