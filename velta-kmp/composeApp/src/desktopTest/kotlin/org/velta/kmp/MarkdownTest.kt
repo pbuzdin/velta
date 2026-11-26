@@ -243,6 +243,17 @@ class MarkdownTest {
         val s = markdownAnnotated("see example.com:99999/a", accent, bg, ink)
         assertTrue(s.getStringAnnotations("URL", 0, s.length).none { it.item.contains("99999") })
     }
+
+    @Test
+    fun dashOfferHidesExplainerAndTicket() {
+        val ticket = "VXFER1:eyJ2IjoxLCJoYXNoIjoiY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZCIsInNpemUiOjcwMDAwMDAsIm5hbWUiOiJmaWxtLm1wNCJ9"
+        val text = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files of any size straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\n$ticket"
+        val s = markdownAnnotated(text, accent, bg, ink)
+        assertEquals("📎 film.mp4 · 6.7 MB", s.text)
+        assertTrue(s.getStringAnnotations("URL", 0, s.length).isEmpty())
+        val beam = "Offering Screenshot_1.jpg (576.7 KB) — open \"Velta Beam\" to receive\n$ticket"
+        assertEquals("📎 film.mp4 · 6.7 MB", markdownAnnotated(beam, accent, bg, ink).text)
+    }
 }
 
 /** AnnotatedString.getUrlAnnotations exists on newer Compose; provide a

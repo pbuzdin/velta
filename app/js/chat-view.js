@@ -138,7 +138,7 @@ import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./tra
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
 import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend, setXferLightboxOpener, paintXferIn } from "./iroh-xfer-ui.js";
-import { THRESHOLD as XFER_THRESHOLD, fileKind } from "./iroh-xfer.js";
+import { THRESHOLD as XFER_THRESHOLD, fileKind, xferVisibleText } from "./iroh-xfer.js";
 import { probeVideo, playLabel } from "./composer-video.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
@@ -1120,7 +1120,7 @@ export class ChatView {
     // Newest pin drives the collapsed summary; the tray lists all of them,
     // newest first. `open` (expanded state) survives refreshes.
     const wasOpen = bar.open;
-    const snippet = (m) => (m.text || "").slice(0, 60) || (m.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
+    const snippet = (m) => xferVisibleText(m.text || "").slice(0, 60) || (m.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
     const newest = msgs[msgs.length - 1];
     // Unpin is for chats you can write in: members of someone else's channel
     // see the pins but no ✕ (#157). readOnly resolves via canSend.
@@ -2098,7 +2098,7 @@ export class ChatView {
     const orig = document.createElement("div");
     orig.className = "thread-orig";
     const pm = parentItem?.msg;
-    orig.textContent = pm ? `${pm.fromContact?.name || ""}${pm.fromContact?.name ? ": " : ""}${(pm.text || pm.fileName || "").split("\n")[0]}` : "";
+    orig.textContent = pm ? `${pm.fromContact?.name || ""}${pm.fromContact?.name ? ": " : ""}${(xferVisibleText(pm.text || "") || pm.fileName || "").split("\n")[0]}` : "";
     titles.append(title, orig);
     const close = document.createElement("button");
     close.type = "button";
@@ -2644,7 +2644,7 @@ export class ChatView {
     if (m.quote) {
       bubble += `<div class="msg-quote" data-quote="${m.quote.id}">
         <span class="q-name">${escapeHtml(m.quote.fromContact?.name || "")}</span>
-        <span class="q-text">${escapeHtml(m.quote.text || "")}</span></div>`;
+        <span class="q-text">${escapeHtml(xferVisibleText(m.quote.text || ""))}</span></div>`;
     }
     if (m.transfer) {
       const pct = Math.max(0, Math.min(100, m.transfer.pct || 0));
@@ -3870,7 +3870,7 @@ export class ChatView {
     // Captions count: any bubble with text can enter selection mode. Copy
     // text stays whole-message and plain-text only. Touch only — desktop
     // uses the mouse and the floating Reply chip.
-    if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", short: t("Copy"), pair: "text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast(t("Copied")); } });
+    if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", short: t("Copy"), pair: "text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(xferVisibleText(m.text)); toast(t("Copied")); } });
     if (m.text && touch) items.push({ label: "Select text", pair: "text", icon: ICO.selectText, onClick: () => this._selectMessageText(m.id) });
     if (!p2pg) items.push(
       { label: "Forward", pair: "send", icon: ICO.forward, onClick: () => this._forward([m.id]) },
@@ -4341,7 +4341,7 @@ export class ChatView {
         this.exitSelection();
       } else if (act === "forward") this._forward(ids);
       else if (act === "copy") {
-        const texts = ids.map(id => this.msgIndex.get(id)?.msg.text).filter(Boolean);
+        const texts = ids.map(id => xferVisibleText(this.msgIndex.get(id)?.msg.text || "")).filter(Boolean);
         navigator.clipboard?.writeText(texts.join("\n"));
         toast(t("Copied {n} messages", { n: texts.length }));
         this.exitSelection();
@@ -4418,7 +4418,7 @@ export class ChatView {
     document.getElementById("reply-name").textContent = this.replyTo.fromContact?.name || t("You");
     document.getElementById("reply-text").textContent = this.replyFragment
       ? "“" + this.replyFragment + "”"
-      : (this.replyTo.text || this.replyTo.viewtype);
+      : xferVisibleText(this.replyTo.text || this.replyTo.viewtype);
   }
 
   // Selection → floating "Reply" chip: watches text selections anchored in a

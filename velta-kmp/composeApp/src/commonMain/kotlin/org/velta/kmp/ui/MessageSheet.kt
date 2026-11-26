@@ -193,7 +193,7 @@ internal fun MessageSheetHost(model: AppModel) {
             SheetAction.SaveSticker -> model.saveSticker(m)
             SheetAction.Download -> model.downloadAttachment(m)
             SheetAction.Pin, SheetAction.Unpin -> model.togglePin(m)
-            SheetAction.CopyText -> { clipboard.setText(AnnotatedString(m.text)); model.showToast(copied) }
+            SheetAction.CopyText -> { clipboard.setText(AnnotatedString(xferVisibleText(m.text) { L.t(it) })); model.showToast(copied) }
             SheetAction.SelectText -> model.startSelectText(m)
             SheetAction.Forward -> model.startForward(listOf(m.id))
             SheetAction.Resend -> model.resend(m)
@@ -754,7 +754,7 @@ internal fun SelectTextDialog(model: AppModel) {
         compact = true,
         foot = {
             if (!model.sheetChat.readOnly) TextButton(onClick = { close(); model.startReply(m) }) { Text(L.t("Reply"), color = tokens.accentText) }
-            TextButton(onClick = { clipboard.setText(AnnotatedString(m.text)); model.showToast(copied); close() }) { Text(L.t("Copy"), color = tokens.accentText) }
+            TextButton(onClick = { clipboard.setText(AnnotatedString(xferVisibleText(m.text) { L.t(it) })); model.showToast(copied); close() }) { Text(L.t("Copy"), color = tokens.accentText) }
             TextButton(onClick = close) { Text(L.t("Close"), color = tokens.accentText) }
         },
     ) {

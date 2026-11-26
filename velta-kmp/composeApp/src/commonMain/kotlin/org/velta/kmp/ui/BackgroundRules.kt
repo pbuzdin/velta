@@ -176,7 +176,7 @@ fun noticeSenderName(overrideSenderName: String?, displayName: String?, name: St
 /** Body: the text, else the attachment kind ("Photo", "Voice message"…,
  *  localized by [t]), else [fallback]. */
 fun noticeText(text: String, viewType: String, hasFile: Boolean, fallback: String, t: (String) -> String = { it }): String = when {
-    text.isNotBlank() -> text
+    text.isNotBlank() -> xferVisibleText(text, t)
     hasFile || viewType !in setOf("Text", "Unknown") -> t(hiddenKindLabel(viewType))
     else -> fallback
 }

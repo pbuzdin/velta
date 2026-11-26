@@ -41,6 +41,8 @@ fun mediaLabelKey(viewType: String): String? = when (viewType) {
 
 /** Snippet line: the text (first line, 80 chars), else the file name or media label. */
 fun replySnippet(m: MessageObject, t: (String) -> String = { it }): String {
+    val shown = xferDisplayText(m.text, t)
+    if (shown != null) return shown.take(80)
     val line = m.text.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
     if (line.isNotEmpty()) return line.take(80)
     if (m.viewType == "File" && !m.fileName.isNullOrBlank()) return m.fileName
