@@ -756,5 +756,7 @@ message summary as its display name ("Chat with Бот теперь умеет�
 instead of the bot's real name) and tapping Import errored. Both paths now
 read through the seal-aware `blob::open_blob(...).read_all()` (the selected
 account provides the key); `parse_vcard` falls back to the raw read when no
-account is selected (headless/tests). Velta-only sealing, so nothing goes
-upstream.
+account is selected (headless/tests). The read now yields a `String`, so
+the `parse_vcard` op also covers the call line (`parse_vcard(&vcard)`); left
+outside the op at first, it showed up as tree-check drift. Velta-only
+sealing, so nothing goes upstream.
