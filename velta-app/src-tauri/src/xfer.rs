@@ -1468,7 +1468,7 @@ mod tests {
             BASE64URL_NOPAD.encode(json.to_string().as_bytes())
         );
         let text = format!(
-            "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files of any size straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\n{ticket}"
+            "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files up to 2 GB straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\n{ticket}"
         );
         assert_eq!(
             xfer_display_text(&text).as_deref(),

@@ -5416,7 +5416,7 @@ mod bg_notify_text_tests {
         assert_eq!(bg_notify_text("", "File", Some("doc.pdf")), "File: doc.pdf");
         assert_eq!(bg_notify_text("", "File", None), "File");
         assert_eq!(bg_notify_text("", "Text", None), "");
-        let offer = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files of any size straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\nVXFER1:eyJ2IjoxLCJoYXNoIjoiY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZCIsInNpemUiOjcwMDAwMDAsIm5hbWUiOiJmaWxtLm1wNCJ9";
+        let offer = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files up to 2 GB straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\nVXFER1:eyJ2IjoxLCJoYXNoIjoiY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZCIsInNpemUiOjcwMDAwMDAsIm5hbWUiOiJmaWxtLm1wNCJ9";
         assert_eq!(bg_notify_text(offer, "Text", None), "📎 film.mp4 · 6.7 MB");
         assert_eq!(
             bg_notify_text(r#"Offering Screenshot_1.jpg (576.7 KB) — open "Velta Beam" to receive"#, "Text", None),

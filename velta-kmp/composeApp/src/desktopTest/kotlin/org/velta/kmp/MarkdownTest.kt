@@ -247,7 +247,7 @@ class MarkdownTest {
     @Test
     fun dashOfferHidesExplainerAndTicket() {
         val ticket = "VXFER1:eyJ2IjoxLCJoYXNoIjoiY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZCIsInNpemUiOjcwMDAwMDAsIm5hbWUiOiJmaWxtLm1wNCJ9"
-        val text = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files of any size straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\n$ticket"
+        val text = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files up to 2 GB straight between Velta apps.\nOpen it in Velta, or learn more at https://velta.cc/dash\n$ticket"
         val s = markdownAnnotated(text, accent, bg, ink)
         assertEquals("📎 film.mp4 · 6.7 MB", s.text)
         assertTrue(s.getStringAnnotations("URL", 0, s.length).isEmpty())

@@ -48,7 +48,7 @@ test("file card carries a readable line and the ticket (UTF-8 names)", () => {
   const text = fileCardText({ name: tk.name, size: tk.size, ticket });
   const lines = text.split("\n");
   assert.match(lines[0], /📦 Фильм\.mp4 \(6\.7 MB\) was sent with Velta Dash/);
-  assert.match(lines[0], /files of any size straight between Velta apps/);
+  assert.match(lines[0], /files up to 2 GB straight between Velta apps/);
   assert.match(lines[1], /learn more at https:\/\/velta\.cc\/dash/);
   assert.equal(lines[2], ticket);
   const card = parseFileCard(text);
