@@ -7073,7 +7073,7 @@ mod tests {
         };
         assert!(!got_cap, "capped row must not reach the peer via the timer");
     }
-}
+
     /// #546: parity with the desktop engine — the ceiling is disk space, not
     /// a fixed 2 GB/256 MB number.
     #[test]
