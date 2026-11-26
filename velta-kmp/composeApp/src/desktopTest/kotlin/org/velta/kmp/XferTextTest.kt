@@ -25,7 +25,7 @@ class XferTextTest {
 
     @Test
     fun newOfferHidesTheExplainerAndKeepsTheTicketParsable() {
-        val text = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files of any size straight between Velta apps.\n" +
+        val text = "📦 film.mp4 (6.7 MB) was sent with Velta Dash, which sends files up to 2 GB straight between Velta apps.\n" +
             "Open it in Velta, or learn more at https://velta.cc/dash\n$ticket"
         val card = parseFileCard(text)!!
         assertEquals("film.mp4", card.name)

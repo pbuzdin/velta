@@ -80,7 +80,7 @@ function fmtSize(n) {
  * (en/ru/fr). Velta never shows these lines — see xferDisplayText.
  */
 export function fileCardText({ name, size, ticket }) {
-  return `${t("📦 {name} ({size}) was sent with Velta Dash, which sends files of any size straight between Velta apps.", { name, size: fmtSize(size) })}\n` +
+  return `${t("📦 {name} ({size}) was sent with Velta Dash, which sends files up to 2 GB straight between Velta apps.", { name, size: fmtSize(size) })}\n` +
     `${t("Open it in Velta, or learn more at https://velta.cc/dash")}\n${ticket}`;
 }
 

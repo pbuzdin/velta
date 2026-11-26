@@ -1758,7 +1758,7 @@
   "This folder is {size} — over the 2 GB single-transfer limit, so it can't be sent as one transfer": "Папка занимает {size} — больше лимита 2 ГБ на одну передачу, отправить её одной передачей нельзя",
   "Large folder ({size}) — packing and sending may take a while": "Большая папка ({size}) — упаковка и отправка займут время",
   "📎 {name} · {size} — sent with Velta Dash": "📎 {name} · {size} — отправлено через Velta Dash",
-  "📦 {name} ({size}) was sent with Velta Dash, which sends files of any size straight between Velta apps.": "📦 {name} ({size}) отправлено через Velta Dash — передача файлов любого размера напрямую между приложениями Velta.",
+  "📦 {name} ({size}) was sent with Velta Dash, which sends files up to 2 GB straight between Velta apps.": "📦 {name} ({size}) отправлено через Velta Dash — передача файлов до 2 ГБ напрямую между приложениями Velta.",
   "Open it in Velta, or learn more at https://velta.cc/dash": "Откройте в Velta или узнайте больше: https://velta.cc/dash",
   "📎 {name} · {size}": "📎 {name} · {size}",
   "Sent with Velta Dash": "Отправлено через Velta Dash",
