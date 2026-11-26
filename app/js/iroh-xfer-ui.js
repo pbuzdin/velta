@@ -172,16 +172,27 @@ export async function maybeSend({ chatId, path, name, size, oneToOne, contactId 
 }
 
 const safeFileUrl = (p) => { try { return fileUrl(p); } catch { return "#"; } };
+/** True while the ticket in the card's message is still redeemable. */
+function offerLive(st) {
+  const card = st.text ? parseFileCard(st.text) : null;
+  if (!card) return true; // no ticket to judge: default to "Retry may work"
+  return Number(card.tk.exp) * 1000 > Date.now();
+}
 const ERRORS = {
   "too-big": () => t("Too big to send by email. Send it again when you are both online."),
-  "too-big-recv": () => t("Too large for email: ask the sender to resend while you are both online."),
+  // #546: a failed fetch on an un-mailable file must not tell the user to
+  // coordinate a resend while the offer is still open — Retry works right
+  // now. Only an expired offer really needs the sender.
+  "too-big-recv": (st) => offerLive(st)
+    ? t("Fetch failed — the offer is still open, tap Retry.")
+    : t("The offer has expired and the file is too large for email — ask the sender to resend while you are both online."),
   interrupted: () => t("Velta Dash transfer interrupted."),
   "no-space": () => t("Not enough free space to receive this file."),
   "too-large": () => t("This file is too large to receive."),
   missing: () => t("The file is no longer available."),
 };
 function stateText(st) {
-  if (st.error && ERRORS[st.error]) return ERRORS[st.error]();
+  if (st.error && ERRORS[st.error]) return ERRORS[st.error](st);
   if (st.asked && !st.done) return st.dashFailed ? t("Couldn't fetch via Velta Dash: asked for the email copy") : t("Asked for the email copy");
   if (st.outgoing) return st.mailed ? t("Sent by email") : routeLabel("iroh");
   if (st.done) return t("Received with Velta Dash");

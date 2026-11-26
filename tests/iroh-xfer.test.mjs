@@ -592,7 +592,7 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   results.push({ error: "unreachable", code: "unreachable", email: true });
   core.msg(9, huge);
   await tick(); await tick();
-  assert.match(ui.xferCardHtml(huge), /Too large for email: ask the sender to resend while you are both online\./);
+  assert.match(ui.xferCardHtml(huge), /Fetch failed — the offer is still open, tap Retry\./);
   assert.doesNotMatch(ui.xferCardHtml(huge), /xfer-ask/);
   assert.match(ui.xferCardHtml(huge), /data-xfer-retry/);
   // Under the cap: the card says Dash failed and the email copy was asked for.
@@ -830,4 +830,32 @@ test("receiver card: a same-content resend flips a dead outgoing state to a fres
   assert.equal(stored[H1]?.outgoing, undefined, "the outgoing mark is gone");
   assert.equal(stored[H1]?.path, "/acc/xfer-in/resent.bin", "the persisted path is the fresh fetch");
   assert.equal(stored[H2]?.error, undefined, "the swept missing error is gone");
+});
+
+test("#546: a failed fetch on an un-mailable file blames the offer only when it expired", async t => {
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?big");
+  const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
+  const H2 = (c) => c.repeat(32);
+  ui.initXferUi({
+    core,
+    // Every fetch fails with an email-able-code: the route is dead, but the
+    // email fallback is impossible over EMAIL_MAX — the copy must say which.
+    invoke: async (cmd, args) => (cmd === "xfer_fetch" ? { error: "boom", code: "stalled", email: true } : null),
+    sendText: async () => ({ id: 1 }),
+    sendFile: async () => {},
+    metadata: async () => null,
+  });
+  await tick();
+  const nowS = Math.floor(Date.now() / 1000);
+  const live = fileCardText({ name: "big.bin", size: EMAIL_MAX + 1, ticket: offerOf({ hash: H2("11"), name: "big.bin", exp: nowS + 3600, size: EMAIL_MAX + 1 }) });
+  core.msg(9, live);
+  await tick();
+  assert.match(ui.xferCardHtml(live), /offer is still open, tap Retry/, "a live offer: Retry is the answer, not a resend");
+
+  const dead = fileCardText({ name: "old.bin", size: EMAIL_MAX + 1, ticket: offerOf({ hash: H2("22"), name: "old.bin", exp: nowS - 60, size: EMAIL_MAX + 1 }) });
+  core.msg(9, dead);
+  await tick();
+  assert.match(ui.xferCardHtml(dead), /offer has expired.*ask the sender to resend/s, "expired: the resend ask is honest");
 });
