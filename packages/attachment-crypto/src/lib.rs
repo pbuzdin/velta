@@ -84,7 +84,9 @@ pub fn encrypt<R: Read, W: Write>(
     plaintext_len: u64,
     output: &mut W,
 ) -> Result<()> {
-    encrypt_dyn(key, input, plaintext_len, output, &mut |bytes| rand::fill(bytes))
+    encrypt_dyn(key, input, plaintext_len, output, &mut |bytes| {
+        rand::fill(bytes)
+    })
 }
 
 /// The encrypt loop, not generic: it is compiled (and optimized) in this
@@ -621,7 +623,11 @@ mod tests {
     /// The encrypt loop before #551 (allocating, two writes per chunk),
     /// with the same randomness order. The new loop must match it byte for
     /// byte.
-    fn reference_encrypt(key: &AttachmentKey, plaintext: &[u8], fill: &mut dyn FnMut(&mut [u8])) -> Vec<u8> {
+    fn reference_encrypt(
+        key: &AttachmentKey,
+        plaintext: &[u8],
+        fill: &mut dyn FnMut(&mut [u8]),
+    ) -> Vec<u8> {
         let plaintext_len = plaintext.len() as u64;
         let mut output = Vec::new();
         let mut file_key = [0u8; 32];
@@ -640,7 +646,13 @@ mod tests {
         wrap_aad.extend_from_slice(&plaintext_len.to_be_bytes());
         wrap_aad.extend_from_slice(&file_id);
         let wrapped = wrapper
-            .encrypt(Nonce::from_slice(&wrap_nonce), Payload { msg: &file_key, aad: &wrap_aad })
+            .encrypt(
+                Nonce::from_slice(&wrap_nonce),
+                Payload {
+                    msg: &file_key,
+                    aad: &wrap_aad,
+                },
+            )
             .unwrap();
         let mut header = [0u8; HEADER_LEN];
         header[..36].copy_from_slice(&wrap_aad);
@@ -660,7 +672,13 @@ mod tests {
             fill(&mut nonce);
             let aad = chunk_aad(&file_id, index, final_flag, plaintext_len, wanted as u32);
             let ct = cipher
-                .encrypt(Nonce::from_slice(&nonce), Payload { msg: &chunk, aad: &aad })
+                .encrypt(
+                    Nonce::from_slice(&nonce),
+                    Payload {
+                        msg: &chunk,
+                        aad: &aad,
+                    },
+                )
                 .unwrap();
             output.extend_from_slice(&nonce);
             output.extend_from_slice(&ct);
@@ -685,11 +703,26 @@ mod tests {
 
     #[test]
     fn encrypt_output_is_byte_identical_to_the_old_loop() {
-        for len in [0, 1, 300, CHUNK_LEN - 1, CHUNK_LEN, CHUNK_LEN + 1, 3 * CHUNK_LEN + 5] {
+        for len in [
+            0,
+            1,
+            300,
+            CHUNK_LEN - 1,
+            CHUNK_LEN,
+            CHUNK_LEN + 1,
+            3 * CHUNK_LEN + 5,
+        ] {
             let plaintext = pattern(len);
             let mut new = Vec::new();
             let mut rng = Counter(1);
-            encrypt_dyn(&key(), &mut &plaintext[..], len as u64, &mut new, &mut |b| rng.fill(b)).unwrap();
+            encrypt_dyn(
+                &key(),
+                &mut &plaintext[..],
+                len as u64,
+                &mut new,
+                &mut |b| rng.fill(b),
+            )
+            .unwrap();
             let mut rng = Counter(1);
             let old = reference_encrypt(&key(), &plaintext, &mut |b| rng.fill(b));
             assert_eq!(new, old, "len {len}");
@@ -717,9 +750,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("old");
         std::fs::write(&path, bytes).unwrap();
-        let key = AttachmentKey::from_db_key(&format!("x'{}'", "42".repeat(32))).unwrap().unwrap();
+        let key = AttachmentKey::from_db_key(&format!("x'{}'", "42".repeat(32)))
+            .unwrap()
+            .unwrap();
         let expected: Vec<u8> = (0..300u32).map(|i| (i * 7 % 256) as u8).collect();
-        assert_eq!(AttachmentReader::open(&path, Some(&key)).unwrap().read_all().unwrap(), expected);
+        assert_eq!(
+            AttachmentReader::open(&path, Some(&key))
+                .unwrap()
+                .read_all()
+                .unwrap(),
+            expected
+        );
         let mut reader = AttachmentReader::open(&path, Some(&key)).unwrap();
         reader.seek(SeekFrom::Start(123)).unwrap();
         let mut part = [0u8; 50];
@@ -746,7 +787,15 @@ mod tests {
             assert_eq!(got, &plaintext[start..end], "range {start}..{end}");
         }
         // Odd buffer sizes that straddle chunk edges, read to the end.
-        for bs in [1usize, 7, 1000, 8 * 1024, 96 * 1024, CHUNK_LEN + 1, 192 * 1024] {
+        for bs in [
+            1usize,
+            7,
+            1000,
+            8 * 1024,
+            96 * 1024,
+            CHUNK_LEN + 1,
+            192 * 1024,
+        ] {
             let mut reader = AttachmentReader::open(&path, Some(&key())).unwrap();
             reader.seek(SeekFrom::Start(5)).unwrap();
             let mut out = Vec::new();
@@ -770,7 +819,10 @@ mod tests {
         let mut reader = AttachmentReader::open(&path, Some(&key())).unwrap();
         let out_path = dir.path().join("plain");
         let mut out = File::create(&out_path).unwrap();
-        assert_eq!(io::copy(&mut reader, &mut out).unwrap(), plaintext.len() as u64);
+        assert_eq!(
+            io::copy(&mut reader, &mut out).unwrap(),
+            plaintext.len() as u64
+        );
         drop(out);
         assert_eq!(std::fs::read(&out_path).unwrap(), plaintext);
     }
@@ -782,7 +834,13 @@ mod tests {
         let path = write_blob(&dir, &plaintext);
         let mut reader = AttachmentReader::open(&path, Some(&key())).unwrap();
         let mut one = [0u8; 10];
-        for pos in [CHUNK_LEN as u64 + 3, 2, 2 * CHUNK_LEN as u64 + 80, CHUNK_LEN as u64 - 5, 0] {
+        for pos in [
+            CHUNK_LEN as u64 + 3,
+            2,
+            2 * CHUNK_LEN as u64 + 80,
+            CHUNK_LEN as u64 - 5,
+            0,
+        ] {
             assert_eq!(reader.seek(SeekFrom::Start(pos)).unwrap(), pos);
             reader.read_exact(&mut one).unwrap();
             assert_eq!(one, plaintext[pos as usize..pos as usize + 10]);
@@ -819,10 +877,17 @@ mod tests {
         let mut buf = [0u8; 16];
         reader.seek(SeekFrom::Start(CHUNK_LEN as u64 - 8)).unwrap();
         reader.read_exact(&mut buf[..8]).unwrap();
-        assert_eq!(buf[..8], plaintext[CHUNK_LEN - 8..CHUNK_LEN], "the first chunk's tail is fine");
+        assert_eq!(
+            buf[..8],
+            plaintext[CHUNK_LEN - 8..CHUNK_LEN],
+            "the first chunk's tail is fine"
+        );
         for _ in 0..2 {
             reader.seek(SeekFrom::Start(CHUNK_LEN as u64 + 1)).unwrap();
-            assert_eq!(reader.read(&mut buf).unwrap_err().kind(), io::ErrorKind::InvalidData);
+            assert_eq!(
+                reader.read(&mut buf).unwrap_err().kind(),
+                io::ErrorKind::InvalidData
+            );
         }
         reader.seek(SeekFrom::Start(2 * CHUNK_LEN as u64)).unwrap();
         reader.read_exact(&mut buf).unwrap();
