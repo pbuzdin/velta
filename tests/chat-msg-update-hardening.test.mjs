@@ -566,6 +566,7 @@ test("Download saves an image, a video, or a file from the message menu", async 
 
   node("popups").replaceChildren();
   item.msg = { ...item.msg, viewtype: "image", text: "", fileName: "shot.jpg", filePath: null, downloadState: "Available" };
+  node("popups").replaceChildren();
   let read = null;
   core.downloadFullMessage = async (id) => { assert.equal(id, 10); };
   core.getMessage = async () => ({ ...item.msg, downloadState: "Done", filePath: "/accounts/a/shot.jpg" });
@@ -586,8 +587,18 @@ test("Download saves an image, a video, or a file from the message menu", async 
     return el;
   };
   view._msgContextMenu(item, 4, 4);
-  const btn = [...node("popups").querySelector(".ctx-menu").querySelectorAll("button")].find(b => b.innerHTML.includes(">Download<"));
-  await btn.fire("click");
+  // #548: images say "Save image" (not Download), and Copy image stays off —
+  // the message is not downloaded yet (no filePath) so there is nothing to
+  // put on the clipboard. The menu renders as the desktop bar or the touch
+  // sheet depending on the (stubbed) pointer — the menuId element property
+  // is stable across both (the fake document does not reflect dataset to
+  // attributes).
+  const byMenuId = (id) => [...node("popups").querySelectorAll("button")]
+    .find((b) => b.dataset?.menuId === id);
+  const saveBtn = byMenuId("save-image");
+  assert.ok(saveBtn, "images save via Save image");
+  assert.ok(!byMenuId("copy-image"), "no bytes yet: no Copy image");
+  await saveBtn.fire("click");
   await wait(50);
   assert.equal(read, "/accounts/a/shot.jpg");
   assert.equal(saved, "shot.jpg");
