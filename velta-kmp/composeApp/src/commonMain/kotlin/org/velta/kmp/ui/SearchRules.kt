@@ -23,7 +23,7 @@ fun searchPage(ids: List<Long>, limit: Int = SEARCH_LIMIT): List<Long> = ids.tak
 fun searchHitName(m: MessageObject): String =
     m.overrideSenderName?.ifBlank { null } ?: m.sender?.displayName?.ifBlank { null } ?: m.sender?.name ?: ""
 
-fun searchHitText(m: MessageObject): String = m.text.take(80)
+fun searchHitText(m: MessageObject): String = xferVisibleText(m.text).take(80)
 
 sealed interface JumpPlan {
     /** Already in the loaded window: just scroll. */

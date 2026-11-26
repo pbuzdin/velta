@@ -7,6 +7,7 @@ import {
   THRESHOLD, chooseRoute, irohXferEnabled, setIrohXferEnabled, advertisedRelay, decodeTicket,
   fileCardText, parseFileCard, resendRequestText, parseResendRequest, createTransport, EMAIL_MAX, DELIVERED_GRACE_MS,
   dashState, dashExplainer, emailReason, routeLabel, SETTING_LABEL,
+  xferDisplayText, xferVisibleText, looksLikeXferExplainer,
 } from "../app/js/iroh-xfer.js";
 
 const tk = { v: 1, proto: "iroh-0.35", node: "ab".repeat(32), relay: "https://iroh.relay.example/", addrs: [], hash: "cd".repeat(32), size: 7000000, name: "Фильм.mp4", exp: 4000000000 };
@@ -45,11 +46,15 @@ test("file card carries a readable line and the ticket (UTF-8 names)", () => {
   const ticket = enc(tk);
   assert.deepEqual(decodeTicket(ticket), tk);
   const text = fileCardText({ name: tk.name, size: tk.size, ticket });
-  assert.match(text.split("\n")[0], /Фильм\.mp4 · 6\.7 MB/);
-  assert.match(text.split("\n")[1], /follows by email/, "Delta Chat readers learn the file comes by email");
+  const lines = text.split("\n");
+  assert.match(lines[0], /📦 Фильм\.mp4 \(6\.7 MB\) was sent with Velta Dash/);
+  assert.match(lines[0], /files of any size straight between Velta apps/);
+  assert.match(lines[1], /learn more at https:\/\/velta\.cc\/dash/);
+  assert.equal(lines[2], ticket);
   const card = parseFileCard(text);
   assert.equal(card.ticket, ticket);
   assert.equal(card.size, tk.size);
+  assert.equal(card.name, tk.name);
   assert.equal(parseFileCard("hello"), null);
   assert.equal(decodeTicket(enc({ ...tk, hash: "x" })), null);
   assert.equal(decodeTicket(enc({ ...tk, v: 2 })), null);
@@ -362,7 +367,7 @@ test("ui glue (PWA): no iroh — cards ask for the email copy, nothing is offere
 test("Velta Dash: brand strings, header badge state, explainer hint, fallback reasons", () => {
   assert.equal(SETTING_LABEL(), "Velta Dash");
   assert.equal(routeLabel("iroh"), "Sent with Velta Dash");
-  assert.match(fileCardText({ name: "a.bin", size: tk.size, ticket: "VXFER1:x" }).split("\n")[0], /sent with Velta Dash/);
+  assert.match(fileCardText({ name: "a.bin", size: tk.size, ticket: "VXFER1:x" }).split("\n")[0], /a\.bin \(6\.7 MB\) was sent with Velta Dash/);
   const one = { kind: "single", isP2p: false, contactId: 12, shell: true, enabled: true, proven: true };
   assert.equal(dashState(one), "on", "badge: 1:1, Dash on, capability proven");
   assert.equal(dashState({ ...one, proven: false }), "waiting", "unproven (or Delta Chat): no badge");
@@ -893,4 +898,53 @@ test("#546: a failed fetch on an un-mailable file blames the offer only when it 
   core.msg(9, dead);
   await tick();
   assert.match(ui.xferCardHtml(dead), /offer has expired.*ask the sender to resend/s, "expired: the resend ask is honest");
+});
+
+test("Delta Chat explainer is hidden from Velta; old wording still parses", () => {
+  const ticket = enc(tk);
+  const text = fileCardText({ name: tk.name, size: tk.size, ticket });
+  assert.equal(xferDisplayText(text), "📎 Фильм.mp4 · 6.7 MB");
+  assert.equal(xferVisibleText(text), "📎 Фильм.mp4 · 6.7 MB");
+  assert.ok(!xferVisibleText(text).includes("velta.cc/dash"));
+  assert.ok(!xferVisibleText(text).includes(ticket));
+  assert.ok(!xferVisibleText(text).includes("was sent with Velta Dash"));
+
+  const oldDash = `📎 shot.jpg · 576.7 KB — sent with Velta Dash\nIf your app can't open this, the file follows by email.\n${ticket}`;
+  assert.equal(parseFileCard(oldDash).ticket, ticket);
+  assert.equal(xferDisplayText(oldDash), "📎 Фильм.mp4 · 6.7 MB", "size and name come from the ticket");
+
+  const beam = `Offering Screenshot_1.jpg (576.7 KB) — open "Velta Beam" to receive\n${ticket}`;
+  assert.equal(parseFileCard(beam).name, tk.name);
+  assert.equal(xferDisplayText(beam), "📎 Фильм.mp4 · 6.7 MB");
+
+  // Truncated chat-list / notification summaries have no ticket.
+  assert.equal(xferDisplayText("📦 film.mp4 (52.9 MB) was sent with Velta Dash, which sends files"), "📎 film.mp4 · 52.9 MB");
+  assert.equal(xferDisplayText("📎 a.bin · 6.7 MB — sent with Velta Dash"), "📎 a.bin · 6.7 MB");
+  assert.equal(xferDisplayText("Offering Screenshot_1.jpg (576.7 KB) — open \"Velta Beam\" to receive"), "📎 Screenshot_1.jpg · 576.7 KB");
+  assert.equal(xferDisplayText("📦 x (1.0 MB) a été envoyé avec Velta Dash, qui envoie des fichiers"), "📎 x · 1.0 MB");
+  assert.equal(xferDisplayText("Alice: 📦 film.mp4 (52.9 MB) was sent with Velta Dash, which sends files"), "📎 film.mp4 · 52.9 MB");
+  assert.equal(xferDisplayText("📦 y (2.0 MB) отправлено через Velta Dash — передача файлов"), "📎 y · 2.0 MB");
+  assert.equal(xferDisplayText("Open it in Velta, or learn more at https://velta.cc/dash"), "Velta Dash");
+  assert.equal(xferDisplayText(resendRequestText(tk.hash)), "Asked for the email copy");
+  assert.equal(xferDisplayText("hello about Velta Dash later"), null, "ordinary mention of the name is not rewritten");
+  assert.equal(xferVisibleText("hello"), "hello");
+  assert.equal(looksLikeXferExplainer("just a chat"), false);
+  assert.equal(looksLikeXferExplainer(text), true);
+});
+
+test("Velta hides the explainer in the chat list, quotes, notifications, search and copy", () => {
+  const src = (f) => readFileSync(new URL("../" + f, import.meta.url), "utf8");
+  const ui = src("app/js/chat-view.js");
+  const app = src("app/js/app.js");
+  const rpc = src("app/js/rpc-core.js");
+  assert.match(ui, /xferVisibleText\(m\.text\)/);
+  assert.match(ui, /xferVisibleText\(m\.quote\.text/);
+  assert.match(ui, /xferVisibleText\(this\.replyTo\.text/);
+  assert.match(app, /xferVisibleText\(msg\?\.text/);
+  assert.match(app, /xferVisibleText\(m\.text \|\| ""\)\.slice\(0, 80\)/);
+  assert.match(rpc, /xferDisplayText\(c\.summaryText2\)/);
+  assert.match(rpc, /xferVisibleText\(q\.text/);
+  // The bubble still becomes a file card, never the explainer.
+  const md = src("app/js/markdown.js");
+  assert.match(md, /xferCardHtml\(rawText\)/);
 });

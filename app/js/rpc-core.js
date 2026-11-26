@@ -8,6 +8,7 @@
 
 import { STOCK_OVERRIDES, SUPPRESSED_DEVICE_LABELS } from "./velta-strings.js";
 import { t } from "./i18n.js";
+import { xferDisplayText, xferVisibleText } from "./iroh-xfer.js";
 import { bytesFromBase64 } from "./app-browser.js";
 
 let nextId = 1;
@@ -841,6 +842,12 @@ export class JsonRpcCore extends EventTarget {
     else if (lastType === "Video") lastMsg = c.summaryText2 || "🎬 Video";
     else if (lastType === "File") lastMsg = c.summaryText2 || "📎 File";
     else if (lastType === "Sticker") lastMsg = c.summaryText2 || "Sticker";
+    else {
+      // Dash offers are text messages; core's summary is the Delta Chat
+      // explainer (or a truncation of it). Show only the short Velta line.
+      const body = xferDisplayText(c.summaryText2) || xferDisplayText(lastMsg);
+      if (body) lastMsg = [c.summaryText1, body].filter(Boolean).join(": ");
+    }
     const outgoing = c.summaryStatus >= 18 && c.summaryStatus <= 28;
     return {
       id: c.id,
@@ -914,13 +921,14 @@ export class JsonRpcCore extends EventTarget {
 
   _mapQuote(q) {
     if (!q) return null;
+    const text = xferVisibleText(q.text || "");
     if (q.kind === "JustText") {
-      return { id: 0, from: 0, text: q.text || "", fromContact: { name: "", color: "#888" } };
+      return { id: 0, from: 0, text, fromContact: { name: "", color: "#888" } };
     }
     return {
       id: q.messageId ?? 0,
       from: 0,
-      text: q.text || "",
+      text,
       fromContact: { name: q.overrideSenderName || q.authorDisplayName || "", color: q.authorDisplayColor || "#888" },
     };
   }

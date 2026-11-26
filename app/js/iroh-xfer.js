@@ -76,11 +76,64 @@ function fmtSize(n) {
 /**
  * Text of the small encrypted message that replaces the attachment: readable
  * lines (what Delta Chat or any app without the transfer shows) and the
- * ticket on its own line.
+ * ticket on its own line. The wording is in the sender's UI language
+ * (en/ru/fr). Velta never shows these lines — see xferDisplayText.
  */
 export function fileCardText({ name, size, ticket }) {
-  return `${t("📎 {name} · {size} — sent with Velta Dash", { name, size: fmtSize(size) })}\n` +
-    `${t("If your app can't open this, the file follows by email.")}\n${ticket}`;
+  return `${t("📦 {name} ({size}) was sent with Velta Dash, which sends files of any size straight between Velta apps.", { name, size: fmtSize(size) })}\n` +
+    `${t("Open it in Velta, or learn more at https://velta.cc/dash")}\n${ticket}`;
+}
+
+/** True when `text` is (or is a truncated summary of) a Dash offer or a
+ *  resend request, including older wording that still said "Velta Beam". */
+export function looksLikeXferExplainer(text) {
+  const s = String(text || "");
+  if (!s) return false;
+  if (s.includes(TICKET_PREFIX) || s.includes(FALLBACK_PREFIX) || /velta\.cc\/dash/i.test(s)) return true;
+  if (/sent with Velta Dash|envoyé avec Velta Dash|отправлено через Velta Dash/i.test(s)) return true;
+  if (/If your app can't open this, the file follows by email/i.test(s)) return true;
+  if (/Si votre application ne peut pas l'ouvrir/i.test(s)) return true;
+  if (/Если ваше приложение не открывает это/i.test(s)) return true;
+  if (/open ["“']Velta Beam["”'] to receive/i.test(s)) return true;
+  return false;
+}
+
+function extractNameSize(text) {
+  const pats = [
+    /📎\s+(.+?)\s+·\s+(\d+(?:\.\d+)?\s*(?:MB|KB))\b/,
+    /📦\s+(.+?)\s+\((\d+(?:\.\d+)?\s*(?:MB|KB))\)/,
+    /Offering\s+(.+?)\s+\((\d+(?:\.\d+)?\s*(?:KB|MB))\)/i,
+  ];
+  for (const line of String(text || "").split("\n")) {
+    for (const p of pats) {
+      const m = p.exec(line);
+      if (m) return { name: m[1].trim(), size: m[2] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Short Velta-facing line for a Dash offer or resend request, or null if
+ * `text` is an ordinary message. Hides the Delta Chat explainer and the
+ * ticket in the card's other surfaces (notifications, chat list, quotes,
+ * search, copy) and in older offers.
+ */
+export function xferDisplayText(text) {
+  const card = parseFileCard(text);
+  if (card) return t("📎 {name} · {size}", { name: card.name, size: fmtSize(card.size) });
+  if (String(text || "").includes(FALLBACK_PREFIX)) return t("Asked for the email copy");
+  if (looksLikeXferExplainer(text)) {
+    const ex = extractNameSize(text);
+    if (ex) return t("📎 {name} · {size}", { name: ex.name, size: ex.size });
+    return t("Velta Dash");
+  }
+  return null;
+}
+
+/** Like xferDisplayText, but leaves ordinary messages unchanged. */
+export function xferVisibleText(text) {
+  return xferDisplayText(text) ?? String(text ?? "");
 }
 
 /** {name, size, ticket, tk} from a received message text, or null. */

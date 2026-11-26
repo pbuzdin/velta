@@ -60,9 +60,14 @@ fun listPreview(item: ChatListItem): String {
         "Video" -> t2.ifBlank { "🎬 Video" }
         "File" -> t2.ifBlank { "📎 File" }
         "Sticker" -> t2.ifBlank { "Sticker" }
-        else -> listOf(item.summaryText1, item.summaryText2)
-            .filter { it.isNotBlank() }
-            .joinToString(": ")
+        else -> {
+            val joined = listOf(item.summaryText1, item.summaryText2)
+                .filter { it.isNotBlank() }
+                .joinToString(": ")
+            val body = xferDisplayText(item.summaryText2) ?: xferDisplayText(joined)
+            if (body != null) listOf(item.summaryText1, body).filter { it.isNotBlank() }.joinToString(": ")
+            else joined
+        }
     }
 }
 

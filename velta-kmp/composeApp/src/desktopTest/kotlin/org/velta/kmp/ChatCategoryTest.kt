@@ -99,6 +99,14 @@ class ChatCategoryTest {
         assertEquals("🎤 Voice message", listPreview(ChatListItem(lastMessageType = "Voice")))
         assertEquals("🎬 Video", listPreview(ChatListItem(lastMessageType = "Video")))
         assertEquals("📎 File", listPreview(ChatListItem(lastMessageType = "File")))
+        assertEquals(
+            "📎 film.mp4 · 52.9 MB",
+            listPreview(ChatListItem(summaryText2 = "📦 film.mp4 (52.9 MB) was sent with Velta Dash, which sends files")),
+        )
+        assertEquals(
+            "Alice: 📎 film.mp4 · 52.9 MB",
+            listPreview(ChatListItem(summaryText1 = "Alice", summaryText2 = "📦 film.mp4 (52.9 MB) was sent with Velta Dash, which sends files")),
+        )
     }
 
     @Test
