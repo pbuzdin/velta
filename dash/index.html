@@ -88,7 +88,7 @@
         <li><strong>Direct needs both online.</strong> With no direct addresses (CGNAT) the bytes go through the sender's chatmail relay — still no third-party relay.</li>
         <li><strong>Over 2 GB is also too big for email.</strong> The answer is "both online, sender resends".</li>
         <li><strong>Folder sends are zipped on the device</strong>, STORE-only entries (deflate entries are refused, not copied as garbage). The zip pre-flight warns above 512 MB and refuses above the engine limit.</li>
-        <li><strong>Ticket life is 48 h by default.</strong> An unfetched offer is mailed and withdrawn; after a profile is recreated, stored copies are revalidated so a "Received" card can't linger over a dead file.</li>
+        <li><strong>Ticket life is 24 h by default.</strong> An unfetched offer is mailed once from the sender's stored copy; a delivered offer is withdrawn. After a profile is recreated, stored copies are revalidated so a "Received" card can't linger over a dead file.</li>
       </ul>
 
       <h2>What Delta Chat problems it solves</h2>
