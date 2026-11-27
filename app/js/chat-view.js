@@ -5086,18 +5086,23 @@ export class ChatView {
         diagnosticsSink.append("info", r.transcoded
           ? `media: photo transcoded ${r.from} → ${r.to} bytes`
           : `media: photo sent as is (${r.reason})`);
-        if (r.transcoded) { sendBlob = r.blob; filePath = null; }
+        if (r.transcoded) { sendBlob = r.blob; filePath = null; pm.size = sendBlob.size; }
       }
       if (filePath) {
         filename = filePath.replace(/\\/g, "/").split("/").pop();
       } else {
         if (!sendBlob) throw new Error(t("Nothing to send"));
-        const t = sendBlob.type;
-        const fromName = String(pm.name || "").split(".").pop();
-        const ext = t === "image/jpeg" ? "jpg" : t === "image/webp" ? "webp" : t === "image/gif" ? "gif" : t?.startsWith("video/") ? "mp4" : (fromName || "png");
-        const safeExt = String(ext).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-        const stored = sendBlob !== pm.blob ? `${pm.kind}-${Date.now()}.webp` : `${pm.kind}-${Date.now()}.${safeExt}`;
-        filename = pm.name || stored;
+        const ty = sendBlob.type;
+        const transcoded = sendBlob !== pm.blob;
+        // The visible name must match the BYTES: a transcoded photo leaves
+        // with its real extension (webp for the codec path, the original
+        // for a same-format 2k resample) — the picked name's extension was
+        // a lie the bubble showed on both sides (#561 follow-up).
+        const extFor = (ty2) => ty2 === "image/jpeg" ? "jpg" : ty2 === "image/webp" ? "webp" : ty2 === "image/gif" ? "gif" : ty2?.startsWith("video/") ? "mp4" : String(pm.name || "").split(".").pop() || "png";
+        const safeExt = String(extFor(ty)).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+        const stored = `${pm.kind}-${Date.now()}.${safeExt}`;
+        const base = String(pm.name || "").replace(/\.[^.]*$/, "") || stored.replace(/\.[^.]*$/, "");
+        filename = transcoded ? `${base}.${safeExt}` : (pm.name || stored);
         const bytes = new Uint8Array(await sendBlob.arrayBuffer());
         filePath = await this._writeBlobForSend(stored, bytes);
         diagnosticsSink.append("info", `media: wrote ${bytes.length} bytes to ${filePath}`);
