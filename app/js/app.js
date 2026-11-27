@@ -106,6 +106,7 @@ import { mountInviteDomains } from "./invite-domains.js";
 import { DASH_SVG, ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { dashState, dashExplainer, irohXferEnabled, peerCapabilityKey, xferVisibleText } from "./iroh-xfer.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
+import { createMediaCatchup } from "./media-catchup.js";
 
 // #286: module-top so boot-time relay status refreshes never hit a TDZ.
 const relayFailoverLog = createFailoverLog();
@@ -1589,7 +1590,7 @@ function refreshAfterSettingsApply(keys) {
     renderChatList();
   }
   // Per-account core mirrors (same calls as the drawer handlers).
-  const cfg = [["image-quality", "media_quality", "velta-media-quality", "0"], ["auto-download-limit", "download_limit", "velta-download-limit", "0"], ["read-receipts", "mdns_enabled", "velta-mdns", null]];
+  const cfg = [["image-quality", "media_quality", "velta-media-quality", "0"], ["auto-download-limit", "download_limit", "velta-download-limit", "204800"], ["read-receipts", "mdns_enabled", "velta-mdns", null]];
   for (const [k, coreKey, lsKey, dflt] of cfg) {
     if (!has(k)) continue;
     const v = lsKey === "velta-mdns" ? (localStorage.getItem(lsKey) === "0" ? "0" : "1") : (localStorage.getItem(lsKey) || dflt);
@@ -1710,6 +1711,21 @@ function refreshAfterBackground() {
   // A sync message from another device may have turned bcc_self back on
   // while we were in the background.
   ensureMultiDevice();
+  // The refetch may have brought placeholder attachments with it — drain.
+  mediaCatchup().schedule();
+}
+
+// #478: the background placeholder queue (media-catchup.js). Created lazily
+// against the module-scoped core; the chat list order drives newest-first.
+let _mediaCatchup = null;
+function mediaCatchup() {
+  if (!_mediaCatchup) _mediaCatchup = createMediaCatchup({
+    core,
+    getChatIds: () => (state.chats || []).map(c => c.id),
+    getCurrentChatId: () => state.activeChatId,
+    limitOn: () => savedDownloadLimit() !== "0",
+  });
+  return _mediaCatchup;
 }
 function reportUiVisible() {
   try {
@@ -6137,7 +6153,9 @@ async function setMultiDevice(on, { quick = false } = {}) {
 
 function savedDownloadLimit() {
   const raw = localStorage.getItem("velta-download-limit");
-  const v = raw == null || raw === "" ? "0" : raw === "655360" ? "1048576" : String(raw);
+  // #478: unset = 200KB (placeholders + background catch-up), not unlimited;
+  // an explicit "none" is honored, and the retired 640KB preset maps to 1MB.
+  const v = raw == null || raw === "" ? "204800" : raw === "655360" ? "1048576" : String(raw);
   if (raw != null && raw !== v) localStorage.setItem("velta-download-limit", v);
   return v;
 }
@@ -7894,6 +7912,9 @@ async function boot() {
       } catch (err) {
         diagnostics.append("error", `boot: chat list failed: ${err?.message || err}`);
       }
+      // Cold open with a download limit: drain leftover placeholders after
+      // the text is in (#478), then again on every chat-list/new-mail event.
+      mediaCatchup().schedule();
     }
 
     appLog("boot: bind ui");
@@ -7969,6 +7990,9 @@ async function boot() {
     // cores (mock) keep the full refresh on the coarse events.
     core.addEventListener("chatlist-changed", () => scheduleChatListUpdate({ order: true }));
     core.addEventListener("chatlist-item-changed", ev => scheduleChatListUpdate({ chatId: ev?.detail?.chatId || 0 }));
+    // New mail may bring placeholder attachments over the download limit —
+    // the #478 queue drains them newest-chat-first (5s debounce, coalesced).
+    core.addEventListener("chatlist-changed", () => mediaCatchup().schedule());
     core.addEventListener("incoming-msg", ev => {
       if (!incrementalChatList()) scheduleChatListRefresh(); // coalesced (one trailing refresh)
       const msg = ev?.detail?.msg;
@@ -7978,6 +8002,8 @@ async function boot() {
       // outright while throttled, otherwise group the burst per chat.
       if (notifyThrottled()) return;
       queueIncomingNotify(msg);
+      // A new message can carry a placeholder attachment — the queue checks.
+      mediaCatchup().schedule();
     });
     core.addEventListener("call-ended", ev => {
       recordCallEnded(ev?.detail?.chatId);

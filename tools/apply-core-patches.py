@@ -3057,6 +3057,45 @@ async fn test_velta_xfer_capability_echo() -> Result<()> {
         where="replace",
         text='        let ctx = self.get_context(account_id).await?;\n        // Velta patch (#547): seal-aware read — see parse_vcard above.\n        let vcard = String::from_utf8(deltachat::blob::open_blob(&ctx, Path::new(&path))?.read_all()?)?;\n        Ok(deltachat::contact::import_vcard(&ctx, &vcard)\n',
     ),
+
+    # ---- #478: sync timing log — one line per folder fetch run (transport,
+    # folder, message count, wall time). The measure-first instrument for the
+    # sync-speed track (#478-#483): the cold-open backlog cost becomes
+    # visible in Diagnostics without a debugger, before any reordering lands
+    # (#479/#480 will need the same anchor family).
+    dict(
+        id="#478 sync timing log (imap.rs)",
+        file="core/src/imap.rs",
+        applied="VELTA-SYNC-TIMING",
+        anchor="""        let mut read_cnt = 0;
+        loop {
+            let (n, fetch_more) =
+                Box::pin(self.fetch_new_msg_batch(context, session, folder)).await?;
+            read_cnt += n;
+            if !fetch_more {
+                return Ok(read_cnt > 0);
+            }
+        }
+""",
+        where="replace",
+        text="""        let mut read_cnt = 0;
+        // VELTA-SYNC-TIMING (#478): wall time for one folder's fetch run.
+        let velta_fetch_started = std::time::Instant::now();
+        loop {
+            let (n, fetch_more) =
+                Box::pin(self.fetch_new_msg_batch(context, session, folder)).await?;
+            read_cnt += n;
+            if !fetch_more {
+                info!(
+                    context,
+                    "VELTA-SYNC-TIMING {transport_id} {folder}: {read_cnt} messages in {:.2}s",
+                    velta_fetch_started.elapsed().as_secs_f64()
+                );
+                return Ok(read_cnt > 0);
+            }
+        }
+""",
+    ),
 ]
 
 
