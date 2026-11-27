@@ -58,6 +58,7 @@ const cardsStore = () => jsonStore(`velta-xfer-cards:${account}`);
 function loadCards() {
   cardState.clear();
   validatedCopies.clear();
+  revalidating.clear();
   for (const [h, st] of Object.entries(cardsStore().load())) if (st && typeof st === "object") cardState.set(h, st);
 }
 function saveCards() {
@@ -79,32 +80,39 @@ function saveCards() {
  *  the VLTA header) and drop it on failure: incoming cards fetch again,
  *  outgoing cards just lose the dead preview. */
 const validatedCopies = new Set();
+const revalidating = new Set();
 function revalidateStoredCopy(hash, st, incomingText) {
-  // The guard must FOLLOW the async check, not precede it: a same-hash
-  // resend in one session (peer resent while our stale outgoing state is
-  // still in cardState) has to revalidate each time, or the stale "done"
-  // flag suppresses the re-fetch and the card shows a phantom "Received"
-  // over a dead copy. The set is per-account (useAccount clears it) and a
-  // direction flip rebuilds the state, so the fetch never stays blocked.
   if (!env?.invoke) return;
-  if (validatedCopies.has(hash) && !st.outgoing && st.path) return;
+  // Direction flip must precede every exit: the peer resent the same
+  // content (same hash) while the known state is OUR old outgoing offer
+  // whose copy is already gone — it must convert even when this hash was
+  // validated (or has a check in flight) earlier in the session.
   if (incomingText && st.outgoing && !st.path) { convertToIncoming(hash, st, incomingText); return; }
-  if (!st.path) return;
-  withTimeout(env.invoke("xfer_file_size", { path: st.path }), limits.metaMs, "xfer_file_size").then((len) => {
+  // One check per hash per session (validated) / at a time (in flight):
+  // noteCard runs on every bubble render, so an unguarded outgoing card
+  // would fire an xfer_file_size IPC per render, and two renders of one
+  // incoming card would race two checks against the same dead copy.
+  if (!st.path || validatedCopies.has(hash) || revalidating.has(hash)) return;
+  const probed = st.path;
+  revalidating.add(hash);
+  withTimeout(env.invoke("xfer_file_size", { path: probed }), limits.metaMs, "xfer_file_size").then((len) => {
     if (st.size == null && Number.isFinite(len)) { st.size = len; saveCards(); }
     validatedCopies.add(hash); // size read worked under the live key: revalidated
   }).catch(() => {
     const cur = cardState.get(hash);
     if (!cur) return;
     if (cur.outgoing && incomingText) { convertToIncoming(hash, cur, incomingText); return; }
-    if (!cur.path) return;
+    // The check probed `probed`; if the card has moved on (a refetch or a
+    // direction flip already installed a fresh path), the stale failure
+    // must not wipe the new path and re-trigger the download.
+    if (cur.path !== probed) return;
     sink("info", `stored copy of ${cur.name || hash.slice(0, 8)} is gone or unreadable — ${cur.outgoing ? "dropping the preview" : "fetching again"}`);
     cur.path = undefined;
     if (!cur.outgoing) { cur.done = false; cur.error = undefined; }
     saveCards();
     if (!cur.outgoing && cur.text) startFetch(hash, 0);
     else refresh(hash);
-  });
+  }).finally(() => revalidating.delete(hash));
 }
 
 /** Replace a dead outgoing state with a fresh incoming one and fetch. */
@@ -654,9 +662,9 @@ function useAccount(id) {
   peerCache.clear();
   health = { at: 0, value: null };
   resendSeen.clear();
-  validatedCopies.clear(); // per-account like the card store: a same-hash
-                           // resend after switching profiles must revalidate
-  loadCards();
+  loadCards(); // also clears validatedCopies/revalidating: per-account like
+               // the card store, a same-hash resend after switching profiles
+               // must revalidate
   transport?.setStore?.(jsonStore(`velta-xfer-pending:${account}`));
 }
 

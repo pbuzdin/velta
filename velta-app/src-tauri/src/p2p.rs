@@ -322,12 +322,14 @@ impl FileRx {
     }
 }
 
-/// Cap for one local-chat media transfer — the same 2 GB the Dash (iroh)
-/// fetch path enforces in [`crate::xfer::MAX_FILE`]. A larger offer must be
-/// refused at accept (clear message), not after the receiver's fetch fails
-/// with `TooLarge` (the old 1 TiB bound let a 1:1 sender spool a file no
-/// Dash receiver accepts — #557).
-const MAX_FILE_BYTES: u64 = crate::xfer::MAX_FILE;
+/// Cap for one local-chat media transfer. Generous on purpose: Loop
+/// delivers with its own chunk frames and never routes through
+/// [`crate::xfer::fetch`], so the Dash `TooLarge` refusal can't happen
+/// here — the real disk bound is [`require_space`] (free-space check with
+/// [`FREE_SPACE_MARGIN`]) on both sender and receiver, not this constant.
+/// Kept far above the Dash 2 GB ticket cap so a 1:1 sender can spool
+/// large files a Loop receiver happily accepts (#557 review follow-up).
+const MAX_FILE_BYTES: u64 = 1 << 40;
 /// Head room kept free on top of a transfer (the OS, the database, logs).
 const FREE_SPACE_MARGIN: u64 = 256 * 1024 * 1024;
 /// How long a resuming sender waits for the receiver's FileResume before
@@ -1472,15 +1474,15 @@ impl P2p {
         self.persist_messages(&node, &[row]);
     }
 
-fn fail_send(&self, node: &NodeId, id: &str, reason: &str) {
-    // #557: a spool/launch failure must not leave the cancel handle in
-    // out_files — the card stays "Sending" with no terminal state.
-    self.out_files.lock().unwrap().remove(id);
-    self.sink.emit(json!({
-        "kind": "file-progress", "peerId": node.to_string(), "id": id, "dir": "send",
-        "failed": true, "reason": reason,
-    }));
-}
+    fn fail_send(&self, node: &NodeId, id: &str, reason: &str) {
+        // #557: a spool/launch failure must not leave the cancel handle in
+        // out_files — the card stays "Sending" with no terminal state.
+        self.out_files.lock().unwrap().remove(id);
+        self.sink.emit(json!({
+            "kind": "file-progress", "peerId": node.to_string(), "id": id, "dir": "send",
+            "failed": true, "reason": reason,
+        }));
+    }
 
     fn file_link(&self, node: &NodeId) -> Option<FileLink> {
         let inner = self.inner.lock().unwrap();
@@ -1539,6 +1541,10 @@ fn fail_send(&self, node: &NodeId, id: &str, reason: &str) {
         require_space(parent, plan.len())?;
         let size = plan.len();
         job.size = size;
+        // #557: the zip size is only known here, after note_outgoing already
+        // recorded the pre-zip folder — the FileBegin slot above and
+        // set_out_size (card + persisted row) both get the final size, so no
+        // early "Done" can fire.
         let id = match &mut job.begin {
             Frame::FileBegin { id, size: slot, .. } => {
                 *slot = size;
@@ -8362,7 +8368,7 @@ mod tests {
 
     #[test]
     fn free_space_refusal_and_new_cap() {
-        assert_eq!(MAX_FILE_BYTES, 2 * 1024 * 1024 * 1024, "the 1:1 cap matches the 2 GB Dash cap (#557)");
+        assert!(MAX_FILE_BYTES > 2 * 1024 * 1024 * 1024, "no 2 GB cap any more");
         let d = std::env::temp_dir();
         assert!(require_space(&d, 1).is_ok());
         let err = require_space(&d, u64::MAX / 2).unwrap_err().to_string();
