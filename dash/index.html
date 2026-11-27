@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Velta Dash sends files straight between Velta apps — direct when both ends are online, your chatmail relay only when they are not, sealed at rest, resumable, with an honest email fallback.">
+  <title>Velta Dash — Velta</title>
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=23">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" data-nav="news">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/">Home</a></p>
+    <p class="kicker">Feature</p>
+    <h1>Velta Dash</h1>
+    <p>Files sent straight between Velta apps — direct when both ends are online, your chatmail relay only when they are not, sealed at rest, resumable, with an honest email fallback.</p>
+    <div class="body">
+      <h2>What it is</h2>
+      <p>Files over 6 MB between two Velta apps go direct: an iroh QUIC path straight device-to-device when both ends are online. The only relay ever used is the sender's own chatmail server — the relay it advertises — never a third party and never n0. Under 6 MB rides as a normal mail attachment.</p>
+
+      <h2>The transfer card</h2>
+      <p>The file row lives in the message bubble: name, size, a Dash badge, and live progress that fills to 100% in place. On Android the row verbs are <strong>Save</strong> and <strong>Share</strong>; on desktop, <strong>Show in folder</strong>; in the PWA, <strong>Save</strong>. <strong>Retry</strong> resumes the partial instead of starting over. And the card offers <strong>Ask for the email copy</strong> when the fetch cannot be completed.</p>
+
+      <h2>Sealed and resumable</h2>
+      <ul>
+        <li>The sender's spooled copy is sealed at rest under the sender's key (VLTA sidecar).</li>
+        <li>The download is sealed under the receiver's key.</li>
+        <li>An interrupted stream resumes from the <code>.part</code> instead of starting over.</li>
+        <li>Free space is checked before a byte is written; the hash is verified at the end.</li>
+        <li>Cancel/withdraw deletes the stored copy.</li>
+      </ul>
+
+      <h2>The honest fallback</h2>
+      <p>If the fetch fails, is unreachable, or the ticket expires, the card offers the email copy: the sender mails the file once on request (a <code>VXFER-RESEND</code> ticket), not silently. One resend per ticket.</p>
+
+      <h2>Limits</h2>
+      <ul>
+        <li><strong>2 GB ceiling, hard.</strong> The card says 2 GB; older Velta releases refuse anything larger outright, so a bigger file never starts.</li>
+        <li><strong>The web app / PWA cannot Dash.</strong> iroh is QUIC/UDP — no wasm target, no beacon, sandboxed files. The card falls back to asking for the email copy.</li>
+        <li><strong>Both ends must be Velta that proved it.</strong> The Chat-Velta-Xfer capability header on a real message; a peer that hasn't proven it gets the email fallback path, not a silent "sent".</li>
+        <li><strong>Direct needs both online.</strong> With no direct addresses (CGNAT) the bytes go through the sender's chatmail relay — still no third-party relay.</li>
+        <li><strong>Over 2 GB is also too big for email.</strong> The answer is "both online, sender resends".</li>
+        <li><strong>Folder sends are zipped on the device</strong>, STORE-only entries (deflate entries are refused, not copied as garbage). The zip pre-flight warns above 512 MB and refuses above the engine limit.</li>
+        <li><strong>Ticket life is 48 h by default.</strong> An unfetched offer is mailed and withdrawn; after a profile is recreated, stored copies are revalidated so a "Received" card can't linger over a dead file.</li>
+      </ul>
+
+      <h2>What Delta Chat problems it solves</h2>
+      <p>Big files in plain Delta Chat ride as mail attachments (provider size caps, the copy sits on the relay/mailbox). There is no direct device-to-device path for large files. "Sent" is not "received". And the old <code>classicTransfer</code> webxdc is a fake-UI holdover.</p>
+      <p>Dash gives a direct path when both are online, a sealed spool on the sender device only, a real 100% progress bar, a card that explains itself to Delta Chat users (and hides the explainer for Velta users), Android cap parity, and an honest failure line instead of a success label over a dead fetch.</p>
+
+      <h2>Links</h2>
+      <ul>
+        <li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.7">Release notes</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/compare/v1.5.6...v1.5.7">Compare 1.5.6 with 1.5.7</a></li>
+      </ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Not affiliated with the Delta Chat project.</span><span>GPL-3.0 · © 2026 Velta</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=9"></script>
+</body>
+</html>
