@@ -1487,7 +1487,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         <summary>${ICON.downloadBar}<span>${t("Auto-download limit")}</span></summary>
         <fieldset class="scale-opts" data-dl-opts>
           <legend class="vh">${t("Auto-download limit")}</legend>
-          ${[["0", "No limit (default)"], ["1048576", "1 MB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
+          ${[["204800", "200 KB (default)"], ["0", "No limit"], ["1048576", "1 MB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint" data-dl-hint>${escapeHtml(t(DL_LIMIT_HINT))}</div>
       </details>

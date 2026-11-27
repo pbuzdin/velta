@@ -21,7 +21,8 @@ export const MD_HINT = "Off: messages are deleted from the relay after this devi
 
 export const MD_REENABLED_NOTE = "Multi-device was turned back on by a backup export, Add second device, or a sync from another device. Messages now stay on the relay.";
 
-export const DL_LIMIT_HINT = "Files above the limit are not downloaded automatically: tap them to download. Until then they stay on the relay (until the relay purges them, usually after about 7 days) and use relay storage.";
+export const DL_LIMIT_HINT = "Files above the limit are not downloaded automatically: tap them to download. Until then they stay on the relay (until the relay purges them, usually after about 7 days) and use relay storage. Leftover placeholders drain in the background afterwards, newest chat first.";
+
 
 function readMap(storage) {
   try {

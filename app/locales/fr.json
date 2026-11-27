@@ -1,4 +1,5 @@
 {
+  "Files above the limit are not downloaded automatically: tap them to download. Until then they stay on the relay (until the relay purges them, usually after about 7 days) and use relay storage. Leftover placeholders drain in the background afterwards, newest chat first.": "Les fichiers au-dessus de la limite ne se téléchargent pas tout seuls : touchez-les pour les récupérer. En attendant ils restent sur le relais (jusqu'à ce qu'il les purge, en général après environ 7 jours) et occupent son espace. Les espaces réservés restants se récupèrent ensuite en arrière-plan, plus récents d'abord.",
   "Account changed; reopen the invite": "Le profil a changé ; rouvrez l'invitation",
   "Chat closed": "Discussion fermée",
   "Copy to clipboard": "Copier dans le presse-papiers",
@@ -152,7 +153,6 @@
   "Export settings to Saved Messages": "Exporter les paramètres vers Messages enregistrés",
   "File": "Fichier",
   "Files": "Fichiers",
-  "Files above the limit are not downloaded automatically: tap them to download. Until then they stay on the relay (until the relay purges them, usually after about 7 days) and use relay storage.": "Les fichiers au-dessus de la limite ne se téléchargent pas tout seuls : touchez-les pour les récupérer. En attendant ils restent sur le relais (jusqu'à ce qu'il les purge, en général après environ 7 jours) et occupent son espace.",
   "Force background connection": "Forcer la connexion en arrière-plan",
   "Force keeps background fetching alive under battery restrictions (asks Android for exemption).": "Forcer maintient la récupération en arrière-plan malgré les restrictions de batterie (demande une exemption à Android).",
   "Forward": "Transférer",
@@ -215,7 +215,6 @@
   "No catalog reachable": "Aucun catalogue joignable",
   "No commands yet": "Pas encore de commandes",
   "No files found": "Aucun fichier",
-  "No limit (default)": "Sans limite (par défaut)",
   "No matching apps": "Aucune application correspondante",
   "No photos": "Pas de photos",
   "No videos": "Pas de vidéos",
@@ -1814,5 +1813,7 @@
   "unknown error": "erreur inconnue",
   "Preparing for Velta Dash…": "Préparation pour Velta Dash…",
   "Preparing file…": "Préparation du fichier…",
-  "Velta Dash didn't work, so the file went by email": "Velta Dash n'a pas fonctionné, le fichier est donc parti par e-mail"
+  "Velta Dash didn't work, so the file went by email": "Velta Dash n'a pas fonctionné, le fichier est donc parti par e-mail",
+  "200 KB (default)": "200 Ko (par défaut)",
+  "No limit": "Sans limite"
 }

@@ -38,11 +38,15 @@ const BAR_KEYS = ["chats", "contacts", "calls", "qr"];
 const CAT_KEYS = ["people", "groups", "channels", "bots", "system"];
 const SCALES = [["small", "0.85"], ["normal", "1"], ["large", "1.15"]];
 // #147: smallest cap is 1 MiB. 655360 is the retired 640 KB preset.
+// #478: UNSET now means 200KB, not unlimited — text arrives immediately and
+// oversized attachments land as tap-to-download placeholders that the
+// background catch-up queue drains newest-chat-first. "none" stays an
+// explicit choice; an explicit value is never overridden.
 export function normalizeDownloadLimit(raw) {
-  if (raw == null || raw === "") return "0";
+  if (raw == null || raw === "") return "204800";
   return raw === "655360" ? "1048576" : String(raw);
 }
-const DL = [["none", "0"], ["1MB", "1048576"], ["5MB", "5242880"], ["25MB", "26214400"]];
+const DL = [["none", "0"], ["200KB", "204800"], ["1MB", "1048576"], ["5MB", "5242880"], ["25MB", "26214400"]];
 
 const get = (ls, k) => { try { return ls.getItem(k); } catch { return null; } };
 const put = (ls, k, v) => { try { v == null ? ls.removeItem(k) : ls.setItem(k, String(v)); } catch {} };
@@ -140,7 +144,7 @@ export const SETTINGS = [
   onByDefault("compress-photos", "Compress photos", "velta-compress-photos"),
   onByDefault("resize-photos", "Resize photos to 2k", "velta-resize-photos"),
   (() => {
-    const dl = oneOf("auto-download-limit", "Auto-download limit", "velta-download-limit", DL, "0");
+    const dl = oneOf("auto-download-limit", "Auto-download limit", "velta-download-limit", DL, "204800");
     const read = dl.read, parse = dl.parse;
     dl.read = ls => {
       const raw = get(ls, "velta-download-limit");
