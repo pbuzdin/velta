@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  sniffImage, decideTranscode, webpWins, scaledSize, scaledSideCap, webpName, coreLimits, compressImage,
-  MIN_BYTES, MIN_SAVING, COMPRESS_KEY, RESIZE_JPEG_QUALITY,
+  sniffImage, decideTranscode, webpWins, scaledSize, scaledSideCap, webpName, coreLimits, compressImage, cropFitScale,
+  MIN_BYTES, MIN_SAVING, COMPRESS_KEY, RESIZE_KEY, RESIZE_JPEG_QUALITY,
 } from "../app/js/image-compress.js";
 
 // #81: outgoing photos → lossy WebP only when it clearly pays. Everything here
@@ -251,15 +251,27 @@ test("compressImage: Compact quality uses the 640² budget and 130 KB limit", as
   assert.ok(f.calls.encode[0].width * f.calls.encode[0].height <= 640 * 640 * 1.001);
 });
 
-test("the setting key is the one the drawer writes", async () => {
+test("the setting keys are the ones the drawer and the strip write", async () => {
   const fs = await import("node:fs");
   assert.equal(COMPRESS_KEY, "velta-compress-photos");
+  assert.equal(RESIZE_KEY, "velta-resize-photos");
   const ui = fs.readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
   assert.ok(ui.includes('"velta-compress-photos"'));
   assert.ok(ui.includes("Compress photos to save relay space"));
+  const st = fs.readFileSync(new URL("../app/js/settings-transfer.js", import.meta.url), "utf8");
+  assert.ok(st.includes('"velta-resize-photos"'), "the 2k row exists in Settings");
   const cv = fs.readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
   assert.match(cv, /compressImage\(pm\.blob/);
   assert.match(cv, /compressEnabled\(\)/);
+});
+
+test("cropFitScale: fits the measured box, never upscales", () => {
+  assert.equal(cropFitScale(4000, 3000, 400, 320), 0.1);
+  assert.equal(cropFitScale(1920, 1080, 2000, 1200), 1, "never upscales");
+  assert.equal(cropFitScale(1080, 1920, 384, 800), 384 / 1080, "portrait binds on width");
+  assert.equal(cropFitScale(1000, 100, 500, 500), 0.5, "the long side binds");
+  assert.equal(cropFitScale(0, 100, 500, 500), 1, "degenerate inputs fall back to 1");
+  assert.equal(cropFitScale(100, 100, 0, 0), 1);
 });
 
 // ---- HEIC ----
