@@ -74,3 +74,14 @@ test("the strip explains WHY a photo sends as-is, at stage time", () => {
     assert.match(cv, new RegExp(`t\\("${s}"\\)`));
   }
 });
+
+test("the sent filename matches the BYTES, not the picked name (#561)", () => {
+  // The transcode wins the extension: photo.jpg transcoded → photo.webp on
+  // both sides; a same-format 2k resample keeps its name.
+  assert.match(cv, /filename = transcoded \? `\$\{base\}\.\$\{safeExt\}` : \(pm\.name \|\| stored\)/);
+  assert.doesNotMatch(cv, /filename = pm\.name \|\| stored/, "the picked name must not mask a transcode");
+  // The disk-stored name derives from the actual blob type (a JPEG resample
+  // is no longer stored as .webp), and the Dash offer learns the new size.
+  assert.match(cv, /const stored = `\$\{pm\.kind\}-\$\{Date\.now\(\)\}\.\$\{safeExt\}`/);
+  assert.match(cv, /pm\.size = sendBlob\.size/);
+});
