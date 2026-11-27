@@ -5,10 +5,10 @@
 // does the same job at the same size limits with a ~25–35 % smaller result and
 // strips EXIF as a side effect of re-encoding. Policy:
 //
-//  * Only STATIC JPEG, STATIC opaque WebP and OPAQUE PNG are candidates; format
+//  * Only STATIC JPEG, STATIC WebP and STATIC PNG are candidates; format
 //    is sniffed from the bytes, not trusted from a MIME type or extension.
-//    GIF, animated WebP (byte-exact, see the core's is_animated_webp patch),
-//    WebP/PNG with transparency, and everything unknown are never touched.
+//    GIF and animated WebP (byte-exact, see the core's is_animated_webp patch)
+//    and everything unknown are never touched.
 //  * Size gate: bytes must exceed min(MIN_BYTES, the core's limit for the
 //    current Image quality) — small photos go out unchanged. Opaque PNG is
 //    lossless and often a screenshot, so it is only converted when it exceeds
@@ -24,6 +24,13 @@
 //    is accepted only if it fits the byte limit, so the core then leaves it
 //    alone instead of recoding it a second time. Otherwise the original goes
 //    out and the core does what it does today.
+//  * The 2k cap rescues what the codec-only rules refuse: canvas WebP and PNG
+//    carry alpha, so an oversized STATIC PNG/WebP — transparent or not — is
+//    resized when the 2k setting is on (WebP when the Compress setting is on,
+//    else the same format back; alpha kept either way). Transparency is still
+//    never converted for size alone, and an oversized opaque PNG under the
+//    core's byte limit now gets its cap too. The bar is "smaller" — the
+//    dimension cap is the point (#560 follow-up).
 //  * Under the limit, the WebP must be at least MIN_SAVING (10 %) smaller than
 //    the original, else the original is sent: no generation loss for nothing.
 //  * Any failure (no createImageBitmap, WebP encode unsupported — WebKit falls
@@ -247,24 +254,41 @@ export async function compressImage(blob, { name = null, quality = "0", enabled 
     if (!blob || blob.size > MAX_INPUT_BYTES) return same("too-big");
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const info = sniffImage(bytes);
-    // WebP off: only the dimension cap acts — oversized JPEG/opaque-WebP
-    // re-encodes as JPEG once. Alpha PNGs are lossless on purpose and GIFs
-    // are animated; neither is touched here (and the WebP path skips them
-    // through decideTranscode as before).
+    // WebP off: only the dimension cap acts — the 2k resample comes back in
+    // the SAME format (JPEG stays JPEG q0.92; WebP and PNG keep alpha
+    // natively, so transparency is no longer a refusal here). Only animated
+    // frames are refused — a resample would drop them.
     if (!webp && resize) {
-      if (info.format !== "jpeg" && info.format !== "webp") return same(info.format === "heic" ? "heic-needs-webp" : "no-resize-format");
-      if (info.animated || info.alpha) return same("no-resize-format");
+      const outType = info.format === "jpeg" ? "image/jpeg" : info.format === "webp" ? "image/webp" : info.format === "png" ? "image/png" : null;
+      if (info.animated || !outType) return same(info.format === "heic" ? "heic-needs-webp" : "no-resize-format");
       const decoded = await decode(blob);
       try {
         const at = scaledSideCap(decoded.width, decoded.height);
         if (!at) return same("within-2k");
-        const out = await encode(decoded, at.width, at.height, RESIZE_JPEG_QUALITY, "image/jpeg");
+        const out = await encode(decoded, at.width, at.height, outType === "image/jpeg" ? RESIZE_JPEG_QUALITY : undefined, outType);
         if (!out || !(out.size < bytes.length)) return same("not-smaller");
         return { blob: out, name, transcoded: true, from: bytes.length, to: out.size };
       } finally { decoded.close?.(); }
     }
     const plan = decideTranscode({ bytes: bytes.length, info, quality, enabled });
-    if (!plan.try) return same(plan.reason);
+    if (!plan.try) {
+      // The 2k cap rescues what the codec-only rules refuse: canvas keeps
+      // alpha in WebP, so an oversized STATIC png/webp is resized even when
+      // a pure codec conversion would be refused (transparency; lossless
+      // PNG under the core's byte limit). The bar is "smaller" — the cap is
+      // the point (#560 follow-up: transparency no longer blocks 2k).
+      if (resize && (plan.reason === "alpha" || plan.reason === "png-lossless")) {
+        const decoded = await decode(blob);
+        try {
+          const at = scaledSideCap(decoded.width, decoded.height);
+          if (!at) return same("within-2k");
+          const out = await encode(decoded, at.width, at.height, QUALITIES[0]);
+          if (!out || out.type !== "image/webp" || !(out.size < bytes.length)) return same("not-smaller");
+          return { blob: out, name: webpName(name), transcoded: true, from: bytes.length, to: out.size };
+        } finally { decoded.close?.(); }
+      }
+      return same(plan.reason);
+    }
     if (resize && plan.maxPixels !== Infinity) {
       const cap = RESIZE_MAX_SIDE * RESIZE_MAX_SIDE;
       if (cap < plan.maxPixels) plan.maxPixels = cap;
