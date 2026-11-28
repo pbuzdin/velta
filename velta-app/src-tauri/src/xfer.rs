@@ -384,6 +384,20 @@ struct Response {
     size: u64,
 }
 
+/// Secret, expiry and delivery stamp for an offer of content that may already
+/// be on offer: a live offer (not expired at `now`) is extended, never re-keyed.
+fn offer_credentials(
+    existing: Option<&Offer>,
+    now: u64,
+    new_exp: u64,
+    fresh_secret: impl FnOnce() -> String,
+) -> (String, u64, u64) {
+    match existing {
+        Some(o) if o.exp > now => (o.sec.clone(), o.exp.max(new_exp), o.delivered),
+        _ => (fresh_secret(), new_exp, 0),
+    }
+}
+
 /// One open offer; persisted in `offers.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Offer {
@@ -697,16 +711,21 @@ impl Xfer {
             .map(str::to_string)
             .or_else(|| path.file_name().and_then(|n| n.to_str()).map(str::to_string))
             .unwrap_or_else(|| "file".into());
-        let exp = now() + ttl.as_secs();
-        let sec = HEXLOWER.encode(&crate::random_bytes::<16>());
+        let new_exp = now() + ttl.as_secs();
         let addrs = match tokio::time::timeout(Duration::from_secs(5), self.endpoint.node_addr()).await {
             Ok(Ok(na)) => na.direct_addresses.into_iter().collect(),
             _ => Vec::new(),
         };
-        self.offers.lock().unwrap().insert(
-            hash.clone(),
-            Offer { path: stored, size, exp, sec: sec.clone(), name: name.clone(), delivered: 0 },
-        );
+        // The same bytes offered again keep the live offer's secret, so the
+        // ticket already handed out stays valid; its expiry only moves later.
+        let (sec, exp) = {
+            let mut offers = self.offers.lock().unwrap();
+            let (sec, exp, delivered) = offer_credentials(offers.get(&hash), now(), new_exp, || {
+                HEXLOWER.encode(&crate::random_bytes::<16>())
+            });
+            offers.insert(hash.clone(), Offer { path: stored, size, exp, sec: sec.clone(), name: name.clone(), delivered });
+            (sec, exp)
+        };
         self.persist();
         Ok(Ticket {
             v: 1,
@@ -1334,6 +1353,19 @@ pub async fn xfer_health(state: tauri::State<'_, XferState>, app: tauri::AppHand
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn offering_the_same_content_again_keeps_the_first_ticket_valid() {
+        let live = Offer { path: PathBuf::from("out/h"), size: 3, exp: 2000, sec: "first".into(), name: "a".into(), delivered: 7 };
+        let (sec, exp, delivered) = offer_credentials(Some(&live), 1000, 1500, || "second".into());
+        assert_eq!((sec.as_str(), exp, delivered), ("first", 2000, 7), "live offer keeps its secret and later expiry");
+        let (sec, exp, _) = offer_credentials(Some(&live), 1000, 3000, || "second".into());
+        assert_eq!((sec.as_str(), exp), ("first", 3000), "expiry only moves later");
+        let (sec, exp, delivered) = offer_credentials(Some(&live), 2000, 3000, || "second".into());
+        assert_eq!((sec.as_str(), exp, delivered), ("second", 3000, 0), "an expired offer is replaced");
+        let (sec, _, _) = offer_credentials(None, 1000, 3000, || "second".into());
+        assert_eq!(sec, "second");
+    }
+
     use super::*;
 
     #[test]
