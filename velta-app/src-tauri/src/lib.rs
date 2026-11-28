@@ -377,10 +377,9 @@ async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), Strin
     #[cfg(not(target_os = "android"))]
     {
     let data_dir = accounts_dir(&app);
-    let root = accounts_root(&app);
     let raw = {
         let data_dir = data_dir.clone();
-        tauri::async_runtime::spawn_blocking(move || db_key::pin_unlock(&data_dir, &root, &pin))
+        tauri::async_runtime::spawn_blocking(move || db_key::pin_unlock(&data_dir, &pin))
             .await
             .map_err(|e| e.to_string())??
     };
@@ -493,10 +492,9 @@ async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         let data_dir = accounts_dir(&app);
-        let root = accounts_root(&app);
         let identity = app.config().identifier.clone();
         let raw = tauri::async_runtime::spawn_blocking(move || {
-            db_key::hello_unlock(&data_dir, &root, &identity)
+            db_key::hello_unlock(&data_dir, &identity)
         })
         .await
         .map_err(|e| e.to_string())??;
