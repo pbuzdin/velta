@@ -125,8 +125,18 @@ async function autoAllowed(chatId) {
   try {
     const chat = await env.core?.getChat?.(chatId);
     if (!chat || chat.isContactRequest || chat.kind === "deaddrop") return false;
-    return true;
+    return !(await proxyConfigured());
   } catch { return false; }
+}
+/** True when a proxy is set for this account (or the setting cannot be
+ *  read). Dash connects directly, not through it, so with a proxy the
+ *  transfer starts only on a tap. */
+async function proxyConfigured() {
+  if (!env.invoke) return false; // no Dash connection in the PWA
+  try {
+    const [en, url] = await Promise.all([env.core.getConfig("proxy_enabled"), env.core.getConfig("proxy_url")]);
+    return String(en ?? "") === "1" && String(url ?? "").split("\n").some((l) => l.trim());
+  } catch { return true; }
 }
 /** Start the transfer for an arriving card when the gate allows it, else
  *  leave the card waiting for the user (Download). Nothing is sent to the
@@ -145,6 +155,7 @@ function autoStart(hash) {
     st.receiving = false;
     st.hold = true;
     refresh(hash);
+    proxyConfigured().then((p) => { if (p && st.hold) { st.holdProxy = true; refresh(hash); } });
   });
 }
 /** Card action: the user asked for this file. */
@@ -152,6 +163,7 @@ export function downloadCard(hash) {
   const st = cardState.get(hash);
   if (!st || !st.hold || !st.text || st.done) return;
   st.hold = undefined;
+  st.holdProxy = undefined;
   startFetch(hash, 0, true);
 }
 
@@ -254,6 +266,7 @@ function stateText(st) {
   if (st.error && ERRORS[st.error]) return ERRORS[st.error](st);
   if (st.asked && !st.done) return st.dashFailed ? t("Couldn't fetch via Velta Dash: asked for the email copy") : t("Asked for the email copy");
   if (st.outgoing) return st.mailed ? t("Sent by email") : routeLabel("iroh");
+  if (st.hold && st.holdProxy && !st.done) return t("Connects directly, not via your proxy. Tap Download to receive this file");
   if (st.hold && !st.done) return t("Tap Download to receive this file");
   if (st.needsAsk && !st.done && !st.receiving) return t("Not available over Velta Dash");
   if (st.done) return t("Received with Velta Dash");

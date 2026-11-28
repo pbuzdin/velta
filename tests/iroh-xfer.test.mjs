@@ -1218,3 +1218,33 @@ test("explicit download: PWA (no iroh) in a contact request sends nothing until 
   await tick();
   assert.deepEqual(rig.texts, [{ chatId: 5, text: resendRequestText("e8".repeat(32)) }]);
 });
+
+test("explicit download: with a proxy configured, Dash starts on tap only", async () => {
+  const rig = holdRig("proxy");
+  const ui = await rig.init();
+  rig.core.config.proxy_enabled = "1";
+  rig.core.config.proxy_url = "socks5://127.0.0.1:9050";
+  const card = heldCard("e9");
+  rig.core.msg(5, card); // accepted chat, Dash on
+  await tick(); await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 0, "no automatic fetch");
+  assert.deepEqual(rig.texts, []);
+  assert.match(ui.xferCardHtml(card), /data-xfer-download/);
+  assert.match(ui.xferCardHtml(card), /not via your proxy/);
+  ui.downloadCard("e9".repeat(32));
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 1, "the tap fetches");
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/);
+});
+
+test("explicit download: proxy switched off in settings — fetch on arrival again", async () => {
+  const rig = holdRig("proxyoff");
+  const ui = await rig.init();
+  rig.core.config.proxy_enabled = "0";
+  rig.core.config.proxy_url = "socks5://127.0.0.1:9050";
+  const card = heldCard("ea");
+  rig.core.msg(5, card);
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 1);
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/);
+});
