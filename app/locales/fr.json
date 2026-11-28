@@ -1819,5 +1819,12 @@
   "Preparing file…": "Préparation du fichier…",
   "Velta Dash didn't work, so the file went by email": "Velta Dash n'a pas fonctionné, le fichier est donc parti par e-mail",
   "200 KB (default)": "200 Ko (par défaut)",
-  "No limit": "Sans limite"
+  "No limit": "Sans limite",
+  "Program": "Programme",
+  "Script": "Script",
+  "Shortcut": "Raccourci",
+  "Installer or package": "Installateur ou paquet",
+  "Open anyway": "Ouvrir quand même",
+  "Open this file?": "Ouvrir ce fichier ?",
+  "{name}\nType: {kind}\n\nOpening this file runs it on your computer. Only open it if you trust the sender.": "{name}\nType : {kind}\n\nL'ouvrir exécute ce fichier sur votre ordinateur. Ne l'ouvrez que si vous faites confiance à l'expéditeur."
 }

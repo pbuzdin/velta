@@ -1819,5 +1819,12 @@
   "Preparing file…": "Подготовка файла…",
   "Velta Dash didn't work, so the file went by email": "Velta Dash не сработал, поэтому файл ушёл по почте",
   "200 KB (default)": "200 КБ (по умолчанию)",
-  "No limit": "Без лимита"
+  "No limit": "Без лимита",
+  "Program": "Программа",
+  "Script": "Скрипт",
+  "Shortcut": "Ярлык",
+  "Installer or package": "Установщик или пакет",
+  "Open anyway": "Всё равно открыть",
+  "Open this file?": "Открыть этот файл?",
+  "{name}\nType: {kind}\n\nOpening this file runs it on your computer. Only open it if you trust the sender.": "{name}\nТип: {kind}\n\nОткрытие запустит этот файл на вашем компьютере. Открывайте, только если доверяете отправителю."
 }
