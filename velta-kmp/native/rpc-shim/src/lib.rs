@@ -222,11 +222,13 @@ pub fn start_core(accounts_dir: String, db_key: String) -> i32 {
         // off this start and the retry happens next boot.
         let prep = db_key::prepare(std::path::Path::new(&accounts_dir), Some(&hex));
         crate::log(&format!(
-            "db-key prepare: migrated {} already {} locked {}",
-            prep.migrated, prep.already, prep.locked
+            "db-key prepare: migrated {} already {} locked {} rekeyed {}",
+            prep.migrated, prep.already, prep.locked, prep.rekeyed
         ));
         if prep.use_key {
-            set_core_env(Some(&hex));
+            // A database that could not be re-keyed yet keeps the whole
+            // session on the legacy key (databases and attachments alike).
+            set_core_env(Some(prep.key_override.as_deref().unwrap_or(&hex)));
         } else {
             crate::log("running keyless this start; retrying migration next boot");
         }

@@ -306,13 +306,13 @@ object VeltaKeystore {
             null
         } else if (blob[0] == BIO_V_PER_USE) {
             val c = cipher ?: return null
-            hex(c.doFinal(blob, 13, blob.size - 13))
+            encodeHex(c.doFinal(blob, 13, blob.size - 13))
         } else if (blob[0] == BIO_V_TIMED) {
             val kek = bioKek() ?: return null
             val iv = blob.copyOfRange(1, 13)
             val legacy = Cipher.getInstance("AES/GCM/NoPadding")
             legacy.init(Cipher.DECRYPT_MODE, kek, GCMParameterSpec(GCM_TAG_BITS, iv))
-            hex(legacy.doFinal(blob, 13, blob.size - 13))
+            encodeHex(legacy.doFinal(blob, 13, blob.size - 13))
         } else {
             Log.e(TAG, "unknown dbkey.bio format")
             null
@@ -392,7 +392,7 @@ object VeltaKeystore {
             return null
         }
         Log.i(TAG, "generated a new database key")
-        return hex(dek)
+        return encodeHex(dek)
     }
 
     private fun unwrap(wrapFile: File): String? = try {
@@ -405,7 +405,7 @@ object VeltaKeystore {
             val iv = blob.copyOfRange(1, 13)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, kek, GCMParameterSpec(GCM_TAG_BITS, iv))
-            hex(cipher.doFinal(blob, 13, blob.size - 13))
+            encodeHex(cipher.doFinal(blob, 13, blob.size - 13))
         }
     } catch (e: Exception) {
         null
@@ -452,15 +452,5 @@ object VeltaKeystore {
         }
         Log.e(TAG, "kek generation failed: no working keystore attempt")
         return null
-    }
-
-    private fun hex(bytes: ByteArray): String {
-        val digits = "0123456789abcdef"
-        val out = CharArray(bytes.size * 2)
-        for (i in bytes.indices) {
-            out[i * 2] = digits[(bytes[i].toInt() shr 4) and 0xf]
-            out[i * 2 + 1] = digits[(bytes[i].toInt() shr 4) and 0xf]
-        }
-        return String(out)
     }
 }
