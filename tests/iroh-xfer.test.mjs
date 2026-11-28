@@ -216,6 +216,7 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
   const texts = [], files = [], calls = [];
   const fetches = { [H2("aa")]: { path: "/acc/xfer-in/got.bin" }, [H2("bb")]: { error: "no space", code: "no-space", email: false },
+    [H2("e1")]: { error: "unreachable", code: "unreachable", email: true }, [H2("e2")]: { error: "unreachable", code: "unreachable", email: true },
     [H2("cc")]: { path: "/acc/xfer-in/clip.mp4" }, [H2("dd")]: { path: "/acc/xfer-in/shot.png" } };
   function H2(c) { return c.repeat(32); }
   ui.initXferUi({
@@ -310,6 +311,20 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   await tick();
   assert.match(ui.xferCardHtml(full), /Not enough free space/);
   assert.match(ui.xferCardHtml(full), /is-error/, "#519: an ERRORS sentence gets the wrap class");
+
+  // #546: transient fetch failure on a file over the email cap. A live offer
+  // says Retry (and offers it); only an expired one asks for a resend.
+  const bigSize = EMAIL_MAX + 1;
+  const live = fileCardText({ name: "live.bin", size: bigSize, ticket: offerOf({ hash: H2("e1"), name: "live.bin", size: bigSize }) });
+  core.msg(9, live);
+  await tick();
+  assert.match(ui.xferCardHtml(live), /offer is still open, tap Retry/);
+  assert.doesNotMatch(ui.xferCardHtml(live), /ask the sender to resend/);
+  assert.match(ui.xferCardHtml(live), /data-xfer-retry/, "Retry stays on the card while the offer is live");
+  const dead = fileCardText({ name: "dead.bin", size: bigSize, ticket: offerOf({ hash: H2("e2"), name: "dead.bin", size: bigSize, exp: 1000 }) });
+  core.msg(9, dead);
+  await tick();
+  assert.match(ui.xferCardHtml(dead), /offer has expired .* ask the sender to resend/);
   assert.match(ui.xferCardHtml(full), /class="xfer-foot"/, "the error lives on the timestamp row, out of the icon grid");
   assert.equal(texts.filter((x) => /VXFER-RESEND/.test(x.text)).length, 0);
 
