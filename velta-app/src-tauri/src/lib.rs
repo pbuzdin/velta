@@ -808,8 +808,69 @@ fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
     if let Some(p) = link_preview_proxy(proxy)? {
         let p = ureq::Proxy::new(&p).map_err(|_| "unsupported proxy for link previews".to_string())?;
         builder = builder.proxy(p);
+    } else {
+        // Direct fetch of a message-derived URL: never to an address on this
+        // machine or its network. ureq resolves every hop (redirects too)
+        // through this resolver. With a proxy the proxy resolves the host.
+        builder = builder.resolver(PublicOnlyResolver);
     }
     Ok(builder.build())
+}
+
+/// True for an address a link fetch may connect to: not loopback, private,
+/// link-local, unspecified, multicast, CGNAT, ULA, documentation or
+/// IPv4-mapped forms of those.
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || v4.is_documentation()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0) // 192.0.0.0/24
+                || (o[0] == 198 && (o[1] & 0xfe) == 18) // 198.18.0.0/15 benchmarking
+                || o[0] >= 240) // reserved
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            let s = v6.segments();
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00 // fc00::/7 ULA
+                || (s[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+                || (s[0] == 0x2001 && s[1] == 0x0db8) // documentation
+                || (s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0
+                    && !is_public_ip(IpAddr::V4(std::net::Ipv4Addr::new((s[6] >> 8) as u8, s[6] as u8, (s[7] >> 8) as u8, s[7] as u8))))) // NAT64 of a non-public v4
+        }
+    }
+}
+
+/// Resolver for direct link fetches: system DNS, public addresses only.
+struct PublicOnlyResolver;
+
+impl ureq::Resolver for PublicOnlyResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+        use std::net::ToSocketAddrs;
+        let all: Vec<_> = netloc.to_socket_addrs()?.collect();
+        let public: Vec<_> = all.into_iter().filter(|a| is_public_ip(a.ip())).collect();
+        if public.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "address is not public",
+            ));
+        }
+        Ok(public)
+    }
 }
 
 /// #452: og:image URLs that point at site chrome (favicons, touch icons,
@@ -6714,6 +6775,42 @@ mod link_preview_proxy_tests {
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         let agent = link_preview_agent(Some(&format!("socks5://127.0.0.1:{port}"))).unwrap();
         assert!(agent.get("https://example.com/").call().is_err());
+    }
+
+    #[test]
+    fn is_public_ip_rejects_local_and_private_ranges() {
+        use std::net::IpAddr;
+        for bad in [
+            "127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "0.0.0.0",
+            "100.64.0.1", "100.127.255.255", "198.18.0.1", "224.0.0.1", "255.255.255.255", "240.0.0.1",
+            "::1", "::", "fe80::1", "fc00::1", "fd12:3456::1", "ff02::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1",
+            "64:ff9b::7f00:1", "2001:db8::1",
+        ] {
+            assert!(!is_public_ip(bad.parse::<IpAddr>().unwrap()), "{bad} must be refused");
+        }
+        for good in ["93.184.216.34", "8.8.8.8", "1.1.1.1", "172.32.0.1", "100.128.0.1", "2606:4700::1111", "::ffff:8.8.8.8"] {
+            assert!(is_public_ip(good.parse::<IpAddr>().unwrap()), "{good} must be allowed");
+        }
+    }
+
+    #[test]
+    fn a_direct_fetch_never_connects_to_loopback() {
+        // A listener on loopback: the direct agent must refuse before dialing.
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.set_nonblocking(true).unwrap();
+        let port = l.local_addr().unwrap().port();
+        let agent = link_preview_agent(None).unwrap();
+        assert!(agent.get(&format!("http://127.0.0.1:{port}/")).call().is_err());
+        assert!(agent.get(&format!("http://localhost:{port}/")).call().is_err());
+        assert!(l.accept().is_err(), "the listener must not have been contacted");
+    }
+
+    #[test]
+    fn the_resolver_drops_private_answers() {
+        use ureq::Resolver;
+        assert!(PublicOnlyResolver.resolve("127.0.0.1:80").is_err());
+        assert!(PublicOnlyResolver.resolve("192.168.0.1:443").is_err());
+        assert_eq!(PublicOnlyResolver.resolve("93.184.216.34:443").unwrap().len(), 1);
     }
 
     #[test]
