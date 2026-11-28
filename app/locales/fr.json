@@ -630,6 +630,7 @@
   "Accept": "Accepter",
   "Contact request accepted": "Demande de contact acceptée",
   "Couldn't open chat: ": "Impossible d'ouvrir la discussion : ",
+  "Couldn't open this file.": "Impossible d'ouvrir ce fichier.",
   "Couldn't open the chat": "Impossible d'ouvrir la discussion",
   "On ({n} s)": "Activé ({n} s)",
   "Disappearing messages": "Messages éphémères",
