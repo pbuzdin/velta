@@ -643,8 +643,11 @@ never run Gradle on the Windows side.
   access; mailto/tel/market leave, other schemes drop). Desktop keeps
   the system browser via `LocalUriHandler`. Android webxdc runs in a
   WebView: the archive comes from `get_webxdc_blob` on
-  `https://xdc.local/<msgId>/` and `window.webxdc` is injected
-  (`WebxdcScreen.android.kt`). Desktop says apps run in the web app.
+  `https://a<account>m<msgId>.xdc.local/` (one origin per app
+  instance, so storage is not shared) and `window.webxdc` is injected
+  (`WebxdcScreen.android.kt`). Only that host is served; other requests
+  get 403, navigation stays on it, and a user tap on an http(s) link goes to
+  the system chooser (`WebxdcRules.kt`, `WebxdcRulesTest`). Desktop says apps run in the web app.
   This is not the Tauri `webxdc_begin` / `webxdc_end` sandbox.
   Full HTML (`hasHtml` → `get_message_html`, and `.html` files) is a
   different WebView: JavaScript off, no bridge, network and file access

@@ -727,7 +727,9 @@ it back on its own).
 
 **Auto-download limit**: files above the limit wait for a tap and stay on
 the relay until downloaded (or until the relay purges them, usually after
-about 7 days), so a limit uses relay storage.
+about 7 days), so a limit uses relay storage. Unset, the limit is
+**200 KB** (`none` downloads everything), and what waits for a tap also
+drains in the background afterwards, newest chat first.
 
 </details>
 
@@ -867,8 +869,14 @@ before sending when that makes them at least 10% smaller (or fit the limit
 above); this also drops location/camera info from those photos. With
 **Resize photos to 2k** on (the default, same drawer section, independent of
 the WebP switch), a photo longer than 2048 px on its longest side is scaled
-down on send - with WebP off it re-encodes as JPEG once; tiny originals are
-never touched. Small photos, GIFs, animated or transparent images and files are never touched. A pasted screenshot is written under the app's `uploads/` folder and encrypted there before send. From the attachment menu you
+down on send: with WebP off the resample comes back in the same format
+(JPEG stays JPEG; PNG and WebP keep transparency), and an oversized PNG or
+transparent image is rescued into WebP with alpha kept when WebP is on.
+Transparency is still never converted for size alone when the resize is
+off. Tiny originals are never touched. Small photos, GIFs, animated images
+and files are never touched. A transcoded photo also leaves with its real
+extension (`.webp` when the codec changed); a same-format resample keeps
+its name. A pasted screenshot is written under the app's `uploads/` folder and encrypted there before send. From the attachment menu you
 can send:
 
 **Voice message** (not offered in local groups) records from the

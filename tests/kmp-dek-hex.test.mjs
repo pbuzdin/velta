@@ -10,7 +10,8 @@ const lib = src("velta-kmp/native/rpc-shim/src/lib.rs");
 test("the Android key string uses the shared two-nibble encoder", () => {
   assert.doesNotMatch(keystore, /private fun hex\(/);
   assert.match(keystore, /return encodeHex\(dek\)/);
-  assert.equal((keystore.match(/encodeHex\(cipher\.doFinal/g) || []).length, 2);
+  assert.doesNotMatch(keystore, /(^|[^A-Za-z])hex\(/m);
+  assert.ok((keystore.match(/encodeHex\(/g) || []).length >= 3);
 });
 
 test("the shim re-keys legacy databases and attachments before the core opens them", () => {

@@ -206,6 +206,9 @@ pub fn start_core(accounts_dir: String, db_key: String) -> i32 {
     if let Some(prev) = WORKER.lock().expect("worker").take() {
         let _ = prev.join();
     }
+    // Never inherit a key from an earlier session in this process: a start
+    // that runs keyless must not see the previous start's VELTA_DB_KEY.
+    set_core_env(None);
     if !db_key.is_empty() {
         // One canonical DEK form: bare hex and `x'hex'` both accepted here,
         // the migration gets bare hex, the core gets `x'hex'`.
@@ -225,8 +228,7 @@ pub fn start_core(accounts_dir: String, db_key: String) -> i32 {
         if prep.use_key {
             // A database that could not be re-keyed yet keeps the whole
             // session on the legacy key (databases and attachments alike).
-            let session_hex = prep.key_override.as_deref().unwrap_or(&hex);
-            std::env::set_var("VELTA_DB_KEY", db_key::core_env_key(session_hex));
+            set_core_env(Some(prep.key_override.as_deref().unwrap_or(&hex)));
         } else {
             crate::log("running keyless this start; retrying migration next boot");
         }
@@ -256,6 +258,14 @@ pub fn start_core(accounts_dir: String, db_key: String) -> i32 {
 
 /// Signals the session to end. Idempotent. Does not join: the next
 /// `start_core` joins the worker so this call stays non-blocking (#224).
+/// The only writer of `VELTA_DB_KEY` in this process.
+fn set_core_env(hex: Option<&str>) {
+    match hex {
+        Some(h) => std::env::set_var("VELTA_DB_KEY", db_key::core_env_key(h)),
+        None => std::env::remove_var("VELTA_DB_KEY"),
+    }
+}
+
 #[doc(hidden)]
 pub fn stop_core() -> i32 {
     let _lock = START_LOCK.lock().expect("start lock");
@@ -266,6 +276,8 @@ pub fn stop_core() -> i32 {
     if let Ok(mut live) = LIVE.lock() {
         *live = None;
     }
+    // Do not leave the DEK in the process environment after the core stops.
+    set_core_env(None);
     0
 }
 
@@ -590,6 +602,16 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// CB2: the key must not outlive the session that set it.
+    #[test]
+    fn core_env_key_does_not_leak_between_sessions() {
+        let hex = "ab".repeat(32);
+        set_core_env(Some(&hex));
+        assert_eq!(std::env::var("VELTA_DB_KEY").unwrap(), format!("x'{hex}'"));
+        assert_eq!(stop_core(), 0);
+        assert!(std::env::var("VELTA_DB_KEY").is_err(), "stop_core left the key behind");
     }
 
     fn tmp_root(tag: &str) -> std::path::PathBuf {

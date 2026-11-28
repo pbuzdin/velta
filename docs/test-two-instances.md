@@ -122,3 +122,48 @@ are up.
   completely.
 - Debug builds use a PIN instead of Windows Hello for the database key (the
   dev binary isn't signed) — expect the PIN prompt, not Hello.
+
+## Bench: cold-open sync A/B on one profile
+
+The rig can measure a sync-speed change against the same backlog with two
+builds (PR #562's harness):
+
+1. **Fill once.** On the working instance, send the backlog to yourself
+   (Saved messages): attachments FIRST, then texts — mailbox order is what
+   the fetch walks, so attachments-first is the stall scenario. Self-mail
+   reaches the mailbox over the relay (bcc_self) and stays there for ~7
+   days, server-side.
+2. **Snapshot.** Quit the app, copy
+   `%LOCALAPPDATA%\<identifier>\accounts\` somewhere safe. That snapshot is
+   the client state BEFORE the backlog existed.
+3. **Per variant.** Restore the snapshot, boot the variant's exe, measure
+   from the UI: first text visible, all texts, media terminal. The server
+   mailbox survives the restores; only the client resets, so every variant
+   sees an identical true cold open.
+
+Rules learned the hard way (2026-11-28):
+
+- **A missing or empty `accounts\` dir deadlocks the app-spawned sidecar** —
+  `getAccount` never returns and no `accounts.toml` is created. Run the
+  sidecar once by hand
+  (`VELTA_ACCOUNTS_DIR=... velta-rpc-server.exe < /dev/null`) so it writes
+  `accounts.toml` + `accounts.lock`, then the app boots into onboarding.
+- **The keychain DEK credential is scoped per identifier**
+  (`chat.velta.dbkey.<identifier>`). A fresh keyless dir under an identifier
+  that already holds a credential collides with it — the app shows the
+  "Velta is locked" overlay (the #178 gate). Bench under its own identifier
+  (patch `tauri.conf.json` before the build) instead of deleting anything
+  from the keychain: removing that credential bricks the profile it belongs
+  to.
+- **Every boot can re-wrap the keychain credential.** A snapshot restored
+  after any intervening boot of the same profile fails with
+  `sqlcipher hmac check failed` and the app falls back to mock. Never boot
+  the profile between the snapshot and the measured run — kill-verify
+  first (processes by `ExecutablePath`), one instance at a time.
+- **A CDP port must be unique per boot.** Two instances launched with the
+  same `--remote-debugging-port` leave the eval tools attached to the older
+  one, which may hold the profile you just replaced.
+- Keep CDP evaluations short and poll from the outside — a long
+  `await` inside the page plus a 12 MB upload can wedge the renderer, and
+  Windows clamps small `setTimeout`s to ~30 ms, so wall-clock waits in
+  automation scripts are not reliable.

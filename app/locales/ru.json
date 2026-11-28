@@ -630,6 +630,7 @@
   "Accept": "Принять",
   "Contact request accepted": "Запрос на контакт принят",
   "Couldn't open chat: ": "Не удалось открыть чат: ",
+  "Couldn't open this file.": "Не удалось открыть этот файл.",
   "Couldn't open the chat": "Не удалось открыть чат",
   "On ({n} s)": "Вкл ({n} с)",
   "Disappearing messages": "Исчезающие сообщения",
@@ -1794,6 +1795,9 @@
   "Couldn't fetch via Velta Dash: asked for the email copy": "Не удалось получить через Velta Dash: запрошена копия по почте",
   "Fetching via Velta Dash {n}%": "Получение через Velta Dash {n}%",
   "Waiting for sender…": "Ожидание отправителя…",
+  "Tap Download to receive this file": "Нажмите «Скачать», чтобы получить файл",
+  "Connects directly, not via your proxy. Tap Download to receive this file": "Подключение идёт напрямую, не через ваш прокси. Нажмите «Скачать», чтобы получить файл",
+  "Not available over Velta Dash": "Недоступно через Velta Dash",
   "Velta Dash: direct to {name} (same network only — your relay has no Dash relay)": "Velta Dash: напрямую для {name} (только в одной сети — у вашего релея нет релея Dash)",
   "Velta Dash: direct to {name}": "Velta Dash: напрямую для {name}",
   "Checking how to send…": "Уточняю способ отправки…",
@@ -1815,5 +1819,12 @@
   "Preparing file…": "Подготовка файла…",
   "Velta Dash didn't work, so the file went by email": "Velta Dash не сработал, поэтому файл ушёл по почте",
   "200 KB (default)": "200 КБ (по умолчанию)",
-  "No limit": "Без лимита"
+  "No limit": "Без лимита",
+  "Program": "Программа",
+  "Script": "Скрипт",
+  "Shortcut": "Ярлык",
+  "Installer or package": "Установщик или пакет",
+  "Open anyway": "Всё равно открыть",
+  "Open this file?": "Открыть этот файл?",
+  "{name}\nType: {kind}\n\nOpening this file runs it on your computer. Only open it if you trust the sender.": "{name}\nТип: {kind}\n\nОткрытие запустит этот файл на вашем компьютере. Открывайте, только если доверяете отправителю."
 }

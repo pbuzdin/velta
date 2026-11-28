@@ -203,6 +203,7 @@ function fakeCore(config = {}) {
   core.config = { ...config };
   core.getConfig = async (k) => core.config[k] ?? null;
   core.setConfig = async (k, v) => { core.config[k] = v; };
+  core.getChat = async (id) => ({ id, chatType: "Single", contactId: 12, isContactRequest: false });
   core.createChatByContactId = async (id) => (id === 1 ? 3 : 100 + id);
   core.msg = (chatId, text, out = false) => core.dispatchEvent(Object.assign(new Event("incoming-msg"), { detail: { chatId, msg: { chatId, text, from: out ? 1 : 0 } } }));
   return core;
@@ -216,6 +217,7 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   const core = fakeCore({ "ui.velta.xfer.peer.12": "1700000000" });
   const texts = [], files = [], calls = [];
   const fetches = { [H2("aa")]: { path: "/acc/xfer-in/got.bin" }, [H2("bb")]: { error: "no space", code: "no-space", email: false },
+    [H2("e1")]: { error: "unreachable", code: "unreachable", email: true }, [H2("e2")]: { error: "unreachable", code: "unreachable", email: true },
     [H2("cc")]: { path: "/acc/xfer-in/clip.mp4" }, [H2("dd")]: { path: "/acc/xfer-in/shot.png" } };
   function H2(c) { return c.repeat(32); }
   ui.initXferUi({
@@ -310,6 +312,20 @@ test("ui glue (Tauri): capability announce, proven peers only, events, own-devic
   await tick();
   assert.match(ui.xferCardHtml(full), /Not enough free space/);
   assert.match(ui.xferCardHtml(full), /is-error/, "#519: an ERRORS sentence gets the wrap class");
+
+  // #546: transient fetch failure on a file over the email cap. A live offer
+  // says Retry (and offers it); only an expired one asks for a resend.
+  const bigSize = EMAIL_MAX + 1;
+  const live = fileCardText({ name: "live.bin", size: bigSize, ticket: offerOf({ hash: H2("e1"), name: "live.bin", size: bigSize }) });
+  core.msg(9, live);
+  await tick();
+  assert.match(ui.xferCardHtml(live), /offer is still open, tap Retry/);
+  assert.doesNotMatch(ui.xferCardHtml(live), /ask the sender to resend/);
+  assert.match(ui.xferCardHtml(live), /data-xfer-retry/, "Retry stays on the card while the offer is live");
+  const dead = fileCardText({ name: "dead.bin", size: bigSize, ticket: offerOf({ hash: H2("e2"), name: "dead.bin", size: bigSize, exp: 1000 }) });
+  core.msg(9, dead);
+  await tick();
+  assert.match(ui.xferCardHtml(dead), /offer has expired .* ask the sender to resend/);
   assert.match(ui.xferCardHtml(full), /class="xfer-foot"/, "the error lives on the timestamp row, out of the icon grid");
   assert.equal(texts.filter((x) => /VXFER-RESEND/.test(x.text)).length, 0);
 
@@ -355,7 +371,11 @@ test("ui glue (PWA): no iroh — cards ask for the email copy, nothing is offere
   const card = fileCardText({ name: "p.bin", size: tk.size, ticket: offerOf({ hash: "12".repeat(32), name: "p.bin" }) });
   core.msg(8, card);
   await tick();
-  assert.deepEqual(texts, [{ chatId: 8, text: resendRequestText("12".repeat(32)) }], "auto-requested");
+  assert.deepEqual(texts, [], "nothing is sent into the chat on arrival");
+  assert.match(ui.xferCardHtml(card), /data-xfer-download/, "the card waits for a tap");
+  ui.downloadCard("12".repeat(32));
+  await tick();
+  assert.deepEqual(texts, [{ chatId: 8, text: resendRequestText("12".repeat(32)) }], "requested after the tap");
   assert.match(ui.xferCardHtml(card), /Asked for the email copy/);
   const old = fileCardText({ name: "o.bin", size: tk.size, ticket: offerOf({ hash: "34".repeat(32), name: "o.bin", exp: 1000 }) });
   core.msg(8, old);
@@ -635,13 +655,17 @@ test("receiver card: waiting, progress, resumes, then Retry; fetch may use the s
   assert.match(ui.xferCardHtml(huge), /Fetch failed — the offer is still open, tap Retry\./);
   assert.doesNotMatch(ui.xferCardHtml(huge), /xfer-ask/);
   assert.match(ui.xferCardHtml(huge), /data-xfer-retry/);
-  // Under the cap: the card says Dash failed and the email copy was asked for.
+  // Under the cap: Dash failed; the card offers the email copy and does not
+  // ask by itself. The user's tap sends the request.
   const H4 = "b2".repeat(32);
   const mid = fileCardText({ name: "m.mp4", size: tk.size, ticket: enc({ ...tk, hash: H4 }) });
   results.push({ error: "unreachable", code: "unreachable", email: true });
   core.msg(9, mid);
   await tick(); await tick();
-  assert.match(ui.xferCardHtml(mid), /Couldn&#39;t fetch via Velta Dash: asked for the email copy|Couldn't fetch via Velta Dash: asked for the email copy/);
+  assert.match(ui.xferCardHtml(mid), /Not available over Velta Dash/);
+  assert.match(ui.xferCardHtml(mid), /data-xfer-ask/);
+  await ui.askForEmailCopy(H4);
+  assert.match(ui.xferCardHtml(mid), /Asked for the email copy/);
 });
 
 test("receiver card: a fetch that never settles still ends — hard cap, then a clear error + Retry", async () => {
@@ -1087,4 +1111,155 @@ test("Velta hides the explainer in the chat list, quotes, notifications, search 
   // The bubble still becomes a file card, never the explainer.
   const md = src("app/js/markdown.js");
   assert.match(md, /xferCardHtml\(rawText\)/);
+});
+
+
+// ---- explicit download: arrival never starts a transfer or posts a request on its own ----
+function holdRig(tag, { chat = { chatType: "Single", contactId: 12, isContactRequest: false }, invoke = true } = {}) {
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const calls = [], texts = [];
+  const core = fakeCore();
+  core.accountId = 70;
+  core.getChat = async (id) => ({ id, ...chat });
+  core.getContact = async () => ({ id: 12, addr: "kay@their-relay.example" });
+  const env = {
+    core, calls, texts,
+    init: async () => {
+      const ui = await import(`../app/js/iroh-xfer-ui.js?hold-${tag}`);
+      ui.initXferUi({
+        core,
+        invoke: invoke ? async (cmd, args) => {
+          calls.push(cmd);
+          if (cmd === "xfer_fetch") return { path: "/acc/xfer-in/x.bin" };
+          return null;
+        } : null,
+        sendText: async (chatId, text) => { texts.push({ chatId, text }); return { id: texts.length }; },
+        sendFile: async () => {}, metadata: async () => null, listen: async () => {},
+      });
+      return ui;
+    },
+  };
+  return env;
+}
+const heldCard = (c, extra = {}) => fileCardText({ name: "x.bin", size: tk.size, ticket: enc({ ...tk, hash: c.repeat(32), ...extra }) });
+
+test("explicit download: a contact-request chat never fetches or posts a request", async () => {
+  const rig = holdRig("req", { chat: { chatType: "Single", contactId: 12, isContactRequest: true } });
+  const ui = await rig.init();
+  const card = heldCard("e1");
+  rig.core.msg(5, card);
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 0);
+  assert.deepEqual(rig.texts, []);
+  assert.match(ui.xferCardHtml(card), /data-xfer-download/);
+  ui.downloadCard("e1".repeat(32)); // the user's tap
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 1);
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/);
+});
+
+test("explicit download: Dash off — no automatic fetch", async () => {
+  const rig = holdRig("off");
+  const ui = await rig.init();
+  localStorage.setItem("velta-iroh-xfer", "0");
+  const card = heldCard("e2");
+  rig.core.msg(5, card);
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 0);
+  assert.deepEqual(rig.texts, []);
+  assert.match(ui.xferCardHtml(card), /data-xfer-download/);
+});
+
+test("explicit download: Text-only mode (all messages) — no automatic fetch", async () => {
+  const rig = holdRig("txt");
+  const ui = await rig.init();
+  localStorage.setItem("velta-text-only", "all");
+  const card = heldCard("e3");
+  rig.core.msg(5, card);
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 0);
+  assert.match(ui.xferCardHtml(card), /data-xfer-download/);
+});
+
+test("explicit download: an unreadable chat fails closed", async () => {
+  const rig = holdRig("err");
+  const ui = await rig.init();
+  rig.core.getChat = async () => { throw new Error("boom"); };
+  const card = heldCard("e4");
+  rig.core.msg(5, card);
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 0);
+  assert.match(ui.xferCardHtml(card), /data-xfer-download/);
+});
+
+test("explicit download: accepted chat with Dash on fetches on arrival, as before", async () => {
+  const rig = holdRig("ok");
+  const ui = await rig.init();
+  const card = heldCard("e5");
+  rig.core.msg(5, card);
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 1);
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/);
+  assert.doesNotMatch(ui.xferCardHtml(card), /data-xfer-download/);
+});
+
+test("explicit download: an expired or unknown offer is not answered until the user acts", async () => {
+  const rig = holdRig("gone");
+  const ui = await import("../app/js/iroh-xfer-ui.js?hold-gone");
+  ui.initXferUi({
+    core: rig.core,
+    invoke: async (cmd) => (cmd === "xfer_fetch" ? { error: "offer expired", code: "expired", email: true } : null),
+    sendText: async (chatId, text) => { rig.texts.push({ chatId, text }); return { id: 1 }; },
+    sendFile: async () => {}, metadata: async () => null, listen: async () => {},
+  });
+  const card = heldCard("e7");
+  rig.core.msg(5, card);
+  await tick(); await tick();
+  assert.deepEqual(rig.texts, [], "no VXFER-RESEND on arrival");
+  assert.match(ui.xferCardHtml(card), /data-xfer-ask/);
+  await ui.askForEmailCopy("e7".repeat(32));
+  assert.deepEqual(rig.texts, [{ chatId: 5, text: resendRequestText("e7".repeat(32)) }], "only the user's action sends it");
+});
+
+test("explicit download: PWA (no iroh) in a contact request sends nothing until Download", async () => {
+  const rig = holdRig("pwareq", { chat: { chatType: "Single", contactId: 12, isContactRequest: true }, invoke: false });
+  const ui = await rig.init();
+  const card = heldCard("e8");
+  rig.core.msg(5, card);
+  await tick();
+  assert.deepEqual(rig.texts, []);
+  ui.downloadCard("e8".repeat(32));
+  await tick();
+  assert.deepEqual(rig.texts, [{ chatId: 5, text: resendRequestText("e8".repeat(32)) }]);
+});
+
+test("explicit download: with a proxy configured, Dash starts on tap only", async () => {
+  const rig = holdRig("proxy");
+  const ui = await rig.init();
+  rig.core.config.proxy_enabled = "1";
+  rig.core.config.proxy_url = "socks5://127.0.0.1:9050";
+  const card = heldCard("e9");
+  rig.core.msg(5, card); // accepted chat, Dash on
+  await tick(); await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 0, "no automatic fetch");
+  assert.deepEqual(rig.texts, []);
+  assert.match(ui.xferCardHtml(card), /data-xfer-download/);
+  assert.match(ui.xferCardHtml(card), /not via your proxy/);
+  ui.downloadCard("e9".repeat(32));
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 1, "the tap fetches");
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/);
+});
+
+test("explicit download: proxy switched off in settings — fetch on arrival again", async () => {
+  const rig = holdRig("proxyoff");
+  const ui = await rig.init();
+  rig.core.config.proxy_enabled = "0";
+  rig.core.config.proxy_url = "socks5://127.0.0.1:9050";
+  const card = heldCard("ea");
+  rig.core.msg(5, card);
+  await tick();
+  assert.equal(rig.calls.filter((c) => c === "xfer_fetch").length, 1);
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/);
 });

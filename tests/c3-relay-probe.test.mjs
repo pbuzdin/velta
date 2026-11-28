@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { probeC3Relay, probeDnsVia } from "../app/js/ws-relays.js";
+import { setLinkPreviewProxySource } from "../app/js/shell-proxy.js";
 
 // Stub the WebSocket global: probeC3Relay must decide from the FIRST text
 // frame only — a JSON array with at least one entry (the relay's own name
@@ -111,14 +112,36 @@ test("probe: in the Tauri shell it invokes probe_c3_relay, not a browser WebSock
   const realWin = globalThis.window;
   const calls = [];
   globalThis.window = { __TAURI__: { core: { invoke: async (cmd, args) => { calls.push([cmd, args]); return args.host === "good.example"; } } } };
+  setLinkPreviewProxySource(async () => null);
   try {
     assert.equal(await probeC3Relay("good.example"), true);
     assert.equal(await probeC3Relay("bad.example"), false);
     globalThis.window.__TAURI__.core.invoke = async () => { throw new Error("boom"); };
     assert.equal(await probeC3Relay("err.example"), false);
-    assert.deepEqual(calls, [["probe_c3_relay", { host: "good.example" }], ["probe_c3_relay", { host: "bad.example" }]]);
+    assert.deepEqual(calls, [["probe_c3_relay", { host: "good.example", proxy: null }], ["probe_c3_relay", { host: "bad.example", proxy: null }]]);
     assert.equal(FakeWS.instances.length, 0);
   } finally {
+    setLinkPreviewProxySource(null);
+    globalThis.window = realWin;
+  }
+}));
+
+test("probe: the configured proxy is passed; an unknown proxy setting sends nothing", () => withFakeWS(async () => {
+  const realWin = globalThis.window;
+  const calls = [];
+  globalThis.window = { __TAURI__: { core: { invoke: async (cmd, args) => { calls.push([cmd, args]); return true; } } } };
+  try {
+    setLinkPreviewProxySource(null); // not known yet: fail closed
+    assert.equal(await probeC3Relay("good.example"), false);
+    setLinkPreviewProxySource(async () => { throw new Error("core not ready"); });
+    assert.equal(await probeC3Relay("good.example"), false);
+    assert.deepEqual(calls, []);
+    setLinkPreviewProxySource(async () => "socks5://127.0.0.1:1080");
+    assert.equal(await probeC3Relay("good.example"), true);
+    assert.deepEqual(calls, [["probe_c3_relay", { host: "good.example", proxy: "socks5://127.0.0.1:1080" }]]);
+    assert.equal(FakeWS.instances.length, 0);
+  } finally {
+    setLinkPreviewProxySource(null);
     globalThis.window = realWin;
   }
 }));
@@ -126,7 +149,7 @@ test("probe: in the Tauri shell it invokes probe_c3_relay, not a browser WebSock
 test("probe_c3_relay: Rust command exists, is registered and sends no Origin", () => {
   const src = readFileSync(new URL("../velta-app/src-tauri/src/c3_probe.rs", import.meta.url), "utf8");
   const lib = readFileSync(new URL("../velta-app/src-tauri/src/lib.rs", import.meta.url), "utf8");
-  assert.match(src, /pub async fn probe_c3_relay\(host: String\) -> bool/);
+  assert.match(src, /pub async fn probe_c3_relay\(host: String, proxy: Option<String>\) -> bool/);
   assert.match(src, /valid_host\(&host\)/);
   assert.match(src, /Duration::from_secs\(5\)/);
   const req = src.match(/"GET \/dns\/[^"]*"/)?.[0] || "";

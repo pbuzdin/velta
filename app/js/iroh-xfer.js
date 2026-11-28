@@ -320,13 +320,16 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
   }
   /** A received text: fetch a file card over iroh, or ask for the email copy
    *  (always in the PWA, which has no iroh). */
-  async function receive({ chatId, text, peers = [] }) {
+  async function receive({ chatId, text, peers = [], allowResend = true }) {
     const card = parseFileCard(text);
     if (!card) return null;
     // Asking for an email copy the relay would bounce helps nobody: say so.
     const mailable = Number(card.size) <= EMAIL_MAX;
+    // The request for the email copy is a message into the chat: it goes out
+    // only after an explicit user action (allowResend), never on arrival.
     if (!iroh) {
       if (!mailable) return { route: "none", tooBig: true, code: "no-iroh" };
+      if (!allowResend) return { route: "email", needsAsk: true, code: "no-iroh" };
       await email.sendText(chatId, resendRequestText(card.tk.hash));
       return { route: "email", asked: true, code: "no-iroh" };
     }
@@ -334,6 +337,7 @@ export function createTransport({ email, iroh, relay = async () => null, enabled
     if (r && r.path) return { route: "iroh", path: r.path };
     if (r && r.email) {
       if (!mailable) return { route: "none", tooBig: true, error: r.error, code: r.code };
+      if (!allowResend) return { route: "email", needsAsk: true, error: r.error, code: r.code };
       await email.sendText(chatId, resendRequestText(card.tk.hash));
       return { route: "email", asked: true, error: r.error, code: r.code };
     }

@@ -112,15 +112,23 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: velta-app/src-tauri/target/release/bundle
-          key: bundles-unsigned-windows-x64-rust1.98-${{ steps.bundle-key.outputs.hash }}
+          key: bundles-unsigned-windows-x64-rust1.98${{ github.event_name == 'pull_request' && '-pr' || '' }}-${{ steps.bundle-key.outputs.hash }}
+
+      # Pull-request builds bundle unsigned (no updater artifacts, no signing
+      # secrets in the job); push, tag and manual builds sign the updater
+      # artifact (Velta_*_x64-setup.exe.sig).
+      - name: Build Tauri Windows installer (unsigned, pull request)
+        if: steps.bundle.outputs.cache-hit != 'true' && github.event_name == 'pull_request'
+        working-directory: ./velta-app
+        run: tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Build Tauri Windows installer
-        if: steps.bundle.outputs.cache-hit != 'true'
+        if: steps.bundle.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
         working-directory: ./velta-app
         env:
-          # Signs the updater artifact (Velta_*_x64-setup.exe.sig). Without
-          # these secrets (e.g. a manual dispatch from a fork) the build fails
-          # on createUpdaterArtifacts — the updater manifest needs a signature.
+          # Without these secrets (e.g. a manual dispatch from a fork) the
+          # build fails on createUpdaterArtifacts — the updater manifest
+          # needs a signature.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: tauri build
@@ -136,7 +144,9 @@ jobs:
           test -s "$exe" || { echo "::error::bundle cache hit but no NSIS installer"; exit 1; }
           want=$(node -p "require('./velta-app/src-tauri/tauri.conf.json').version")
           case "$exe" in *_${want}_*) ;; *) echo "::error::cached installer '$exe' does not match conf version ${want}"; exit 1;; esac
-          test -s "${exe}.sig" || { echo "::error::cached updater signature missing for $exe"; exit 1; }
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            test -s "${exe}.sig" || { echo "::error::cached updater signature missing for $exe"; exit 1; }
+          fi
           msi=$(ls velta-app/src-tauri/target/release/bundle/msi/*.msi 2>/dev/null | head -n1)
           test -s "$msi" || { echo "::error::bundle cache hit but no MSI"; exit 1; }
           echo "Cached installer identity verified: $(basename "$exe")"

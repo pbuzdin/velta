@@ -149,7 +149,9 @@ async function lockState(root, src) {
   try { wrap = new Uint8Array(await (await (await root.getFileHandle(wrapFileFor(src))).getFile()).arrayBuffer()); } catch {}
   if (!wrap || !wrap.length) return null; // torn/absent wrap = no lock
   let meta = {};
-  try { meta = JSON.parse(await readText(root, META) || "{}"); } catch {}
+  // A read error must surface (never read as "no meta"); only bad JSON is ignored.
+  const metaText = await readText(root, META);
+  try { meta = JSON.parse(metaText || "{}"); } catch {}
   return { wrap, meta };
 }
 
@@ -186,8 +188,15 @@ async function decryptTree(root, snap, gen) {
   }
 }
 
+// null = the file does not exist. Any other failure (a transient storage
+// error) throws: callers must never mistake it for "nothing saved yet".
 async function readText(dir, name) {
-  try { return await (await (await dir.getFileHandle(name)).getFile()).text(); } catch { return null; }
+  let fh;
+  try { fh = await dir.getFileHandle(name); } catch (e) {
+    if (e?.name === "NotFoundError") return null;
+    throw e;
+  }
+  return new TextDecoder().decode(await (await fh.getFile()).arrayBuffer());
 }
 
 async function writeFile(dir, name, bytes) {
@@ -211,10 +220,18 @@ async function restoreTree(dir, prefix) {
 }
 
 let generation = 0;
+// True once restore() has finished (or there was nothing to restore). Until
+// then no checkpoint may write or prune: generation 0 would overwrite snap-1.
+let restored = false;
+// Whether the generation `current` points at is VLTE1-encrypted (null = unknown).
+let generationEncrypted = null;
 
 // OPFS snapshot → memfs + sqlite, before core init.
 async function restore(root) {
-  const cur = Number.parseInt(await readText(root, "current") || "", 10);
+  const curText = (await readText(root, "current") || "").trim();
+  const cur = Number.parseInt(curText, 10);
+  // A pointer that exists but cannot be parsed is damage, not a fresh install.
+  if (curText && !(Number.isFinite(cur) && cur > 0)) throw new Error("snapshot pointer `current` is unreadable");
   if (Number.isFinite(cur) && cur > 0) {
     const snap = await root.getDirectoryHandle(`snap-${cur}`);
     generation = cur;
@@ -223,6 +240,7 @@ async function restore(root) {
     // yet written) restores the older plaintext snapshot without a key.
     let encrypted = false;
     try { await snap.getFileHandle("enc"); encrypted = true; } catch {}
+    generationEncrypted = encrypted;
     if (encrypted) await decryptTree(root, snap, cur);
     else {
       try { await restoreTree(await snap.getDirectoryHandle("accounts"), "/accounts"); } catch (e) { if (e?.name !== "NotFoundError") throw e; }
@@ -238,6 +256,7 @@ async function restore(root) {
     }
     return;
   }
+  generationEncrypted = null;
   let legacy = null;
   try { legacy = await root.getDirectoryHandle("accounts"); } catch {}
   if (legacy) await restoreTree(legacy, "/accounts");
@@ -260,6 +279,11 @@ let lastDigest = "";
 async function snapshot() {
   const root = await opfsRoot();
   if (!root || !glue) return;
+  if (!restored) throw new Error("snapshot restore did not complete; not writing");
+  // Key and mode are captured ONCE for the whole checkpoint. set-encryption /
+  // disable-encryption can run while it awaits; every file of this generation
+  // (and its `enc` marker) must use this one key.
+  const key = dekKey;
   // Databases FIRST, then the memfs. vfs_list is async, so the core runs
   // between the awaits of the walk. The core writes a blob before the row
   // that names it (set_config selfavatar, send_msg, received attachments),
@@ -286,7 +310,9 @@ async function snapshot() {
     }
   };
   await walk("/accounts");
-  const digest = await digestOf(files, dbs);
+  // The digest is over plaintext, so it is tagged with the mode it was
+  // written in: the same data under another mode must be rewritten.
+  const digest = (key ? "enc:" : "plain:") + await digestOf(files, dbs);
   if (digest === lastDigest) return;
   const next = generation + 1;
   // A worker killed mid-write can leave a partial snap-<next>; start clean.
@@ -295,10 +321,9 @@ async function snapshot() {
   // #178: when a DEK is set, every payload is written VLTE1-encrypted and
   // the generation carries an `enc` marker (restore reads the marker, not
   // the wrap, so the plaintext→encrypted transition stays bootable).
-  const encSnap = !!dekKey;
-  if (encSnap) await writeFile(snap, "enc", new Uint8Array([1]));
+  if (key) await writeFile(snap, "enc", new Uint8Array([1]));
   const put = async (dir, name, bytes, aad) =>
-    writeFile(dir, name, dekKey ? await crypt.encryptFile(dekKey, bytes, aad) : bytes);
+    writeFile(dir, name, key ? await crypt.encryptFile(key, bytes, aad) : bytes);
   for (const f of files) {
     const parts = f.path.split("/").filter(Boolean);
     let dir = snap;
@@ -311,6 +336,7 @@ async function snapshot() {
   }
   await writeFile(root, "current", new TextEncoder().encode(String(next)));
   generation = next;
+  generationEncrypted = !!key;
   lastDigest = digest;
   // Old generations (and the legacy tree) only go after the flip. The wrap
   // and its meta are root-level state, not snapshot data — never pruned.
@@ -361,6 +387,7 @@ self.onmessage = async (e) => {
       glue = await import(d.glueUrl);
       await glue.default();
       const persist = d.persist !== false;
+      restored = false;
       if (persist) {
         // C4: ask for eviction exemption (best-effort — denial is not fatal;
         // the V2.5 identity backup is the real hedge against storage pressure).
@@ -396,6 +423,7 @@ self.onmessage = async (e) => {
         }
         await restore(root);
       }
+      restored = true;
       relayBase = relayBaseFromWsUrl(d.wsProxyUrl);
       if (d.wsProxyToken) installWsInvite(self, d.wsProxyUrl, d.wsProxyToken, d.wsProxyDevice);
       dc = await glue.init(
@@ -509,6 +537,8 @@ self.onmessage = async (e) => {
       rawDek = null;
       lastDigest = "";
       await checkpoint();
+      // Drop the wrap only once the latest snapshot is confirmed plaintext.
+      if (generationEncrypted !== false) throw new Error("snapshot was not rewritten as plaintext; encryption stays on");
       const root = await opfsRoot();
       for (const name of [WRAP, META, PIN_WRAP, PIN_META, RECOV_WRAP, RECOV_META]) { try { await root.removeEntry(name); } catch {} }
       self.postMessage({ type: "encryption-off", id: d.id });

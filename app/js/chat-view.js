@@ -128,6 +128,8 @@ import { parkMedia, unparkMedia } from "./media-park.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
+import { prepareHtmlView } from "./html-view.js";
+import { executableKind } from "./exec-types.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { lcRetryTransfer, lcCancelTransfer, lcSendFolder, lcSendTree, lcSendContentUri } from "./local-chat.js";
@@ -273,6 +275,41 @@ export function documentOpenPlan(path, name, { tauri = false, android = false } 
   return PWA_TAB_RE.test(ref) ? "tab" : "download";
 }
 
+// Desktop "Open" on a program, script or shortcut: ask first. Resolves
+// "open", "folder" or null (cancelled/closed). Cancel is the first button.
+const PROGRAM_KIND_LABELS = {
+  program: "Program",
+  script: "Script",
+  shortcut: "Shortcut",
+  package: "Installer or package",
+};
+function confirmOpenProgram(fileName, kind) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => { if (!settled) { settled = true; resolve(value); } };
+    const body = document.createElement("div");
+    const p = document.createElement("p");
+    p.style.cssText = "font-size:15px;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere";
+    p.textContent = t("{name}\nType: {kind}\n\nOpening this file runs it on your computer. Only open it if you trust the sender.", {
+      name: fileName,
+      kind: t(PROGRAM_KIND_LABELS[kind] || "Program"),
+    });
+    body.append(p);
+    const foot = document.createElement("div");
+    const mk = (label, value, danger) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn-text";
+      b.textContent = label;
+      if (danger) b.style.color = "var(--danger)";
+      b.addEventListener("click", () => { finish(value); close(); });
+      return b;
+    };
+    foot.append(mk(t("Cancel"), null), mk(t("Show in folder"), "folder"), mk(t("Open anyway"), "open", true));
+    const { close } = showModal({ title: t("Open this file?"), body, foot, compact: true, onClose: () => finish(null) });
+  });
+}
+
 // Open a message's file with the platform's handler (see ChatView._openFile).
 export async function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t), core = null, mime = null } = {}) {
   if (!path) return;
@@ -293,6 +330,17 @@ export async function openAttachmentFile(path, name = null, { openHtml = null, o
   const fileName = attachmentName({ fileName: name, filePath: path });
   try {
     if (plan === "native") {
+      // Desktop: a program, script or shortcut never starts from one tap.
+      // The user picks Open anyway or Show in folder; closing does nothing.
+      const kind = !isAndroid() ? executableKind(fileName) : null;
+      if (kind) {
+        const choice = await confirmOpenProgram(fileName, kind);
+        if (choice === "folder") {
+          await showAttachmentInFolder(path, name, { onError, mime });
+          return;
+        }
+        if (choice !== "open") return;
+      }
       // Blobs are VLTA-encrypted under hash names: never hand the blobdir
       // path out. Desktop gets back the decrypted copy to open; Android
       // starts ACTION_VIEW itself and returns "".
@@ -383,14 +431,6 @@ function extForMime(mime) {
 // target=_blank new-window requests, so this rides the opener plugin — the
 // same verified path as the update banner (plugin:opener|open_url,
 // opener:default capability). Bare window.open is the non-Tauri fallback.
-// Injected into every HTML-view overlay (mail body, HTML attachments): a
-// capture-phase interceptor that stops links from navigating the sandboxed
-// frame and posts them to the parent, which opens them outside (Android
-// in-app browser chain / desktop system browser). The CSP blocks inline
-// scripts, so these EXACT bytes are hash-whitelisted as script-src in
-// index.html AND both tauri confs — change here and there in one commit.
-const HTML_VIEW_LINK_JS = `document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;e.preventDefault();parent.postMessage({veltaHtmlLink:a.href},"*")},true)`;
-
 function openExternal(url) {
   try {
     const invoke = tauriInvoke();
@@ -6258,16 +6298,7 @@ export class ChatView {
     // CSS otherwise renders in Times New Roman (the UA default serif).
     // font-family only — never touch layout/spacing, the mail's own CSS
     // (inline styles win over the injected sheet) must keep absolute rule.
-    const injectTheme = html => {
-      const dark = document.documentElement.dataset.theme !== "light";
-      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}`
-        + `body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}</style>`
-        + `<script>${HTML_VIEW_LINK_JS}</script>`;
-      const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
-      return head
-        ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
-        : inject + html;
-    };
+    const injectTheme = html => prepareHtmlView(html, document.documentElement.dataset.theme !== "light");
     // Links inside the mail must leave, not navigate the sandboxed frame
     // (a plain click replaces the mail with the linked page INSIDE the
     // overlay; target=_blank is swallowed by the sandbox/wry). The frame
@@ -6300,14 +6331,13 @@ export class ChatView {
     if (html != null) {
       frame.srcdoc = injectTheme(html);
     } else {
-      // Prefer fetch -> srcdoc: navigating a sandboxed opaque-origin frame to
-      // a custom-protocol URL makes Tauri's injected init script throw
-      // ("Cannot read properties of undefined (reading 'plugins')"), while
-      // srcdoc documents don't. The direct navigation stays as fallback for
-      // transports where fetch is blocked (no CORS on the serving origin).
+      // Always fetch -> srcdoc: the document gets the viewer policy and
+      // never navigates the frame to a URL. A failed fetch shows a notice.
       fetch(url).then(r => (r.ok ? r.text() : Promise.reject(r.status)))
         .then(text => { frame.srcdoc = injectTheme(text); })
-        .catch(() => { frame.src = url; });
+        .catch(() => {
+          frame.srcdoc = injectTheme(`<p>${escapeHtml(t("Couldn't open this file."))}</p>`);
+        });
     }
     wrap.append(bar, frame);
     document.body.appendChild(wrap);

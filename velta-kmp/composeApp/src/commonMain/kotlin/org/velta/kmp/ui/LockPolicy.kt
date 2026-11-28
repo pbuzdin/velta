@@ -19,7 +19,13 @@ object LockPolicy {
         val needsNegativeButton: Boolean get() = !deviceCredential
     }
 
-    fun authenticators(sdk: Int): Authenticators = when {
+    /**
+     * [withCrypto]: the prompt carries a CryptoObject (the per-use bio key).
+     * Before API 30 a CryptoObject cannot be combined with the device
+     * credential, so only a strong biometric is offered there.
+     */
+    fun authenticators(sdk: Int, withCrypto: Boolean = false): Authenticators = when {
+        withCrypto && sdk < 30 -> Authenticators(strongBiometric = true, deviceCredential = false)
         sdk >= 30 -> Authenticators(strongBiometric = true, deviceCredential = true)
         // API 28-29: BiometricPrompt rejects STRONG | DEVICE_CREDENTIAL;
         // strong biometric only (stable does the same).

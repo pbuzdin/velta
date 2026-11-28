@@ -37,6 +37,9 @@ object VeltaKeystore {
     private const val KEK_ALIAS = "velta_kek"
     private const val WRAP_FILE = "dbkey.wrap"
     private const val BIO_KEK_ALIAS = "velta_kek_bio"
+    private const val BIO2_KEK_ALIAS = "velta_kek_bio2"
+    private const val BIO_V_TIMED: Byte = 1
+    private const val BIO_V_PER_USE: Byte = 2
     private const val BIO_FILE = "dbkey.bio"
     private const val PIN_FILE = "dbkey.pin.wrap"
     private const val GCM_TAG_BITS = 128
@@ -88,10 +91,127 @@ object VeltaKeystore {
 
     // ---- App lock (phase 4 port): the bio wrap + enable/disable. ----
 
+    /** Which bio wrap is on disk: 0 none, 1 timed-window key (older builds), 2 per-use key. */
+    @JvmStatic
+    fun bioWrapVersion(context: Context): Int {
+        val f = VeltaLock.bioFile(context)
+        if (!f.exists()) return 0
+        return try {
+            f.inputStream().use { it.read() }.coerceAtLeast(0)
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    // One authenticated cipher / DEK is handed from the prompt callback to the
+    // platform call the model makes right after it; each is taken once.
+    @Volatile private var stagedCipher: Cipher? = null
+    @Volatile private var stagedDek: String? = null
+
+    @JvmStatic
+    fun stageCipher(cipher: Cipher?) { stagedCipher = cipher }
+
+    @JvmStatic
+    fun takeCipher(): Cipher? = stagedCipher.also { stagedCipher = null }
+
+    @JvmStatic
+    fun stageDek(dekHex: String?) { stagedDek = dekHex }
+
+    @JvmStatic
+    fun takeDek(): String? = stagedDek.also { stagedDek = null }
+
     /**
-     * Auth-window KEK: requires user authentication (biometric or device
-     * credential); after a successful prompt the key is usable for 30 s —
-     * enough for the unlock flow to unwrap the DEK and hand it to the core.
+     * Per-use KEK: the key can only be used inside a BiometricPrompt that
+     * carries a CryptoObject for it, so every unwrap needs a fresh
+     * authentication (strong biometric or device credential). A newly
+     * enrolled biometric invalidates it (KeyPermanentlyInvalidatedException).
+     */
+    private fun bioKekPerUse(create: Boolean): SecretKey? {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (ks.getKey(BIO2_KEK_ALIAS, null) as? SecretKey)?.let { return it }
+        if (!create) return null
+        for (invalidateOnEnroll in listOf(true, false)) {
+            try {
+                val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+                val builder = KeyGenParameterSpec.Builder(
+                    BIO2_KEK_ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .setUserAuthenticationRequired(true)
+                    .setInvalidatedByBiometricEnrollment(invalidateOnEnroll)
+                if (Build.VERSION.SDK_INT >= 30) {
+                    builder.setUserAuthenticationParameters(
+                        0,
+                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL,
+                    )
+                } else {
+                    builder.setUserAuthenticationValidityDurationSeconds(-1)
+                }
+                generator.init(builder.build())
+                return generator.generateKey()
+            } catch (e: Exception) {
+                Log.w(TAG, "per-use bio kek generation failed (invalidateOnEnroll=$invalidateOnEnroll)", e)
+            }
+        }
+        return null
+    }
+
+    /** The cipher to put in the prompt's CryptoObject when turning the lock on. */
+    @JvmStatic
+    fun enableCipher(): Cipher? = try {
+        val kek = bioKekPerUse(create = true) ?: return null
+        Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, kek) }
+    } catch (e: Exception) {
+        Log.e(TAG, "enable cipher failed", e)
+        null
+    }
+
+    /**
+     * The cipher for the unlock prompt's CryptoObject (per-use wrap only).
+     * Throws [KeyPermanentlyInvalidatedException] when the biometric set
+     * changed and the key is gone for good.
+     */
+    @JvmStatic
+    fun unlockCipher(context: Context): Cipher? {
+        val blob = try { VeltaLock.bioFile(context).readBytes() } catch (e: Exception) { return null }
+        if (blob.size < 14 || blob[0] != BIO_V_PER_USE) return null
+        val kek = bioKekPerUse(create = false) ?: return null
+        return Cipher.getInstance("AES/GCM/NoPadding")
+            .apply { init(Cipher.DECRYPT_MODE, kek, GCMParameterSpec(GCM_TAG_BITS, blob.copyOfRange(1, 13))) }
+    }
+
+    /**
+     * The biometric set changed and the per-use key is gone. With an
+     * app-lock PIN on, drop the dead bio wrap so the PIN is the lock root
+     * (the lock can be turned on again afterwards, which re-wraps under a
+     * fresh key). Returns whether the PIN took over.
+     */
+    @JvmStatic
+    fun dropInvalidatedBio(context: Context): Boolean {
+        if (!pinFile(context).exists()) return false
+        VeltaLock.bioFile(context).delete()
+        VeltaLock.setOn(context, false)
+        deleteBioKeys()
+        Log.w(TAG, "bio key invalidated; the PIN is the lock root now")
+        return true
+    }
+
+    private fun deleteBioKeys() {
+        try {
+            val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            ks.deleteEntry(BIO2_KEK_ALIAS)
+            ks.deleteEntry(BIO_KEK_ALIAS)
+        } catch (e: Exception) {
+            Log.w(TAG, "bio key cleanup failed", e)
+        }
+    }
+
+    /**
+     * Auth-window KEK of older builds (a successful prompt opened a 30 s
+     * window). Kept only to read wraps those builds wrote.
      */
     private fun bioKek(): SecretKey? {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -125,22 +245,20 @@ object VeltaKeystore {
     }
 
     /**
-     * Enable the app lock: wrap the current DEK into the bio wrap (the
-     * caller has just opened the 30 s auth window with a successful prompt)
-     * and flip the flag. The plain wrap is removed — while the lock is on,
-     * the DEK must not be obtainable without authentication.
+     * Enable the app lock: wrap the current DEK into the bio wrap with
+     * [cipher] — the one [enableCipher] made, authenticated by a prompt that
+     * carried it as its CryptoObject — and flip the flag. The plain wrap is
+     * removed: while the lock is on, the DEK must not be obtainable without
+     * authentication.
      */
     @JvmStatic
-    fun enableAppLock(context: Context, dekHex: String): Boolean {
+    fun enableAppLock(context: Context, dekHex: String, cipher: Cipher): Boolean {
         return try {
-            val kek = bioKek() ?: return false
             val dek = dekHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, kek)
             val iv = cipher.iv
             val encrypted = cipher.doFinal(dek)
             val blob = ByteArray(1 + iv.size + encrypted.size)
-            blob[0] = 1
+            blob[0] = BIO_V_PER_USE
             iv.copyInto(blob, 1)
             encrypted.copyInto(blob, 1 + iv.size)
             val bioFile = VeltaLock.bioFile(context)
@@ -158,6 +276,12 @@ object VeltaKeystore {
             // pref mirror BEFORE removing the plain wrap.
             VeltaLock.setOn(context, true)
             File(context.noBackupFilesDir, WRAP_FILE).delete()
+            // The timed-window key of older builds has no wrap left to open.
+            try {
+                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(BIO_KEK_ALIAS)
+            } catch (e: Exception) {
+                Log.w(TAG, "old bio key cleanup failed", e)
+            }
             Log.i(TAG, "app lock enabled")
             true
         } catch (e: Exception) {
@@ -167,23 +291,31 @@ object VeltaKeystore {
     }
 
     /**
-     * Unlock: unwrap the DEK from the bio wrap. MUST be called inside the
-     * 30 s window a successful prompt opens; outside it the Keystore throws
-     * UserNotAuthenticatedException and the caller re-prompts.
+     * Unlock: unwrap the DEK from the bio wrap. A per-use wrap needs
+     * [cipher], the one [unlockCipher] made and a prompt authenticated. A
+     * wrap from older builds ignores it and must be called inside the 30 s
+     * window a successful prompt opens (otherwise the Keystore throws
+     * UserNotAuthenticatedException and the caller re-prompts).
      */
     @JvmStatic
-    fun unlockDek(context: Context): String? = try {
+    fun unlockDek(context: Context, cipher: Cipher? = null): String? = try {
         val bioFile = VeltaLock.bioFile(context)
         val blob = bioFile.readBytes()
-        if (blob.size < 14 || blob[0] != 1.toByte()) {
+        if (blob.size < 14) {
             Log.e(TAG, "unknown dbkey.bio format")
             null
-        } else {
+        } else if (blob[0] == BIO_V_PER_USE) {
+            val c = cipher ?: return null
+            encodeHex(c.doFinal(blob, 13, blob.size - 13))
+        } else if (blob[0] == BIO_V_TIMED) {
             val kek = bioKek() ?: return null
             val iv = blob.copyOfRange(1, 13)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, kek, GCMParameterSpec(GCM_TAG_BITS, iv))
-            encodeHex(cipher.doFinal(blob, 13, blob.size - 13))
+            val legacy = Cipher.getInstance("AES/GCM/NoPadding")
+            legacy.init(Cipher.DECRYPT_MODE, kek, GCMParameterSpec(GCM_TAG_BITS, iv))
+            encodeHex(legacy.doFinal(blob, 13, blob.size - 13))
+        } else {
+            Log.e(TAG, "unknown dbkey.bio format")
+            null
         }
     } catch (e: Exception) {
         Log.e(TAG, "app lock unwrap failed", e)
@@ -198,6 +330,7 @@ object VeltaKeystore {
             if (ok) {
                 VeltaLock.bioFile(context).delete()
                 VeltaLock.setOn(context, false)
+                deleteBioKeys()
                 Log.i(TAG, "app lock disabled")
             }
             ok

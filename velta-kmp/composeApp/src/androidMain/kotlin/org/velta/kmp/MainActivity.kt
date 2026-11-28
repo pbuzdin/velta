@@ -223,15 +223,18 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
-     * App-lock prompt (no CryptoObject: a successful authentication opens
-     * the Keystore auth window the keystore calls run inside). The allowed
+     * App-lock prompt. With a [cipher] the prompt carries it as its
+     * CryptoObject, so the per-use bio key works only after this very
+     * authentication; [onSuccess] gets the authenticated cipher. Without
+     * one (a wrap from older builds) a successful authentication opens the
+     * Keystore auth window the keystore calls run inside. The allowed
      * authenticators come from LockPolicy and match the bio KEK's
      * requirement (strong biometric or device credential) — a weak face
      * unlock used to pass the prompt and then fail at the key, silently.
      * Failures land in model.lockError (lock screen + settings row).
      */
-    private fun runAuthPrompt(onSuccess: () -> Unit) {
-        val policy = LockPolicy.authenticators(Build.VERSION.SDK_INT)
+    private fun runAuthPrompt(cipher: javax.crypto.Cipher? = null, onSuccess: (javax.crypto.Cipher?) -> Unit) {
+        val policy = LockPolicy.authenticators(Build.VERSION.SDK_INT, withCrypto = cipher != null)
         var allowed = 0
         if (policy.strongBiometric) allowed = allowed or BiometricManager.Authenticators.BIOMETRIC_STRONG
         if (policy.deviceCredential) allowed = allowed or BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -249,7 +252,7 @@ class MainActivity : FragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     model.onLockError(null)
-                    onSuccess()
+                    onSuccess(result.cryptoObject?.cipher)
                 }
 
                 override fun onAuthenticationError(code: Int, errString: CharSequence) {
@@ -269,7 +272,44 @@ class MainActivity : FragmentActivity() {
             .setAllowedAuthenticators(allowed)
             .apply { if (policy.needsNegativeButton) setNegativeButtonText(L.t("Cancel")) }
             .build()
-        prompt.authenticate(info)
+        if (cipher != null) prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher)) else prompt.authenticate(info)
+    }
+
+    /**
+     * Prompt that opens the bio wrap: a per-use wrap carries its cipher as
+     * the CryptoObject, an older wrap uses the plain prompt.
+     */
+    private fun unlockPrompt(onAuthed: (javax.crypto.Cipher?, Boolean) -> Unit) {
+        val perUse = VeltaKeystore.bioWrapVersion(applicationContext) == 2
+        val cipher = try {
+            if (perUse) VeltaKeystore.unlockCipher(applicationContext) else null
+        } catch (e: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            onBioKeyInvalidated()
+            return
+        }
+        if (perUse && cipher == null) {
+            model.onLockError(L.t("Couldn't unlock. Try again."))
+            return
+        }
+        runAuthPrompt(cipher) { authed -> onAuthed(authed, perUse) }
+    }
+
+    /** The biometric set changed: the per-use key is gone. */
+    private fun onBioKeyInvalidated() {
+        if (VeltaKeystore.dropInvalidatedBio(applicationContext)) {
+            model.refreshAppLockState()
+            model.onLockError(L.t("Fingerprints changed. Unlock with your PIN, then turn the biometric lock on again."))
+        } else {
+            model.onLockError(L.t("Couldn't unlock. Try again."))
+        }
+    }
+
+    /** A wrap from older builds just opened: re-wrap it under a per-use key. */
+    private fun upgradeBioWrap(dekHex: String) {
+        val c = VeltaKeystore.enableCipher() ?: return
+        runAuthPrompt(c) { authed ->
+            if (authed != null) VeltaKeystore.enableAppLock(applicationContext, dekHex, authed)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -345,17 +385,33 @@ class MainActivity : FragmentActivity() {
             if (!on) VeltaForegroundService.stop(applicationContext)
         }
         model.requestUnlock = {
-            runAuthPrompt {
-                val dek = VeltaKeystore.unlockDek(applicationContext)
-                if (dek != null) model.onAppUnlocked(dek)
-                else model.onLockError(L.t("Couldn't unlock. Try again."))
+            unlockPrompt { authed, perUse ->
+                val dek = VeltaKeystore.unlockDek(applicationContext, authed)
+                if (dek != null) {
+                    model.onAppUnlocked(dek)
+                    if (!perUse) upgradeBioWrap(dek)
+                } else {
+                    model.onLockError(L.t("Couldn't unlock. Try again."))
+                }
             }
         }
         model.requestAppLockEnable = {
-            runAuthPrompt { model.onAppLockEnabled() }
+            val cipher = VeltaKeystore.enableCipher()
+            if (cipher == null) {
+                model.onLockError(L.t("Couldn't turn on the app lock"))
+            } else {
+                runAuthPrompt(cipher) { authed ->
+                    VeltaKeystore.stageCipher(authed)
+                    model.onAppLockEnabled()
+                }
+            }
         }
         model.requestAppLockDisable = {
-            runAuthPrompt { model.onAppLockDisabled() }
+            unlockPrompt { authed, perUse ->
+                // The authenticated cipher opens the DEK for the plain wrap.
+                if (perUse) VeltaKeystore.stageDek(VeltaKeystore.unlockDek(applicationContext, authed))
+                model.onAppLockDisabled()
+            }
         }
         // Asked once, not on every launch (stable: "asked once"); the
         // system settings stay the way back.

@@ -241,6 +241,7 @@ internal object LangRu {
         "File" to "Файл",
         "Files" to "Файлы",
         "Finalizing account" to "Завершение настройки аккаунта",
+        "Fingerprints changed. Unlock with your PIN, then turn the biometric lock on again." to "Отпечатки изменились. Разблокируйте PIN-кодом и включите биометрическую блокировку заново.",
         "Forget \"{name}\"? Its chat history and received files will be deleted. The device can re-pair with a new invite." to "Забыть «{name}»? История чата и полученные файлы будут удалены. Устройство сможет снова сопрячься по новому приглашению.",
         "Forward" to "Переслать",
         "Forward to…" to "Переслать в…",

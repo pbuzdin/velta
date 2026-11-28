@@ -630,6 +630,7 @@
   "Accept": "Accepter",
   "Contact request accepted": "Demande de contact acceptée",
   "Couldn't open chat: ": "Impossible d'ouvrir la discussion : ",
+  "Couldn't open this file.": "Impossible d'ouvrir ce fichier.",
   "Couldn't open the chat": "Impossible d'ouvrir la discussion",
   "On ({n} s)": "Activé ({n} s)",
   "Disappearing messages": "Messages éphémères",
@@ -1794,6 +1795,9 @@
   "Couldn't fetch via Velta Dash: asked for the email copy": "Échec de la réception via Velta Dash : copie par e-mail demandée",
   "Fetching via Velta Dash {n}%": "Réception via Velta Dash {n} %",
   "Waiting for sender…": "En attente de l'expéditeur…",
+  "Tap Download to receive this file": "Appuyez sur Télécharger pour recevoir ce fichier",
+  "Connects directly, not via your proxy. Tap Download to receive this file": "Connexion directe, sans passer par votre proxy. Appuyez sur Télécharger pour recevoir ce fichier",
+  "Not available over Velta Dash": "Indisponible via Velta Dash",
   "Velta Dash: direct to {name} (same network only — your relay has no Dash relay)": "Velta Dash : en direct vers {name} (même réseau uniquement — votre relais n'a pas de relais Dash)",
   "Velta Dash: direct to {name}": "Velta Dash : en direct vers {name}",
   "Checking how to send…": "Vérification du mode d'envoi…",
@@ -1815,5 +1819,12 @@
   "Preparing file…": "Préparation du fichier…",
   "Velta Dash didn't work, so the file went by email": "Velta Dash n'a pas fonctionné, le fichier est donc parti par e-mail",
   "200 KB (default)": "200 Ko (par défaut)",
-  "No limit": "Sans limite"
+  "No limit": "Sans limite",
+  "Program": "Programme",
+  "Script": "Script",
+  "Shortcut": "Raccourci",
+  "Installer or package": "Installateur ou paquet",
+  "Open anyway": "Ouvrir quand même",
+  "Open this file?": "Ouvrir ce fichier ?",
+  "{name}\nType: {kind}\n\nOpening this file runs it on your computer. Only open it if you trust the sender.": "{name}\nType : {kind}\n\nL'ouvrir exécute ce fichier sur votre ordinateur. Ne l'ouvrez que si vous faites confiance à l'expéditeur."
 }

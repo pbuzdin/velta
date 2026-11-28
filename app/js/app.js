@@ -91,7 +91,7 @@ import { bindInviteCards, parseRelayInviteInput, relayClaimResult } from "./invi
 import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTransportStatus, wsTransportStatus, wsDrawerLabel, testHostFor } from "./ws-transport.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
-import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
+import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl, shellProxy } from "./link-preview.js";
 import { clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
 import { shouldAskRoaming, dismissRoamingHintForever } from "./roaming-hint.js";
 import { wirePushSection } from "./push-settings.js";
@@ -850,6 +850,9 @@ if (window.__TAURI__) {
         invoke("get_db_hello_state").catch(() => false),
       ]).then(([pinOn, helloOn]) => {
         if (!pinOn && !helloOn) return;
+        // Android locks natively (VeltaLock, PIN or biometric); lock_now is
+        // desktop-only, so there is nothing for the page to arm here.
+        if (isAndroid()) return;
         let hiddenAt = 0;
         const limitMs = () => (Number(localStorage.getItem("velta-autolock-mins")) || 0) * 60_000;
         const lockIfOver = () => {
@@ -1101,8 +1104,13 @@ async function probeRelayReachable(domain) {
   const invoke = tauriInvoke();
   if (!invoke) return true;
   try {
-    return !!(await invoke("probe_relay", { domain }));
-  } catch {
+    // Through the configured proxy; no signal (not a failure) when the proxy
+    // setting is unknown or can't be applied — the probe is skipped, never
+    // sent direct.
+    const proxy = await shellProxy();
+    return !!(await invoke("probe_relay", { domain, proxy }));
+  } catch (e) {
+    if (/skipped|proxy setting not known|core not ready/.test(String(e?.message || e))) return true;
     return false;
   }
 }
