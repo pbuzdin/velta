@@ -385,6 +385,7 @@ async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), Strin
     };
     log("boot: db key applied");
     sidecar::spawn_sidecar(&app, Some(raw), false);
+    p2p::app_unlocked(&app);
     *DB_LOCK_STATUS.lock().unwrap() = None;
     probe_db_lock(app.clone()).await;
     app.emit("velta-db-unlocked", ()).ok();
@@ -420,6 +421,8 @@ async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(parent) = accounts_dir(&app).parent() {
         let _ = std::fs::remove_dir_all(parent.join("thumbs"));
     }
+    // Loop first: its files are sealed under the key that spawn_sidecar drops.
+    p2p::app_locked(&app);
     sidecar::spawn_sidecar(&app, None, false);
     app.emit("velta-db-locked", status).ok();
     Ok(())
@@ -500,6 +503,7 @@ async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())??;
         log("boot: db key applied");
         sidecar::spawn_sidecar(&app, Some(raw), false);
+        p2p::app_unlocked(&app);
         *DB_LOCK_STATUS.lock().unwrap() = None;
         probe_db_lock(app.clone()).await;
         app.emit("velta-db-unlocked", ()).ok();

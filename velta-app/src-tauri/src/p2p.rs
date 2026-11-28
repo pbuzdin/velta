@@ -45,6 +45,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 mod groups;
+pub(crate) mod vault;
 use groups::{
     append_log, check_group_name, delete_log, eff_ts, evaluate_incoming, load_group_log, load_groups, new_gid,
     read_log, roster_events, save_groups, scan_log, sys_kind, sys_rec, Evaluation, GroupFileRec, GroupLogRec, GroupMember,
@@ -450,6 +451,24 @@ pub fn set_seal_media(on: bool) {
 
 fn seal_media() -> bool {
     SEAL_MEDIA.load(Ordering::Relaxed)
+}
+
+/// The key the engine seals its own state with. Tests ignore the process-wide
+/// key (other tests set it for media) and take a per-thread one instead.
+fn engine_key() -> Option<velta_attachment::AttachmentKey> {
+    #[cfg(test)]
+    {
+        TEST_ENGINE_KEY.with(|k| k.borrow().clone())
+    }
+    #[cfg(not(test))]
+    {
+        attachment_key()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_ENGINE_KEY: std::cell::RefCell<Option<velta_attachment::AttachmentKey>> = const { std::cell::RefCell::new(None) };
 }
 
 fn attachment_key() -> Option<velta_attachment::AttachmentKey> {
@@ -925,6 +944,8 @@ impl P2p {
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
         std::fs::create_dir_all(&blobs_dir).with_context(|| format!("create {}", blobs_dir.display()))?;
 
+        // Seal (or refuse, when locked) the engine's own files before reading any.
+        vault::begin(&dir, engine_key())?;
         let secret = load_or_create_identity(&dir)?;
         let name = load_profile(&dir).unwrap_or_default();
 
@@ -1050,6 +1071,8 @@ impl P2p {
     /// should still drop their own `Arc` references afterwards.
     pub async fn close(&self) {
         self.cancel.cancel();
+        // From here on a late task can neither read nor write the state files.
+        vault::lock(&self.dir);
         // Give the accept/maintenance/session tasks a moment to unwind.
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
@@ -1103,10 +1126,7 @@ impl P2p {
             bail!("name must be 1-64 characters");
         }
         self.inner.lock().unwrap().name = name.clone();
-        std::fs::write(
-            self.dir.join("profile.json"),
-            serde_json::to_vec(&json!({ "name": name }))?,
-        )?;
+        vault::write(&self.dir.join("profile.json"), &serde_json::to_vec(&json!({ "name": name }))?)?;
         Ok(())
     }
 
@@ -2003,10 +2023,7 @@ impl P2p {
                 proto: p.proto,
             })
             .collect();
-        std::fs::write(
-            self.dir.join("peers.json"),
-            serde_json::to_vec(&PeersFile { peers })?,
-        )?;
+        vault::write(&self.dir.join("peers.json"), &serde_json::to_vec(&PeersFile { peers })?)?;
         Ok(())
     }
 
@@ -3320,18 +3337,15 @@ impl P2p {
     /// lock on every message: O(n) per send, O(n²) per conversation, and a
     /// stalled receive loop on slow disks.
     fn persist_messages(&self, node_id: &NodeId, append: &[StoredMsg]) {
-        let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.messages_path(node_id))
-        else {
-            return;
-        };
-        use std::io::Write;
+        let mut text = String::new();
         for msg in append {
             if let Ok(line) = serde_json::to_string(msg) {
-                let _ = writeln!(f, "{line}");
+                text.push_str(&line);
+                text.push('\n');
             }
+        }
+        if !text.is_empty() {
+            let _ = vault::append(&self.messages_path(node_id), text.as_bytes());
         }
     }
 
@@ -5409,9 +5423,11 @@ fn now_ms() -> u64 {
 
 fn load_or_create_identity(dir: &std::path::Path) -> Result<SecretKey> {
     let path = dir.join("identity.key");
-    if let Ok(hex) = std::fs::read_to_string(&path) {
+    if path.exists() {
+        // Never replace an identity we cannot read (sealed, locked, corrupt).
+        let hex = vault::read(&path).ok_or_else(|| anyhow!("identity key unreadable"))?;
         let bytes = HEXLOWER
-            .decode(hex.trim().as_bytes())
+            .decode(String::from_utf8_lossy(&hex).trim().as_bytes())
             .context("bad identity key")?;
         let bytes: [u8; 32] = bytes
             .try_into()
@@ -5420,19 +5436,18 @@ fn load_or_create_identity(dir: &std::path::Path) -> Result<SecretKey> {
     }
     let bytes: [u8; 32] = crate::random_bytes();
     let secret = SecretKey::from_bytes(&bytes);
-    std::fs::write(&path, HEXLOWER.encode(&bytes))?;
+    vault::write(&path, HEXLOWER.encode(&bytes).as_bytes())?;
     Ok(secret)
 }
 
 fn load_profile(dir: &std::path::Path) -> Option<String> {
-    let data = std::fs::read(dir.join("profile.json")).ok()?;
+    let data = vault::read(&dir.join("profile.json"))?;
     let value: Value = serde_json::from_slice(&data).ok()?;
     value["name"].as_str().map(|s| s.to_string())
 }
 
 fn load_peers(dir: &std::path::Path) -> Vec<PersistedPeer> {
-    std::fs::read(dir.join("peers.json"))
-        .ok()
+    vault::read(&dir.join("peers.json"))
         .and_then(|data| serde_json::from_slice::<PeersFile>(&data).ok())
         .map(|f| f.peers)
         .unwrap_or_default()
@@ -5440,7 +5455,7 @@ fn load_peers(dir: &std::path::Path) -> Vec<PersistedPeer> {
 
 fn load_messages(dir: &std::path::Path, node_id: &NodeId) -> Vec<StoredMsg> {
     let path = dir.join(format!("messages-{}.jsonl", HEXLOWER.encode(node_id.as_ref())));
-    let Ok(data) = std::fs::read_to_string(path) else {
+    let Some(data) = vault::read_log(&path) else {
         return Vec::new();
     };
     collapse_history(
@@ -5559,12 +5574,24 @@ pub fn spawn_startup(
         crate::log("p2p chat engine disabled — not starting");
         return;
     }
+    // One start at a time, and none over a running engine (the page asks
+    // again after every reload and the unlock hook asks too).
+    if slot.lock().unwrap().is_some() || STARTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
     tauri::async_runtime::spawn(async move {
-        match P2p::start(dir, blobs_dir, Sink::Tauri(app.clone())).await {
+        let started = P2p::start(dir, blobs_dir, Sink::Tauri(app.clone())).await;
+        STARTING.store(false, Ordering::SeqCst);
+        match started {
             Ok(engine) => {
                 if !*enabled.lock().unwrap() {
                     engine.close().await;
                     crate::log("p2p chat engine disabled — not starting");
+                    return;
+                }
+                if APP_LOCKED.load(Ordering::SeqCst) {
+                    engine.close().await;
+                    crate::log("p2p chat engine not started: the app was locked meanwhile");
                     return;
                 }
                 *slot.lock().unwrap() = Some(engine);
@@ -5572,6 +5599,47 @@ pub fn spawn_startup(
             }
             Err(e) => crate::log(&format!("p2p chat engine failed to start: {e:#}")),
         }
+    });
+}
+
+static STARTING: AtomicBool = AtomicBool::new(false);
+/// Set between an app lock and the next unlock.
+static APP_LOCKED: AtomicBool = AtomicBool::new(false);
+
+/// App lock: stops the Loop engine and seals its directory (no read, no
+/// write) before the key goes away. The preference stays on, so
+/// [`app_unlocked`] brings Loop back.
+pub fn app_locked(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    APP_LOCKED.store(true, Ordering::SeqCst);
+    let Some(state) = app.try_state::<P2pState>() else { return };
+    let running = state.engine.lock().unwrap().take();
+    if let Some(engine) = running {
+        vault::lock(&engine.dir);
+        tauri::async_runtime::spawn(async move {
+            engine.close().await;
+            crate::log("p2p chat engine stopped: app locked");
+        });
+    }
+}
+
+/// After an unlock (the attachment key is set again): reopens Loop when it
+/// is on. Migrates plaintext state files on the first keyed start.
+pub fn app_unlocked(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    APP_LOCKED.store(false, Ordering::SeqCst);
+    let Some(state) = app.try_state::<P2pState>() else { return };
+    let (Some(dir), Some(blobs)) = (state.dir.lock().unwrap().clone(), state.blobs()) else { return };
+    let (slot, enabled) = (state.slot(), state.enabled_flag());
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // An engine that started on the lock screen ran without the key:
+        // restart it so its plaintext files are sealed now.
+        let running = slot.lock().unwrap().take();
+        if let Some(engine) = running {
+            engine.close().await;
+        }
+        spawn_startup(app, slot, enabled, dir, blobs);
     });
 }
 
@@ -6040,6 +6108,117 @@ mod tests {
         dir
     }
 
+
+    /// The engine's own files are owner-only, and peers.json is replaced
+    /// atomically (temp + rename), never truncated in place.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn state_files_are_owner_only_and_peers_json_is_atomic() {
+        let (a, _rx) = start("perm-a").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        a.persist_peers(&a.inner.lock().unwrap()).unwrap();
+        a.persist_messages(&b, &[stored_out("m1", "hello", "sent")]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for f in ["identity.key", "profile.json", "peers.json"] {
+                let mode = std::fs::metadata(a.dir.join(f)).unwrap().permissions().mode();
+                assert_eq!(mode & 0o077, 0, "{f} is owner-only, got {mode:o}");
+            }
+            let log = std::fs::metadata(a.messages_path(&b)).unwrap().permissions().mode();
+            assert_eq!(log & 0o077, 0, "history log is owner-only, got {log:o}");
+        }
+        let inode = |p: &std::path::Path| {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(p).unwrap())
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = p;
+                0u64
+            }
+        };
+        let before = inode(&a.dir.join("peers.json"));
+        a.persist_peers(&a.inner.lock().unwrap()).unwrap();
+        #[cfg(unix)]
+        assert_ne!(before, inode(&a.dir.join("peers.json")), "replaced by rename, not rewritten in place");
+        let stray: Vec<_> = std::fs::read_dir(&a.dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".tmp-"))
+            .collect();
+        assert!(stray.is_empty(), "no temp file left behind");
+    }
+
+    /// End to end through the engine: with a DEK the identity, name, peers and
+    /// history are sealed on disk; closing the engine (app lock) closes the
+    /// directory; a keyless start over it is refused; the unlock start brings
+    /// back the SAME identity and history.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn engine_state_is_sealed_and_survives_lock_unlock() {
+        let mk = || {
+            velta_attachment::AttachmentKey::from_db_key(
+                "x'0f0e0d0c0b0a09080706050403020100ffeeddccbbaa99887766554433221100'",
+            )
+            .unwrap()
+            .unwrap()
+        };
+        TEST_ENGINE_KEY.with(|k| *k.borrow_mut() = Some(mk()));
+        struct Clear;
+        impl Drop for Clear {
+            fn drop(&mut self) {
+                TEST_ENGINE_KEY.with(|k| *k.borrow_mut() = None);
+            }
+        }
+        let _clear = Clear;
+
+        let dir = temp_dir("seal-state");
+        let blobs = temp_dir("seal-state-blobs");
+        // State left by an older, keyless build.
+        let old_secret = HEXLOWER.encode(&[7u8; 32]);
+        std::fs::write(dir.join("identity.key"), &old_secret).unwrap();
+
+        let (tx, _rx) = std_mpsc::channel();
+        let a = P2p::start(dir.clone(), blobs.clone(), Sink::Test(tx)).await.unwrap();
+        let id = a.node_id();
+        assert_eq!(id, SecretKey::from_bytes(&[7u8; 32]).public(), "identity kept across the migration");
+        a.set_name("Sealed-Name-Zed".into()).unwrap();
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        a.persist_peers(&a.inner.lock().unwrap()).unwrap();
+        a.persist_messages(&b, &[stored_out("m1", "history-secret-text", "sent")]);
+
+        let mut disk = Vec::new();
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            disk.extend(std::fs::read(e.path()).unwrap());
+        }
+        for secret in [&old_secret[..], "Sealed-Name-Zed", "history-secret-text", &b.to_string()] {
+            assert!(!disk.windows(secret.len()).any(|w| w == secret.as_bytes()), "{secret} on disk in plaintext");
+        }
+
+        // App lock: the engine closes, the key goes away.
+        a.close().await;
+        assert!(vault::read(&dir.join("identity.key")).is_none(), "closed engine cannot read its store");
+        assert!(a.set_name("late".into()).is_err(), "closed engine cannot write its store");
+        TEST_ENGINE_KEY.with(|k| *k.borrow_mut() = None);
+        let (tx, _rx) = std_mpsc::channel();
+        assert!(
+            P2p::start(dir.clone(), blobs.clone(), Sink::Test(tx)).await.is_err(),
+            "a sealed store does not start without the key (and mints no new identity)"
+        );
+
+        // Unlock: same identity, name, peer and history.
+        TEST_ENGINE_KEY.with(|k| *k.borrow_mut() = Some(mk()));
+        let (tx, _rx) = std_mpsc::channel();
+        let a2 = P2p::start(dir.clone(), blobs, Sink::Test(tx)).await.unwrap();
+        assert_eq!(a2.node_id(), id);
+        assert_eq!(a2.inner.lock().unwrap().name, "Sealed-Name-Zed");
+        let inner = a2.inner.lock().unwrap();
+        let peer = inner.peers.get(&b).expect("peer restored");
+        assert_eq!(peer.msgs.len(), 1);
+        assert_eq!(peer.msgs[0].text, "history-secret-text");
+        drop(inner);
+        a2.close().await;
+    }
 
     /// #469: Loop runs on iroh 1.x while Velta up to 1.5.x ships iroh 0.35.
     /// On Loop's relay-less direct paths the two speak the same QUIC + TLS:
@@ -6712,7 +6891,7 @@ mod tests {
         assert_eq!(a.inner.lock().unwrap().peers[&c].name, "C");
         a.persist_peers(&a.inner.lock().unwrap()).unwrap();
         assert!(!peers_json_ids(&a).contains(&c.to_string()), "introduced member leaked into peers.json");
-        let raw = std::fs::read_to_string(a.dir.join("peers.json")).unwrap();
+        let raw = String::from_utf8(vault::read(&a.dir.join("peers.json")).unwrap()).unwrap();
         assert!(!raw.contains(&c.to_string()));
         assert!(peers_json_ids(&a).contains(&b.to_string()));
 
