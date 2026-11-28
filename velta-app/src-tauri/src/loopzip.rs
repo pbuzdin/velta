@@ -630,7 +630,15 @@ impl Dest for DirDest {
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        Ok(Box::new(File::create(p)?))
+        // create_new: an extraction never opens, truncates or replaces a file
+        // that is already there (a repeat of the same archive, a duplicate
+        // name inside it, a file the user put in the folder).
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&p)
+            .with_context(|| format!("{}: could not create the file (it may already exist)", rel.display()))?;
+        Ok(Box::new(f))
     }
     fn remove(&mut self, rel: &Path) {
         let _ = std::fs::remove_file(self.0.join(rel));
@@ -649,6 +657,13 @@ pub fn extract<R: Read + Seek>(r: &mut R, root: &Path, progress: impl FnMut(u64,
 pub fn extract_to<R: Read + Seek>(r: &mut R, dest: &mut dyn Dest, mut progress: impl FnMut(u64, u64)) -> Result<usize> {
     let entries = list(r)?;
     let total: u64 = entries.iter().map(|e| e.size).sum();
+    // STORE entries hold their bytes verbatim, so the sizes of honest entries
+    // add up to no more than the archive itself. A larger sum means entries
+    // that share bytes: refuse before writing anything.
+    let archive_len = r.seek(SeekFrom::End(0))?;
+    if total > archive_len {
+        bail!("the archive lists {total} bytes of files but is only {archive_len} bytes (overlapping entries)");
+    }
     let mut done = 0u64;
     let mut wrote = 0usize;
     let mut buf = vec![0u8; BUF];
@@ -674,8 +689,11 @@ pub fn extract_to<R: Read + Seek>(r: &mut R, dest: &mut dyn Dest, mut progress: 
         if method != 0 {
             bail!("{}: unsupported compression method {method} (Velta zips are STORE-only)", e.name);
         }
+        // Created outside the cleanup below: a file that could not be created
+        // was not ours, so a failure here must never remove it.
+        let created = dest.create(&rel)?;
         let res: Result<()> = (|| {
-            let mut out = std::io::BufWriter::with_capacity(BUF, dest.create(&rel)?);
+            let mut out = std::io::BufWriter::with_capacity(BUF, created);
             let mut left = e.size;
             let mut crc = crc32fast::Hasher::new();
             while left > 0 {
@@ -831,6 +849,81 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         assert_eq!(extract(&mut std::io::Cursor::new(&bytes), out.path(), |_, _| {}).unwrap(), 4);
         assert_eq!(std::fs::read(out.path().join("a/b/c/d/e/f/deep.bin")).unwrap(), vec![7u8; 300_001]);
+    }
+
+    /// A hand-built STORE zip: `data` is stored once at offset 0 as `local_name`,
+    /// and the central directory lists every `(name, offset, size)` in `central`.
+    fn hand_zip(local_name: &str, data: &[u8], central: &[(String, u32, u32)]) -> Vec<u8> {
+        let crc = crc32fast::hash(data);
+        let mut z = Vec::new();
+        z.extend_from_slice(&LOCAL_SIG.to_le_bytes());
+        z.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // version, flags, method, time, date
+        z.extend_from_slice(&crc.to_le_bytes());
+        z.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(local_name.len() as u16).to_le_bytes());
+        z.extend_from_slice(&0u16.to_le_bytes());
+        z.extend_from_slice(local_name.as_bytes());
+        z.extend_from_slice(data);
+        let cd_off = z.len() as u32;
+        for (name, offset, size) in central {
+            z.extend_from_slice(&CENTRAL_SIG.to_le_bytes());
+            z.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // made, needed, flags, method, time, date
+            z.extend_from_slice(&crc.to_le_bytes());
+            z.extend_from_slice(&size.to_le_bytes());
+            z.extend_from_slice(&size.to_le_bytes());
+            z.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            z.extend_from_slice(&[0u8; 12]); // extra len, comment len, disk, internal attrs, external attrs
+            z.extend_from_slice(&offset.to_le_bytes());
+            z.extend_from_slice(name.as_bytes());
+        }
+        let cd_len = z.len() as u32 - cd_off;
+        z.extend_from_slice(&EOCD_SIG.to_le_bytes());
+        z.extend_from_slice(&[0, 0, 0, 0]);
+        z.extend_from_slice(&(central.len() as u16).to_le_bytes());
+        z.extend_from_slice(&(central.len() as u16).to_le_bytes());
+        z.extend_from_slice(&cd_len.to_le_bytes());
+        z.extend_from_slice(&cd_off.to_le_bytes());
+        z.extend_from_slice(&0u16.to_le_bytes());
+        z
+    }
+
+    #[test]
+    fn entries_that_share_bytes_are_refused_before_anything_is_written() {
+        let data = vec![0u8; 1000];
+        let central: Vec<(String, u32, u32)> = (0..200).map(|i| (format!("f{i}.bin"), 0, 1000)).collect();
+        let z = hand_zip("a.bin", &data, &central);
+        let out = tempfile::tempdir().unwrap();
+        let err = extract(&mut std::io::Cursor::new(&z), out.path(), |_, _| {}).unwrap_err();
+        assert!(format!("{err:#}").contains("overlapping"), "{err:#}");
+        assert_eq!(std::fs::read_dir(out.path()).unwrap().count(), 0, "nothing written");
+        // The same bytes listed once still extract.
+        let ok = hand_zip("a.bin", &data, &[("a.bin".into(), 0, 1000)]);
+        assert_eq!(extract(&mut std::io::Cursor::new(&ok), out.path(), |_, _| {}).unwrap(), 1);
+    }
+
+    #[test]
+    fn extraction_never_overwrites_an_existing_file() {
+        let src = tree();
+        let z = FolderZip::plan(src.path()).unwrap();
+        let bytes = zip_bytes(&z);
+        let out = tempfile::tempdir().unwrap();
+        std::fs::write(out.path().join("top.txt"), "mine").unwrap();
+        let err = extract(&mut std::io::Cursor::new(&bytes), out.path(), |_, _| {}).unwrap_err();
+        assert!(format!("{err:#}").contains("top.txt"), "{err:#}");
+        assert_eq!(std::fs::read_to_string(out.path().join("top.txt")).unwrap(), "mine", "left as it was");
+        // A second run into a fresh folder is fine.
+        let fresh = tempfile::tempdir().unwrap();
+        assert_eq!(extract(&mut std::io::Cursor::new(&bytes), fresh.path(), |_, _| {}).unwrap(), 4);
+    }
+
+    #[test]
+    fn a_duplicate_name_inside_the_archive_is_refused() {
+        let data = b"hello".to_vec();
+        let z = hand_zip("a.txt", &data, &[("a.txt".into(), 0, 5), ("a.txt".into(), 0, 5)]);
+        let out = tempfile::tempdir().unwrap();
+        assert!(extract(&mut std::io::Cursor::new(&z), out.path(), |_, _| {}).is_err());
+        assert_eq!(std::fs::read(out.path().join("a.txt")).unwrap(), b"hello", "the first copy stays");
     }
 
     #[test]
