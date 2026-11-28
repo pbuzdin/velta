@@ -65,6 +65,10 @@ object VeltaLock {
     @JvmStatic
     fun on(context: Context): Boolean = authWrap(context).exists()
 
+    /** Something to lock with: the biometric wrap or the app-lock PIN. */
+    @JvmStatic
+    fun lockCapable(context: Context): Boolean = on(context) || VeltaKeystore.pinOn(context)
+
     /** Strong biometric (or device credential) actually available. */
     @JvmStatic
     fun available(context: Context): Boolean {
@@ -394,14 +398,17 @@ object VeltaLock {
     /** MainActivity.onResume: auto-lock after N minutes hidden. */
     @JvmStatic
     fun onActivityResumed(activity: FragmentActivity) {
-        if (on(activity) && lockOverlay == null &&
+        if (lockCapable(activity) && lockOverlay == null &&
             hiddenAt > 0 && autoLockMinutes(activity) > 0 &&
             System.currentTimeMillis() - hiddenAt >= autoLockMinutes(activity) * 60_000L
         ) {
             // Screen gate over the still-running, unlocked core: never a PIN
-            // shortcut here — the page behind is NOT the PIN screen.
-            showLock(activity, allowPinFallback = false)
-            reAuth(activity)
+            // shortcut here — the page behind is NOT the PIN screen. With
+            // only the PIN set there is no prompt to run: the overlay opens
+            // straight on the PIN entry.
+            val pinOnly = !on(activity)
+            showLock(activity, allowPinFallback = false, pinOnly = pinOnly)
+            if (!pinOnly) reAuth(activity)
         }
     }
 
@@ -415,6 +422,7 @@ object VeltaLock {
     fun onActivityDestroyed() {
         activity = null
         lockOverlay = null
+        waitTimer?.cancel()
     }
 
     /** Cold start: unwrap the DEK with the auth key and hand it to Rust. */
@@ -452,7 +460,7 @@ object VeltaLock {
         }
     }
 
-    private fun showLock(activity: FragmentActivity, allowPinFallback: Boolean) {
+    private fun showLock(activity: FragmentActivity, allowPinFallback: Boolean, pinOnly: Boolean = false) {
         if (lockOverlay != null) return
         val density = activity.resources.displayMetrics.density
         val dp = { value: Int -> (value * density).toInt() }
@@ -484,6 +492,7 @@ object VeltaLock {
         }
         val unlock = Button(activity).apply {
             tag = "velta-lock-unlock"
+            visibility = if (pinOnly) View.GONE else View.VISIBLE
             text = activity.getString(R.string.biometric_unlock_action)
             setOnClickListener {
                 if (VeltaLock.on(activity) && lockOverlay != null) {
@@ -504,7 +513,7 @@ object VeltaLock {
         val usePin = Button(activity).apply {
             tag = "velta-lock-use-pin"
             text = activity.getString(R.string.biometric_use_pin)
-            visibility = if (VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
+            visibility = if (VeltaKeystore.pinOn(activity) && !pinOnly) View.VISIBLE else View.GONE
             setOnClickListener {
                 if (allowPinFallback) hideLock() else showPinEntry(activity)
             }
@@ -514,7 +523,7 @@ object VeltaLock {
         val pinEntry = android.widget.LinearLayout(activity).apply {
             tag = "velta-lock-pin-entry"
             orientation = android.widget.LinearLayout.VERTICAL
-            visibility = View.GONE
+            visibility = if (pinOnly) View.VISIBLE else View.GONE
         }
         val pinInput = android.widget.EditText(activity).apply {
             hint = activity.getString(R.string.biometric_pin_hint)
@@ -549,17 +558,20 @@ object VeltaLock {
                 Thread {
                     val verdict = VeltaCore.verifyAppLockPin(pin)
                     activity.runOnUiThread {
-                        isEnabled = true
-                        if (verdict.isEmpty() && VeltaLock.on(activity) && lockOverlay != null) {
+                        if (verdict.isEmpty() && lockCapable(activity) && lockOverlay != null) {
+                            isEnabled = true
                             hideLock()
-                        } else {
+                        } else if (verdict.startsWith("retry:")) {
+                            val secs = verdict.removePrefix("retry:").toLongOrNull() ?: 0L
                             pinError.visibility = View.VISIBLE
-                            pinError.text = if (verdict.startsWith("retry:")) {
-                                val secs = verdict.removePrefix("retry:").toLongOrNull() ?: 0L
-                                activity.getString(R.string.biometric_pin_wrong, secs)
-                            } else {
-                                activity.getString(R.string.biometric_pin_error)
-                            }
+                            pinError.text = activity.getString(R.string.biometric_pin_wrong, secs)
+                            // The wait is enforced in Rust too; the button
+                            // stays off and counts it down.
+                            startWait(this, secs)
+                        } else {
+                            isEnabled = true
+                            pinError.visibility = View.VISIBLE
+                            pinError.text = activity.getString(R.string.biometric_pin_error)
                         }
                     }
                 }.start()
@@ -601,6 +613,30 @@ object VeltaLock {
             )
             lockOverlay = root
         }
+    }
+
+    private var waitTimer: android.os.CountDownTimer? = null
+
+    /** Keep [button] disabled for [secs], showing the seconds left. */
+    private fun startWait(button: Button, secs: Long) {
+        waitTimer?.cancel()
+        val label = button.text.toString().substringBefore(" (")
+        if (secs <= 0) {
+            button.text = label
+            button.isEnabled = true
+            return
+        }
+        button.isEnabled = false
+        waitTimer = object : android.os.CountDownTimer(secs * 1000L, 1000L) {
+            override fun onTick(msLeft: Long) {
+                button.text = "$label (${(msLeft + 999) / 1000})"
+            }
+
+            override fun onFinish() {
+                button.text = label
+                button.isEnabled = true
+            }
+        }.start()
     }
 
     /** The auto-lock gate's "Use PIN": swap the actions for the in-place

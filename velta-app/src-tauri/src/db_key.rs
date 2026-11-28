@@ -725,6 +725,7 @@ pub fn pin_wrap_write(path: &Path, pin: &str, dek_hex: &str) -> Result<(), Strin
     let salt = crate::random_bytes::<16>();
     let nonce = crate::random_bytes::<12>();
     let head = pin_header(0, &salt, &nonce);
+    pin_wait_clear(path);
     // The AAD binds everything EXCEPT the clear-text attempts counter
     // (bytes 6..10), which moves on wrong attempts without a rewrap.
     let mut aad = Vec::with_capacity(34);
@@ -795,7 +796,74 @@ pub enum PinOpen {
     Corrupt,
 }
 
+/// Milliseconds since the Unix epoch. Tests shift it with `test_clock_advance`.
+fn now_ms() -> u64 {
+    let real = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    #[cfg(test)]
+    {
+        return real + TEST_CLOCK_SKEW.with(|c| c.get());
+    }
+    #[cfg(not(test))]
+    real
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CLOCK_SKEW: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn test_clock_advance(ms: u64) {
+    TEST_CLOCK_SKEW.with(|c| c.set(c.get() + ms));
+}
+
+/// The persisted "not before" time for the next PIN attempt lives next to the
+/// wrap (`<wrap>.wait`, 8 bytes LE unix ms), written atomically and kept apart
+/// from the wrap itself so a restart cannot skip the wait.
+fn pin_wait_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".wait");
+    path.with_file_name(name)
+}
+
+/// Seconds left before the next attempt may run (0 = go ahead). A deadline
+/// further out than the longest backoff (clock moved) is clamped to it.
+fn pin_wait_left(path: &Path, now: u64) -> u64 {
+    let Ok(b) = std::fs::read(pin_wait_path(path)) else { return 0 };
+    let Ok(raw) = <[u8; 8]>::try_from(b.as_slice()) else { return 0 };
+    let until = u64::from_le_bytes(raw);
+    let left_ms = until.saturating_sub(now).min(backoff_secs(u32::MAX) * 1000);
+    left_ms.div_ceil(1000)
+}
+
+fn pin_wait_store(path: &Path, until_ms: u64) {
+    let _ = write_atomic(&pin_wait_path(path), &until_ms.to_le_bytes());
+}
+
+fn pin_wait_clear(path: &Path) {
+    let _ = std::fs::remove_file(pin_wait_path(path));
+}
+
 pub fn pin_wrap_open(path: &Path, pin: &str) -> PinOpen {
+    // Inside the wait window nothing runs: no key derivation, no counter
+    // change; the caller just gets the remaining time back.
+    let now = now_ms();
+    let left = pin_wait_left(path, now);
+    if left > 0 {
+        let attempts = std::fs::read(path)
+            .ok()
+            .filter(|b| b.len() >= 10)
+            .map(|b| u32::from_le_bytes(b[6..10].try_into().unwrap()))
+            .unwrap_or(0);
+        return PinOpen::Wrong { attempts, delay_secs: left };
+    }
+    pin_wrap_open_now(path, pin, now)
+}
+
+fn pin_wrap_open_now(path: &Path, pin: &str, now: u64) -> PinOpen {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
@@ -822,12 +890,15 @@ pub fn pin_wrap_open(path: &Path, pin: &str) -> PinOpen {
     match open {
         Some(hex) => {
             pin_counter_store(path, 0);
+            pin_wait_clear(path);
             PinOpen::Dek(hex)
         }
         None => {
             let attempts = attempts.saturating_add(1);
             pin_counter_store(path, attempts);
-            PinOpen::Wrong { attempts, delay_secs: backoff_secs(attempts) }
+            let delay_secs = backoff_secs(attempts);
+            pin_wait_store(path, now + delay_secs * 1000);
+            PinOpen::Wrong { attempts, delay_secs }
         }
     }
 }
@@ -1321,12 +1392,50 @@ mod tests {
 
         // Wrong attempts back off 1s, 2s, … and the counter is clear-text
         // (the OTHER attempt above already counted).
+        test_clock_advance(60_000);
         assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 2, delay_secs: 2 }));
+        test_clock_advance(60_000);
         assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 3, delay_secs: 4 }));
         // The right PIN still opens and resets the counter.
+        test_clock_advance(60_000);
         assert!(matches!(pin_wrap_open(&wrap, "123456"), PinOpen::Dek(d) if d == KEY));
         assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 1, delay_secs: 1 }));
         assert_eq!(backoff_secs(10), 30, "capped");
+    }
+
+    /// Inside the wait window an attempt returns the remaining time without
+    /// deriving a key (a correct PIN is refused too), the deadline survives a
+    /// restart (it is a file), and it expires with the clock.
+    #[test]
+    fn pin_wait_is_enforced_before_key_derivation() {
+        let dir = tmpdir();
+        let wrap = pin_wrap_path(&dir);
+        pin_wrap_write(&wrap, "123456", KEY).unwrap();
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 1, delay_secs: 1 }));
+        test_clock_advance(1_000);
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 2, delay_secs: 2 }));
+
+        // Immediately again: refused with the remaining wait, counter untouched.
+        let before = std::fs::read(&wrap).unwrap();
+        let t = std::time::Instant::now();
+        for pin in ["000000", "123456"] {
+            match pin_wrap_open(&wrap, pin) {
+                PinOpen::Wrong { attempts: 2, delay_secs } => assert!((1..=2).contains(&delay_secs)),
+                _ => panic!("attempt inside the wait must be refused"),
+            }
+        }
+        // Two real derivations cost far more than this (64 MiB, t=3 each).
+        assert!(t.elapsed() < std::time::Duration::from_millis(50), "no key derivation in the wait");
+        assert_eq!(std::fs::read(&wrap).unwrap(), before, "counter not touched");
+
+        // The deadline is persisted: a fresh process reads the same file.
+        assert!(pin_wait_path(&wrap).is_file());
+        assert!(pin_wait_left(&wrap, now_ms()) > 0);
+
+        // Past the deadline the right PIN opens and clears the wait.
+        test_clock_advance(3_000);
+        assert!(matches!(pin_wrap_open(&wrap, "123456"), PinOpen::Dek(d) if d == KEY));
+        assert!(!pin_wait_path(&wrap).exists());
     }
 
     /// A well-formed Hello wrap body: magic + version + 60 wrap bytes.
@@ -1405,6 +1514,7 @@ mod tests {
         ));
         assert!(opens(&db, Some(KEY)));
         assert_eq!(keyed_count(&db, KEY, "SELECT count(*) FROM msgs"), 2);
+        test_clock_advance(60_000);
 
         // Second unlock: already encrypted, same key back.
         assert_eq!(pin_unlock(&dir, "654321").unwrap(), raw);

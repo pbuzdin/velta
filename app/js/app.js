@@ -850,6 +850,9 @@ if (window.__TAURI__) {
         invoke("get_db_hello_state").catch(() => false),
       ]).then(([pinOn, helloOn]) => {
         if (!pinOn && !helloOn) return;
+        // Android locks natively (VeltaLock, PIN or biometric); lock_now is
+        // desktop-only, so there is nothing for the page to arm here.
+        if (isAndroid()) return;
         let hiddenAt = 0;
         const limitMs = () => (Number(localStorage.getItem("velta-autolock-mins")) || 0) * 60_000;
         const lockIfOver = () => {
