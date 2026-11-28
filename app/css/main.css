@@ -1831,6 +1831,18 @@ button.reaction-chip { font: inherit; color: inherit; }
 }
 .media-preview-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .media-preview-actions .btn-text { padding: 6px 10px; }
+/* WebP/2k photo toggles on the strip (same keys as Settings): pressed is
+   the audited accent fill (--on-accent ink on --accent), like gcb-mute. */
+.media-preview-actions .mp-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+/* Image cropper: the stage fills the modal body and the canvas fits the
+   measured box (cropFitScale, DPR-sharp backing) — no hardcoded cap. */
+.crop-body { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
+.crop-stage { flex: 1; min-height: 120px; display: flex; align-items: center; justify-content: center; background: var(--bg-hover); border-radius: 8px; overflow: hidden; }
+.crop-stage canvas { display: block; max-width: 100%; touch-action: none; }
+.crop-wrap { position: relative; }
+.crop-sel { position: absolute; border: 2px solid var(--text); box-shadow: 0 0 0 9999px rgba(11,11,16,.55); pointer-events: none; }
+.crop-handle { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border: 2px solid var(--text); border-radius: 5px; background: rgba(11,11,16,.6); cursor: nwse-resize; touch-action: none; }
+.crop-acts { display: flex; gap: 8px; justify-content: center; }
 /* Staged video: 16:9 poster button that plays in Velta's lightbox. The box
    drops overflow: hidden so the focus ring draws outside, on the strip. */
 #media-preview-thumb.is-video { width: 128px; height: 72px; overflow: visible; background: none; }

@@ -183,6 +183,13 @@ export function scaledSize(w, h, maxPixels) {
   return { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) };
 }
 
+// Largest scale <= 1 that fits an image into a measured box (the crop
+// modal's stage); never upscales. Degenerate inputs fall back to 1.
+export function cropFitScale(imgW, imgH, availW, availH) {
+  if (!(imgW > 0 && imgH > 0 && availW > 0 && availH > 0)) return 1;
+  return Math.min(1, availW / imgW, availH / imgH);
+}
+
 // "Resize photos to 2k": the longest side never exceeds RESIZE_MAX_SIDE when
 // the setting is on. Independent of the WebP setting — with WebP off, an
 // oversized photo re-encodes as JPEG once, at RESIZE_JPEG_QUALITY.

@@ -144,6 +144,11 @@ import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
 // Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
 // first use; largeFileAvailable() is just "running in the Tauri shell".
+// The strip's WebP/2k chips (#509) only need the keys' literals — the module
+// itself must stay lazy (tests/lazy-modules gate) — so they live here too;
+// tests/composer-photo-chips pins the literals equal to image-compress.js's.
+const PHOTO_KEYS = { webp: "velta-compress-photos", resize2k: "velta-resize-photos" };
+const photoSettingOn = (key) => { try { return localStorage.getItem(key) !== "0"; } catch { return true; } };
 const largeFileAvailable = () => !!tauriInvoke();
 
 // #470: the automatic iroh file transfer glue — one init per ChatView; the
@@ -540,16 +545,17 @@ function openImageCropper(imageUrl) {
       resolve(v);
     };
     const body = document.createElement("div");
+    body.className = "crop-body";
     body.innerHTML = `
-      <div data-stage style="display:flex;justify-content:center;background:#0b0b10;border-radius:8px;overflow:hidden">
-        <div data-wrap style="position:relative">
-          <canvas data-canvas style="display:block;max-width:100%;touch-action:none"></canvas>
-          <div data-sel style="position:absolute;border:2px solid #f2f2f5;box-shadow:0 0 0 9999px rgba(11,11,16,.55);pointer-events:none"></div>
-          <div data-handle style="position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #f2f2f5;border-radius:5px;background:rgba(11,11,16,.6);cursor:nwse-resize;touch-action:none"></div>
+      <div data-stage class="crop-stage">
+        <div data-wrap class="crop-wrap">
+          <canvas data-canvas></canvas>
+          <div data-sel class="crop-sel"></div>
+          <div data-handle class="crop-handle"></div>
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px;justify-content:center">
-        <button type="button" class="btn-text" data-apply style="background:var(--accent);color:#f4f4f4">${escapeHtml(t("Apply"))}</button>
+      <div class="crop-acts">
+        <button type="button" class="btn-text btn-primary" data-apply>${escapeHtml(t("Apply"))}</button>
         <button type="button" class="btn-text" data-cancelcrop>${escapeHtml(t("Cancel"))}</button>
       </div>`;
     const { close } = showModal({ title: "Crop image", body, onClose: () => finish(null) });
@@ -632,15 +638,26 @@ function openImageCropper(imageUrl) {
       drawSel();
     }
 
-    img.onload = () => {
-      const scale = Math.min(1, 420 / img.naturalWidth, 320 / img.naturalHeight);
-      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      box = { x: 0, y: 0, w: canvas.width, h: canvas.height };
-      // drawSel needs the laid-out canvas rect — wait one frame so the
-      // wrapper has its final size before positioning the overlay.
-      requestAnimationFrame(drawSel);
+    img.onload = async () => {
+      // Fill the modal: the canvas fits the stage's MEASURED box (no
+      // hardcoded cap), backing store at devicePixelRatio so a large
+      // preview stays sharp. drawSel/canvasPoint/apply all map through
+      // the canvas rect or the backing size, so the DPR factor cancels.
+      const { cropFitScale } = await import("./image-compress.js"); // lazy (fix 5)
+      requestAnimationFrame(() => {
+        const stage = body.querySelector("[data-stage]");
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const scale = cropFitScale(img.naturalWidth, img.naturalHeight, stage.clientWidth, stage.clientHeight);
+        const cssW = Math.max(1, Math.round(img.naturalWidth * scale));
+        const cssH = Math.max(1, Math.round(img.naturalHeight * scale));
+        canvas.width = Math.max(1, Math.round(cssW * dpr));
+        canvas.height = Math.max(1, Math.round(cssH * dpr));
+        canvas.style.width = cssW + "px";
+        canvas.style.height = cssH + "px";
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        box = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+        drawSel();
+      });
     };
     img.src = imageUrl;
 
@@ -4583,10 +4600,23 @@ export class ChatView {
     this._bindFileDrop();
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
     // Replace: the same picker again; cancelling keeps the staged file.
+    // Every staged kind can be swapped (image/video/file — #557 follow-up).
     document.getElementById("btn-media-replace").addEventListener("click", () => {
       const pm = this.pendingMedia;
-      if (pm && (pm.kind === "video" || pm.kind === "image")) this._sendAttachment(pm.kind);
+      if (pm) this._sendAttachment(pm.kind);
     });
+    // WebP / 2k chips: the #509 send-time photo settings, on the strip where
+    // the attachment is staged. Same keys as Settings (on = key unset,
+    // off = "0"), so both surfaces stay in sync; "0"→unset restores default.
+    for (const [id, key] of [["btn-media-webp", PHOTO_KEYS.webp], ["btn-media-2k", PHOTO_KEYS.resize2k]]) {
+      document.getElementById(id).addEventListener("click", () => {
+        try {
+          if (localStorage.getItem(key) === "0") localStorage.removeItem(key);
+          else localStorage.setItem(key, "0");
+        } catch {}
+        this._renderMediaPreview();
+      });
+    }
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
       const pm = this.pendingMedia;
       if (!pm || pm.kind !== "image" || !pm.blob) return;
@@ -4778,11 +4808,13 @@ export class ChatView {
     const name = document.getElementById("media-preview-name");
     const crop = document.getElementById("btn-media-crop");
     const replace = document.getElementById("btn-media-replace");
+    const webpChip = document.getElementById("btn-media-webp");
+    const k2Chip = document.getElementById("btn-media-2k");
     const pm = this.pendingMedia;
     this._renderMediaRoute();
     thumb.classList.remove("ph-word", "is-video");
     if (pm?.staging) thumb.setAttribute("aria-busy", "true"); else thumb.removeAttribute("aria-busy");
-    if (!pm) { bar.hidden = true; thumb.replaceChildren(); name.textContent = ""; crop.hidden = true; replace.hidden = true; }
+    if (!pm) { bar.hidden = true; thumb.replaceChildren(); name.textContent = ""; crop.hidden = true; replace.hidden = true; webpChip.hidden = true; k2Chip.hidden = true; }
     else {
       bar.hidden = false;
     thumb.replaceChildren();
@@ -4818,7 +4850,14 @@ export class ChatView {
     }
     name.textContent = pm.name || (pm.kind === "video" ? t("Video") : pm.kind === "file" ? t("File") : t("Photo"));
     crop.hidden = pm.kind !== "image";
-    replace.hidden = pm.kind !== "image" && pm.kind !== "video";
+    replace.hidden = false;
+    // The photo chips only mean something for an image attachment; the
+    // pressed state mirrors the send path (image-compress policy keys).
+    webpChip.hidden = k2Chip.hidden = pm.kind !== "image";
+    if (!webpChip.hidden) {
+      webpChip.setAttribute("aria-pressed", String(photoSettingOn(PHOTO_KEYS.webp)));
+      k2Chip.setAttribute("aria-pressed", String(photoSettingOn(PHOTO_KEYS.resize2k)));
+    }
     }
     // A staged file arms the arrow even with an empty caption (a file with
     // a blank caption already sends on tap).
