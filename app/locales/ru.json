@@ -630,6 +630,7 @@
   "Accept": "Принять",
   "Contact request accepted": "Запрос на контакт принят",
   "Couldn't open chat: ": "Не удалось открыть чат: ",
+  "Couldn't open this file.": "Не удалось открыть этот файл.",
   "Couldn't open the chat": "Не удалось открыть чат",
   "On ({n} s)": "Вкл ({n} с)",
   "Disappearing messages": "Исчезающие сообщения",

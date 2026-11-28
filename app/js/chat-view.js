@@ -128,6 +128,7 @@ import { parkMedia, unparkMedia } from "./media-park.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
+import { prepareHtmlView } from "./html-view.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { lcRetryTransfer, lcCancelTransfer, lcSendFolder, lcSendTree, lcSendContentUri } from "./local-chat.js";
@@ -383,14 +384,6 @@ function extForMime(mime) {
 // target=_blank new-window requests, so this rides the opener plugin — the
 // same verified path as the update banner (plugin:opener|open_url,
 // opener:default capability). Bare window.open is the non-Tauri fallback.
-// Injected into every HTML-view overlay (mail body, HTML attachments): a
-// capture-phase interceptor that stops links from navigating the sandboxed
-// frame and posts them to the parent, which opens them outside (Android
-// in-app browser chain / desktop system browser). The CSP blocks inline
-// scripts, so these EXACT bytes are hash-whitelisted as script-src in
-// index.html AND both tauri confs — change here and there in one commit.
-const HTML_VIEW_LINK_JS = `document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;e.preventDefault();parent.postMessage({veltaHtmlLink:a.href},"*")},true)`;
-
 function openExternal(url) {
   try {
     const invoke = tauriInvoke();
@@ -6258,16 +6251,7 @@ export class ChatView {
     // CSS otherwise renders in Times New Roman (the UA default serif).
     // font-family only — never touch layout/spacing, the mail's own CSS
     // (inline styles win over the injected sheet) must keep absolute rule.
-    const injectTheme = html => {
-      const dark = document.documentElement.dataset.theme !== "light";
-      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}`
-        + `body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}</style>`
-        + `<script>${HTML_VIEW_LINK_JS}</script>`;
-      const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
-      return head
-        ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
-        : inject + html;
-    };
+    const injectTheme = html => prepareHtmlView(html, document.documentElement.dataset.theme !== "light");
     // Links inside the mail must leave, not navigate the sandboxed frame
     // (a plain click replaces the mail with the linked page INSIDE the
     // overlay; target=_blank is swallowed by the sandbox/wry). The frame
@@ -6300,14 +6284,13 @@ export class ChatView {
     if (html != null) {
       frame.srcdoc = injectTheme(html);
     } else {
-      // Prefer fetch -> srcdoc: navigating a sandboxed opaque-origin frame to
-      // a custom-protocol URL makes Tauri's injected init script throw
-      // ("Cannot read properties of undefined (reading 'plugins')"), while
-      // srcdoc documents don't. The direct navigation stays as fallback for
-      // transports where fetch is blocked (no CORS on the serving origin).
+      // Always fetch -> srcdoc: the document gets the viewer policy and
+      // never navigates the frame to a URL. A failed fetch shows a notice.
       fetch(url).then(r => (r.ok ? r.text() : Promise.reject(r.status)))
         .then(text => { frame.srcdoc = injectTheme(text); })
-        .catch(() => { frame.src = url; });
+        .catch(() => {
+          frame.srcdoc = injectTheme(`<p>${escapeHtml(t("Couldn't open this file."))}</p>`);
+        });
     }
     wrap.append(bar, frame);
     document.body.appendChild(wrap);

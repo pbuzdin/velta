@@ -1500,6 +1500,24 @@ fn guess_mime(path: &str) -> &'static str {
     }
 }
 
+/// Extra response headers for the blob/media servers: every file is sent
+/// with `nosniff`, and HTML/SVG additionally with a sandboxing CSP so that a
+/// document opened by direct navigation runs with no network, no scripts and
+/// no same-origin access.
+const MEDIA_ACTIVE_CSP: &str = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+
+fn media_security_headers(mime: &str) -> Vec<(&'static str, &'static str)> {
+    let mut h = vec![("X-Content-Type-Options", "nosniff")];
+    if mime == "text/html" || mime == "image/svg+xml" {
+        h.push(("Content-Security-Policy", MEDIA_ACTIVE_CSP));
+    }
+    h
+}
+
+fn media_security_header_lines(mime: &str) -> String {
+    media_security_headers(mime).iter().map(|(k, v)| format!("{k}: {v}\r\n")).collect()
+}
+
 // Origins of the app's own main window (Tauri serves the frontend at
 // tauri://localhost on macOS/Linux and http(s)://tauri.localhost on
 // Windows/Android). Only these may read blob/media responses cross-origin.
@@ -1621,6 +1639,12 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
         Some(origin) => b.header("Access-Control-Allow-Origin", origin.as_str()).header("Vary", "Origin"),
         None => b,
     };
+    let secure = |mut b: tauri::http::response::Builder, mime: &str| {
+        for (k, v) in media_security_headers(mime) {
+            b = b.header(k, v);
+        }
+        b
+    };
 
     // Only serve files that live inside the app-local data root -- account
     // blobs AND uploads/ (staged composer attachments; a sibling of accounts/,
@@ -1688,7 +1712,7 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
                 Ok(buf) => buf,
                 Err(_) => return not_found("read error"),
             };
-            return cors(tauri::http::Response::builder())
+            return secure(cors(tauri::http::Response::builder()), mime)
                 .status(206)
                 .header("Content-Type", mime)
                 .header("Accept-Ranges", "bytes")
@@ -1706,7 +1730,7 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
     }
 
     match open_attachment(Path::new(&serve_path)).and_then(|reader| reader.read_all().map_err(|e| e.to_string())) {
-        Ok(data) => cors(tauri::http::Response::builder())
+        Ok(data) => secure(cors(tauri::http::Response::builder()), mime)
             .status(200)
             .header("Content-Type", mime)
             .header("Accept-Ranges", "bytes")
@@ -3018,6 +3042,7 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, root: &PathBuf) {
         Err(_) => return not_found(),
     };
     let mime = guess_mime(&serve_path);
+    let sec = media_security_header_lines(mime);
 
     // Same thumbnail contract as the blobfile protocol: `?w=N` on a plain
     // GET downscales once and caches; Range callers and every other format
@@ -3068,7 +3093,7 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, root: &PathBuf) {
             return not_found();
         }
         let headers = format!(
-            "HTTP/1.1 206 Partial Content\r\nContent-Type: {mime}\r\nAccept-Ranges: bytes\r\n{cors}Content-Range: bytes {start}-{end}/{len}\r\nContent-Length: {take}\r\nConnection: close\r\n\r\n"
+            "HTTP/1.1 206 Partial Content\r\nContent-Type: {mime}\r\nAccept-Ranges: bytes\r\n{sec}{cors}Content-Range: bytes {start}-{end}/{len}\r\nContent-Length: {take}\r\nConnection: close\r\n\r\n"
         );
         if stream.write_all(headers.as_bytes()).is_err() {
             return;
@@ -3094,7 +3119,7 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, root: &PathBuf) {
 
     // Full GET: stream in chunks -- a large video must never be buffered whole.
     let headers = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nAccept-Ranges: bytes\r\n{cors}Content-Length: {len}\r\nConnection: close\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nAccept-Ranges: bytes\r\n{sec}{cors}Content-Length: {len}\r\nConnection: close\r\n\r\n"
     );
     if stream.write_all(headers.as_bytes()).is_err() {
         return;
@@ -6399,6 +6424,31 @@ mod media_tests {
         assert_eq!(parse_range("bytes=-0", 1000), None);
         assert_eq!(parse_range("bytes=500-100", 1000), None);
         assert_eq!(parse_range("bytes=abc", 1000), None);
+    }
+
+    #[test]
+    fn media_server_marks_html_and_svg_as_inert_and_nosniff() {
+        let dir = temp_media_dir("headers");
+        *MEDIA_TOKEN.lock().unwrap() = "testtoken".into();
+        let html = make_media_file(&dir, "page.html", 64);
+        let svg = make_media_file(&dir, "pic.svg", 64);
+        let png = make_media_file(&dir, "pic.png", 64);
+        let port = start_test_server(dir.clone());
+        for p in [&html, &svg] {
+            let h = head(&get(port, "testtoken", &p.to_string_lossy(), None)).to_lowercase();
+            assert!(h.contains("x-content-type-options: nosniff"), "{h}");
+            assert!(h.contains("content-security-policy: sandbox; default-src 'none'"), "{h}");
+        }
+        let h = head(&get(port, "testtoken", &png.to_string_lossy(), None)).to_lowercase();
+        assert!(h.contains("x-content-type-options: nosniff"), "{h}");
+        assert!(!h.contains("content-security-policy"), "{h}");
+    }
+
+    #[test]
+    fn security_headers_cover_html_and_svg_only_for_csp() {
+        assert!(media_security_headers("text/html").iter().any(|(k, _)| *k == "Content-Security-Policy"));
+        assert!(media_security_headers("image/svg+xml").iter().any(|(k, _)| *k == "Content-Security-Policy"));
+        assert!(!media_security_headers("video/mp4").iter().any(|(k, _)| *k == "Content-Security-Policy"));
     }
 
     #[test]
