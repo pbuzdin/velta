@@ -1276,7 +1276,7 @@ async fn extract_zip_file(app: tauri::AppHandle, src: String, dest: String, base
         let canon = scoped_accounts_path(&app, &src)?;
         let key = ATTACHMENT_KEY.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let mut reader = velta_attachment::AttachmentReader::open(&canon, key.as_ref()).map_err(|e| e.to_string())?;
-        let root = std::path::Path::new(&dest).join(safe_base_name(&base));
+        let root = unused_folder(std::path::Path::new(&dest), &safe_base_name(&base));
         let mut last = std::time::Instant::now();
         loopzip::extract(&mut reader, &root, |got, size| {
             if last.elapsed() >= std::time::Duration::from_millis(250) || got == size {
@@ -1335,6 +1335,19 @@ async fn extract_zip_to_tree(app: tauri::AppHandle, src: String, tree: String, b
         let _ = (app, src, tree, base);
         Err("folder trees are Android-only".into())
     }
+}
+
+/// `<parent>/<base>`, or `<parent>/<base> (2)`, `(3)`, … when that name is
+/// taken: an extraction always lands in a folder of its own.
+fn unused_folder(parent: &std::path::Path, base: &str) -> std::path::PathBuf {
+    let first = parent.join(base);
+    if !first.exists() {
+        return first;
+    }
+    (2u32..)
+        .map(|n| parent.join(format!("{base} ({n})")))
+        .find(|p| !p.exists())
+        .unwrap_or(first)
 }
 
 /// Folder name for an extracted zip: the zip's base name, filesystem-safe.
@@ -6343,6 +6356,21 @@ pub fn run() {
 // ---------------------------------------------------------------------------
 // Tests: media range serving + IPC size guard
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod unused_folder_tests {
+    use super::unused_folder;
+
+    #[test]
+    fn extraction_folders_never_reuse_a_taken_name() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(unused_folder(d.path(), "pics"), d.path().join("pics"));
+        std::fs::create_dir(d.path().join("pics")).unwrap();
+        assert_eq!(unused_folder(d.path(), "pics"), d.path().join("pics (2)"));
+        std::fs::create_dir(d.path().join("pics (2)")).unwrap();
+        assert_eq!(unused_folder(d.path(), "pics"), d.path().join("pics (3)"));
+    }
+}
 
 #[cfg(test)]
 mod media_tests {
