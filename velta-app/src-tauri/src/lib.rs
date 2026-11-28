@@ -376,10 +376,11 @@ async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), Strin
     }
     #[cfg(not(target_os = "android"))]
     {
-    let dir = accounts_dir(&app);
+    let data_dir = accounts_dir(&app);
+    let root = accounts_root(&app);
     let raw = {
-        let dir = dir.clone();
-        tauri::async_runtime::spawn_blocking(move || db_key::pin_unlock(&dir, &dir.join("accounts"), &pin))
+        let data_dir = data_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || db_key::pin_unlock(&data_dir, &root, &pin))
             .await
             .map_err(|e| e.to_string())??
     };
@@ -491,10 +492,11 @@ async fn clear_db_hello(app: tauri::AppHandle) -> Result<(), String> {
 async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
-        let dir = accounts_dir(&app);
+        let data_dir = accounts_dir(&app);
+        let root = accounts_root(&app);
         let identity = app.config().identifier.clone();
         let raw = tauri::async_runtime::spawn_blocking(move || {
-            db_key::hello_unlock(&dir, &dir.join("accounts"), &identity)
+            db_key::hello_unlock(&data_dir, &root, &identity)
         })
         .await
         .map_err(|e| e.to_string())??;
@@ -1028,7 +1030,7 @@ fn read_bounded(resp: ureq::Response, buf: &mut Vec<u8>) -> bool {
 
 #[tauri::command]
 fn get_accounts_dir(app: tauri::AppHandle) -> String {
-    accounts_dir(&app).to_string_lossy().to_string()
+    accounts_root(&app).to_string_lossy().to_string()
 }
 
 /// #138: write a built-in .xdc (bundled via include_bytes!) into uploads/
@@ -1933,9 +1935,9 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
     let p = std::path::Path::new(path);
     let absolute = if p.is_relative() {
         // the core nests uuid dirs under a literal 'accounts' subdir of
-        // accounts_dir (observed on disk: accounts/accounts/<uuid>), so the
-        // relative path is used as-is
-        accounts_dir(app).join(p)
+        // accounts_dir (observed on disk: accounts/accounts/<uuid>); resolve
+        // against the real accounts root so both layouts resolve
+        accounts_root(app).join(p)
     } else {
         p.to_path_buf()
     };
@@ -4555,6 +4557,86 @@ pub(crate) fn accounts_dir(app: &tauri::AppHandle) -> PathBuf {
     app.path()
         .resolve("accounts", BaseDirectory::AppLocalData)
         .unwrap_or_else(|_| log_dir().join("..").join("accounts"))
+}
+
+/// The dir the core actually uses as its accounts root — the one that holds
+/// `accounts.toml`. Some profiles nest it one level deeper
+/// (`<applocal>/accounts/accounts/`, observed on disk for the real profile),
+/// others keep it shallow (`<applocal>/accounts/`, e.g. the test2 rig).
+/// `accounts_dir()` alone is where the DEK wraps live; the core's data root
+/// can differ, and handing the core the wrong level is what refuses to boot
+/// ("accounts dir is not empty"). Resolve per-profile so both layouts work.
+pub(crate) fn accounts_root(app: &tauri::AppHandle) -> PathBuf {
+    accounts_root_from(accounts_dir(app))
+}
+
+/// Resolve the dir the core actually uses as its accounts root — the one that
+/// holds `accounts.toml`. Pure helper so the nesting rule is unit-testable.
+///
+/// Layouts seen on disk: the canonical shallow one — `<applocal>/accounts/`
+/// (the test2 rig, and a profile the user normalized by copying up one level)
+/// — and a legacy deep one — `<applocal>/accounts/accounts/` (the real
+/// profile was bootstrapped this way). The DEK wraps live at the shallow
+/// level in both cases; only the core's data root differs. When both
+/// `accounts.toml` copies exist (a half-finished copy-up), prefer the
+/// shallow one so the live/normalized data wins over a stale deep copy.
+pub(crate) fn accounts_root_from(base: PathBuf) -> PathBuf {
+    let deep = base.join("accounts");
+    if base.join("accounts.toml").is_file() {
+        base
+    } else if deep.join("accounts.toml").is_file() {
+        deep
+    } else {
+        base
+    }
+}
+
+#[cfg(test)]
+mod accounts_root_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TN: AtomicUsize = AtomicUsize::new(0);
+
+    fn fresh() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "velta-root-test-{}-{}",
+            std::process::id(),
+            TN.fetch_add(1, Ordering::SeqCst)
+        ))
+    }
+
+    #[test]
+    fn shallow_wins_when_both_levels_have_accounts_toml() {
+        let dir = fresh();
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("accounts").join("accounts")).unwrap();
+        std::fs::write(dir.join("accounts.toml"), "").unwrap();
+        std::fs::write(dir.join("accounts").join("accounts.toml"), "").unwrap();
+        // a normalized (copied-up) profile: live data is shallow, deep is stale
+        assert_eq!(accounts_root_from(dir.clone()), dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deep_when_only_deep_has_accounts_toml() {
+        let dir = fresh();
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("accounts").join("accounts")).unwrap();
+        // legacy bootstrap: only the deep level carries accounts.toml
+        std::fs::write(dir.join("accounts").join("accounts.toml"), "").unwrap();
+        assert_eq!(accounts_root_from(dir.clone()), dir.join("accounts"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base_when_neither_level_has_accounts_toml() {
+        let dir = fresh();
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(accounts_root_from(dir.clone()), dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(target_os = "android")]

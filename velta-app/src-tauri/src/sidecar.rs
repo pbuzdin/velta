@@ -10,7 +10,7 @@ use tauri::{Emitter, Manager};
 #[cfg(not(target_os = "android"))]
 use crate::webxdc_serve::webxdc_resolve_line;
 #[cfg(not(target_os = "android"))]
-use crate::{accounts_dir, set_attachment_db_key, set_sidecar_status, Host, RpcState};
+use crate::{accounts_root, set_attachment_db_key, set_sidecar_status, Host, RpcState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Route {
@@ -118,7 +118,7 @@ pub(crate) fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: 
         let _ = child.kill();
         let _ = child.wait();
     }
-    let accounts = accounts_dir(app);
+    let accounts = accounts_root(app);
     let Some(sidecar_path) = find_sidecar(app) else {
         crate::log(
             "sidecar not found; continuing with mock/remote transports available to frontend",
