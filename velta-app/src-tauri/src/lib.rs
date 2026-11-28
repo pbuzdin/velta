@@ -520,27 +520,40 @@ async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
 /// fetch_page_title; any failure returns an empty string and the frontend
 /// just shows no banner.
 #[tauri::command]
-async fn get_latest_version() -> Result<String, String> {
+async fn get_latest_version(proxy: Option<String>) -> Result<String, String> {
     const VERSION_URL: &str =
         "https://github.com/pbuzdin/velta/releases/latest/download/version.txt";
     tauri::async_runtime::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(5))
-            .build();
-        let resp = match agent.get(VERSION_URL).call() {
-            Ok(r) => r,
-            Err(_) => return Ok(String::new()),
-        };
-        let mut body = Vec::new();
-        use std::io::Read;
-        let _ = resp
-            .into_reader()
-            .take(64 * 1024)
-            .read_to_end(&mut body);
-        Ok(String::from_utf8_lossy(&body).trim().to_string())
+        // A proxy that can't be applied skips the check (empty = no banner).
+        Ok(latest_version_blocking(VERSION_URL, proxy.as_deref()).unwrap_or_default())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Agent for the background checks (update check, relay probe): through the
+/// configured proxy when one is set, direct only when none is. Err = the
+/// proxy can't be applied, so the caller skips the request (no direct
+/// fallback).
+fn check_agent(proxy: Option<&str>, timeout_secs: u64) -> Result<ureq::Agent, String> {
+    let mut b = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(timeout_secs));
+    if let Some(p) = link_preview_proxy(proxy)? {
+        b = b.proxy(ureq::Proxy::new(&p).map_err(|_| "unsupported proxy".to_string())?);
+    }
+    Ok(b.build())
+}
+
+/// Err: skipped (proxy can't be applied). Ok(""): the request failed.
+fn latest_version_blocking(url: &str, proxy: Option<&str>) -> Result<String, String> {
+    let agent = check_agent(proxy, 5)?;
+    let resp = match agent.get(url).call() {
+        Ok(r) => r,
+        Err(_) => return Ok(String::new()),
+    };
+    let mut body = Vec::new();
+    use std::io::Read;
+    let _ = resp.into_reader().take(64 * 1024).read_to_end(&mut body);
+    Ok(String::from_utf8_lossy(&body).trim().to_string())
 }
 
 /// #60: stream the release APK into the app cache dir while emitting
@@ -550,7 +563,7 @@ async fn get_latest_version() -> Result<String, String> {
 /// release-host reach. A failed download removes the partial file.
 #[cfg(target_os = "android")]
 #[tauri::command]
-async fn download_update(app: tauri::AppHandle, version: String) -> Result<String, String> {
+async fn download_update(app: tauri::AppHandle, version: String, proxy: Option<String>) -> Result<String, String> {
     let v = version.trim().trim_start_matches('v').to_string();
     if v.is_empty() || !v.chars().all(|c| c.is_ascii_digit() || c == '.') {
         return Err("bad version".into());
@@ -559,9 +572,11 @@ async fn download_update(app: tauri::AppHandle, version: String) -> Result<Strin
         "https://github.com/pbuzdin/velta/releases/download/v{v}/Velta-{v}-arm64.apk"
     );
     tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(15))
-            .build();
+        let mut b = ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(15));
+        if let Some(p) = link_preview_proxy(proxy.as_deref())? {
+            b = b.proxy(ureq::Proxy::new(&p).map_err(|_| "unsupported proxy".to_string())?);
+        }
+        let agent = b.build();
         let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
         // ureq 2.x: header lookup is .header(name) — .headers() is private.
         let total: u64 = resp
@@ -623,7 +638,7 @@ async fn download_update(app: tauri::AppHandle, version: String) -> Result<Strin
 /// through the updater plugin (selfUpdate in ui.js).
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-async fn download_update(_app: tauri::AppHandle, _version: String) -> Result<String, String> {
+async fn download_update(_app: tauri::AppHandle, _version: String, _proxy: Option<String>) -> Result<String, String> {
     Err("in-app APK updates are Android-only".into())
 }
 
@@ -717,24 +732,22 @@ async fn expand_invite_link(url: String, proxy: Option<String>) -> Result<Vec<St
 /// real TLS request. Any response, even 4xx/5xx, means the host accepts new
 /// connections; a transport error means it doesn't.
 #[tauri::command]
-async fn probe_relay(domain: String) -> Result<bool, String> {
+async fn probe_relay(domain: String, proxy: Option<String>) -> Result<bool, String> {
     let host = domain.trim().to_lowercase();
     let ok_char =
         |c: char| c.is_ascii_alphanumeric() || c == '.' || c == '-';
     if host.is_empty() || !host.chars().all(ok_char) || !host.contains('.') {
         return Err("invalid domain".into());
     }
-    tauri::async_runtime::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(6))
-            .build();
-        let resp = agent
-            .get(&format!("https://{host}/"))
-            .call();
-        Ok(resp.is_ok())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || probe_relay_blocking(&format!("https://{host}/"), proxy.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Err("skipped: ..."): the proxy can't be applied, nothing was sent.
+fn probe_relay_blocking(url: &str, proxy: Option<&str>) -> Result<bool, String> {
+    let agent = check_agent(proxy, 6).map_err(|e| format!("skipped: {e}"))?;
+    Ok(agent.get(url).call().is_ok())
 }
 
 /// Proxy URL for link-preview fetches, or None for a direct fetch. Takes the
@@ -6785,5 +6798,79 @@ mod core_rpc_watchdog_tests {
         assert_eq!(s, "core rpc in flight (2): get_chatlist_items_by_entries 12.0s, get_chat 1.0s");
         m.remove(&2);
         assert!(summarize_inflight(&m, now, Duration::from_secs(8)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod check_proxy_tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// Local listener that counts connections and drops them.
+    fn counter() -> (u16, Arc<AtomicUsize>) {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let n = Arc::new(AtomicUsize::new(0));
+        let n2 = n.clone();
+        std::thread::spawn(move || {
+            for c in l.incoming() {
+                if c.is_ok() {
+                    n2.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        });
+        (port, n)
+    }
+
+    fn settle() {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+
+    #[test]
+    fn version_check_goes_through_the_proxy() {
+        let (target, direct) = counter();
+        let (pport, via) = counter();
+        let url = format!("http://127.0.0.1:{target}/version.txt");
+        let r = latest_version_blocking(&url, Some(&format!("socks5://127.0.0.1:{pport}")));
+        assert_eq!(r, Ok(String::new()));
+        settle();
+        assert!(via.load(Ordering::SeqCst) >= 1, "proxy was not used");
+        assert_eq!(direct.load(Ordering::SeqCst), 0, "request went direct");
+    }
+
+    #[test]
+    fn version_check_skipped_when_proxy_unusable() {
+        let (target, direct) = counter();
+        let url = format!("http://127.0.0.1:{target}/version.txt");
+        for bad in ["ss://x@h:1", "socks4://127.0.0.1:1", "garbage", "http://"] {
+            assert!(latest_version_blocking(&url, Some(bad)).is_err(), "{bad}");
+        }
+        settle();
+        assert_eq!(direct.load(Ordering::SeqCst), 0, "request went direct");
+    }
+
+    #[test]
+    fn version_check_direct_without_proxy() {
+        let (target, direct) = counter();
+        let url = format!("http://127.0.0.1:{target}/version.txt");
+        assert_eq!(latest_version_blocking(&url, None), Ok(String::new()));
+        assert_eq!(latest_version_blocking(&url, Some("  \n")), Ok(String::new()));
+        settle();
+        assert!(direct.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[test]
+    fn relay_probe_uses_proxy_and_skips_when_unusable() {
+        let (target, direct) = counter();
+        let (pport, via) = counter();
+        let url = format!("http://127.0.0.1:{target}/");
+        assert_eq!(probe_relay_blocking(&url, Some(&format!("http://127.0.0.1:{pport}"))), Ok(false));
+        let skipped = probe_relay_blocking(&url, Some("socks4://127.0.0.1:1"));
+        assert!(matches!(skipped, Err(ref e) if e.starts_with("skipped")), "{skipped:?}");
+        settle();
+        assert!(via.load(Ordering::SeqCst) >= 1);
+        assert_eq!(direct.load(Ordering::SeqCst), 0, "request went direct");
     }
 }

@@ -3293,6 +3293,9 @@ class AppModel(
     /** #76 probe scheduling (web scheduleRelayProbes): one probe per domain,
      * min 60 s between tries, ground truth for unreachable/offline. */
     private fun scheduleRelayProbes(segs: List<RelaySeg>) {
+        // The probe is a direct HTTPS request; with a proxy set it is not sent
+        // at all (no signal, nothing recorded) rather than going around it.
+        if (!directChecksAllowed(proxyUrl)) return
         val now = wallClockMillis()
         for (seg in segs) {
             val d = seg.domain.lowercase()

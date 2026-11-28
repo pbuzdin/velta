@@ -23,3 +23,7 @@ expect fun wallClockSeconds(): Long
  * timeout; true = any HTTP response arrived (a bare TCP connect lies
  * behind fake-IP VPNs — web probe_relay). */
 expect suspend fun probeRelayReachable(domain: String): Boolean
+
+/** Checks that open their own connection (relay probe) run only when no proxy
+ * is configured; with one set they are skipped, never sent direct. */
+fun directChecksAllowed(proxyUrl: String?): Boolean = proxyUrl.isNullOrBlank()

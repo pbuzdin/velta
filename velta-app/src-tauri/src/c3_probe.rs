@@ -7,14 +7,14 @@
 //! capability rather than our origin. The PWA keeps its browser probe
 //! (ws-relays.js), where "capable from this origin" is what matters.
 //!
-//! Direct connection (no account proxy), 5 s overall deadline, host strictly
+//! Goes through the account's proxy when one is set (skipped when it can't be
+//! applied, never direct), 5 s overall deadline, host strictly
 //! validated (bare DNS name: no scheme, port, path or IP literal games).
 
 use std::io::Write;
-use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
-use crate::lufi::{read_frame, read_head, tls, ws_accept_key};
+use crate::lufi::{read_frame, read_head, tcp_connect, tls, ws_accept_key};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -48,17 +48,9 @@ fn left(deadline: Instant) -> Result<Duration, String> {
         .ok_or_else(|| "timeout".to_string())
 }
 
-fn probe_blocking(host: &str) -> Result<bool, String> {
+fn probe_blocking(host: &str, proxy: Option<&str>) -> Result<bool, String> {
     let deadline = Instant::now() + TIMEOUT;
-    let addrs: Vec<_> = (host, 443).to_socket_addrs().map_err(|e| format!("DNS: {e}"))?.collect();
-    let mut tcp = None;
-    for a in addrs {
-        if let Ok(s) = TcpStream::connect_timeout(&a, left(deadline)?) {
-            tcp = Some(s);
-            break;
-        }
-    }
-    let tcp = tcp.ok_or("connect failed")?;
+    let tcp = tcp_connect(host, 443, proxy)?;
     tcp.set_read_timeout(Some(left(deadline)?)).ok();
     tcp.set_write_timeout(Some(left(deadline)?)).ok();
     let mut io = tls(host, tcp)?;
@@ -97,14 +89,14 @@ fn probe_blocking(host: &str) -> Result<bool, String> {
 
 /// W flag: whether `host` answers `wss://<host>/dns/<host>` with a non-empty
 /// JSON array of strings, probed without a browser Origin. Invalid hosts,
-/// errors and the 5 s timeout all yield `false`.
+/// errors, an unusable proxy and the 5 s timeout all yield `false`.
 #[tauri::command]
-pub async fn probe_c3_relay(host: String) -> bool {
+pub async fn probe_c3_relay(host: String, proxy: Option<String>) -> bool {
     let host = host.trim().to_ascii_lowercase();
     if !valid_host(&host) {
         return false;
     }
-    let job = tauri::async_runtime::spawn_blocking(move || probe_blocking(&host).unwrap_or(false));
+    let job = tauri::async_runtime::spawn_blocking(move || probe_blocking(&host, proxy.as_deref()).unwrap_or(false));
     matches!(tokio::time::timeout(TIMEOUT + Duration::from_secs(1), job).await, Ok(Ok(true)))
 }
 
@@ -132,6 +124,31 @@ mod tests {
         assert!(capable_reply(r#"["1.2.3.4","::1"]"#));
         for bad in ["[]", "[1]", r#"["a",2]"#, "{}", r#""1.2.3.4""#, "<html>", "", "null"] {
             assert!(!capable_reply(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn probe_goes_through_proxy_and_skips_when_unusable() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let n = Arc::new(AtomicUsize::new(0));
+        let n2 = n.clone();
+        std::thread::spawn(move || {
+            for c in l.incoming() {
+                if c.is_ok() {
+                    n2.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        });
+        // Usable proxy: the connection goes to it (and fails there), never direct.
+        assert!(probe_blocking("relay.invalid", Some(&format!("socks5://127.0.0.1:{port}"))).is_err());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(n.load(Ordering::SeqCst) >= 1, "proxy was not used");
+        // Unusable proxy: skipped before any connection.
+        for bad in ["ss://x@h:1", "socks4://127.0.0.1:1", "garbage"] {
+            assert!(probe_blocking("relay.invalid", Some(bad)).is_err(), "{bad}");
         }
     }
 }
