@@ -33,6 +33,12 @@
   --text-meta-out: #a8c6e2;
   --green: #4fae4f;
   --danger: #e05a5a;
+  /* Relay status (#523): text 4.5:1 + non-text 3:1 on --bg-sidebar. Dark values are the original hexes. */
+  --status-ok: #2ecc71;
+  --status-warn: #e6a23c;
+  --status-down: #e05252;
+  --status-off: #9aa0a6;
+  --status-local: #4c8dff;
   --border: rgba(244,244,244,.07);
   --shadow: 0 4px 18px rgba(16,16,16,.45);
   --radius-bubble: 14px;
@@ -138,6 +144,11 @@ html[data-theme="light"] {
   --bg-elev: #e7ebf0;
   --green: #2a7032; /* text on #f4f4f4 / the green note tint (was #3d9146, 3.6:1) */
   --danger: #bf2a2a; /* was inherited #e05a5a, 3.5:1 on #f4f4f4 */
+  --status-ok: #2a7032; /* 5.5:1 on #f4f4f4 (was #2ecc71, 1.9) */
+  --status-warn: #8a5300; /* 5.7:1 (was #e6a23c, 2.0) */
+  --status-down: #bf2a2a; /* 5.3:1 (was #e05252, 3.5) */
+  --status-off: #5d626d; /* 5.6:1 (was #9aa0a6, 2.4) */
+  --status-local: #1a68b8; /* 5.1:1 (was #4c8dff, 2.9) */
   --border: rgba(16,16,16,.08);
   --shadow: 0 4px 18px rgba(16,16,16,.18);
   color-scheme: light;
@@ -240,18 +251,18 @@ svg { width: 24px; height: 24px; display: block; }
    may their align-items:center reach here: an empty segment has no height,
    and centering collapses it to 0px (the strip "died" exactly that way). */
 #relay-line { display: flex; gap: 4px; height: 6px; flex: 1 1 auto; align-items: stretch; }
-#relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
-#relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
-#relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
-#relay-line .relay-seg[data-state="unreachable"] { color: #e6a23c; }
+#relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: var(--status-warn); transition: color .25s; }
+#relay-line .relay-seg[data-state="ok"]         { color: var(--status-ok); }
+#relay-line .relay-seg[data-state="connecting"] { color: var(--status-warn); }
+#relay-line .relay-seg[data-state="unreachable"] { color: var(--status-warn); }
 /* #108 sustained offline (probe failing > 10 min): calm grey, not amber —
    a relay down for days is a fact, not an active problem. */
-#relay-line .relay-seg[data-state="offline"]     { color: #9aa0a6; }
+#relay-line .relay-seg[data-state="offline"]     { color: var(--status-off); }
 /* #102 sending delayed: relay up, SMTP retrying — amber like connecting;
    the difference lives in the line title and the detail chip text. */
-#relay-line .relay-seg[data-state="delayed"]    { color: #e6a23c; }
-#relay-line .relay-seg[data-state="down"]       { color: #e05252; }
-#relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
+#relay-line .relay-seg[data-state="delayed"]    { color: var(--status-warn); }
+#relay-line .relay-seg[data-state="down"]       { color: var(--status-down); }
+#relay-line .relay-seg[data-state="local"]      { color: var(--status-local); }
 /* Sending dashes on the sending relay's segment only (marked per-segment
    in renderRelayLine — the primary transport, i.e. state.account.addr). */
 #relay-line .relay-seg[data-sending] {
@@ -301,9 +312,9 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-detail-chip .relay-detail-label {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.relay-detail-chip[data-state="down"] { border-color: #e05252; }
-.relay-detail-chip[data-state="unreachable"] { border-color: #e6a23c; }
-.relay-detail-chip[data-state="offline"] { border-color: #9aa0a6; }
+.relay-detail-chip[data-state="down"] { border-color: var(--status-down); }
+.relay-detail-chip[data-state="unreachable"] { border-color: var(--status-warn); }
+.relay-detail-chip[data-state="offline"] { border-color: var(--status-off); }
 /* Frosted variant where supported: the relay line's state colors ghost
    through each chip (62% bg keeps the 11px labels readable). Without
    backdrop-filter the solid var(--bg-sidebar) rule above stands. */
@@ -320,14 +331,14 @@ svg { width: 24px; height: 24px; display: block; }
   display: inline-grid; place-items: center; flex: none;
   width: var(--ico-1); height: var(--ico-1); color: var(--accent);
 }
-.relay-detail-send[data-smtp="ok"]      { color: #2ecc71; }
-.relay-detail-send[data-smtp="retrying"] { color: #e6a23c; }
-.relay-detail-send[data-smtp="down"]    { color: #e05252; }
-.relay-detail-send[data-smtp="unknown"] { color: #9aa0a6; }
+.relay-detail-send[data-smtp="ok"]      { color: var(--status-ok); }
+.relay-detail-send[data-smtp="retrying"] { color: var(--status-warn); }
+.relay-detail-send[data-smtp="down"]    { color: var(--status-down); }
+.relay-detail-send[data-smtp="unknown"] { color: var(--status-off); }
 /* Quota % text carries the warning color the old <meter> bar had. */
-.relay-pct[data-level="ok"]   { color: #2ecc71; }
-.relay-pct[data-level="high"] { color: #e6a23c; }
-.relay-pct[data-level="full"] { color: #e05252; }
+.relay-pct[data-level="ok"]   { color: var(--status-ok); }
+.relay-pct[data-level="high"] { color: var(--status-warn); }
+.relay-pct[data-level="full"] { color: var(--status-down); }
 .relay-detail-chip .relay-detail-send svg { width: var(--ico-1); height: var(--ico-1); }
 .list-bar {
   display: flex; align-items: stretch; gap: 6px;
@@ -3594,7 +3605,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: var(--
 .lc-row-name { flex: 1; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lc-row-queued { font-size: 12px; opacity: .7; }
 .lc-dot { width: 9px; height: 9px; border-radius: 50%; background: #7a7a85; flex: none; }
-.lc-dot.on { background: #2ecc71; }
+.lc-dot.on { background: var(--status-ok); }
 
 /* node id suffix on the device line — secondary info stays dim */
 .lc-nodeid { font-size: 12px; color: var(--text-dim); }
@@ -3680,6 +3691,8 @@ html[data-theme="brutal"] {
   --text-meta-out: #55480a;
   --green: #3ecf5a;
   --danger: #f47c79; /* 4.9:1 on #313139 (was #ef6461, 4.1) */
+  --status-down: #f47c79; /* 5.4:1 on #2a2a35 (#e05252 was 3.7) */
+  --status-local: #6a9fff; /* 5.4:1 (#4c8dff was 4.4) */
   --border: #45434f;
   --shadow: 4px 4px 0 #121017;
   --radius-bubble: 6px;

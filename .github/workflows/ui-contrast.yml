@@ -5,9 +5,9 @@ name: UI contrast (WCAG AA)
 on:
   push:
     branches: [master]
-    paths: ['app/**', 'scripts/e2e-contrast.mjs', 'tests/bubble-label-contrast.test.mjs', 'tests/design-token-guard.test.mjs', '.github/workflows/ui-contrast.yml']
+    paths: ['app/**', 'scripts/e2e-contrast.mjs', 'tests/bubble-label-contrast.test.mjs', 'tests/design-token-guard.test.mjs', 'tests/relay-status-contrast.test.mjs', '.github/workflows/ui-contrast.yml']
   pull_request:
-    paths: ['app/**', 'scripts/e2e-contrast.mjs', 'tests/bubble-label-contrast.test.mjs', 'tests/design-token-guard.test.mjs', '.github/workflows/ui-contrast.yml']
+    paths: ['app/**', 'scripts/e2e-contrast.mjs', 'tests/bubble-label-contrast.test.mjs', 'tests/design-token-guard.test.mjs', 'tests/relay-status-contrast.test.mjs', '.github/workflows/ui-contrast.yml']
   workflow_dispatch:
     inputs:
       full:
@@ -38,7 +38,7 @@ jobs:
           path: scripts/node_modules
           key: pw-nm-${{ runner.os }}-1.56.0
       - name: Token + bubble-label contrast tests
-        run: node --test tests/bubble-label-contrast.test.mjs tests/design-token-guard.test.mjs tests/chat-appearance.test.mjs
+        run: node --test tests/bubble-label-contrast.test.mjs tests/design-token-guard.test.mjs tests/relay-status-contrast.test.mjs tests/chat-appearance.test.mjs
       - name: Install Playwright driver
         working-directory: scripts
         run: npm install --no-fund --no-audit playwright@1.56.0
