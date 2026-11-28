@@ -151,7 +151,7 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
     (CRC-32, UTF-8 names, dot segments resolved) → the archive rides the normal
     send. Received zips offer Extract here: `unzipToMap` validates the central
     directory + CRCs and rejects non-STORE entries / path escapes;
-    `extract_zip_entries` writes under a user-picked destination with an
+    `extract_zip_file` (Rust, streaming, CRC-checked) writes under a user-picked destination with an
     escape-proof join (`<dest>/<base>/<rel>`). The renderer never composes
     absolute paths.
   KEEP (1.4.28): peer-supplied **transfer ids** go through

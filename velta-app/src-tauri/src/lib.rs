@@ -421,6 +421,9 @@ async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(parent) = accounts_dir(&app).parent() {
         let _ = std::fs::remove_dir_all(parent.join("thumbs"));
     }
+    // Decrypted copies handed to other apps (open_document) must not sit
+    // at rest while the session is locked either.
+    purge_open_docs(&app);
     // Loop first: its files are sealed under the key that spawn_sidecar drops.
     p2p::app_locked(&app);
     sidecar::spawn_sidecar(&app, None, false);
@@ -1155,52 +1158,6 @@ async fn stage_upload(app: tauri::AppHandle, src: String, filename: String) -> R
     .map_err(|e| e.to_string())?
 }
 
-/// #454: write the entries of a received folder zip under
-/// `<dest>/<base>/<rel>`. The renderer sends rel + bytes; this composes the
-/// absolute paths and refuses escapes (.., absolute, drive prefixes) so a
-/// crafted archive cannot write outside the chosen tree. The destination
-/// must already be an allowed pick (allow_picked_path before this call).
-#[tauri::command]
-fn extract_zip_entries(
-    app: tauri::AppHandle,
-    dest: String,
-    base: String,
-    entries: Vec<ExtractEntry>,
-) -> Result<usize, String> {
-    use std::io::Write;
-    crate::picked::check(&app, std::path::Path::new(&dest))
-        .map_err(|_| "destination was not picked by the user".to_string())?;
-    let base_safe: String = base
-        .chars()
-        .map(|c| if c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | ' ') { c } else { '_' })
-        .collect();
-    let root = std::path::Path::new(&dest).join(&base_safe);
-    let mut wrote = 0usize;
-    for entry in entries {
-        let rel: String = entry
-            .rel
-            .replace('\\', "/")
-            .split('/')
-            .filter(|seg| !seg.is_empty() && *seg != "." && *seg != ".." && !seg.starts_with('.'))
-            .collect::<Vec<_>>()
-            .join("/");
-        if rel.is_empty() {
-            continue;
-        }
-        let path = root.join(&rel);
-        // Belt and suspenders: the joined path must stay under the tree.
-        if !path.starts_with(&root) {
-            return Err("entry escaped the destination".into());
-        }
-        let parent = path.parent().ok_or("entry has no parent")?;
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
-        file.write_all(&entry.data).map_err(|e| e.to_string())?;
-        wrote += 1;
-    }
-    Ok(wrote)
-}
-
 /// #454 follow-up: extracts a received folder zip (a blob in the accounts
 /// dir, sealed or not) under `<dest>/<base>/`, streaming entry by entry in
 /// Rust, so a multi-GB archive never sits in memory. Paths stay under the
@@ -1284,12 +1241,6 @@ fn safe_base_name(base: &str) -> String {
         .collect();
     let s = s.trim_matches(['.', ' ']).to_string();
     if s.is_empty() { "folder".into() } else { s }
-}
-
-#[derive(serde::Deserialize)]
-pub struct ExtractEntry {
-    pub rel: String,
-    pub data: Vec<u8>,
 }
 
 /// #454: enumerate a user-picked folder for the zip-on-pick flow. The pick
@@ -4016,6 +3967,16 @@ fn sweep_open_docs(dir: &Path) {
     }
 }
 
+/// Desktop: drop every decrypted open-docs copy (app lock, process start).
+/// Best effort: a copy a viewer still holds open (Windows) is left to the
+/// age sweep.
+#[cfg(not(target_os = "android"))]
+fn purge_open_docs(app: &tauri::AppHandle) {
+    if let Ok(base) = app.path().app_local_data_dir() {
+        let _ = std::fs::remove_dir_all(base.join(OPEN_DOCS_DIR));
+    }
+}
+
 fn decrypted_open_copy(app: &tauri::AppHandle, src: &str, name: Option<&str>) -> Result<PathBuf, String> {
     let canon = scoped_accounts_path(app, src)?;
     // Android: the cache dir, which the FileProvider exposes. Desktop:
@@ -4120,6 +4081,58 @@ async fn open_document(app: tauri::AppHandle, src: String, name: Option<String>,
     .map_err(|e| e.to_string())?
 }
 
+/// Scratch dir for gunzipped backups: owner-only, and anything older than an
+/// hour is removed before a new file is written (the tars hold a whole
+/// profile in plaintext and nothing else deletes them).
+const BACKUP_SCRATCH_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+fn sweep_backup_scratch(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > BACKUP_SCRATCH_MAX_AGE);
+        if old {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+fn backup_scratch_file(dir: &Path) -> Result<(PathBuf, std::fs::File), String> {
+    use std::io::ErrorKind;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+    sweep_backup_scratch(dir);
+    let stem = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    for attempt in 0..8u32 {
+        let dest = dir.join(format!("backup-{stem}-{}.tar", data_encoding::HEXLOWER.encode(&random_bytes::<4>())));
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        match opts.open(&dest) {
+            Ok(f) => return Ok((dest, f)),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists && attempt < 7 => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Err("could not create a scratch file".into())
+}
+
 /// PWA backup downloads arrive gzip-compressed (CompressionStream export);
 /// the core's imex only reads plain tars. Sniff the gzip magic and
 /// decompress to a temp file when needed; anything else passes through.
@@ -4135,22 +4148,18 @@ fn prep_backup_blocking(path: String) -> Result<String, String> {
     if !gz {
         return Ok(path);
     }
-    let dir = std::env::temp_dir().join("velta-backup");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let stem = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let dest = dir.join(format!("backup-{stem}.tar"));
+    let (dest, mut out) = backup_scratch_file(&std::env::temp_dir().join("velta-backup"))?;
     let decoder = flate2::read::GzDecoder::new(std::fs::File::open(&path).map_err(|e| e.to_string())?);
-    let mut out = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
     // The input comes straight from a chat message (a saved "backup"): cap
     // the decompressed size so a gzip bomb cannot fill the disk before the
     // core ever validates the tar. Real profiles are far below this.
     const MAX_BACKUP_BYTES: u64 = 8 * 1024 * 1024 * 1024;
     let mut capped = decoder.take(MAX_BACKUP_BYTES);
-    let written = std::io::copy(&mut capped, &mut out).map_err(|e| e.to_string())?;
-    if written >= MAX_BACKUP_BYTES {
+    let copied = std::io::copy(&mut capped, &mut out).map_err(|e| {
+        let _ = std::fs::remove_file(&dest);
+        e.to_string()
+    })?;
+    if copied >= MAX_BACKUP_BYTES {
         let _ = std::fs::remove_file(&dest);
         return Err("backup too large (over 8 GB decompressed)".into());
     }
@@ -6074,6 +6083,8 @@ pub fn run() {
             // (temp dir on Android) and the writer thread is bound to the
             // wrong directory for the whole session.
             set_log_dir(log_dir_path);
+            #[cfg(not(target_os = "android"))]
+            purge_open_docs(app.handle());
             notify_prefs_load(app.handle());            #[cfg(target_os = "android")]
             {
                 let ext_logs = PathBuf::from("/storage/emulated/0/Android/data")
@@ -6231,7 +6242,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_entries, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, stage_upload, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, convert_heic_photo, prep_backup, backup_scratch_dir, publish_backup, save_attachment, save_to_collection, share_file, open_document, media_base_url, read_media_bytes, copy_image_to_clipboard, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, transfer_notify, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, list_folder_files, extract_zip_file, extract_zip_to_tree, saf_pick_tree, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, get_db_hello_state, hello_supported, set_db_hello, clear_db_hello, unlock_with_hello, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, stage_upload, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, convert_heic_photo, prep_backup, backup_scratch_dir, publish_backup, save_attachment, save_to_collection, share_file, open_document, media_base_url, read_media_bytes, copy_image_to_clipboard, notify_incoming, install_update, get_battery_status, is_network_roaming, push::push_status, push::push_select, push::push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_seal, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_send_folder, p2p::p2p_send_tree, p2p::p2p_send_content_uri, p2p::p2p_cancel_file, p2p::p2p_resume_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, xfer::xfer_offer, xfer::xfer_fetch, xfer::xfer_withdraw, xfer::xfer_status, xfer::xfer_file_size, xfer::xfer_health, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
@@ -6658,6 +6669,36 @@ mod opened_args_tests {
         assert!(!lnk_points_at(&link, &dir.join("other.exe")));
         assert!(!lnk_points_at(&dir.join("missing.lnk"), &exe));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod backup_scratch_tests {
+    use super::*;
+
+    #[test]
+    fn scratch_files_are_private_unique_and_old_ones_are_swept() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("velta-backup");
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = dir.join("backup-old.tar");
+        std::fs::write(&old, b"x").unwrap();
+        let aged = std::time::SystemTime::now() - BACKUP_SCRATCH_MAX_AGE - std::time::Duration::from_secs(60);
+        std::fs::File::options().write(true).open(&old).unwrap().set_modified(aged).unwrap();
+        let fresh = dir.join("backup-fresh.tar");
+        std::fs::write(&fresh, b"x").unwrap();
+
+        let (a, _fa) = backup_scratch_file(&dir).unwrap();
+        let (b, _fb) = backup_scratch_file(&dir).unwrap();
+        assert_ne!(a, b, "two scratch files never share a name");
+        assert!(!old.exists(), "a stale tar is removed");
+        assert!(fresh.exists(), "a recent tar is kept");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&a).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        }
     }
 }
 
