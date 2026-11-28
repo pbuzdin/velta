@@ -128,6 +128,7 @@ import { parkMedia, unparkMedia } from "./media-park.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
+import { executableKind } from "./exec-types.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { lcRetryTransfer, lcCancelTransfer, lcSendFolder, lcSendTree, lcSendContentUri } from "./local-chat.js";
@@ -273,6 +274,41 @@ export function documentOpenPlan(path, name, { tauri = false, android = false } 
   return PWA_TAB_RE.test(ref) ? "tab" : "download";
 }
 
+// Desktop "Open" on a program, script or shortcut: ask first. Resolves
+// "open", "folder" or null (cancelled/closed). Cancel is the first button.
+const PROGRAM_KIND_LABELS = {
+  program: "Program",
+  script: "Script",
+  shortcut: "Shortcut",
+  package: "Installer or package",
+};
+function confirmOpenProgram(fileName, kind) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => { if (!settled) { settled = true; resolve(value); } };
+    const body = document.createElement("div");
+    const p = document.createElement("p");
+    p.style.cssText = "font-size:15px;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere";
+    p.textContent = t("{name}\nType: {kind}\n\nOpening this file runs it on your computer. Only open it if you trust the sender.", {
+      name: fileName,
+      kind: t(PROGRAM_KIND_LABELS[kind] || "Program"),
+    });
+    body.append(p);
+    const foot = document.createElement("div");
+    const mk = (label, value, danger) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn-text";
+      b.textContent = label;
+      if (danger) b.style.color = "var(--danger)";
+      b.addEventListener("click", () => { finish(value); close(); });
+      return b;
+    };
+    foot.append(mk(t("Cancel"), null), mk(t("Show in folder"), "folder"), mk(t("Open anyway"), "open", true));
+    const { close } = showModal({ title: t("Open this file?"), body, foot, compact: true, onClose: () => finish(null) });
+  });
+}
+
 // Open a message's file with the platform's handler (see ChatView._openFile).
 export async function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t), core = null, mime = null } = {}) {
   if (!path) return;
@@ -293,6 +329,17 @@ export async function openAttachmentFile(path, name = null, { openHtml = null, o
   const fileName = attachmentName({ fileName: name, filePath: path });
   try {
     if (plan === "native") {
+      // Desktop: a program, script or shortcut never starts from one tap.
+      // The user picks Open anyway or Show in folder; closing does nothing.
+      const kind = !isAndroid() ? executableKind(fileName) : null;
+      if (kind) {
+        const choice = await confirmOpenProgram(fileName, kind);
+        if (choice === "folder") {
+          await showAttachmentInFolder(path, name, { onError, mime });
+          return;
+        }
+        if (choice !== "open") return;
+      }
       // Blobs are VLTA-encrypted under hash names: never hand the blobdir
       // path out. Desktop gets back the decrypted copy to open; Android
       // starts ACTION_VIEW itself and returns "".
