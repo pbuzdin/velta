@@ -4,8 +4,8 @@ import { formatListTime, timeAgo, timeTag, formatDuration } from "./format.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, cachedFingerprintIsDerived, fingerprintGroups } from "./avatar.js";
-import { avatarFill } from "./name-color.js";
-import { P, svg, labelled } from "./icons.js";
+import { avatarFill, nameHue } from "./name-color.js";
+import { LOOP_SVG, P, svg, labelled } from "./icons.js";
 import { t } from "./i18n.js";
 
 const AVATAR_SVG = svg(P.avatarStar, "", 'style="width:55%;height:55%"');
@@ -336,13 +336,10 @@ VeltaVideo.define();
 // (classic-email contacts), i.e. chat.isEncrypted === false. Encrypted chats
 // show no lock at all — e2e is the default there, not something to celebrate.
 const OPEN_LOCK_SVG = labelled(svg(P.lockOpen, "ci-lock open"), t("Not encrypted"));
-// Local (P2P) chats ride QUIC/TLS with the peer identity pinned by pairing —
-// encrypted, so instead of the open lock they carry this wifi mark.
-export const WIFI_SVG = svg(P.wifi, "ci-wifi");
-// Chat-name badge: p2p wifi replaces the open lock. (Core 2.61.0 stopped
-// tracking contact verification — the old verified rosette is gone.)
+// Open lock only on classic-email contacts. Loop chats are marked beside
+// the list time (ci-loop), not with a glyph on the name.
 const nameBadgesFor = c =>
-  c.isP2p ? WIFI_SVG : c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "";
+  !c.isP2p && c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "";
 const PIN_SVG = labelled(svg(P.pin, "ci-pin"), t("Pinned"));
 const MUTE_SVG = labelled(svg(P.mute, "ci-mute"), t("Muted"));
 const TICK1 = labelled(svg(P.tick1, "ci-ticks"), t("Sent"));
@@ -399,6 +396,9 @@ class VeltaChatItem extends Elena(HTMLElement) {
     const c = this.chat;
     if (!c) return html`<div></div>`;
     const nameBadges = nameBadgesFor(c);
+    const loopMark = c.isP2p
+      ? `<span class="ci-loop" role="img" aria-label="${escapeHtml(t("Velta Loop"))}" title="${escapeHtml(t("Velta Loop"))}">${LOOP_SVG}</span>`
+      : "";
     let right;
     if (c.unread > 0) right = `<span class="ci-badge${c.muted ? " muted" : ""}">${c.unread > 999 ? "999+" : c.unread}</span>`;
     else if (c.pinned) right = PIN_SVG;
@@ -418,7 +418,7 @@ class VeltaChatItem extends Elena(HTMLElement) {
         <div class="ci-main">
           <div class="ci-top">
             <div class="ci-name">${c.name} ${unsafeHTML(nameBadges)}</div>
-            <div class="ci-time">${c.lastTs ? unsafeHTML(timeTag(c.lastTs, formatListTime(c.lastTs))) : ""}</div>
+            <div class="ci-time">${unsafeHTML(loopMark)}${c.lastTs ? unsafeHTML(timeTag(c.lastTs, formatListTime(c.lastTs))) : ""}</div>
           </div>
           <div class="ci-bottom">
             <div class="ci-last">${unsafeHTML(ticks)} ${unsafeHTML(last)}</div>
@@ -465,18 +465,35 @@ class VeltaChatHead extends Elena(HTMLElement) {
   render() {
     const c = this.chat;
     if (!c) return html`<div></div>`;
+    // #519 follow-up: a 1:1 header wears the contact's Prism hue — the
+    // drawer fingerprint gradient rotated to their color. Groups, Loop
+    // chats and special kinds stay on the plain header.
+    const oneToOne = !!c.contactId && !c.isP2pGroup
+      && !["group", "channel", "saved", "device", "deaddrop"].includes(c.kind);
+    const prismH = oneToOne ? Math.round(nameHue(c.avatarColor || c.name)) : null;
+    const bar = this.closest(".chat-head");
+    if (prismH == null) {
+      this.classList.remove("prism-head");
+      bar?.classList.remove("prism-bar");
+    } else {
+      this.classList.add("prism-head");
+      bar?.classList.add("prism-bar");
+      bar?.style.setProperty("--prism-h", String(prismH));
+    }
     const st = this.statusLine();
     const online = typeof st === "object" && st.online;
     const stText = typeof st === "object" ? st.text : st;
     const stHtml = (c.contact?.lastSeen && typeof st === "string" && st.startsWith("last seen"))
       ? timeTag(c.contact.lastSeen, st)
       : escapeHtml(stText);
+    // Loop chats wear the mark in the header actions (#btn-loop), not a wifi glyph on the name.
+    const nameBadges = c.isP2p ? "" : nameBadgesFor(c);
     return html`
       <div class="chat-head-avatar">
         ${unsafeHTML(`<velta-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.contact?.addr ? ` addr="${escapeAttr(c.contact.addr)}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>`)}
       </div>
       <div class="chat-head-text">
-        <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML(nameBadgesFor(c))}</div>
+        <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML(nameBadges)}</div>
         <div class="cht-status${online ? " online" : ""}">${unsafeHTML(stHtml)}</div>
       </div>`;
   }

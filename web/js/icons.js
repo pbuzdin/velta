@@ -82,6 +82,7 @@ export const P = {
   avatarStar: '<path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor" stroke="none"/>',
   device: '<rect x="5" y="3" width="14" height="18" rx="2.5"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor" stroke="none"/>',
   videoPlay: '<path d="M6.5 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>',
+  previewPlay: '<path d="M8 5.5v13l10-6.5z"/>', // outline play (composer video preview)
   lockOpen: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.6-1.7"/>',
   wifi: '<path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor" stroke="none"/>',
   failedMark: '<path d="M12 4v9"/><circle cx="12" cy="18.8" r="2" fill="currentColor" stroke="none"/>',
@@ -125,6 +126,8 @@ export const P = {
   contacts: '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0114 0M16 3.5a4 4 0 010 9M15.5 14a7 7 0 016.5 7"/>',
   qr: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3M21 14v3M14 18v3M18 21h3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  // Velta Loop mark, redrawn as a 24x24 stroke glyph for the bottom bar (#456).
+  loop: '<path d="M4 5l5 0 6 14M20 5l-5 0-2.5 6M7.5 19h5"/><path d="M17.5 13.5a5.5 5.5 0 0 1-9.8 2.6M6.5 10.5a5.5 5.5 0 0 1 9.8-2.6" fill="none" stroke-linecap="round"/>',
   chatLines: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
   // composer "Commands" quick tool: slash in a keycap — "/ to insert a command
   cmdSlash: '<rect x="3" y="3" width="18" height="18" rx="5"/><path d="M15.5 8l-7 8"/>',
@@ -135,6 +138,15 @@ export const P = {
   // scheduled messages ("Send later"): clock face, hands at 12 → 4
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',  // Admin group / admin badge (#177): outline shield with a check
   // Admin chip on the admin's messages (#177): plain outline shield
+  // Velta Dash (#470, automatic large-file transfer): the dash-logo.svg
+  // mark as an outline glyph (house style) — the user-fixed geometry: the
+  // left arm carries the point, the right arm is two thin dashes up top
+  // plus a solid lower arm that ends SHORT of the tip (the V stays open).
+  // Gaps are wider than the mark's own: at 24px a stroke gap under ~2.3
+  // units bridges through the round caps.
+  dash: '<path d="M5 4l7 16"/><path d="M20.4 4l-.6 1.7"/><path d="M18.5 8.4l-.6 1.7"/><path d="M16.7 12.8l-.9 2.9"/>',
+  // email (Dash's email-fallback badge on file cards): envelope
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5L12 13l8.5-6.5"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/>',
   shieldCheck: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.3 2.3 4.2-4.6"/>',
 };
@@ -145,10 +157,19 @@ export const CLOSE_SVG = ICON.close;
 // geometry). The original card icon — shared by the hub card and the drawer.
 export const LOOP_SVG = `<svg viewBox="0 0 624 590" width="21" height="20" aria-hidden="true"><g fill="currentColor"><polygon points="0,0 191,0 402,420 314,590"/><polygon points="434,0 624,0 420,385 341,225"/></g><path d="M510,267.1 A200,200 0 0 1 386.9,480.4" fill="none" stroke="currentColor" stroke-width="40"/><path d="M114,267.1 A200,200 0 0 0 237.1,480.4" fill="none" stroke="currentColor" stroke-width="40"/></svg>`;
 
+/** The Velta Dash brand mark, byte-exact from velta.cc/dash-logo.svg (the
+ *  user-fixed geometry): left arm carries the point, right arm is cut into
+ *  slanted bands — two thin dashes up top, the lower arm solid into a short
+ *  tip. Filled, like LOOP_SVG; P.dash stays the outline glyph for KMP. */
+export const DASH_SVG = `<svg viewBox="0 0 277 260" width="22" height="21" aria-hidden="true"><g fill="currentColor"><path d="M0 0H79.5L177 187L139.5 260L0 0Z"/><path d="M207.971 131H165.276L148.5 97H225.757L207.971 131Z"/><path d="M186 173L165.276 131H207.971L186 173Z"/><path d="M265.515 21H186.5L197 0H276.5L265.515 21Z"/><path d="M245.636 59H167.5L177 40H255.575L245.636 59Z"/><path d="M225.757 97H148.5L158 78H235.696L225.757 97Z"/></g></svg>`;
+
 /** index.html is static: its icons are `<svg data-icon="name"></svg>`
  *  placeholders, filled from P here (keeps any class). */
 export function hydrateIcons(root = document) {
   for (const el of root.querySelectorAll("svg[data-icon]")) {
+    if (el.dataset.icon === "dash") { el.outerHTML = DASH_SVG; continue; } // brand mark, not a glyph
+    // Header badge uses the filled mark. The bar button keeps the stroke glyph.
+    if (el.dataset.icon === "loop" && el.closest("#btn-loop")) { el.outerHTML = LOOP_SVG; continue; }
     const inner = P[el.dataset.icon];
     if (inner) el.outerHTML = svg(inner, el.getAttribute("class") || "");
   }

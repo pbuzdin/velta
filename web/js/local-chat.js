@@ -341,6 +341,7 @@ function applyFileProgress(d) {
   // Chunks arrive in bursts: re-render on 2% steps and on any state change.
   if (prev?.state !== upd.state || Math.abs(after - before) >= 2 || after >= 100 || tickBefore !== groupFileState(g, m)) {
     emitChanged(); chatUpdated(g.id);
+    emitMsg(P2PG_PREFIX + g.id, mapGroupMsg(g, m));
   }
 }
 
@@ -660,22 +661,32 @@ function viewtypeFor(name, mime = "") {
   return "file";
 }
 
+// Outgoing tick. A live transfer stays on the Sending ring: the single
+// check means the bytes are out, and the ack turns it to Seen.
+function outState(m) {
+  if (m.failed) return "failed";
+  if (m.transfer && !m.transfer.failed) return "pending";
+  if (m.acked) return "read";
+  if (m.queued) return "pending";
+  return "sent";
+}
+
 function mapMsg(p, m) {
   const base = {
     id: m.id, engineId: m.engineId ?? null, chatId: P2P_PREFIX + p.id, kind: "msg",
     viewtype: m.file ? viewtypeFor(m.file.name, m.file.mime) : "text",
     from: m.out ? 1 : 0, text: m.text, ts: m.ts,
-    state: m.out ? (m.failed ? "failed" : m.acked ? "read" : m.queued ? "pending" : "sent") : "read",
+    state: m.out ? outState(m) : "read",
     fromContact: { name: m.out ? "" : p.name, color: colorFor(p.name) },
     starred: false, edited: false, quote: null, reactions: null, fwdFrom: null,
     filePath: null, fileName: null, fileSize: null, fileMime: null,
     downloadState: "Done",
   };
   if (m.reply_to) {
-    const orig = p.msgs.find(x => x.id === m.reply_to);
+    const orig = p.msgs.find(x => x.engineId === m.reply_to || x.id === m.reply_to);
     const author = orig ? (orig.out ? "You" : p.name) : p.name;
     base.quote = {
-      id: m.reply_to,
+      id: orig ? orig.id : m.reply_to,
       text: m.reply_text ?? (orig ? orig.text : ""),
       fromContact: { name: author, color: colorFor(author) },
     };
@@ -739,7 +750,7 @@ function mapChat(p) {
     lastMsg: last ? (last.file ? "📎 " + last.file.name : last.text) : "",
     lastTs: last ? last.ts : 0,
     lastFrom: last ? (last.out ? 1 : 0) : 0,
-    lastState: last && last.out ? (last.acked ? "read" : last.queued ? "pending" : "sent") : null,
+    lastState: last && last.out ? outState(last) : null,
     unread: p.unread, encrypted: false, verified: false,
     pinned: p.msgs.length > 0,
     avatarColor: colorFor(p.name),
@@ -748,6 +759,13 @@ function mapChat(p) {
 
 function emitChanged() {
   core()?.dispatchEvent?.(new CustomEvent("msgs-changed", { detail: {} }));
+}
+
+// The open row listens to msg-updated. msgs-changed only refetches the tail
+// every 2s and skips a row whose text and state did not change, so a live
+// transfer card never moved.
+function emitMsg(chatId, msg) {
+  if (msg) core()?.dispatchEvent?.(new CustomEvent("msg-updated", { detail: { chatId, msg } }));
 }
 
 // Called by the engine bridge / simulator whenever a message arrives.
@@ -845,9 +863,9 @@ export function cancelQueuedItem(chatId, itemId) {
   emitChanged();
 }
 
-// Retry an interrupted (failed) transfer: re-sends the stored copy of the
-// file from byte zero (no resume) and swaps the failed message for the new
-// one. The old message only leaves the store once the engine accepted the
+// Retry an interrupted (failed) transfer: resumes it when the engine still
+// has it parked (#454), else re-sends the stored copy of the file from byte
+// zero and swaps the failed message for the new one. The old message only leaves the store once the engine accepted the
 // re-send — on failure it comes back, still showing its Retry button.
 export async function lcRetryTransfer(chatId, msgId, memberId = null) {
   if (isGroupId(chatId)) return lcRetryGroupFile(chatId, msgId, memberId);
@@ -856,6 +874,17 @@ export async function lcRetryTransfer(chatId, msgId, memberId = null) {
   const msg = p?.msgs.find(x => x.id === msgId);
   if (!msg) return;
   if (!isTauri()) { delete msg.transfer; emitChanged(); return; } // sim preview: no real transfers
+  // #454: an interrupted send continues from what the peer already holds;
+  // the engine refuses when there is nothing to resume (cancelled, or the
+  // app restarted), and then the stored copy is re-sent from byte zero.
+  if (msg.out && !msg.transfer?.cancelled) {
+    try {
+      await invoke()("p2p_resume_file", { peerId, id: msg.engineId || msg.id });
+      msg.transfer = { pct: msg.transfer?.pct || 0, dir: "send" };
+      emitChanged();
+      return;
+    } catch { /* fall through to a fresh send */ }
+  }
   const file = msg.file || {};
   if (!file.path) throw new Error("original file is gone");
   p.msgs = p.msgs.filter(x => x.id !== msgId);
@@ -864,6 +893,7 @@ export async function lcRetryTransfer(chatId, msgId, memberId = null) {
     p.msgs.push({
       id: nowId(), engineId: res.id, ts: Date.now(), text: msg.text || "", out: true, acked: false,
       file: { name: file.name || "file", size: file.size || 0, mime: file.mime || "", path: res.path },
+      transfer: { packing: true, dir: "send", pct: 0 },
     });
   } catch (err) {
     p.msgs.push(msg); // still offline — restore the failed card
@@ -871,6 +901,51 @@ export async function lcRetryTransfer(chatId, msgId, memberId = null) {
     throw err;
   }
   emitChanged();
+}
+
+// #454: cancels a 1:1 transfer in either direction. The engine tells the
+// peer; the bubble turns into the "cancelled" card on the progress event.
+export async function lcCancelTransfer(chatId, msgId) {
+  if (!String(chatId).startsWith(P2P_PREFIX) || !isTauri()) return;
+  const peerId = String(chatId).slice(P2P_PREFIX.length);
+  const msg = store.peers.get(peerId)?.msgs.find(x => x.id === msgId);
+  if (!msg) return;
+  await invoke()("p2p_cancel_file", { peerId, id: msg.engineId || msg.id });
+}
+
+// #454 follow-up: a picked folder goes as one zip that Rust builds from disk
+// (p2p_send_folder). The peer must be online, like any Loop file.
+export async function lcSendFolder(chatId, folder, caption = "") {
+  return sendStreamed(chatId, "p2p_send_folder", { path: folder }, caption, "application/zip");
+}
+
+// #454 Android: a folder picked with saf_pick_tree (a content:// tree URI),
+// zipped and streamed by Rust like lcSendFolder.
+export async function lcSendTree(chatId, tree, caption = "") {
+  return sendStreamed(chatId, "p2p_send_tree", { uri: tree }, caption, "application/zip");
+}
+
+// #454 Android: a content:// file from the system picker, read once by Rust
+// straight into the stored copy (no uploads/ copy first).
+export async function lcSendContentUri(chatId, uri, caption = "") {
+  return sendStreamed(chatId, "p2p_send_content_uri", { uri }, caption, "");
+}
+
+async function sendStreamed(chatId, cmd, args, caption, mime) {
+  if (!String(chatId).startsWith(P2P_PREFIX) || !isTauri()) throw new Error("this goes over Velta Loop only");
+  const peerId = String(chatId).slice(P2P_PREFIX.length);
+  const p = peer(peerId);
+  const res = await invoke()(cmd, { peerId, ...args, caption })
+    .catch(err => { throw new Error(String(err?.message || err)); });
+  const msg = {
+    id: nowId(), engineId: res.id, ts: Date.now(), text: caption, out: true, acked: false,
+    file: { name: res.name, size: res.size || 0, mime, path: res.path },
+    // The invoke returns before the bytes move (a folder is still being walked).
+    transfer: { packing: true, dir: "send", pct: 0 },
+  };
+  p.msgs.push(msg);
+  emitChanged();
+  return mapMsg(p, msg);
 }
 
 // Sends queued media when a peer comes back online, oldest first.
@@ -915,6 +990,8 @@ export async function hubModel() {
 // ---------------- engine bridge (real Tauri shell) ----------------
 
 let engineHooked = false;
+// #454: transfer id -> { t, got, bps } for the speed shown on the bar.
+const speedOf = new Map();
 
 function engineInit() {
   if (engineHooked || !isTauri()) return;
@@ -924,26 +1001,50 @@ function engineInit() {
     const d = ev?.payload || {};
     if (d.kind === "file-progress") {
       const p = peer(d.peerId);
-      const msg = p.msgs.find(x => x.id === d.id || x.engineId === d.id);
+      let msg = p.msgs.find(x => x.id === d.id || x.engineId === d.id);
+      // FileBegin: the card exists before the first chunk, so progress is not dropped.
+      if (d.started && d.dir === "recv" && !msg) {
+        p.msgs.push({
+          id: nowId(), engineId: d.id, ts: Date.now(), text: d.text || "", out: false, acked: true,
+          file: { name: d.name || "file", size: d.size || 0, mime: d.mime || "", path: "" },
+          transfer: { pct: 0, dir: "recv" },
+        });
+        p.online = true;
+        emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, p.msgs[p.msgs.length - 1]));
+        return;
+      }
       if (!msg) return;
       if (d.failed) {
-        // Session died mid-transfer; there is no resume — the bubble shows a
-        // Retry button (lcRetryTransfer re-sends from byte zero).
-        msg.transfer = { failed: true, pct: msg.transfer?.pct || 0, dir: d.dir };
+        // Session died, or either side cancelled (#454): the bubble shows
+        // why, and a Retry on the sending side. A dropped session also
+        // resumes by itself when the peer reconnects (progress replaces this).
+        msg.transfer = { failed: true, cancelled: !!d.cancelled, pct: msg.transfer?.pct || 0, dir: d.dir };
         emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, msg));
         return;
       }
       if (d.done) {
         delete msg.transfer; // swap the bar for the finished file card
         emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, msg));
         return;
       }
       if (d.size && msg.file && !msg.file.size) msg.file.size = d.size;
       const pct = d.size ? Math.min(100, Math.floor(d.got / d.size * 100)) : 0;
+      // #454: speed over a ~1 s window, kept off the store (not persisted).
+      const now = Date.now();
+      const sp = speedOf.get(d.id) || { t: now, got: d.got, bps: 0 };
+      if (now - sp.t >= 1000) {
+        sp.bps = Math.max(0, Math.round((d.got - sp.got) * 1000 / (now - sp.t)));
+        sp.t = now; sp.got = d.got;
+      }
+      speedOf.set(d.id, sp);
       // Re-render only on 2% steps — chunks arrive in rapid bursts.
-      if (!msg.transfer || pct - (msg.transfer.pct || 0) >= 2 || pct >= 100) {
-        msg.transfer = { pct, dir: d.dir };
+      if (!msg.transfer || msg.transfer.packing || pct - (msg.transfer.pct || 0) >= 2 || pct >= 100 || msg.transfer.bps !== sp.bps) {
+        msg.transfer = { pct, dir: d.dir, bps: sp.bps };
         emitChanged();
+        emitMsg(P2P_PREFIX + p.id, mapMsg(p, msg));
       }
     } else if (d.kind === "group-file-progress") {
       applyFileProgress(d);
@@ -957,8 +1058,21 @@ function engineInit() {
     } else if (d.kind === "message") {
       setTyping(P2P_PREFIX + d.peerId, d.peerId, "", false); // a message ends "typing"
       const p = peer(d.peerId);
-      // Skip echoes of our own sends (the engine emits outgoing messages too).
-      if (p.msgs.some(m => m.engineId === d.id)) return;
+      const existing = p.msgs.find(m => m.engineId === d.id);
+      if (existing) {
+        // Placeholder from FileBegin, or an echo of our own send.
+        if (!existing.out) {
+          if (d.file) {
+            existing.file = d.file;
+            delete existing.transfer;
+          }
+          if (d.text != null) existing.text = d.text;
+          existing.ts = d.ts || existing.ts;
+          emitChanged();
+          emitMsg(P2P_PREFIX + p.id, mapMsg(p, existing));
+        }
+        return;
+      }
       p.msgs.push({
         id: nowId(), engineId: d.id, ts: d.ts || Date.now(), text: d.text, out: false, acked: true,
         reply_to: d.reply_to || null,
@@ -1220,7 +1334,8 @@ function handler(prop) {
               .catch(err => { throw new Error(String(err?.message || err)); });
             const msg = {
               id: nowId(), engineId: res.id, ts: Date.now(), text, out: true, acked: false,
-              file: { name, size: 0, mime: "", path: res.path },
+              file: { name: res.name || name, size: res.size || 0, mime: "", path: res.path },
+              transfer: { packing: true, dir: "send", pct: 0 },
             };
             p.msgs.push(msg);
             return mapMsg(p, msg);
@@ -1246,13 +1361,18 @@ function handler(prop) {
           return mapMsg(p, msg);
         }
 
+        // The composer quotes by the adapter's numeric id; the wire carries
+        // the engine id. A number here is rejected: replyTo must be a string.
+        const target = quoteId != null ? p.msgs.find(x => x.id === quoteId) : null;
+        const replyTo = target?.engineId ?? null;
+        const replyText = replyTo != null ? (quoteText ?? target?.text ?? null) : null;
         const msg = {
           id: nowId(), engineId: null, ts: Date.now(), text, out: true, acked: false,
-          reply_to: quoteId, reply_text: quoteText,
+          reply_to: replyTo, reply_text: replyText,
         };
         p.msgs.push(msg);
         if (isTauri()) {
-          invoke()("p2p_send", { peerId, text, replyTo: quoteId, replyText: quoteText }).then((res) => {
+          invoke()("p2p_send", { peerId, text, replyTo, replyText }).then((res) => {
             msg.engineId = res.id;
             if (res.queued) {
               // Engine holds it until the peer reconnects — bubble shows a

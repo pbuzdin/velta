@@ -38,6 +38,16 @@ export function parseColor(c) {
 }
 
 // Name → hue; lightness 55% unless soft-white initials would drop under 3:1.
+/** The Prism hue for a contact: the color's own hue when it parses, else
+ *  the name fingerprint hue (the same hash nameColor uses). */
+export function nameHue(s) {
+  const rgb = parseColor(String(s || ""));
+  if (rgb) return rgbToHsl(rgb)[0];
+  let h = 0;
+  for (const ch of String(s || "?")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
+
 export function nameColor(name) {
   let h = 0;
   for (const ch of String(name || "?")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;

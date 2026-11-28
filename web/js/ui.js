@@ -9,6 +9,7 @@ import { APP_VERSION } from "./version.gen.js";
 import { formatSplashVersion } from "./format.js";
 import { searchEmoji } from "./emoji.js";
 import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
+import { shellProxy } from "./shell-proxy.js";
 import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
 import { parseColor, rgbToHsl, nameColor } from "./name-color.js";
 import { canShareLink, shareLink } from "./qr-actions.js";
@@ -17,7 +18,7 @@ import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.j
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
 import { glassComposerAvailable } from "./glass-composer.js";
 import { markLangCardDone } from "./lang-cards.js";
-import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { DASH_SVG, ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { mountInviteDomains } from "./invite-domains.js";
 
 const popups = () => document.getElementById("popups");
@@ -141,6 +142,7 @@ export function showContextMenu(items, x, y) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "ctx-item" + (it.danger ? " danger" : "") + (it.pressed ? " pressed" : "");
+    if (it.menuId) b.dataset.menuId = it.menuId; // stable hook for tests/automation
     if (it.pressed !== undefined) b.setAttribute("aria-pressed", it.pressed ? "true" : "false");
     if (it.ariaLabel) b.setAttribute("aria-label", t(it.ariaLabel));
     b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.label || "")) + "</span>";
@@ -206,6 +208,7 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
     const b = document.createElement("button");
     b.type = "button";
     b.className = "msg-bar-chip" + (it.danger ? " danger" : "");
+    if (it.menuId) b.dataset.menuId = it.menuId;
     if (it.ariaLabel) b.setAttribute("aria-label", t(it.ariaLabel));
     b.title = t(it.label || "");
     b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label || "")) + "</span>";
@@ -317,6 +320,7 @@ function sheetAction(it) {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "ctx-item" + (it.danger ? " danger" : "");
+  if (it.menuId) b.dataset.menuId = it.menuId;
   b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label)) + "</span>";
   b.addEventListener("click", () => { closeAllPopups(); it.onClick?.(); });
   return b;
@@ -993,7 +997,8 @@ export async function checkForUpdate() {
     const tauri = window.__TAURI__;
     if (tauri?.core?.invoke) {
       // Shell-side: no CORS, and CSP carries no github hosts (AGENTS.md §8).
-      remote = (await tauri.core.invoke("get_latest_version")) || "";
+      // Through the configured proxy; an unknown proxy setting skips the check.
+      remote = (await tauri.core.invoke("get_latest_version", { proxy: await shellProxy() })) || "";
     } else {
       const res = await fetch(UPDATE_CHECK_URL, { cache: "no-store" });
       if (!res.ok) return;
@@ -1084,7 +1089,7 @@ async function inAppApkUpdate(btn, tauri) {
     });
     if (!updateInfo.apkPath) {
       setPct(0, 0);
-      updateInfo.apkPath = await tauri.core.invoke("download_update", { version: updateInfo.version });
+      updateInfo.apkPath = await tauri.core.invoke("download_update", { version: updateInfo.version, proxy: await shellProxy() });
     }
     btn.textContent = t("Opening installer…");
     await tauri.core.invoke("install_update", { path: updateInfo.apkPath });
@@ -1105,7 +1110,9 @@ async function selfUpdate(btn) {
   const tauri = window.__TAURI__;
   btn.disabled = true;
   try {
-    const update = await tauri.updater.check();
+    // Same proxy as the other shell checks; unknown/unusable = no request.
+    const proxy = await shellProxy();
+    const update = await tauri.updater.check(proxy ? { proxy } : undefined);
     if (!update?.available) {
       btn.textContent = t("No update");
       btn.disabled = false;
@@ -1276,10 +1283,8 @@ export function chatAppearanceHtml() {
           </fieldset>
           <div class="bar-opts-hint" data-ca-accent-hint>${escapeHtml(t("Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors."))}</div>
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
-          <label class="scale-opt"><input type="checkbox" role="switch" data-stickers-in-attach${localStorage.getItem("velta-stickers-in-attach") === "1" ? " checked" : ""}><span>${escapeHtml(t("Stickers in attachments menu"))}</span></label>
           ${glassComposerAvailable() ? `<label class="scale-opt"><input type="checkbox" role="switch" data-glass-composer${localStorage.getItem("velta-glass-composer") === "1" ? " checked" : ""}><span>${escapeHtml(t("Liquid glass composer"))}</span></label>` : ""}
           <label class="scale-opt"><input type="checkbox" role="switch" data-send-later${localStorage.getItem("velta-send-later") === "0" ? "" : " checked"}><span>${escapeHtml(t("Send later"))}</span></label>
-          <label class="scale-opt"><input type="checkbox" role="switch" data-commands-button${localStorage.getItem("velta-cmds-button") === "0" ? "" : " checked"}><span>${escapeHtml(t("Commands button"))}</span></label>
           <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
@@ -1340,23 +1345,13 @@ export function wireChatAppearance(root, { onChange } = {}) {
     commit({ accent: custom.value });
   });
   hyph.addEventListener("change", () => commit({ hyphens: hyph.checked }));
-  // #278: composer sticker button vs Attach → Stickers.
-  sec.querySelector("[data-stickers-in-attach]")?.addEventListener("change", e => {
-    try { localStorage.setItem("velta-stickers-in-attach", e.target.checked ? "1" : "0"); } catch {}
-    window.dispatchEvent(new Event("velta-stickers-pref"));
-  });
   sec.querySelector("[data-glass-composer]")?.addEventListener("change", e => {
     try { localStorage.setItem("velta-glass-composer", e.target.checked ? "1" : "0"); } catch {}
     window.dispatchEvent(new Event("velta-glass-pref"));
   });
-  // Send later feature + Commands quick button: chat-view listens for this.
+  // Send later feature: read live when the attach menu and _sendLater build.
   sec.querySelector("[data-send-later]")?.addEventListener("change", e => {
     try { if (e.target.checked) localStorage.removeItem("velta-send-later"); else localStorage.setItem("velta-send-later", "0"); } catch {}
-    window.dispatchEvent(new Event("velta-composer-pref"));
-  });
-  sec.querySelector("[data-commands-button]")?.addEventListener("change", e => {
-    try { if (e.target.checked) localStorage.removeItem("velta-cmds-button"); else localStorage.setItem("velta-cmds-button", "0"); } catch {}
-    window.dispatchEvent(new Event("velta-composer-pref"));
   });
   sec.querySelector("[data-ca-reset]").addEventListener("click", () => {
     const st = A.apply(A.reset());
@@ -1408,6 +1403,8 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       ${onPrivacySecurity ? `<button type="button" class="ctx-item" data-act="privacy-security">${ICON.shieldCheck}<span>${t("Privacy & security…")}</span></button>` : ""}
       ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Loop", p2pOn ? "on" : "off"))}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="${escapeHtml(t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."))}">${ICON.typing}<span>${escapeHtml(toggleText("Typing indicator", localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable && p2pOn ? `<label class="ctx-item">${ICON.lock}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Encrypt stored media", localStorage.getItem("velta-p2p-seal") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Stored on this device only. Transfers stay end-to-end encrypted either way."))}</span></span><input type="checkbox" role="switch" data-toggle="p2p-seal"${localStorage.getItem("velta-p2p-seal") !== "0" ? " checked" : ""}></label>` : ""}
+      ${tauriInvoke() ? `<label class="ctx-item" data-setting="dash">${DASH_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Dash", localStorage.getItem("velta-iroh-xfer") !== "0" ? "on" : "off"))}</span><span class="ctx-sub">${escapeHtml(t("Fast transfer for files over 6 MB, directly between devices. It starts with a Velta contact after you both exchange a message; email is the fallback."))}</span></span><input type="checkbox" role="switch" data-toggle="iroh-xfer"${localStorage.getItem("velta-iroh-xfer") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
       <details class="drawer-details">
         <summary>${ICON.palette}<span data-theme-summary>${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[theme] || "Auto") })}</span></summary>
@@ -1437,7 +1434,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         <summary>${ICON.bottomBar}<span>${t("Bottom bar buttons")}</span></summary>
         <fieldset class="scale-opts" data-bar-opts>
           <legend class="vh">${t("Bottom bar buttons")}</legend>
-          ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${t(label)}</span></label>`).join("")}
+          ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"], ["loop", "Velta Loop"]].map(([key, label]) => `<label class="scale-opt"${key === "loop" && !p2pAvailable && !p2pOn ? ' hidden' : ''}><input type="checkbox" role="switch" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint">${t("Menu button is always visible.")}</div>
       </details>
@@ -1494,7 +1491,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
         <summary>${ICON.downloadBar}<span>${t("Auto-download limit")}</span></summary>
         <fieldset class="scale-opts" data-dl-opts>
           <legend class="vh">${t("Auto-download limit")}</legend>
-          ${[["0", "No limit (default)"], ["1048576", "1 MB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
+          ${[["204800", "200 KB (default)"], ["0", "No limit"], ["1048576", "1 MB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint" data-dl-hint>${escapeHtml(t(DL_LIMIT_HINT))}</div>
       </details>
@@ -1825,6 +1822,24 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     else localStorage.setItem("velta-p2p-typing", "0");
     setToggleUi("p2p-typing", "Typing indicator", on);
     toast(toggleText("Typing indicator", on ? "on" : "off"));
+  });
+  drawer.querySelector('[data-toggle="p2p-seal"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-p2p-seal");
+    else localStorage.setItem("velta-p2p-seal", "0");
+    setToggleUi("p2p-seal", "Encrypt stored media", on);
+    window.dispatchEvent(new CustomEvent("velta-p2p-seal", { detail: on }));
+    toast(toggleText("Encrypt stored media", on ? "on" : "off"));
+  });
+  // #470 Velta Dash: the transfer reads this pref live (iroh-xfer.js); the
+  // event re-announces the capability and refreshes the chat header badge.
+  drawer.querySelector('[data-toggle="iroh-xfer"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-iroh-xfer");
+    else localStorage.setItem("velta-iroh-xfer", "0");
+    setToggleUi("iroh-xfer", "Velta Dash", on);
+    toast(toggleText("Velta Dash", on ? "on" : "off"));
+    window.dispatchEvent(new CustomEvent("velta-dash", { detail: on }));
   });
   drawer.querySelector("[data-lp-opts]")?.addEventListener("change", e => {
     const input = e.target.closest?.("[data-lp-value]") || e.target;
@@ -2169,6 +2184,9 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
 // overlay and reuses the current entry — history.back() is async, so
 // back-then-push would race and lose it.
 let lightboxEl = null, lightboxOnKey = null;
+// Keyboard users land back on what opened the lightbox (e.g. the composer's
+// video preview button) instead of the page body.
+let lightboxReturn = null;
 
 function teardownLightbox(consumeEntry) {
   if (!lightboxEl) return;
@@ -2177,6 +2195,9 @@ function teardownLightbox(consumeEntry) {
   document.removeEventListener("keydown", lightboxOnKey, true);
   lightboxOnKey = null;
   el.remove();
+  const back = lightboxReturn;
+  lightboxReturn = null;
+  if (back?.isConnected && typeof back.focus === "function") { try { back.focus({ preventScroll: true }); } catch {} }
   if (consumeEntry && history.state?.velta === "lightbox") history.back();
 }
 
@@ -2314,6 +2335,7 @@ function savedVideoRate() {
 export function openVideoLightbox(src, caption = "") {
   closeAllPopups();
   teardownLightbox(false);
+  lightboxReturn = document.activeElement;
   const rate = savedVideoRate();
   const overlay = document.createElement("div");
   overlay.className = "lightbox lightbox-video";
@@ -2336,6 +2358,7 @@ export function openVideoLightbox(src, caption = "") {
   video.playbackRate = rate;
   video.src = src;
   lightboxEl = overlay;
+  try { video.focus({ preventScroll: true }); } catch {}
   if (history.state?.velta !== "lightbox") history.pushState({ velta: "lightbox" }, "");
 
   // Ignore a currentTime under 1s. A pause before the resume seek would

@@ -9,6 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="css/main.css">
@@ -40,6 +41,9 @@
         </button>
       </header>
     <div id="lc-card" class="lc-card" hidden></div>
+    <button type="button" id="btn-new-chat" class="bar-accent list-new" title="New chat, group, or channel" aria-label="New chat, group, or channel" data-i18n-label="New chat, group, or channel" hidden>
+      <svg data-icon="plus"></svg>
+    </button>
     <div class="relay-zone">
       <div id="relay-line" class="relay-line" data-state="connecting" role="status"></div>
       <div id="relay-detail" class="relay-detail"></div>
@@ -70,8 +74,8 @@
       <button type="button" id="bar-qr" class="bar-btn" data-view="qr" title="QR code" aria-label="QR code" data-i18n-label="QR code">
         <svg data-icon="qr"></svg>
       </button>
-      <button type="button" id="btn-new-chat" class="bar-btn bar-accent" title="New chat, group, or channel" aria-label="New chat, group, or channel" data-i18n-label="New chat, group, or channel">
-        <svg data-icon="plus"></svg>
+      <button type="button" id="bar-loop" class="bar-btn" data-view="loop" title="Velta Loop" aria-label="Velta Loop" data-i18n-label="Velta Loop" hidden>
+        <svg data-icon="loop"></svg>
       </button>
       <button type="button" id="bar-menu" class="bar-btn" title="Menu" aria-label="Menu" data-i18n-label="Menu">
         <svg data-icon="menu"></svg>
@@ -99,6 +103,9 @@
         </button>
         <div id="chat-head-info" class="chat-head-info"></div>
         <div id="chat-head-actions" class="chat-head-actions">
+          <button type="button" id="btn-dash" class="dash-badge" title="Velta Dash is on with this contact" aria-label="Velta Dash is on with this contact" data-i18n-label="Velta Dash is on with this contact" hidden>
+            <svg data-icon="dash"></svg>
+          </button>
           <button type="button" id="btn-call" class="icon-btn" title="Audio call" aria-label="Audio call" data-i18n-label="Audio call" hidden>
             <svg data-icon="phone"></svg>
           </button>
@@ -107,6 +114,9 @@
           </button>
           <button type="button" id="btn-channel-author" class="icon-btn" title="Message author" aria-label="Message author" data-i18n-label="Message author" hidden>
             <svg data-icon="chatLines"></svg>
+          </button>
+          <button type="button" id="btn-loop" class="dash-badge" title="Velta Loop" aria-label="Velta Loop" data-i18n-label="Velta Loop" hidden>
+            <svg data-icon="loop"></svg>
           </button>
           <button type="button" id="btn-chat-search" class="icon-btn" title="Search in chat" aria-label="Search in chat" data-i18n-label="Search in chat">
             <svg data-icon="search"></svg>
@@ -156,7 +166,14 @@
         <div id="media-preview-thumb"></div>
         <div class="media-preview-side">
           <div id="media-preview-name" class="media-preview-name"></div>
-          <button id="btn-media-crop" class="btn-text" type="button" hidden data-i18n="Crop">Crop</button>
+          <div id="media-route" class="media-route" role="status" aria-live="polite" hidden></div>
+          <div class="media-preview-actions">
+            <button id="btn-media-crop" class="btn-text" type="button" hidden data-i18n="Crop">Crop</button>
+            <button id="btn-media-replace" class="btn-text" type="button" hidden data-i18n="Replace">Replace</button>
+            <!-- #509 photo settings on the strip: pressed = the send-time state, same keys as Settings. -->
+            <button id="btn-media-webp" class="btn-text mp-toggle" type="button" hidden aria-pressed="true" aria-label="Compress photos to save relay space" data-i18n-aria="Compress photos to save relay space">WebP</button>
+            <button id="btn-media-2k" class="btn-text mp-toggle" type="button" hidden aria-pressed="true" aria-label="Resize photos to 2k" data-i18n-aria="Resize photos to 2k">2k</button>
+          </div>
         </div>
         <button type="button" id="btn-media-close" class="icon-btn" aria-label="Remove attachment" data-i18n-aria="Remove attachment">
           <svg data-icon="close"></svg>
@@ -197,28 +214,15 @@
         </div>
       </div>
 
+      <!-- One flex row at every width: attach, field, send. Apps, Commands,
+           Send later and Stickers open from the attach menu. -->
       <footer id="main-composer" class="composer">
         <button type="button" id="btn-attach" class="icon-btn" title="Attach" aria-label="Attach" data-i18n-label="Attach">
           <svg data-icon="attach"></svg>
         </button>
-        <button type="button" id="btn-apps" class="icon-btn desktop-tool" title="Apps" aria-label="Apps" data-i18n-label="Apps">
-          <svg data-icon="webxdc"></svg>
-          <span class="tool-caption" data-i18n="Apps">Apps</span>
-        </button>
-        <button type="button" id="btn-commands" class="icon-btn desktop-tool" title="Commands" aria-label="Commands" data-i18n-label="Commands">
-          <svg data-icon="cmdSlash"></svg>
-          <span class="tool-caption" data-i18n="Commands">Commands</span>
-        </button>
         <div class="composer-input-wrap">
           <textarea id="composer-input" rows="1" placeholder="Message" aria-label="Message" data-i18n-placeholder="Message" data-i18n-aria="Message" enterkeyhint="send" autocapitalize="sentences" autocomplete="off"></textarea>
-          <button type="button" id="btn-sticker" class="icon-btn" title="Stickers" aria-label="Stickers" data-i18n-label="Stickers">
-            <svg data-icon="sticker"></svg>
-          </button>
         </div>
-        <button type="button" id="btn-send-later" class="icon-btn desktop-tool" title="Send later" aria-label="Send later" data-i18n-label="Send later" hidden>
-          <svg data-icon="clock"></svg>
-          <span class="tool-caption" data-i18n="Send later">Send later</span>
-        </button>
         <button type="button" id="btn-send" class="icon-btn send-btn" title="Send" aria-label="Send" data-i18n-label="Send">
           <svg data-icon="send"></svg>
         </button>

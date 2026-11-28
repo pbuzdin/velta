@@ -2,6 +2,7 @@
 // (wss://<domain>, C3 websockify on that relay). The baked
 // window.VELTA_PWA.wsProxyUrl stays the default until a domain is chosen here.
 import { invoke, tauriInvoke } from "./tauri.js";
+import { shellProxy } from "./shell-proxy.js";
 const LIST_KEY = "velta-ws-relays";
 const ACTIVE_KEY = "velta-ws-relay";
 // Optional full wss URL per host. Bare-host installs keep using the old keys.
@@ -306,7 +307,11 @@ function probeDns(url) {
 // origin" is exactly the question.
 export function probeC3Relay(host) {
   if (tauriInvoke()) {
-    return invoke("probe_c3_relay", { host }).then((v) => v === true, () => false);
+    // Through the configured proxy; no proxy reader yet or an unusable proxy
+    // means no probe (false), never a direct one.
+    return shellProxy()
+      .then((proxy) => invoke("probe_c3_relay", { host, proxy }))
+      .then((v) => v === true, () => false);
   }
   const h = normalizeHost(host);
   return h ? probeDns(`${storedProxyUrl(h) || `wss://${h}`}/dns/${h}`) : Promise.resolve(false);

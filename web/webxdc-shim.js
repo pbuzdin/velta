@@ -4,6 +4,10 @@
 // (status updates) — see app/js/webxdc-manager.js on the host side.
 (function () {
   "use strict";
+  // Velta injects this shim, then Beam also requests webxdc.js (Delta Chat
+  // only installs its API for that URL). A second run would replace
+  // window.webxdc and drop the first channel.
+  if (window.webxdc) return;
   // WebRTC is off for webxdc apps (spec: no network access; CSP has no
   // portable directive for it — Chromium logs "Unrecognized" and ignores
   // `webrtc 'block'`). The constructors are stubbed BEFORE the app's own

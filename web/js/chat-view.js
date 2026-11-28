@@ -2,6 +2,7 @@
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
+import { withTimeout } from "./load-retry.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe, hapticTick } from "./components.js";
 import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
@@ -33,19 +34,17 @@ if (!/CriOS|FxiOS|EdgiOS/.test(ua) && /Chrome\/|Chromium\/|Edg\//.test(ua)) {
 function composerFieldSized() {
   return typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 }
-// Expanding-composer state on #main-composer: `expanded` = field spans the
-// composer with the buttons on a row below (typing anywhere, or focus on
-// touch); `has-text` = the sticker trigger is gone, a sticker send is a
-// message of its own and never rides alongside text.
+// Composer state on #main-composer: `armed` = the send arrow has something
+// to act on — trimmed text, an open media strip, or a voice take. No layout
+// class: the footer is one flex row at every width, so the slot never moves.
 function syncComposerState(input) {
   const bar = input?.closest?.(".composer");
-  if (!bar) return;
+  if (!bar || bar.id !== "main-composer") return;
   const hasText = input.value.trim().length > 0;
-  bar.classList.toggle("has-text", hasText);
-  // DOM-mock test environments have neither matchMedia nor layout state.
-  const touch = globalThis.matchMedia?.("(pointer: coarse)")?.matches === true;
-  bar.classList.toggle("expanded",
-    hasText || (touch && document.activeElement === input));
+  const media = document.getElementById("media-preview");
+  const voice = document.getElementById("voice-rec");
+  bar.classList.toggle("armed",
+    hasText || media?.hidden === false || voice?.hidden === false);
 }
 function sizeComposer(input) {
   if (!input) return;
@@ -84,6 +83,18 @@ function rememberMediaDims(accountId, msgId, w, h) {
 // app.js installs the avatar-profile opener (avoids a circular import);
 // invoked when a group message's sender avatar is tapped.
 let avatarProfileOpener = null;
+// #470: when a big email first showed as downloading (per account + msg).
+export const EMAIL_STALL_MS = 60000;
+export function inProgressSince(accountId, msgId, now = Date.now()) {
+  const key = `velta-dl-since:${accountId ?? 0}:${msgId}`;
+  try {
+    const v = Number(localStorage.getItem(key));
+    if (v > 0) return v;
+    localStorage.setItem(key, String(now));
+  } catch {}
+  return now;
+}
+
 export function setAvatarProfileOpener(fn) { avatarProfileOpener = fn; }
 
 // Video playback routes through the fullscreen lightbox (ui.js) - injected
@@ -117,20 +128,57 @@ import { parkMedia, unparkMedia } from "./media-park.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
+import { prepareHtmlView } from "./html-view.js";
+import { executableKind } from "./exec-types.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
-import { lcRetryTransfer } from "./local-chat.js";
+import { lcRetryTransfer, lcCancelTransfer, lcSendFolder, lcSendTree, lcSendContentUri } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 import { coversMessage, senderPreviewBlocked, itemKey, isItemRevealed, revealItem } from "./text-only-mode.js";
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
+import { initXferUi, maybeSend as xferMaybeSend, noteCard as xferNoteCard, planSend as xferPlanSend, setXferLightboxOpener, paintXferIn } from "./iroh-xfer-ui.js";
+import { THRESHOLD as XFER_THRESHOLD, fileKind, xferVisibleText } from "./iroh-xfer.js";
+import { probeVideo, playLabel } from "./composer-video.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
 // Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
 // first use; largeFileAvailable() is just "running in the Tauri shell".
+// The strip's WebP/2k chips (#509) only need the keys' literals — the module
+// itself must stay lazy (tests/lazy-modules gate) — so they live here too;
+// tests/composer-photo-chips pins the literals equal to image-compress.js's.
+const PHOTO_KEYS = { webp: "velta-compress-photos", resize2k: "velta-resize-photos" };
+const photoSettingOn = (key) => { try { return localStorage.getItem(key) !== "0"; } catch { return true; } };
 const largeFileAvailable = () => !!tauriInvoke();
+
+// #470: the automatic iroh file transfer glue — one init per ChatView; the
+// transport singleton keeps the pending offers for the resend fallback.
+let xferUiReady = false;
+// The composer's pre-send route check: Send waits on it, so it is bounded
+// even if a call underneath stalls past its own limit.
+const PLAN_TIMEOUT_MS = 20000;
+function ensureXfer(view) {
+  if (xferUiReady) return;
+  xferUiReady = true;
+  // Fetched Dash cards open media in the lightboxes, never a browser window;
+  // desktop can also reveal the file in the file manager.
+  setXferLightboxOpener({
+    image: (src, name) => openImageLightbox(src, name),
+    video: (src, name) => openVideoLightbox(src, name),
+    folder: (path, name) => showAttachmentInFolder(path, name),
+  });
+  initXferUi({
+    core: view.core,
+    invoke: tauriInvoke(),
+    metadata: () => view.core?.getServerMetadata?.(),
+    sendText: (chatId, text) => view._sendArchivedAware(chatId, { text }),
+    sendFile: (chatId, path, name) => view._sendArchivedAware(chatId, { viewtype: shareViewtype(name), file: path, filename: name }),
+    openHttp,
+    toast,
+  });
+}
 // Cheap header gate so Saved Messages can offer Apply without pulling
 // settings-transfer.js into the boot graph (strict parse is on Apply).
 function looksLikeSettings(text) {
@@ -227,6 +275,41 @@ export function documentOpenPlan(path, name, { tauri = false, android = false } 
   return PWA_TAB_RE.test(ref) ? "tab" : "download";
 }
 
+// Desktop "Open" on a program, script or shortcut: ask first. Resolves
+// "open", "folder" or null (cancelled/closed). Cancel is the first button.
+const PROGRAM_KIND_LABELS = {
+  program: "Program",
+  script: "Script",
+  shortcut: "Shortcut",
+  package: "Installer or package",
+};
+function confirmOpenProgram(fileName, kind) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => { if (!settled) { settled = true; resolve(value); } };
+    const body = document.createElement("div");
+    const p = document.createElement("p");
+    p.style.cssText = "font-size:15px;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere";
+    p.textContent = t("{name}\nType: {kind}\n\nOpening this file runs it on your computer. Only open it if you trust the sender.", {
+      name: fileName,
+      kind: t(PROGRAM_KIND_LABELS[kind] || "Program"),
+    });
+    body.append(p);
+    const foot = document.createElement("div");
+    const mk = (label, value, danger) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn-text";
+      b.textContent = label;
+      if (danger) b.style.color = "var(--danger)";
+      b.addEventListener("click", () => { finish(value); close(); });
+      return b;
+    };
+    foot.append(mk(t("Cancel"), null), mk(t("Show in folder"), "folder"), mk(t("Open anyway"), "open", true));
+    const { close } = showModal({ title: t("Open this file?"), body, foot, compact: true, onClose: () => finish(null) });
+  });
+}
+
 // Open a message's file with the platform's handler (see ChatView._openFile).
 export async function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t), core = null, mime = null } = {}) {
   if (!path) return;
@@ -247,6 +330,17 @@ export async function openAttachmentFile(path, name = null, { openHtml = null, o
   const fileName = attachmentName({ fileName: name, filePath: path });
   try {
     if (plan === "native") {
+      // Desktop: a program, script or shortcut never starts from one tap.
+      // The user picks Open anyway or Show in folder; closing does nothing.
+      const kind = !isAndroid() ? executableKind(fileName) : null;
+      if (kind) {
+        const choice = await confirmOpenProgram(fileName, kind);
+        if (choice === "folder") {
+          await showAttachmentInFolder(path, name, { onError, mime });
+          return;
+        }
+        if (choice !== "open") return;
+      }
       // Blobs are VLTA-encrypted under hash names: never hand the blobdir
       // path out. Desktop gets back the decrypted copy to open; Android
       // starts ACTION_VIEW itself and returns "".
@@ -337,14 +431,6 @@ function extForMime(mime) {
 // target=_blank new-window requests, so this rides the opener plugin — the
 // same verified path as the update banner (plugin:opener|open_url,
 // opener:default capability). Bare window.open is the non-Tauri fallback.
-// Injected into every HTML-view overlay (mail body, HTML attachments): a
-// capture-phase interceptor that stops links from navigating the sandboxed
-// frame and posts them to the parent, which opens them outside (Android
-// in-app browser chain / desktop system browser). The CSP blocks inline
-// scripts, so these EXACT bytes are hash-whitelisted as script-src in
-// index.html AND both tauri confs — change here and there in one commit.
-const HTML_VIEW_LINK_JS = `document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;e.preventDefault();parent.postMessage({veltaHtmlLink:a.href},"*")},true)`;
-
 function openExternal(url) {
   try {
     const invoke = tauriInvoke();
@@ -386,12 +472,8 @@ const FWD_LABELS = { picture: "Forwarded a picture", video: "Forwarded a video",
 // to 2 to keep single replies chip-only.
 export const THREAD_BUTTON_MIN_REPLIES = 1;
 
-// #278: drawer → Chat appearance. "1" = Attach → Stickers, no composer button.
-export const stickersInAttach = () => { try { return localStorage.getItem("velta-stickers-in-attach") === "1"; } catch { return false; } };
-
 // Drawer "Chat appearance" toggles write these keys; absence = enabled.
 const sendLaterEnabled = () => localStorage.getItem("velta-send-later") !== "0";
-const commandsButtonEnabled = () => localStorage.getItem("velta-cmds-button") !== "0";
 
 const ICO = {
   sticker: ICON.sticker,
@@ -465,24 +547,26 @@ async function resolveAttachmentPath(originalPath, filename) {
     && normalized.toLowerCase().startsWith(window.veltaAccountsDir.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase() + "/");
   if (inAccounts) return originalPath; // already app-managed (content-uri copies)
 
+  let absDest = "";
   try {
     const destName = `${Date.now()}-${filename || "file"}`;
-    // resolve_upload_path already puts everything under uploads/
-    const absDest = await invoke("resolve_upload_path", { filename: destName });
+    // stage_upload copies + seals in one streaming Rust pass. A thrown stage
+    // is a real copy/seal failure (#444) — dest stays set so the catch
+    // surfaces it. Only an empty return keeps the original-path salvage.
+    absDest = destName;
+    const staged = await invoke("stage_upload", { src: originalPath, filename: destName });
+    absDest = staged || "";
     rustLog(`resolveAttachmentPath original=${originalPath} dest=${absDest}`);
-    if (!absDest) throw new Error("resolve_upload_path returned empty");
-
-    // Read original bytes and write to app-local destination. write_file
-    // takes the path header and a raw byte body (see _sendImageBlob).
-    const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: originalPath }));
-    await invoke("plugin:fs|write_file", bytes, {
-      headers: { path: encodeURIComponent(absDest) },
-    });
-    await invoke("encrypt_upload", { path: absDest });
+    if (!absDest) throw new Error("stage_upload returned empty");
     return absDest;
   } catch (e) {
-    rustLog(`resolveAttachmentPath failed: ${e}; falling back to original`);
-    return originalPath;
+    rustLog(`resolveAttachmentPath failed: ${e}`);
+    // #444: only the empty-dest case keeps the original-path salvage. A real
+    // read/write/encrypt failure must surface here — swallowed, the image
+    // branch dies later in read_media_bytes with a misleading "path outside
+    // the app data directory" scope error that hides the actual cause.
+    if (!absDest) return originalPath;
+    throw e;
   }
 }
 
@@ -501,16 +585,17 @@ function openImageCropper(imageUrl) {
       resolve(v);
     };
     const body = document.createElement("div");
+    body.className = "crop-body";
     body.innerHTML = `
-      <div data-stage style="display:flex;justify-content:center;background:#0b0b10;border-radius:8px;overflow:hidden">
-        <div data-wrap style="position:relative">
-          <canvas data-canvas style="display:block;max-width:100%;touch-action:none"></canvas>
-          <div data-sel style="position:absolute;border:2px solid #f2f2f5;box-shadow:0 0 0 9999px rgba(11,11,16,.55);pointer-events:none"></div>
-          <div data-handle style="position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #f2f2f5;border-radius:5px;background:rgba(11,11,16,.6);cursor:nwse-resize;touch-action:none"></div>
+      <div data-stage class="crop-stage">
+        <div data-wrap class="crop-wrap">
+          <canvas data-canvas></canvas>
+          <div data-sel class="crop-sel"></div>
+          <div data-handle class="crop-handle"></div>
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px;justify-content:center">
-        <button type="button" class="btn-text" data-apply style="background:var(--accent);color:#f4f4f4">${escapeHtml(t("Apply"))}</button>
+      <div class="crop-acts">
+        <button type="button" class="btn-text btn-primary" data-apply>${escapeHtml(t("Apply"))}</button>
         <button type="button" class="btn-text" data-cancelcrop>${escapeHtml(t("Cancel"))}</button>
       </div>`;
     const { close } = showModal({ title: "Crop image", body, onClose: () => finish(null) });
@@ -593,15 +678,26 @@ function openImageCropper(imageUrl) {
       drawSel();
     }
 
-    img.onload = () => {
-      const scale = Math.min(1, 420 / img.naturalWidth, 320 / img.naturalHeight);
-      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      box = { x: 0, y: 0, w: canvas.width, h: canvas.height };
-      // drawSel needs the laid-out canvas rect — wait one frame so the
-      // wrapper has its final size before positioning the overlay.
-      requestAnimationFrame(drawSel);
+    img.onload = async () => {
+      // Fill the modal: the canvas fits the stage's MEASURED box (no
+      // hardcoded cap), backing store at devicePixelRatio so a large
+      // preview stays sharp. drawSel/canvasPoint/apply all map through
+      // the canvas rect or the backing size, so the DPR factor cancels.
+      const { cropFitScale } = await import("./image-compress.js"); // lazy (fix 5)
+      requestAnimationFrame(() => {
+        const stage = body.querySelector("[data-stage]");
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const scale = cropFitScale(img.naturalWidth, img.naturalHeight, stage.clientWidth, stage.clientHeight);
+        const cssW = Math.max(1, Math.round(img.naturalWidth * scale));
+        const cssH = Math.max(1, Math.round(img.naturalHeight * scale));
+        canvas.width = Math.max(1, Math.round(cssW * dpr));
+        canvas.height = Math.max(1, Math.round(cssH * dpr));
+        canvas.style.width = cssW + "px";
+        canvas.style.height = cssH + "px";
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        box = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+        drawSel();
+      });
     };
     img.src = imageUrl;
 
@@ -651,9 +747,12 @@ function cssZoom() {
 // A video poster is the same (#139). Native controls still scrub, so a
 // <video controls> keeps opting out. An invite card is buttons, but a swipe
 // still starts on it (#87); the join/copy click after the swipe is swallowed.
+// A Velta Dash card is the same: the poster is a <button>, and so are Open /
+// Show in folder / Retry / Ask, but a swipe still starts on the card (and
+// its foot, a sibling of .xfer-card); the follow-up click does not open or act.
 export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio";
 export function gestureSkipTarget(target) {
-  if (target?.closest?.(".invite-card, .ivc, .lang-card")) return false;
+  if (target?.closest?.(".invite-card, .ivc, .lang-card, .xfer-card, .xfer-foot")) return false;
   if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
@@ -822,6 +921,9 @@ export class ChatView {
   // chat: the caller's freshly fetched chat object (app.js openChat), which
   // saves a second getChat per open (#25); fetched here when omitted.
   async open(chatId, chat = null) {
+    // #470 Velta Dash: wire the transfer on the first open, so this device
+    // announces the capability (ui.velta.xfer) before its first message.
+    ensureXfer(this);
     if (this.thread) this._closeThread();
     this._coreReplyCounts = new Map(); // per chat; refetched after the first page
     // Drop the previous open's right to paint, but leave its rows on screen.
@@ -920,7 +1022,6 @@ export class ChatView {
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
-      this._applyGroupComposer(chat);
       this._tracked = tracked;
       this.hasMore = hasMore;
       this.hasNewer = !!hasNewer;
@@ -1076,7 +1177,7 @@ export class ChatView {
     // Newest pin drives the collapsed summary; the tray lists all of them,
     // newest first. `open` (expanded state) survives refreshes.
     const wasOpen = bar.open;
-    const snippet = (m) => (m.text || "").slice(0, 60) || (m.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
+    const snippet = (m) => xferVisibleText(m.text || "").slice(0, 60) || (m.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
     const newest = msgs[msgs.length - 1];
     // Unpin is for chats you can write in: members of someone else's channel
     // see the pins but no ✕ (#157). readOnly resolves via canSend.
@@ -1199,17 +1300,6 @@ export class ChatView {
     return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(fileUrl(m.avatar))}"` : ""}></velta-avatar>`;
   }
 
-  _applyGroupComposer(chat) {
-    const b = document.getElementById("btn-sticker");
-    if (b) b.hidden = !!chat?.isP2pGroup || stickersInAttach();
-    const cmds = document.getElementById("btn-commands");
-    if (cmds) cmds.hidden = !commandsButtonEnabled();
-    // Same gates as the attach-menu rows: local chats don't schedule
-    // (this.scheduled is instance-wide, set once by app.js).
-    const sl = document.getElementById("btn-send-later");
-    if (sl) sl.hidden = !!chat?.isP2p || !sendLaterEnabled();
-  }
-
   // One TypingSender per open local chat; switching chats stops the old one.
   _typingFor(chatId) {
     if (this._typing && this._typing.chatId === chatId) return this._typing.sender;
@@ -1272,7 +1362,6 @@ export class ChatView {
     this._stopSettling?.();
     if (this.pinnedBar) this.pinnedBar.hidden = true;
     this.chat = null;
-    this._applyGroupComposer(null);
     this.hasMore = false;
     this.loadingMore = false;
     this.hasNewer = false;
@@ -1492,6 +1581,11 @@ export class ChatView {
     const reload = ++session.reload;
     let maxId = 0;
     for (const it of this.items) if (it.type === "msg" && it.msg.id > maxId) maxId = it.msg.id;
+    // A live msg-updated during this await is newer than the snapshot.
+    // Applying the snapshot anyway puts an older percent back, or wipes the
+    // file path the message event just set (the receive card then offers a
+    // core download for a numeric Loop id).
+    const since = this._eventGen || 0;
     let messages;
     try {
       ({ messages } = await this.core.getMessages(session.chatId, { limit: 40, fresh }));
@@ -1519,10 +1613,20 @@ export class ChatView {
     // dropped self-heals here instead of leaving a stuck sending spinner.
     let updated = 0;
     for (const m of messages) {
+      if ((this._eventAt?.get(m.id) || 0) > since) continue;
       const item = this.msgIndex.get(m.id);
+      // A tail refetch that copied the row before the latest progress event
+      // must not walk the bar backwards, or swap it for an empty-path card.
+      const live = item?.msg?.transfer;
+      if (live && !live.failed && !live.packing) {
+        if (!m.transfer && !m.filePath) continue;
+        if (m.transfer && !m.transfer.failed && (m.transfer.pct || 0) < (live.pct || 0)) continue;
+      }
       if (item?.msg && item.msg !== m
         && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype
           || item.msg.state !== m.state || item.msg.text !== m.text
+          || item.msg.filePath !== m.filePath
+          || this._transferKey(item.msg) !== this._transferKey(m)
           || JSON.stringify(item.msg.reactions) !== JSON.stringify(m.reactions))) {
         this.onMsgUpdated(this.chat.id, m);
         updated++;
@@ -1663,11 +1767,20 @@ export class ChatView {
     }
   }
 
+  // Packing, direction, speed, and cancel flip the card without moving pct.
+  _transferKey(m) {
+    const t = m?.transfer;
+    if (!t) return "";
+    return [t.pct, !!t.failed, !!t.packing, t.dir || "", t.bps || 0, !!t.cancelled, t.members || 0].join("|");
+  }
+
   _rowSignature(m) {
+    const t = m.transfer;
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
-      m.originalMsgId, m.transfer?.pct, m.transfer?.failed, m.replies || 0,
+      m.originalMsgId, t?.pct, t?.failed, !!t?.packing, t?.dir || "", t?.bps || 0, !!t?.cancelled, t?.members || 0,
+      m.replies || 0,
       // @mention chips depend on the member list (names + codes).
       m.text?.includes("@") ? this._mentionKey || "" : "",
     ]);
@@ -1675,6 +1788,8 @@ export class ChatView {
 
   // Reactions sit at index 6 of _rowSignature. A reaction must not rebuild
   // the row: that reloads images and restarts video (#33).
+  // Percent and speed are indexes 14 and 18. Those tick every couple of
+  // percent and about once a second; rebuilding the row blinks the card.
   _onlyReactionsChanged(prev, next) {
     let reactionsDiffer = false;
     const a = JSON.parse(this._rowSignature(prev));
@@ -1708,13 +1823,47 @@ export class ChatView {
     return true;
   }
 
+  _onlyTransferProgressChanged(prev, next) {
+    const live = m => m?.transfer && !m.transfer.failed && !m.transfer.packing;
+    if (!live(prev) || !live(next)) return false;
+    if ((prev.transfer.dir || "") !== (next.transfer.dir || "")) return false;
+    const a = JSON.parse(this._rowSignature(prev));
+    const b = JSON.parse(this._rowSignature(next));
+    let moved = false;
+    for (let i = 0; i < a.length; i++) {
+      const same = JSON.stringify(a[i]) === JSON.stringify(b[i]);
+      if (i === 14 || i === 18) { if (!same) moved = true; }
+      else if (!same) return false;
+    }
+    return moved;
+  }
+
+  // The bar and the percent line only. A missing bar means the card shape
+  // changed (spinner, failure, finished file) and the caller rebuilds.
+  _patchTransfer(row, transfer) {
+    const bar = row.querySelector?.(".mfp-bar");
+    const pctEl = row.querySelector?.(".mfp-pct");
+    const spans = pctEl?.querySelectorAll?.("span");
+    if (!bar || !spans || spans.length < 2) return false;
+    const pct = Math.max(0, Math.min(100, transfer.pct || 0));
+    const status = transfer.dir === "recv" ? t("Receiving…") : t("Sending…");
+    const speed = transfer.bps > 0 ? ` · ${formatBytes(transfer.bps)}/s` : "";
+    bar.value = pct;
+    bar.setAttribute?.("value", String(pct));
+    bar.setAttribute?.("aria-label", status);
+    bar.textContent = `${pct}%`;
+    spans[0].textContent = status;
+    spans[1].textContent = `${pct}%${speed}`;
+    return true;
+  }
+
   // Report which render-relevant fields flip-flopped between polls — this is
   // how we catch data that alternates between fetches and loops re-renders.
   _logSignatureDiff(key, a, b) {
     try {
       const fa = JSON.parse(a), fb = JSON.parse(b);
       // Same order as _rowSignature.
-      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId","transferPct","transferFailed","replies","mentions"];
+      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId","transferPct","transferFailed","transferPacking","transferDir","transferBps","transferCancelled","transferMembers","replies","mentions"];
       const diffs = [];
       for (let i = 0; i < names.length; i++) {
         if (JSON.stringify(fa[i]) !== JSON.stringify(fb[i])) {
@@ -1724,7 +1873,7 @@ export class ChatView {
       // Expected one-off rebuilds (reply count, mention names, transfer
       // progress) and identical signatures are not news: log only a real
       // content flip — that is what this line exists to catch.
-      const benign = /^(replies|mentions|transferPct|transferFailed): /;
+      const benign = /^(replies|mentions|transferPct|transferFailed|transferPacking|transferDir|transferBps|transferCancelled|transferMembers): /;
       const real = diffs.filter(d => !benign.test(d));
       if (real.length) diagnosticsSink.append("warning", `row ${key} rebuilt: ${real.join("; ")}`);
       else debugLog(`row ${key} rebuilt: ${diffs.join("; ") || "no field diff"}`);
@@ -1735,8 +1884,17 @@ export class ChatView {
 
   onMsgUpdated(chatId, msg) {
     if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
+    this._eventGen = (this._eventGen || 0) + 1;
+    (this._eventAt ??= new Map()).set(msg.id, this._eventGen);
+    const queued = this._arrivals?.list?.find(e => e.msg?.id === msg.id);
+    if (queued && !this.msgIndex.has(msg.id)) { queued.msg = msg; return; }
     const item = this.msgIndex.get(msg.id);
-    if (!item) return;
+    // FileBegin is a new id. msgs-changed would insert it on the next 2s
+    // refetch; a live card has to land now. Mail updates have no transfer.
+    if (!item) {
+      if (msg.transfer) { this._queueArrival(msg, msg.from === 1); this.flushArrivals(); }
+      return;
+    }
     msg = this._withReplies(msg); // refetched copies carry no reply count
     const sig = this._rowSignature(msg);
     const prevSig = this._rowSigCache.get(item.key);
@@ -1755,6 +1913,19 @@ export class ChatView {
         if (live) this._rowCache.set(item.key, live);
         this._rowSigCache.set(item.key, sig);
         if (live) this.vs?.onItemHeightDidChange?.(item);
+        return;
+      }
+    }
+    // Percent and speed only: write the bar in place. No height notify —
+    // the line is one nowrap row, and a rebuild restarts video and images.
+    if (item.msg && prevSig !== undefined && this._onlyTransferProgressChanged(item.msg, msg)) {
+      const live = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
+      const cached = this._rowCache.get(item.key);
+      const targets = [...new Set([live, cached].filter(Boolean))];
+      if (targets.every(el => this._patchTransfer(el, msg.transfer))) {
+        item.msg = msg;
+        if (live) this._rowCache.set(item.key, live);
+        this._rowSigCache.set(item.key, sig);
         return;
       }
     }
@@ -1984,7 +2155,7 @@ export class ChatView {
     const orig = document.createElement("div");
     orig.className = "thread-orig";
     const pm = parentItem?.msg;
-    orig.textContent = pm ? `${pm.fromContact?.name || ""}${pm.fromContact?.name ? ": " : ""}${(pm.text || pm.fileName || "").split("\n")[0]}` : "";
+    orig.textContent = pm ? `${pm.fromContact?.name || ""}${pm.fromContact?.name ? ": " : ""}${(xferVisibleText(pm.text || "") || pm.fileName || "").split("\n")[0]}` : "";
     titles.append(title, orig);
     const close = document.createElement("button");
     close.type = "button";
@@ -2239,6 +2410,10 @@ export class ChatView {
     if (cached && cached._veltaFlags === this._itemFlags(item)
         && (sig == null || this._rowSigCache.get(item.key) === sig)) {
       unparkMedia(cached);
+      // A Dash card whose fetch finished while the row was recycled repaints
+      // BEFORE the scroller measures the mount — the stale "Receiving…"
+      // state never shows (#519).
+      paintXferIn(cached);
       this._healCachedImage(cached);
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
@@ -2315,6 +2490,8 @@ export class ChatView {
   _chipServiceRow(row, m, alive) {
     const bubble = row.querySelector(".service-msg");
     if (!bubble) return;
+    const copy = bubble.querySelector(".diag-copy-btn");
+    copy?.remove();
     const text = String(m.text || "");
     const full = bubble.textContent || "";
     const at = full.lastIndexOf(text);
@@ -2322,6 +2499,7 @@ export class ChatView {
     const html = serviceChipsHtml(text, m.people);
     if (!html.includes("svc-chip")) return;
     bubble.innerHTML = escapeHtml(full.slice(0, at)) + html + escapeHtml(full.slice(at + text.length));
+    if (copy) bubble.appendChild(copy);
     bubble.addEventListener("click", e => {
       const chip = e.target?.closest?.(".svc-chip");
       if (!chip || !alive()) return;
@@ -2358,7 +2536,7 @@ export class ChatView {
     if (cached?.name) setIcon(cached);
     else loadInfoWithRetry(parentId, { alive }).then(setIcon).catch(() => {});
     const open = e => {
-      if (e.target?.closest?.(".svc-chip, .diag-copy") || !alive()) return;
+      if (e.target?.closest?.(".svc-chip, .diag-copy-btn") || !alive()) return;
       e.stopPropagation();
       const name = infoFor(parentId)?.name || "Webxdc app";
       const parent = this.msgIndex?.get(parentId)?.msg;
@@ -2379,15 +2557,18 @@ export class ChatView {
     const own = s?.id === 1; // own: a plain "You" chip, there is no self profile to open
     const name = own ? t("You") : String(s?.name || "").trim();
     if (!s || !name) return;
+    const copy = bubble.querySelector(".diag-copy-btn");
+    copy?.remove();
     const text = String(m.text || "");
     const full = bubble.textContent || "";
     const at = full.lastIndexOf(text);
-    if (!text || at < 0) return;
+    if (!text || at < 0) { if (copy) bubble.appendChild(copy); return; }
     const real = String(s.name || "").trim();
     const lead = !!real && text.startsWith(real) && !/^[\p{L}\p{N}]/u.test(text.slice(real.length));
     const rest = lead ? text.slice(real.length) : " " + text;
     const chip = own ? `<span class="svc-chip is-self">${escapeHtml(name)}</span>` : `<button type="button" class="svc-chip" data-contact-id="${Number(s.id)}" aria-label="${escapeAttr(t("Open profile of {name}", { name }))}">${escapeHtml(name)}</button>`;
     bubble.innerHTML = escapeHtml(full.slice(0, at)) + chip + escapeHtml(rest) + escapeHtml(full.slice(at + text.length));
+    if (copy) bubble.appendChild(copy);
     bubble.addEventListener("click", e => {
       if (!e.target?.closest?.("button.svc-chip") || !alive()) return;
       e.stopPropagation();
@@ -2520,15 +2701,26 @@ export class ChatView {
     if (m.quote) {
       bubble += `<div class="msg-quote" data-quote="${m.quote.id}">
         <span class="q-name">${escapeHtml(m.quote.fromContact?.name || "")}</span>
-        <span class="q-text">${escapeHtml(m.quote.text || "")}</span></div>`;
+        <span class="q-text">${escapeHtml(xferVisibleText(m.quote.text || ""))}</span></div>`;
     }
     if (m.transfer) {
       const pct = Math.max(0, Math.min(100, m.transfer.pct || 0));
       const head = `<div class="mfp-name">${escapeHtml(m.fileName || t("File"))}</div>`;
       if (m.transfer.failed) {
-        bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">${escapeHtml(t("Transfer interrupted"))}</div><button type="button" class="btn-text" data-act="lc-retry">${escapeHtml(t("Retry"))}</button></div>`;
+        // A cancelled receive has nothing to retry (the sender re-sends).
+        const why = m.transfer.cancelled ? t("Transfer cancelled") : t("Transfer interrupted");
+        const retry = m.transfer.dir === "recv" ? "" : `<button type="button" class="btn-text" data-act="lc-retry">${escapeHtml(t("Retry"))}</button>`;
+        bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">${escapeHtml(why)}</div>${retry}</div>`;
+      } else if (m.transfer.packing) {
+        bubble += `<div class="msg-transfer">${head}<div class="mfp-wait"><span class="mfp-spin" aria-hidden="true"></span><span>${escapeHtml(t("Preparing file…"))}</span></div></div>`;
       } else {
-        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(t("Transfer"))}">${pct}%</progress><div class="mfp-pct">${pct}%</div></div>`;
+        // #454: speed next to the percentage, and Cancel on 1:1 transfers
+        // (group sends keep their per-member rows).
+        const speed = m.transfer.bps > 0 ? ` · ${formatBytes(m.transfer.bps)}/s` : "";
+        const status = m.transfer.dir === "recv" ? t("Receiving…") : t("Sending…");
+        const cancel = this.chat?.isP2p && !this.chat?.isP2pGroup && !m.transfer.members
+          ? `<button type="button" class="btn-text" data-act="lc-cancel">${escapeHtml(t("Cancel"))}</button>` : "";
+        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(status)}">${pct}%</progress><div class="mfp-pct"><span>${escapeHtml(status)}</span><span>${pct}%${escapeHtml(speed)}</span></div>${cancel}</div>`;
       }
     } else if (covered && COVERED_VIEWTYPES.has(m.viewtype)) {
       // Text-only mode (#300): the placeholder replaces the whole media branch
@@ -2573,7 +2765,7 @@ export class ChatView {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || t("Photo"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : size || t("Tap to download"))}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || t("Photo"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : size || t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "video") {
@@ -2594,7 +2786,7 @@ export class ChatView {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || t("Video"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : size || t("Tap to download"))}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || t("Video"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : size || t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "audio" || m.viewtype === "voice") {
@@ -2606,7 +2798,7 @@ export class ChatView {
         const label = m.viewtype === "voice" ? t("Voice message") : t("Audio");
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : t("Tap to download"))}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "webxdc") {
@@ -2623,7 +2815,7 @@ export class ChatView {
       const isDownloaded = m.downloadState === "Done";
       bubble += `<div class="msg-file${isDownloaded ? "" : " download-btn"}" role="button" data-act="${isDownloaded ? "open" : "download"}">
         <div class="file-ico">${ICO.download}</div>
-        <div><div class="file-name">${escapeHtml(m.fileName || t("File"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : (m.fileSize ? formatBytes(m.fileSize) : t("Tap to download")))}</div></div>
+        <div><div class="file-name">${escapeHtml(m.fileName || t("File"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? this._inProgressLabel(m) : (m.fileSize ? formatBytes(m.fileSize) : t("Tap to download")))}</div></div>
       </div>`;
     } else if (m.viewtype === "vcard") {
       // Shared contact card, styled like the invite cards: avatar on the
@@ -2652,6 +2844,10 @@ export class ChatView {
       // Language card (lang-cards.js): device chat + device sender only.
       const langCard = langCardCode(m.text, { trusted: this.chat?.kind === "device" && m.fromDevice === true });
       const bodyText = langCard ? stripLangLink(m.text) : m.text;
+      // #470: first render of an iroh file card kicks its fetch (incoming)
+      // or the sender's email-out (peer asked for the email copy).
+      ensureXfer(this);
+      xferNoteCard(m.chatId, bodyText, m.from === 1 || m.out === true);
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
       bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(bodyText, { mentions: this._mentionMembers })}`;
       if (langCard) bubble += langCardHtml(langCard, { esc: escapeHtml });
@@ -2720,7 +2916,16 @@ export class ChatView {
       const label = escapeHtml(replyN === 1 ? t("Show 1 reply") : t("Show {n} replies", { n: replyN }));
       threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}</button>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${adminChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}${repliesChip}</span>${failBadge}</div>`;
+    // A Dash card (#519) carries its own foot row: the status sentence sits
+    // beside the timestamp, so the meta fills the card's slot instead of
+    // floating at the bubble's end. Every other message keeps the float.
+    const metaInner = `${edited}${star}${botChip}${adminChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}${repliesChip}`;
+    if (bubble.includes("xfer-meta-slot")) {
+      bubble = bubble.replace('<span class="xfer-meta-slot"></span>', `<span class="msg-meta">${metaInner}</span>`);
+      bubble += `${failBadge}</div>`;
+    } else {
+      bubble += `<span class="msg-meta">${metaInner}</span>${failBadge}</div>`;
+    }
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
@@ -3174,6 +3379,15 @@ export class ChatView {
         }
         return; // non-http hrefs: browser default, never row selection
       }
+      // Dash card actions (preview, Open, Show in folder, Retry, Ask): a
+      // swipe may start on these buttons. Swallow the synthesised click in
+      // the same 400ms window as links and hashtags. Otherwise return
+      // without stopPropagation so the document-level data-xfer-* listener
+      // performs the action (#519).
+      if (e.target.closest("[data-xfer-open], [data-xfer-view], [data-xfer-folder], [data-xfer-save], [data-xfer-share], [data-xfer-retry], [data-xfer-ask]")) {
+        if (Date.now() - (this._swipedAt || 0) < 400) { e.stopPropagation(); return; }
+        return;
+      }
       // #134: tapping a #hashtag searches for it in this chat (app.js
       // listens and opens the chat search prefilled with the tag).
       const tagBtn = e.target.closest("button[data-hashtag]");
@@ -3202,10 +3416,16 @@ export class ChatView {
       if (mediaAction) {
         e.stopPropagation();
         if (mediaAction.dataset.act === "download" && m.downloadState !== "InProgress") this._downloadMedia(m.id);
+        else if (mediaAction.dataset.act === "download" && Date.now() - inProgressSince(this.core?.accountId, m.id) > EMAIL_STALL_MS) {
+          toast(t("The full file has not arrived. It was probably too large for email: ask the sender to send it again with Velta Dash while you are both online."), 6000);
+        }
         else if (mediaAction.dataset.act === "open") this._openFile(m.filePath, m.fileName);
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
+        else if (mediaAction.dataset.act === "lc-cancel") {
+          lcCancelTransfer(m.chatId, m.id).catch(err => errToast(String(err?.message || err)));
+        }
         else if (mediaAction.dataset.act === "reveal") {
           // Text-only mode (#300): an explicit user action reveals exactly
           // this item, then rebuilds the row in place. Content that is not
@@ -3529,6 +3749,39 @@ export class ChatView {
     }).catch(() => {});
   }
 
+  // #548: Copy image — the decrypted bytes as an image/png on the system
+  // clipboard (the browser clipboard only accepts PNG, so non-PNG sources
+  // are re-encoded through a canvas; photos are ≤2k since #509).
+  async _copyImage(m) {
+    const invoke = tauriInvoke();
+    try {
+      if (!m.filePath) throw new Error(t("This attachment isn't available yet"));
+      if (isAndroid() && invoke) {
+        // The WebView clipboard can't take images: the shell unseals the
+        // attachment into a cache copy and clips it through the FileProvider.
+        await invoke("copy_image_to_clipboard", { src: m.filePath, name: m.fileName || null, mime: m.fileMime || null });
+        toast(t("Image copied"));
+        return;
+      }
+      const blob = await (await fetch(fileUrl(m.filePath))).blob();
+      let png = blob;
+      if (blob.type !== "image/png") {
+        const bmp = await createImageBitmap(blob);
+        const canvas = document.createElement("canvas");
+        canvas.width = bmp.width;
+        canvas.height = bmp.height;
+        canvas.getContext("2d").drawImage(bmp, 0, 0);
+        bmp.close();
+        png = await new Promise((resolve, reject) => canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("canvas encode failed"))), "image/png"));
+      }
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      toast(t("Image copied"));
+    } catch (err) {
+      errToast(t("Couldn't copy image: ") + (err?.message || err));
+    }
+  }
+
   // Tap on a shared-contact card: import the vCard and open the DM chat.
   async _openVcardContact(m) {
     try {
@@ -3607,10 +3860,33 @@ export class ChatView {
     }
     // Image, video, and file bubbles. Stickers keep Save sticker. A file that
     // is still on the server (downloadState not Done) is fetched first.
-    if (!covered && (m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
+    // Images say "Save image" (the user reads the menu, not transports) and
+    // get Copy image (#548): the decrypted bytes go to the clipboard as PNG
+    // through the blobfile URL — desktop only, the PWA has no image
+    // clipboard write on http.
+    // Android's WebView clipboard only carries text — the bytes go through
+    // the native copy_image_to_clipboard command (ClipData over the
+    // FileProvider) instead of navigator.clipboard.
+    const canCopyImage = isAndroid() ? !!tauriInvoke()
+      : typeof navigator !== "undefined" && !!navigator.clipboard?.write;
+    if (!covered && m.viewtype === "image" && tauriInvoke() && canCopyImage
+      && m.filePath && (!m.downloadState || m.downloadState === "Done")) {
+      items.push({
+        label: "Copy image", short: t("Copy"), pair: "file", icon: ICO.copy, menuId: "copy-image",
+        onClick: () => this._copyImage(m),
+      });
+    }
+    if (!covered && m.viewtype === "image"
       && (m.filePath || (m.downloadState && m.downloadState !== "Done"))) {
       items.push({
-        label: "Download", short: t("Download"), pair: "file", icon: ICO.download,
+        label: "Save image", short: t("Save"), pair: "file", icon: ICO.download, menuId: "save-image",
+        onClick: () => this._saveAttachment(m.id),
+      });
+    }
+    if (!covered && (m.viewtype === "video" || m.viewtype === "file")
+      && (m.filePath || (m.downloadState && m.downloadState !== "Done"))) {
+      items.push({
+        label: "Download", short: t("Download"), pair: "file", icon: ICO.download, menuId: "download",
         onClick: () => this._saveAttachment(m.id),
       });
     }
@@ -3620,6 +3896,17 @@ export class ChatView {
       items.push({
         label: "Show in folder", short: t("Folder"), pair: "file", icon: ICO.folder,
         onClick: () => showAttachmentInFolder(m.filePath, m.fileName, { mime: m.fileMime || null }),
+      });
+    }
+    // #454: a received folder zip (p2p chats send folders this way) — extract
+    // next to the archive via the shell, honoring the stored relative paths.
+    if (!covered && this.chat?.isP2p && m.viewtype === "file"
+      && m.filePath && (!m.downloadState || m.downloadState === "Done")
+      && String(m.fileName || "").toLowerCase().endsWith(".zip")
+      && tauriInvoke()) {
+      items.push({
+        label: "Extract here", short: t("Extract"), pair: "file", icon: ICO.folder,
+        onClick: () => this._extractFolderZip(m),
       });
     }
     // Local P2P groups: no pin / forward / save / react / delete (relay-core
@@ -3640,7 +3927,7 @@ export class ChatView {
     // Captions count: any bubble with text can enter selection mode. Copy
     // text stays whole-message and plain-text only. Touch only — desktop
     // uses the mouse and the floating Reply chip.
-    if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", short: t("Copy"), pair: "text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast(t("Copied")); } });
+    if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", short: t("Copy"), pair: "text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(xferVisibleText(m.text)); toast(t("Copied")); } });
     if (m.text && touch) items.push({ label: "Select text", pair: "text", icon: ICO.selectText, onClick: () => this._selectMessageText(m.id) });
     if (!p2pg) items.push(
       { label: "Forward", pair: "send", icon: ICO.forward, onClick: () => this._forward([m.id]) },
@@ -4111,7 +4398,7 @@ export class ChatView {
         this.exitSelection();
       } else if (act === "forward") this._forward(ids);
       else if (act === "copy") {
-        const texts = ids.map(id => this.msgIndex.get(id)?.msg.text).filter(Boolean);
+        const texts = ids.map(id => xferVisibleText(this.msgIndex.get(id)?.msg.text || "")).filter(Boolean);
         navigator.clipboard?.writeText(texts.join("\n"));
         toast(t("Copied {n} messages", { n: texts.length }));
         this.exitSelection();
@@ -4188,7 +4475,7 @@ export class ChatView {
     document.getElementById("reply-name").textContent = this.replyTo.fromContact?.name || t("You");
     document.getElementById("reply-text").textContent = this.replyFragment
       ? "“" + this.replyFragment + "”"
-      : (this.replyTo.text || this.replyTo.viewtype);
+      : xferVisibleText(this.replyTo.text || this.replyTo.viewtype);
   }
 
   // Selection → floating "Reply" chip: watches text selections anchored in a
@@ -4258,10 +4545,6 @@ export class ChatView {
     input.autocomplete = "off";
     input.enterKeyHint = localStorage?.getItem("velta-send-enter") !== "0" ? "send" : "enter";
     input.addEventListener("input", () => { grow(); this._scheduleLinkPreview(); });
-    // Focus/blur drive the touch-only half of `expanded` (typing is covered
-    // by the input listener via sizeComposer -> syncComposerState).
-    input.addEventListener("focus", () => syncComposerState(input));
-    input.addEventListener("blur", () => syncComposerState(input));
     // Typing hint (local chats only; core.sendTyping is a no-op when the
     // setting is off). Empty box = stopped.
     input.addEventListener("input", () => {
@@ -4299,6 +4582,15 @@ export class ChatView {
       if (file) {
         e.preventDefault();
         this._setPendingMedia("image", file);
+        return;
+      }
+      // A pasted video stages with its preview; the File stays disk-backed
+      // (the preview streams it through a blob: URL).
+      const vid = items.find(i => i.kind === "file" && i.type.startsWith("video/"))?.getAsFile()
+        || [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("video/"));
+      if (vid) {
+        e.preventDefault();
+        this._setPendingMedia("video", vid, null, vid.name || null);
         return;
       }
       const pasted = e.clipboardData?.getData?.("text/plain") || "";
@@ -4342,51 +4634,34 @@ export class ChatView {
       });
       for (const ev of ["pointerup", "pointercancel", "pointerleave"]) send.addEventListener(ev, clear);
     }
-    document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
-    window.addEventListener("velta-stickers-pref", () => this._applyGroupComposer(this.chat));
-    window.addEventListener("velta-composer-pref", () => this._applyGroupComposer(this.chat));
-    // Desktop quick tools (≥600px): the attach-menu rows people reach for
-    // most, one tap away — Apps/Commands beside Attach, Send later beside
-    // Send. Phones keep everything in the attach menu (no room at 390px).
-    const popAbove = (btn, menu) => {
-      const r = btn.getBoundingClientRect();
-      const x = Math.min(r.left, window.innerWidth - 220);
-      menu.style.top = "auto";
-      menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
-      menu.style.left = x / uiZoom() + "px";
-    };
-    document.getElementById("btn-apps").addEventListener("click", () => {
-      const session = this._session;
-      if (!this._isCurrent(session) || !this.chat) return;
-      const items = recentApps(this.core.accountId).map(a => ({ label: a.name, icon: ICO.webxdc, onClick: () => this._resendStoredApp(session, a) }));
-      if (items.length) items.push("-");
-      items.push({
-        label: "Browse apps…",
-        onClick: () => openAppBrowser({
-          showModal, toast,
-          alive: () => this._isCurrent(session) && !!this.chat,
-          getBytes: (url, ms) => this.core.getHttpResponse(url, ms).then(r => r.bytes),
-          sendApp: (app, bytes) => this._sendCatalogApp(session, app, bytes),
-        }),
-      });
-      popAbove(document.getElementById("btn-apps"), showContextMenu(items, 8, 8));
-    });
-    document.getElementById("btn-commands").addEventListener("click", () => {
-      const session = this._session;
-      if (!this._isCurrent(session) || !this.chat) return;
-      const input = document.getElementById("composer-input");
-      const cmds = recentCommands(this.core.accountId, session.chatId);
-      if (!cmds.length) { toast(t("No commands yet")); return; }
-      const menu = showContextMenu(cmds.map(c => ({ label: c, onClick: () => {
-        input.value = c + " ";
-        try { input.selectionStart = input.selectionEnd = input.value.length; } catch {}
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.focus();
-      } })), 8, 8);
-      popAbove(document.getElementById("btn-commands"), menu);
-    });
-    document.getElementById("btn-send-later").addEventListener("click", () => this._sendLater());
+    // Apps/Commands/Send later moved to the attach menu (appendAttachLists +
+    // the Send later row below); Send later also stays on the Send
+    // long-press/context menu and Ctrl/Cmd+Shift+Enter.
+    this._bindFileDrop();
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
+    // Replace: the same picker again; cancelling keeps the staged file.
+    // Every staged kind can be swapped (image/video/file — #557 follow-up).
+    document.getElementById("btn-media-replace").addEventListener("click", () => {
+      const pm = this.pendingMedia;
+      if (pm) this._sendAttachment(pm.kind);
+    });
+    // WebP / 2k chips: the #509 send-time photo settings, on the strip where
+    // the attachment is staged. Same keys as Settings (on = key unset,
+    // off = "0"), so both surfaces stay in sync; "0"→unset restores default.
+    for (const [id, key] of [["btn-media-webp", PHOTO_KEYS.webp], ["btn-media-2k", PHOTO_KEYS.resize2k]]) {
+      document.getElementById(id).addEventListener("click", () => {
+        try {
+          if (localStorage.getItem(key) === "0") localStorage.removeItem(key);
+          else localStorage.setItem(key, "0");
+        } catch {}
+        this._renderMediaPreview();
+        // A chip flip can change the as-is verdict — recompute the note.
+        const cur = this.pendingMedia;
+        this._photoSkipNote(cur).then((note) => {
+          if (cur && this.pendingMedia === cur) { cur.photoNote = note; this._renderMediaRoute(); }
+        });
+      });
+    }
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
       const pm = this.pendingMedia;
       if (!pm || pm.kind !== "image" || !pm.blob) return;
@@ -4416,10 +4691,17 @@ export class ChatView {
         { label: "Video", icon: ICO.video, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
-      // #278: the sticker picker moved here from the composer (same picker,
-      // same quote handling as the button).
-      if (stickersInAttach() && !this.chat?.isP2pGroup) {
+      // Stickers live here only (#278 originally made it a drawer option;
+      // the composer button and that pref are gone). Local groups have no
+      // sticker send — same gate as before.
+      if (!this.chat?.isP2pGroup) {
         attachItems.push({ label: "Stickers", icon: ICO.sticker, onClick: () => this._toggleStickerPicker() });
+      }
+      // #454: whole folder as one p2p transfer — zip on pick (STORE), the
+      // engine streams it like any file. Local chats only: relay chats have
+      // the per-file flow and Lufi for big media.
+      if (this.chat?.isP2p && largeFileAvailable()) {
+        attachItems.push({ label: "Send folder…", icon: ICON.folder, onClick: () => this._sendFolder() });
       }
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
@@ -4494,27 +4776,74 @@ export class ChatView {
     });
   }
 
+  // Paint the strip now. Copy + seal (and, on Android, the content:// copy)
+  // finish behind the thumb spinner; Send awaits `staging` via `planning`.
+  _queueStagedMedia(src, name, viewtype, content = false) {
+    const invoke = tauriInvoke();
+    const staging = (async () => {
+      const dest = content
+        ? await invoke("resolve_content_uri", { uri: src, filename: String(Date.now()), encrypt: true })
+        : await resolveAttachmentPath(src, name);
+      const size = invoke ? await invoke("xfer_file_size", { path: dest }).catch(() => null) : null;
+      const stagedName = String(dest || name).replace(/\\/g, "/").split("/").pop() || name;
+      return {
+        corePath: dest,
+        url: viewtype === "video" ? fileUrl(dest) : null,
+        size: size != null ? Number(size) : null,
+        viewtype,
+        name: content ? stagedName : null,
+      };
+    })();
+    this._setPendingMedia(viewtype === "video" ? "video" : "file", null, null, name, { staging, viewtype });
+  }
+
   // Pending attachment (official-client pattern): the picked media shows as a
   // strip above the composer input, the caption IS the composer text, Send
   // sends both. src is a Blob (paste/crop — object URL owned by us) or an
   // already-resolved URL string (videos — never read big files into RAM);
   // corePath is the core-readable path when one exists (picker), else null
   // (clipboard blobs are written to the uploads directory on send).
-  _setPendingMedia(kind, src, corePath = null, name = null) {
+  _setPendingMedia(kind, src, corePath = null, name = null, { size = null, viewtype = null, staging = null } = {}) {
     this._clearPendingMedia();
-    const owned = typeof src !== "string";
-    this.pendingMedia = {
+    const owned = src != null && typeof src !== "string";
+    const pm = this.pendingMedia = {
       kind, blob: owned ? src : null,
-      url: owned ? URL.createObjectURL(src) : src,
-      corePath, name,
+      url: owned && kind !== "file" ? URL.createObjectURL(src) : owned ? null : src,
+      corePath, name, size, viewtype, staging,
     };
+    // A big pick stages in the background (copy + seal): the strip shows at
+    // once with a spinner, and the route check runs when the bytes land.
+    pm.planning = (async () => {
+      if (staging) {
+        let r;
+        try { r = await staging; } catch (e) {
+          if (this.pendingMedia === pm) {
+            this._clearPendingMedia();
+            errToast(t("Could not send file: ") + (e?.message || e), 4000);
+          }
+          return;
+        }
+        if (this.pendingMedia !== pm) return;
+        pm.corePath = r.corePath ?? pm.corePath;
+        pm.url = r.url ?? pm.url;
+        pm.size = r.size ?? pm.size;
+        pm.viewtype = r.viewtype ?? pm.viewtype;
+        if (r.name) pm.name = r.name;
+        pm.staging = null;
+        this._renderMediaPreview();
+      }
+      pm.photoNote = await this._photoSkipNote(pm);
+      if (this.pendingMedia === pm) this._renderMediaRoute();
+      await this._planPendingRoute(pm);
+    })();
     this._renderMediaPreview();
     this._scheduleLinkPreview();
     document.getElementById("composer-input").focus(); // caption = input (#5)
   }
 
   _clearPendingMedia() {
-    if (this.pendingMedia?.blob) URL.revokeObjectURL(this.pendingMedia.url);
+    this.pendingMedia?.probe?.cancel();
+    if (this.pendingMedia?.blob && this.pendingMedia.url) URL.revokeObjectURL(this.pendingMedia.url);
     this.pendingMedia = null;
     this._renderMediaPreview();
     this._scheduleLinkPreview();
@@ -4525,26 +4854,195 @@ export class ChatView {
     const thumb = document.getElementById("media-preview-thumb");
     const name = document.getElementById("media-preview-name");
     const crop = document.getElementById("btn-media-crop");
+    const replace = document.getElementById("btn-media-replace");
+    const webpChip = document.getElementById("btn-media-webp");
+    const k2Chip = document.getElementById("btn-media-2k");
     const pm = this.pendingMedia;
-    if (!pm) { bar.hidden = true; thumb.replaceChildren(); thumb.classList.remove("ph-word"); name.textContent = ""; crop.hidden = true; return; }
-    bar.hidden = false;
+    this._renderMediaRoute();
+    thumb.classList.remove("ph-word", "is-video");
+    if (pm?.staging) thumb.setAttribute("aria-busy", "true"); else thumb.removeAttribute("aria-busy");
+    if (!pm) { bar.hidden = true; thumb.replaceChildren(); name.textContent = ""; crop.hidden = true; replace.hidden = true; webpChip.hidden = true; k2Chip.hidden = true; }
+    else {
+      bar.hidden = false;
     thumb.replaceChildren();
-    thumb.classList.remove("ph-word");
-    if (pm.kind === "video") {
-      // Native first-frame thumb: preload=metadata + the #t fragment paints
-      // frame 0 — no poster extraction (unstable, removed).
-      const media = document.createElement("video");
-      media.muted = true; media.playsInline = true;
-      media.preload = "metadata";
-      media.src = pm.url + (pm.url.includes("#") ? "" : "#t=0.1");
-      thumb.append(media);
+    if (pm.kind === "file") {
+      // #519: the type icon map, not the extension's first letter — the
+      // composer thumb keeps its 30px glyph box.
+      const glyph = document.createElement("span");
+      glyph.className = "xfer-glyph";
+      glyph.setAttribute("aria-hidden", "true");
+      glyph.innerHTML = svg(P[{ video: "video", audio: "mic", image: "photo", archive: "archive", file: "file" }[fileKind(pm.name)] || "file"]);
+      thumb.append(glyph);
+      if (pm.staging) { const sp = document.createElement("span"); sp.className = "mp-spinner"; sp.setAttribute("aria-hidden", "true"); thumb.append(sp); }
+    } else if (pm.kind === "video") {
+      thumb.classList.add("is-video");
+      if (pm.url) {
+        thumb.append(this._composerVideoCard(pm));
+      } else {
+        // Still staging (copy + seal running): kind glyph + spinner until
+        // the file URL exists; the video card needs it for the first frame.
+        const glyph = document.createElement("span");
+        glyph.className = "xfer-glyph";
+        glyph.setAttribute("aria-hidden", "true");
+        glyph.innerHTML = svg(P.video);
+        const sp = document.createElement("span");
+        sp.className = "mp-spinner";
+        sp.setAttribute("aria-hidden", "true");
+        thumb.append(glyph, sp);
+      }
     } else {
       const media = document.createElement("img");
       media.src = pm.url; media.alt = "";
       thumb.append(media);
     }
-    name.textContent = pm.name || (pm.kind === "video" ? t("Video") : t("Photo"));
+    name.textContent = pm.name || (pm.kind === "video" ? t("Video") : pm.kind === "file" ? t("File") : t("Photo"));
     crop.hidden = pm.kind !== "image";
+    replace.hidden = false;
+    // The photo chips only mean something for an image attachment; the
+    // pressed state mirrors the send path (image-compress policy keys).
+    webpChip.hidden = k2Chip.hidden = pm.kind !== "image";
+    if (!webpChip.hidden) {
+      webpChip.setAttribute("aria-pressed", String(photoSettingOn(PHOTO_KEYS.webp)));
+      k2Chip.setAttribute("aria-pressed", String(photoSettingOn(PHOTO_KEYS.resize2k)));
+    }
+    }
+    // A staged file arms the arrow even with an empty caption (a file with
+    // a blank caption already sends on tap).
+    syncComposerState(document.getElementById("composer-input"));
+  }
+
+  // Staged video: a button that plays it in Velta's own lightbox player,
+  // with the first frame as its poster, the duration, and a loader while the
+  // frame is painted. The file streams over its range-capable URL
+  // (composer-video.js) — never read into memory, Dash-sized files too.
+  _composerVideoCard(pm) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "mp-video";
+    card.setAttribute("aria-busy", "true");
+    card.innerHTML = `<span class="mp-video-glyph">${svg(P.video)}</span>`
+      + `<span class="mp-spinner" aria-hidden="true"></span>`
+      + `<span class="mp-play" aria-hidden="true">${svg(P.previewPlay)}</span>`
+      + `<span class="mp-dur" aria-hidden="true" hidden></span>`;
+    const label = (dur) => {
+      card.setAttribute("aria-label", playLabel(t, pm.name, dur));
+      card.title = t("Preview video");
+    };
+    label("");
+    card.addEventListener("click", () => {
+      if (this.pendingMedia !== pm) return;
+      openVideoLightbox(pm.playUrl || pm.url, pm.name || t("Video"));
+    });
+    if (!pm.probe) {
+      const urls = [pm.url];
+      if (pm.corePath) urls.push(mediaFallbackUrl(pm.corePath));
+      pm.probe = probeVideo(urls);
+    }
+    pm.probe.promise.then((r) => {
+      if (this.pendingMedia !== pm || !card.isConnected) return;
+      pm.playUrl = r.src;
+      card.setAttribute("aria-busy", "false");
+      card.classList.add("ready");
+      if (r.poster) {
+        r.poster.className = "mp-poster";
+        r.poster.setAttribute("aria-hidden", "true");
+        card.querySelector(".mp-video-glyph").replaceWith(r.poster);
+      } else {
+        diagnosticsSink.append("warning", `composer video: no poster frame for ${pm.name || "video"}`);
+      }
+      const dur = r.duration > 0 ? formatDuration(r.duration) : "";
+      const badge = card.querySelector(".mp-dur");
+      badge.textContent = dur;
+      badge.hidden = !dur;
+      label(dur);
+    });
+    return card;
+  }
+
+  // #470: which way the pending attachment will go, shown before Send —
+  // Velta Dash to this contact, email (with its size cap), or blocked when
+  // it is too big for email and Dash cannot deliver right now. Send waits
+  // on this, so every wait here is bounded: a stalled call (dead network,
+  // a core lock) must not turn the send button into a no-op.
+  // Why a staged photo will leave as-is despite the WebP/2k chips: the part
+  // of the #509/#560 policy that is already certain at stage time, one level
+  // above the send-time Diagnostics row. Uncertain verdicts (a WebP that may
+  // miss the 10% saving bar) stay silent — the send decides those.
+  async _photoSkipNote(pm) {
+    if (pm?.kind !== "image" || !pm.blob) return "";
+    try {
+      const ic = await import("./image-compress.js"); // lazy (fix 5)
+      const webp = ic.compressEnabled(), resize = ic.resizeEnabled();
+      if (!webp && !resize) return ""; // both chips off on purpose
+      const bytes = new Uint8Array(await pm.blob.arrayBuffer());
+      const info = ic.sniffImage(bytes);
+      const { maxBytes } = ic.coreLimits(mediaQualitySetting());
+      if (info.animated || info.format === "gif") return t("Animated — sends as is");
+      if (!info.format) return t("Unsupported format — sends as is");
+      if (bytes.length <= Math.min(ic.MIN_BYTES, maxBytes)) return t("Under 256 KB — sends as is");
+      if (bytes.length > ic.MAX_INPUT_BYTES) return t("Over 64 MB — sends as is");
+      let over2k = null;
+      try {
+        const bmp = await createImageBitmap(pm.blob);
+        over2k = Math.max(bmp.width, bmp.height) > ic.RESIZE_MAX_SIDE;
+        bmp.close?.();
+      } catch { return ""; } // no dimensions here: the send-time verdict stands
+      if (resize) {
+        if (!over2k) return t("Already within 2k — sends as is");
+        if (info.format === "heic" && !webp) return t("HEIC needs WebP on to resize — sends as is");
+        return ""; // over 2k: png/webp are rescued (alpha kept), jpeg transcodes
+      }
+      if (info.alpha) return t("Has transparency — sends as is");
+      if (info.format === "png" && bytes.length <= maxBytes) return t("Lossless PNG — sends as is");
+      return "";
+    } catch { return ""; }
+  }
+
+  async _planPendingRoute(pm) {
+    pm.checking = true;
+    if (this.pendingMedia === pm) this._renderMediaRoute();
+    try {
+      const chat = this.chat;
+      let size = pm.size ?? pm.blob?.size ?? null;
+      const invoke = tauriInvoke();
+      if (size == null && pm.corePath && invoke) size = await withTimeout(invoke("xfer_file_size", { path: pm.corePath }), PLAN_TIMEOUT_MS, "xfer_file_size").catch(() => null);
+      if (this.pendingMedia !== pm) return;
+      if (size != null) pm.size = Number(size);
+      if (size == null || !chat || chat.isP2p) return; // Loop chats have their own transport
+      ensureXfer(this);
+      const plan = await withTimeout(xferPlanSend({
+        size: pm.size, oneToOne: chat.chatType === "Single",
+        contactId: chat.contactId ?? null, peerName: chat.name || "",
+      }), PLAN_TIMEOUT_MS, "attachment route").catch((e) => {
+        diagnosticsSink.append("warning", `attachment route check timed out: ${e?.message || e}`);
+        return null;
+      });
+      if (this.pendingMedia !== pm) return;
+      pm.plan = plan || undefined; // unchecked = no plan: Send tries Dash first
+      diagnosticsSink.append("info", `attachment route: ${pm.plan?.route || "unchecked"} (${pm.plan?.reason || "timeout"}, ${pm.size} bytes)`);
+    } catch (e) {
+      diagnosticsSink.append("warning", `attachment route check failed: ${e?.message || e}`);
+    } finally {
+      pm.checking = false;
+      if (this.pendingMedia === pm) this._renderMediaRoute();
+    }
+  }
+
+  // One line under the file name: the size, then how it will be sent.
+  _renderMediaRoute() {
+    const el = document.getElementById("media-route");
+    if (!el) return;
+    const pm = this.pendingMedia;
+    const plan = pm?.plan;
+    // Size unknown yet (xfer_file_size still reading a sealed upload): the
+    // check is running all the same, so say so.
+    const checking = pm?.checking && (pm.size == null || Number(pm.size) > XFER_THRESHOLD);
+    const stage = pm?.staging ? t("Preparing file…") : pm?.stage === "dash" ? t("Preparing for Velta Dash…") : "";
+    el.textContent = [pm?.size != null ? formatBytes(pm.size) : "", stage || plan?.text || (checking ? t("Checking how to send…") : ""), pm?.photoNote || ""]
+      .filter(Boolean).join(" · ");
+    el.dataset.route = plan?.route || "";
+    el.classList.toggle("is-busy", !!(stage || (checking && !plan)));
+    el.hidden = !el.textContent;
   }
 
   // Tauri copies into the accounts dir. The wasm core reads the same memfs
@@ -4568,13 +5066,47 @@ export class ChatView {
     return path;
   }
 
+  // #470: Send shows a busy ring while it waits (route check, Dash offer);
+  // a second tap meanwhile is ignored instead of sending twice.
+  _setSendBusy(on) {
+    const b = document.getElementById("btn-send");
+    if (!b) return;
+    b.classList.toggle("is-busy", !!on);
+    if (on) b.setAttribute("aria-busy", "true"); else b.removeAttribute("aria-busy");
+  }
+
   // Send the pending attachment with the composer text as its caption.
   async _sendPendingMedia(session) {
     const pm = this.pendingMedia;
+    if (!pm || pm.sending) return;
+    pm.sending = true;
+    this._setSendBusy(true);
+    if (pm.checking) this._renderMediaRoute();
+    try { await this._sendPendingMediaNow(session, pm); } finally {
+      pm.sending = false;
+      this._setSendBusy(false);
+      const input = document.getElementById("composer-input");
+      if (input) input.readOnly = false;
+    }
+  }
+
+  async _sendPendingMediaNow(session, pm) {
+    if (pm?.planning) await pm.planning;
+    if (!this._isCurrent(session) || this.pendingMedia !== pm) return;
+    // Too big for email and Dash cannot deliver: keep it staged, say why.
+    if (pm.plan?.route === "blocked") { errToast(pm.plan.text); return; }
     const input = document.getElementById("composer-input");
     const text = input.value.trim();
-    this._clearPendingMedia();
-    input.value = ""; sizeComposer(input);
+    // A Dash send keeps the strip, with "Preparing for Velta Dash…" and the
+    // busy ring, until the offer is ready: copying and hashing a big file
+    // takes a while, and on failure the file stays staged.
+    const dash = !this.chat?.isP2p && pm.plan?.route !== "email" && Number(pm.size) > XFER_THRESHOLD;
+    const unstage = () => {
+      if (this.pendingMedia === pm) this._clearPendingMedia();
+      if (input.value.trim() === text) { input.value = ""; sizeComposer(input); }
+    };
+    if (dash) { pm.stage = "dash"; input.readOnly = true; this._renderMediaRoute(); }
+    else unstage();
     try {
       const { quoteId, quoteText, prefix } = this._takeQuote();
       let filePath = pm.corePath;
@@ -4584,34 +5116,74 @@ export class ChatView {
       // so it takes the write-to-uploads branch below.
       let sendBlob = pm.blob;
       const ic = pm.kind === "image" && pm.blob ? await import("./image-compress.js") : null; // lazy (fix 5)
-      if (ic?.compressEnabled()) {
+      // WebP (Compress photos) and the 2k resize are separate settings; the
+      // step runs when either is on, so a resize can happen with WebP off.
+      if (ic && (ic.compressEnabled() || ic.resizeEnabled())) {
         const r = await ic.compressImage(pm.blob, {
           name: pm.name, quality: mediaQualitySetting(),
+          webp: ic.compressEnabled(), resize: ic.resizeEnabled(),
         });
         diagnosticsSink.append("info", r.transcoded
-          ? `media: photo → webp ${r.from} → ${r.to} bytes`
+          ? `media: photo transcoded ${r.from} → ${r.to} bytes`
           : `media: photo sent as is (${r.reason})`);
-        if (r.transcoded) { sendBlob = r.blob; filePath = null; }
+        if (r.transcoded) { sendBlob = r.blob; filePath = null; pm.size = sendBlob.size; }
       }
       if (filePath) {
         filename = filePath.replace(/\\/g, "/").split("/").pop();
       } else {
         if (!sendBlob) throw new Error(t("Nothing to send"));
-        const t = sendBlob.type;
-        const fromName = String(pm.name || "").split(".").pop();
-        const ext = t === "image/jpeg" ? "jpg" : t === "image/webp" ? "webp" : t === "image/gif" ? "gif" : t?.startsWith("video/") ? "mp4" : (fromName || "png");
-        const safeExt = String(ext).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-        const stored = sendBlob !== pm.blob ? `${pm.kind}-${Date.now()}.webp` : `${pm.kind}-${Date.now()}.${safeExt}`;
-        filename = pm.name || stored;
+        const ty = sendBlob.type;
+        const transcoded = sendBlob !== pm.blob;
+        // The visible name must match the BYTES: a transcoded photo leaves
+        // with its real extension (webp for the codec path, the original
+        // for a same-format 2k resample) — the picked name's extension was
+        // a lie the bubble showed on both sides (#561 follow-up).
+        const extFor = (ty2) => ty2 === "image/jpeg" ? "jpg" : ty2 === "image/webp" ? "webp" : ty2 === "image/gif" ? "gif" : ty2?.startsWith("video/") ? "mp4" : String(pm.name || "").split(".").pop() || "png";
+        const safeExt = String(extFor(ty)).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+        const stored = `${pm.kind}-${Date.now()}.${safeExt}`;
+        const base = String(pm.name || "").replace(/\.[^.]*$/, "") || stored.replace(/\.[^.]*$/, "");
+        filename = transcoded ? `${base}.${safeExt}` : (pm.name || stored);
         const bytes = new Uint8Array(await sendBlob.arrayBuffer());
         filePath = await this._writeBlobForSend(stored, bytes);
         diagnosticsSink.append("info", `media: wrote ${bytes.length} bytes to ${filePath}`);
       }
-      const msg = await this._sendArchivedAware(session.chatId, { text: prefix + text, viewtype: pm.kind, file: filePath, filename, quoteId, quoteText });
+      // #470: device-to-device; the caption follows as its own message. A
+      // route check that did not finish leaves no plan: try Dash first then
+      // too (maybeSend falls back to email by itself).
+      if (!this.chat?.isP2p && pm.plan?.route !== "email") {
+        const sent = await xferMaybeSend({
+          chatId: session.chatId, path: filePath, name: filename, size: pm.size,
+          oneToOne: true, contactId: this.chat?.contactId ?? null,
+        });
+        if (sent.failed) {
+          // Nothing went out: keep the file staged and say why.
+          pm.stage = null;
+          if (this.pendingMedia === pm) this._renderMediaRoute();
+          diagnosticsSink.append("error", `${pm.kind} send failed: ${sent.error}`);
+          if (this._isCurrent(session)) errToast(sent.error, 8000);
+          return;
+        }
+        if (sent.handled) {
+          unstage();
+          if (!this._isCurrent(session)) return;
+          if (sent.fellBack) toast(t("Velta Dash didn't work, so the file went by email"), 5000);
+          if (sent.msg) this.appendOutgoing(sent.msg);
+          if (prefix + text) {
+            const cap = await this._sendArchivedAware(session.chatId, { text: prefix + text, quoteId, quoteText });
+            if (this._isCurrent(session) && cap) this.appendOutgoing(cap);
+          }
+          this.onChatsChanged();
+          return;
+        }
+      }
+      if (dash) unstage(); // policy says email after all
+      const msg = await this._sendArchivedAware(session.chatId, { text: prefix + text, viewtype: pm.viewtype || (pm.kind === "file" ? "file" : pm.kind), file: filePath, filename, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {
+      pm.stage = null;
+      if (this.pendingMedia === pm) this._renderMediaRoute();
       diagnosticsSink.append("error", `${pm.kind} send failed: ${err?.message || err}`);
       if (this._isCurrent(session)) errToast(t("Couldn't send the file: ") + (err?.message || err));
     }
@@ -4817,6 +5389,7 @@ export class ChatView {
       const label = document.getElementById("voice-rec-label");
       if (label) label.textContent = t("Recording 0:00");
     }
+    syncComposerState(document.getElementById("composer-input"));
   }
 
   // Record, then send the blob as a Voice message with a real file. A voice
@@ -5138,6 +5711,81 @@ export class ChatView {
     });
   }
 
+  // #454: extract a received folder zip. The archive's relative paths are
+  // honored under a destination the user picks (the save dialog's directory
+  // return is a shell concern — here: save next to the archive in blobs via
+  // save_attachment's dialog flow). Bytes come through read_media_bytes so
+  // the VLTA/plaintext pipeline applies.
+  async _extractFolderZip(m) {
+    const invoke = tauriInvoke();
+    if (!invoke) return;
+    try {
+      const base = String(m.fileName || "folder.zip").replace(/\.zip$/i, "");
+      // The user picks the destination; entries land under <dest>/<base>/<rel>.
+      // Rust streams the archive entry by entry (paths and CRCs checked), so
+      // a multi-GB folder never sits in memory.
+      let wrote;
+      if (isAndroid()) {
+        // Android has no directory dialog in the plugin: the system folder
+        // picker (SAF tree) and a SAF writer on the Rust side.
+        const tree = await invoke("saf_pick_tree");
+        if (!tree) return;
+        toast(t("Extracting…"));
+        wrote = await invoke("extract_zip_to_tree", { src: m.filePath, tree, base });
+      } else {
+        const dir = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: t("Extract to…") } });
+        const dest = (Array.isArray(dir) ? dir[0] : dir) || "";
+        if (!dest) return;
+        await invoke("allow_picked_path", { path: dest }).catch(e => rustLog(`allow_picked_path: ${e}`));
+        toast(t("Extracting…"));
+        wrote = await invoke("extract_zip_file", { src: m.filePath, dest, base });
+      }
+      toast(t("Extracted {n} files", { n: wrote }));
+      diagnosticsSink.append("info", `folder zip extracted: ${wrote} entries under ${base}/`);
+    } catch (err) {
+      errToast(t("Couldn't extract: ") + (err?.message || err));
+      diagnosticsSink.append("error", `folder extract failed: ${err?.message || err}`);
+    }
+  }
+
+  // #454: whole folder as one p2p transfer. The dialog picks the folder,
+  // Rust walks it and writes a STORE zip straight into the stored copy
+  // (p2p_send_folder), then streams it like any file. Nothing is zipped or
+  // held in the renderer.
+  async _sendFolder() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    const invoke = tauriInvoke();
+    if (!invoke) { errToast(t("Sending a folder needs the Velta app")); return; }
+    const android = isAndroid();
+    let picked;
+    try {
+      // Android: the system folder picker returns a SAF tree URI that Rust
+      // lists and reads through the ContentResolver.
+      picked = android
+        ? await invoke("saf_pick_tree")
+        : await invoke("plugin:dialog|open", { options: { directory: true, multiple: false } });
+    } catch (err) {
+      diagnosticsSink.append("warning", `folder picker failed: ${err?.message || err}`);
+      if (android && this._isCurrent(session)) errToast(t("Couldn't open the folder picker"));
+      return;
+    }
+    const folder = (Array.isArray(picked) ? picked[0] : picked) || "";
+    if (!folder || !this._isCurrent(session)) return;
+    if (!android) await invoke("allow_picked_path", { path: folder }).catch(e => rustLog(`allow_picked_path: ${e}`));
+    // One walk, in Rust, after the bubble is up. The engine's limit is free space.
+    toast(t("Packing the folder…"));
+    try {
+      const msg = android
+        ? await lcSendTree(session.chatId, folder, "")
+        : await lcSendFolder(session.chatId, folder, "");
+      if (this._isCurrent(session) && msg) { this.appendOutgoing(msg); this.onChatsChanged(); }
+    } catch (err) {
+      if (this._isCurrent(session)) errToast(t("Couldn't send the folder: ") + (err?.message || err));
+      diagnosticsSink.append("error", `folder send failed: ${err?.message || err}`);
+    }
+  }
+
   async _sendAttachment(kind) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
@@ -5205,6 +5853,46 @@ export class ChatView {
       // ContentResolver first (resolve_content_uri in lib.rs). The resolved
       // path carries the real display name, which the type detection needs
       // (the raw content id has no extension).
+      // #454: a generic file into a Loop chat streams straight from the
+      // content:// URI (Rust reads it once into the stored copy), so a
+      // multi-GB pick is not first copied into uploads/.
+      if (kind === "file" && this.chat?.isP2p && !this.chat?.isP2pGroup && /^content:\/\//.test(picked)) {
+        const { prefix } = this._takeQuote();
+        const msg = await lcSendContentUri(session.chatId, picked, prefix || "");
+        if (!this._isCurrent(session)) return;
+        if (msg) { this.appendOutgoing(msg); this.onChatsChanged(); }
+        return;
+      }
+      // Desktop video / big-file picks stage in the background: the strip
+      // (kind glyph + spinner + "Preparing file…") appears at once instead of
+      // after the copy+seal pass. Images stay synchronous (small), content://
+      // URIs already stream in Rust, and a small file still sends at once.
+      const pickedNameEarly = String(picked).replace(/\\/g, "/").split("/").pop() || "";
+      const imageExt = kind !== "video" && ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(extOf(pickedNameEarly).toLowerCase());
+      if (!imageExt && !/^content:\/\//.test(picked) && (kind === "video" || (kind === "file" && !this.chat?.isP2p))) {
+        const pickedName = pickedNameEarly || "attachment";
+        const pickedExt = extOf(pickedName).toLowerCase();
+        const pickedView = ["mp4", "mov", "mkv", "avi", "webm"].includes(pickedExt) ? "video"
+          : ["mp3", "m4a", "ogg", "wav", "flac"].includes(pickedExt) ? "audio" : "file";
+        // A plain file only strips over the Dash threshold; the plaintext
+        // original's size is instant to read.
+        let big = kind === "video";
+        if (!big) {
+          const s = await invoke("xfer_file_size", { path: picked }).catch(() => null);
+          if (!this._isCurrent(session)) return;
+          big = s != null && Number(s) > XFER_THRESHOLD;
+        }
+        if (big) {
+          this._queueStagedMedia(picked, pickedName, pickedView);
+          return;
+        }
+      }
+      // Android video picks are content:// — the copy is already a Rust stream,
+      // but it used to finish before the strip existed. Same spinner.
+      if (kind === "video" && /^content:\/\//.test(picked)) {
+        this._queueStagedMedia(picked, t("Video"), "video", true);
+        return;
+      }
       let resolved;
       if (/^content:\/\//.test(picked)) {
         resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()), encrypt: true });
@@ -5214,13 +5902,24 @@ export class ChatView {
         resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
       }
       if (!this._isCurrent(session)) return;
+      // HEIC/HEIF: the WebView cannot decode it, so it went out as a generic
+      // file with no preview. Android turns it into a full-size photo at pick
+      // time; with "Compress photos" off, or where the platform cannot read
+      // it, the original goes on unchanged.
+      resolved = (await this._heicToPhoto(resolved, picked)) || resolved;
+      if (!this._isCurrent(session)) return;
       const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
 
       // Images and videos go through the pending-attachment strip (caption =
-      // composer text); other files send immediately as before.
+      // composer text); other files send immediately as before. A HEIC that
+      // stayed HEIC is a photo only where this WebView can show it.
       const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
-      if (kind === "image" || Object.keys(exts).includes(extOf(resolved))) {
-        const mime = exts[extOf(resolved).toLowerCase()] || "image/png";
+      const lower = extOf(resolved).toLowerCase();
+      const heic = lower === "heic" || lower === "heif";
+      const isImage = Object.keys(exts).includes(lower) || (heic && await this._imageDecodes(resolved));
+      if (!this._isCurrent(session)) return;
+      if ((kind === "image" && !heic) || isImage) {
+        const mime = exts[lower] || (heic ? "image/heic" : "image/png");
         const bytes = await attachmentBytes(this.core, resolved);
         const blob = new Blob([bytes], { type: mime });
         if (!this._isCurrent(session)) return;
@@ -5238,6 +5937,15 @@ export class ChatView {
       let viewtype = "file";
       if (["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
+      // #470: a big file stages like a video so the route (Velta Dash or
+      // email, or too big for both) shows before Send.
+      const size = await invoke("xfer_file_size", { path: resolved }).catch(() => null);
+      if (!this._isCurrent(session)) return;
+      if (size != null && Number(size) > XFER_THRESHOLD && !this.chat?.isP2p) {
+        if (viewtype === "video") this._setPendingMedia("video", fileUrl(resolved), resolved, name, { size: Number(size) });
+        else this._setPendingMedia("file", new Blob([]), resolved, name, { size: Number(size), viewtype });
+        return;
+      }
       const { quoteId, quoteText, prefix } = this._takeQuote();
       const msg = await this._sendArchivedAware(session.chatId, { text: prefix, viewtype, file: resolved, filename: name, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
@@ -5249,6 +5957,95 @@ export class ChatView {
       errToast(t("Could not send file: ") + (err.message || err), 4000);
       console.error(err);
     }
+  }
+
+  // Desktop drag-and-drop: Tauri hands the dropped paths to the page as
+  // tauri://drag-drop (the WebView never sees the files). One file stages in
+  // the attachment strip like a pick: videos and photos with their preview,
+  // anything else as a file row; nothing is sent until Send.
+  _bindFileDrop() {
+    const listen = window.__TAURI__?.event?.listen;
+    if (typeof listen !== "function" || isAndroid()) return;
+    listen("tauri://drag-drop", (ev) => this._stageDroppedFiles(ev?.payload?.paths)).catch(() => {});
+  }
+
+  async _stageDroppedFiles(paths) {
+    const session = this._session;
+    const invoke = tauriInvoke();
+    if (!invoke || !this._isCurrent(session) || !this.chat || this.readOnly) return;
+    const list = (Array.isArray(paths) ? paths : []).filter(p => typeof p === "string" && p);
+    if (!list.length) return;
+    if (list.length > 1) { toast(t("Drop one file at a time")); return; }
+    const picked = list[0];
+    try {
+      // The drop is the user's consent, as with the picker (V-07/#65).
+      await invoke("allow_picked_path", { path: picked }).catch(e => rustLog(`allow_picked_path: ${e}`));
+      const name = picked.replace(/\\/g, "/").split("/").pop() || "attachment";
+      const ext = extOf(name).toLowerCase();
+      if (["mp4", "mov", "mkv", "avi", "webm", "m4v"].includes(ext)) {
+        this._queueStagedMedia(picked, name, "video");
+        diagnosticsSink.append("info", `drop: staged ${name}`);
+        return;
+      }
+      const images = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+      if (!images[ext] && !this.chat?.isP2p) {
+        const s = await invoke("xfer_file_size", { path: picked }).catch(() => null);
+        if (!this._isCurrent(session)) return;
+        const viewtype = ["mp3", "m4a", "ogg", "wav", "flac"].includes(ext) ? "audio" : "file";
+        if (s != null && Number(s) > XFER_THRESHOLD) {
+          this._queueStagedMedia(picked, name, viewtype);
+          diagnosticsSink.append("info", `drop: staged ${name}`);
+          return;
+        }
+      }
+      const resolved = await resolveAttachmentPath(picked, name);
+      if (!this._isCurrent(session)) return;
+      if (images[ext]) {
+        const bytes = await attachmentBytes(this.core, resolved);
+        if (!this._isCurrent(session)) return;
+        this._setPendingMedia("image", new Blob([bytes], { type: images[ext] }), resolved, name);
+      } else {
+        const size = await invoke("xfer_file_size", { path: resolved }).catch(() => null);
+        if (!this._isCurrent(session)) return;
+        const viewtype = ["mp3", "m4a", "ogg", "wav", "flac"].includes(ext) ? "audio" : "file";
+        this._setPendingMedia("file", new Blob([]), resolved, name, { size: size == null ? null : Number(size), viewtype });
+      }
+      diagnosticsSink.append("info", `drop: staged ${name}`);
+    } catch (err) {
+      if (!this._isCurrent(session)) return;
+      diagnosticsSink.append("error", `drop failed: ${err?.message || err}`);
+      errToast(t("Could not send file: ") + (err?.message || err), 4000);
+    }
+  }
+
+  // A staged HEIC/HEIF pick as a photo the WebView can show, crop and
+  // compress. Android decodes it with the platform decoder, which the WebView
+  // lacks: a full-size JPEG, or PNG with transparency. Elsewhere, with
+  // "Compress photos" off, or when the platform cannot read the file, this
+  // returns null and the original goes on unchanged.
+  async _heicToPhoto(path, contentUri) {
+    const name = String(path).replace(/\\/g, "/").split("/").pop() || "";
+    if (!/\.(heic|heif)$/i.test(name) || !/^content:\/\//.test(contentUri || "")) return null;
+    const invoke = tauriInvoke();
+    if (!invoke || !(await import("./image-compress.js")).compressEnabled()) return null;
+    try {
+      const photo = await invoke("convert_heic_photo", { uri: contentUri, filename: name });
+      if (photo) diagnosticsSink.append("info", `HEIC photo converted for sending: ${String(photo).replace(/\\/g, "/").split("/").pop()}`);
+      return photo || null;
+    } catch (err) {
+      diagnosticsSink.append("warning", `HEIC convert failed: ${err?.message || err}`);
+      return null;
+    }
+  }
+
+  // Can this WebView decode the image at `path`? HEIC only where the OS
+  // supports it (macOS; Windows with the HEIF codec).
+  async _imageDecodes(path) {
+    try {
+      const bmp = await createImageBitmap(new Blob([await attachmentBytes(this.core, path)]));
+      bmp.close?.();
+      return true;
+    } catch { return false; }
   }
 
   // #97 share-in: another app shared text and/or files into this chat.
@@ -5268,6 +6065,22 @@ export class ChatView {
       if (can) this.readOnly = false;
     }
     if (this.readOnly) throw new Error(t("You can't write in this chat"));
+    // One video from Send to / Open with: strip first, copy behind the spinner.
+    if (files.length === 1 && invoke && !/^content:\/\//i.test(files[0]) && shareViewtype(files[0]) === "video") {
+      const file = files[0];
+      const name = String(file).replace(/\\/g, "/").split("/").pop() || "video";
+      await invoke("allow_picked_path", { path: file }).catch(e => rustLog(`allow_picked_path: ${e}`));
+      if (!this._isCurrent(session)) return null;
+      this._queueStagedMedia(file, name, "video");
+      const input = document.getElementById("composer-input");
+      if (text && input) {
+        input.value = input.value.trim() ? `${input.value}\n${text}` : text;
+        sizeComposer(input);
+        this._scheduleLinkPreview();
+      }
+      input?.focus();
+      return "staged";
+    }
     const resolved = [];
     for (const file of files) {
       let path = file;
@@ -5280,14 +6093,30 @@ export class ChatView {
         await invoke("allow_picked_path", { path: file }).catch(e => rustLog(`allow_picked_path: ${e}`));
         path = await resolveAttachmentPath(file, file.replace(/\\/g, "/").split("/").pop());
       }
+      path = (await this._heicToPhoto(path, file)) || path; // a shared HEIC becomes a photo too
       if (!this._isCurrent(session)) return null;
       resolved.push(path);
     }
     let kind = shareStageKind(resolved);
     if (kind === "image" && !invoke) kind = "send";
+    // #470: one big file (Open with, Send to) stages like a picked or
+    // dropped one, so the route (Velta Dash or email, or too
+    // big for both) shows before Send.
+    if (kind === "send" && resolved.length === 1 && invoke && !this.chat?.isP2p) {
+      const size = await invoke("xfer_file_size", { path: resolved[0] }).catch(() => null);
+      if (!this._isCurrent(session)) return null;
+      if (size != null && Number(size) > XFER_THRESHOLD) {
+        const path = resolved[0];
+        const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
+        const viewtype = shareViewtype(name);
+        if (viewtype === "video") this._setPendingMedia("video", fileUrl(path), path, name, { size: Number(size) });
+        else this._setPendingMedia("file", new Blob([]), path, name, { size: Number(size), viewtype });
+        kind = "staged";
+      }
+    }
     const input = document.getElementById("composer-input");
     if (kind !== "send") {
-      if (kind === "image") {
+      if (kind === "staged") { /* staged above */ } else if (kind === "image") {
         const path = resolved[0];
         const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
         const bytes = await attachmentBytes(this.core, path);
@@ -5308,6 +6137,26 @@ export class ChatView {
     }
     const sendFile = async (path, caption) => {
       const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
+      // >6 MB to a 1:1 contact that announced the transfer (core patch #31)
+      // goes device-to-device over iroh (#470) when the setting is on; the transport mails the file itself if the offer
+      // fails, so a true return here always means delivered.
+      if (!caption) {
+        ensureXfer(this);
+        // Plaintext size without reading a 100 MB file into memory.
+        const size = invoke ? Number(await invoke("xfer_file_size", { path }).catch(() => 0)) : 0;
+        if (!this._isCurrent(session)) return false;
+        const sent = await xferMaybeSend({
+          chatId: session.chatId, path, name, size,
+          oneToOne: this.chat?.chatType === "Single", contactId: this.chat?.contactId ?? null,
+        });
+        if (sent.failed) throw new Error(sent.error);
+        if (sent.fellBack) toast(t("Velta Dash didn't work, so the file went by email"), 5000);
+        if (sent.handled) {
+          if (!this._isCurrent(session)) return false;
+          if (sent.msg) this.appendOutgoing(sent.msg);
+          return true;
+        }
+      }
       const msg = await this._sendArchivedAware(session.chatId, { text: caption, viewtype: shareViewtype(name), file: path, filename: name });
       if (!this._isCurrent(session)) return false;
       this.appendOutgoing(msg);
@@ -5357,9 +6206,39 @@ export class ChatView {
     }
   }
 
+  // #470: core keeps a big email in "InProgress" until its full copy
+  // arrives — forever when the sender's relay refused it (too big), so the
+  // card used to say "Downloading…" endlessly. After a minute say what is
+  // happening instead.
+  _inProgressLabel(m) {
+    const since = inProgressSince(this.core?.accountId, m.id);
+    if (Date.now() - since > EMAIL_STALL_MS) return t("Not arrived yet: it may be too large for email");
+    this._stallTimers ??= new Map();
+    if (!this._stallTimers.has(m.id)) {
+      const session = this._session;
+      this._stallTimers.set(m.id, setTimeout(async () => {
+        this._stallTimers.delete(m.id);
+        if (!this._isCurrent(session)) return;
+        const fresh = await this.core.getMessage(m.id).catch(() => null);
+        if (fresh && this._isCurrent(session)) this.onMsgUpdated(session.chatId, fresh);
+      }, EMAIL_STALL_MS - (Date.now() - since) + 500));
+    }
+    return t("Downloading…");
+  }
+
   async _downloadMedia(msgId) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
+    // Loop ids are numeric view ids (1e9+). Core has never seen them and
+    // answers "Message Msg#… does not exist". The file is already on disk
+    // once the transfer's message event set the path; until then there is
+    // nothing to fetch from a relay.
+    if (this.chat.isP2p) {
+      const m = this.msgIndex.get(msgId)?.msg;
+      if (m?.filePath) { this._openFile(m.filePath, m.fileName); return; }
+      errToast(t("The file is not on this device yet"));
+      return;
+    }
     try {
       await this.core.downloadFullMessage(msgId);
       if (!this._isCurrent(session)) return;
@@ -5419,16 +6298,7 @@ export class ChatView {
     // CSS otherwise renders in Times New Roman (the UA default serif).
     // font-family only — never touch layout/spacing, the mail's own CSS
     // (inline styles win over the injected sheet) must keep absolute rule.
-    const injectTheme = html => {
-      const dark = document.documentElement.dataset.theme !== "light";
-      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}`
-        + `body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}</style>`
-        + `<script>${HTML_VIEW_LINK_JS}</script>`;
-      const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
-      return head
-        ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
-        : inject + html;
-    };
+    const injectTheme = html => prepareHtmlView(html, document.documentElement.dataset.theme !== "light");
     // Links inside the mail must leave, not navigate the sandboxed frame
     // (a plain click replaces the mail with the linked page INSIDE the
     // overlay; target=_blank is swallowed by the sandbox/wry). The frame
@@ -5461,14 +6331,13 @@ export class ChatView {
     if (html != null) {
       frame.srcdoc = injectTheme(html);
     } else {
-      // Prefer fetch -> srcdoc: navigating a sandboxed opaque-origin frame to
-      // a custom-protocol URL makes Tauri's injected init script throw
-      // ("Cannot read properties of undefined (reading 'plugins')"), while
-      // srcdoc documents don't. The direct navigation stays as fallback for
-      // transports where fetch is blocked (no CORS on the serving origin).
+      // Always fetch -> srcdoc: the document gets the viewer policy and
+      // never navigates the frame to a URL. A failed fetch shows a notice.
       fetch(url).then(r => (r.ok ? r.text() : Promise.reject(r.status)))
         .then(text => { frame.srcdoc = injectTheme(text); })
-        .catch(() => { frame.src = url; });
+        .catch(() => {
+          frame.srcdoc = injectTheme(`<p>${escapeHtml(t("Couldn't open this file."))}</p>`);
+        });
     }
     wrap.append(bar, frame);
     document.body.appendChild(wrap);

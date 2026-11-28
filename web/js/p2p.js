@@ -22,10 +22,20 @@ export function p2pEnabled() {
   try { return localStorage.getItem("velta-p2p") === "1"; } catch { return false; }
 }
 
+export function p2pSealOn() {
+  try { return localStorage.getItem("velta-p2p-seal") !== "0"; } catch { return true; }
+}
+
+export function applyP2pSeal(on) {
+  if (!p2pAvailable()) return;
+  tauriInvoke()("p2p_set_seal", { enabled: !!on }).catch(() => {});
+}
+
 export async function setP2pEnabled(enabled) {
   try { localStorage.setItem("velta-p2p", enabled ? "1" : "0"); } catch {}
   if (p2pAvailable()) {
     await tauriInvoke()("p2p_set_enabled", { enabled });
+    applyP2pSeal(p2pSealOn());
     if (enabled) ensureListener();
   }
   diagnosticsSink.append("info", `Local chat ${enabled ? "enabled" : "disabled"}`);
@@ -45,6 +55,10 @@ let pairRequestOpen = false;
 // not the hub is open, so the listener is installed at startup. Kept below
 // the module state so `listening` is initialized before use. The Rust side
 // boots with the engine stopped; opting in is what starts it.
+if (p2pAvailable()) {
+  applyP2pSeal(p2pSealOn());
+  window.addEventListener("velta-p2p-seal", e => applyP2pSeal(!!e.detail));
+}
 if (p2pAvailable() && p2pEnabled()) {
   tauriInvoke()("p2p_set_enabled", { enabled: true }).catch(() => {});
   ensureListener();
@@ -143,8 +157,10 @@ export async function showInviteModal(invoke, renderQr) {
   const svg = await renderQr(ticket).catch(() => null);
   const box = body.querySelector(".qr-box");
   if (box.isConnected) {
-    // createQrSvg already carries the Velta logo (brandCoreQrSvg).
-    box.innerHTML = svg || `<div class='qr-loading'>${escapeHtml(t("QR unavailable. Copy the code instead."))}</div>`;
+    // Always carry the Velta logo: core QRs are swapped by brandCoreQrSvg,
+    // bare ones (mock core, other hosts) get the plate injected.
+    const { brandAnyQrSvg } = await import("./qr-encode.js");
+    box.innerHTML = svg ? brandAnyQrSvg(svg) : `<div class='qr-loading'>${escapeHtml(t("QR unavailable. Copy the code instead."))}</div>`;
   }
   body.querySelector("[data-copy]").addEventListener("click", () => {
     navigator.clipboard?.writeText(ticket).then(() => toast(t("Invite code copied")));

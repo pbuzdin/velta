@@ -33,6 +33,12 @@
   --text-meta-out: #a8c6e2;
   --green: #4fae4f;
   --danger: #e05a5a;
+  /* Relay status (#523): text 4.5:1 + non-text 3:1 on --bg-sidebar. Dark values are the original hexes. */
+  --status-ok: #2ecc71;
+  --status-warn: #e6a23c;
+  --status-down: #e05252;
+  --status-off: #9aa0a6;
+  --status-local: #4c8dff;
   --border: rgba(244,244,244,.07);
   --shadow: 0 4px 18px rgba(16,16,16,.45);
   --radius-bubble: 14px;
@@ -64,6 +70,11 @@
   --call-fg-dim: var(--text-dim);
   --call-video-fg: #f2f2f5; /* over the remote video scrim, every theme */
   --call-scrim: color-mix(in srgb, #0b0b10 55%, transparent);
+  /* Badges and the play disc drawn over a video frame (the composer's video
+     preview): fixed dark scrim + light ink in every theme, because the frame
+     under them can be any color. AA is checked against a white frame. */
+  --media-scrim: rgba(11, 11, 16, .86);
+  --media-on-scrim: #f2f2f5;
   --call-btn: color-mix(in srgb, var(--text) 22%, var(--bg-chat));
   --call-btn-on: var(--text);
   --call-btn-on-fg: var(--bg-chat);
@@ -133,6 +144,11 @@ html[data-theme="light"] {
   --bg-elev: #e7ebf0;
   --green: #2a7032; /* text on #f4f4f4 / the green note tint (was #3d9146, 3.6:1) */
   --danger: #bf2a2a; /* was inherited #e05a5a, 3.5:1 on #f4f4f4 */
+  --status-ok: #2a7032; /* 5.5:1 on #f4f4f4 (was #2ecc71, 1.9) */
+  --status-warn: #8a5300; /* 5.7:1 (was #e6a23c, 2.0) */
+  --status-down: #bf2a2a; /* 5.3:1 (was #e05252, 3.5) */
+  --status-off: #5d626d; /* 5.6:1 (was #9aa0a6, 2.4) */
+  --status-local: #1a68b8; /* 5.1:1 (was #4c8dff, 2.9) */
   --border: rgba(16,16,16,.08);
   --shadow: 0 4px 18px rgba(16,16,16,.18);
   color-scheme: light;
@@ -235,18 +251,18 @@ svg { width: 24px; height: 24px; display: block; }
    may their align-items:center reach here: an empty segment has no height,
    and centering collapses it to 0px (the strip "died" exactly that way). */
 #relay-line { display: flex; gap: 4px; height: 6px; flex: 1 1 auto; align-items: stretch; }
-#relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
-#relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
-#relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
-#relay-line .relay-seg[data-state="unreachable"] { color: #e6a23c; }
+#relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: var(--status-warn); transition: color .25s; }
+#relay-line .relay-seg[data-state="ok"]         { color: var(--status-ok); }
+#relay-line .relay-seg[data-state="connecting"] { color: var(--status-warn); }
+#relay-line .relay-seg[data-state="unreachable"] { color: var(--status-warn); }
 /* #108 sustained offline (probe failing > 10 min): calm grey, not amber —
    a relay down for days is a fact, not an active problem. */
-#relay-line .relay-seg[data-state="offline"]     { color: #9aa0a6; }
+#relay-line .relay-seg[data-state="offline"]     { color: var(--status-off); }
 /* #102 sending delayed: relay up, SMTP retrying — amber like connecting;
    the difference lives in the line title and the detail chip text. */
-#relay-line .relay-seg[data-state="delayed"]    { color: #e6a23c; }
-#relay-line .relay-seg[data-state="down"]       { color: #e05252; }
-#relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
+#relay-line .relay-seg[data-state="delayed"]    { color: var(--status-warn); }
+#relay-line .relay-seg[data-state="down"]       { color: var(--status-down); }
+#relay-line .relay-seg[data-state="local"]      { color: var(--status-local); }
 /* Sending dashes on the sending relay's segment only (marked per-segment
    in renderRelayLine — the primary transport, i.e. state.account.addr). */
 #relay-line .relay-seg[data-sending] {
@@ -296,9 +312,9 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-detail-chip .relay-detail-label {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.relay-detail-chip[data-state="down"] { border-color: #e05252; }
-.relay-detail-chip[data-state="unreachable"] { border-color: #e6a23c; }
-.relay-detail-chip[data-state="offline"] { border-color: #9aa0a6; }
+.relay-detail-chip[data-state="down"] { border-color: var(--status-down); }
+.relay-detail-chip[data-state="unreachable"] { border-color: var(--status-warn); }
+.relay-detail-chip[data-state="offline"] { border-color: var(--status-off); }
 /* Frosted variant where supported: the relay line's state colors ghost
    through each chip (62% bg keeps the 11px labels readable). Without
    backdrop-filter the solid var(--bg-sidebar) rule above stands. */
@@ -315,14 +331,14 @@ svg { width: 24px; height: 24px; display: block; }
   display: inline-grid; place-items: center; flex: none;
   width: var(--ico-1); height: var(--ico-1); color: var(--accent);
 }
-.relay-detail-send[data-smtp="ok"]      { color: #2ecc71; }
-.relay-detail-send[data-smtp="retrying"] { color: #e6a23c; }
-.relay-detail-send[data-smtp="down"]    { color: #e05252; }
-.relay-detail-send[data-smtp="unknown"] { color: #9aa0a6; }
+.relay-detail-send[data-smtp="ok"]      { color: var(--status-ok); }
+.relay-detail-send[data-smtp="retrying"] { color: var(--status-warn); }
+.relay-detail-send[data-smtp="down"]    { color: var(--status-down); }
+.relay-detail-send[data-smtp="unknown"] { color: var(--status-off); }
 /* Quota % text carries the warning color the old <meter> bar had. */
-.relay-pct[data-level="ok"]   { color: #2ecc71; }
-.relay-pct[data-level="high"] { color: #e6a23c; }
-.relay-pct[data-level="full"] { color: #e05252; }
+.relay-pct[data-level="ok"]   { color: var(--status-ok); }
+.relay-pct[data-level="high"] { color: var(--status-warn); }
+.relay-pct[data-level="full"] { color: var(--status-down); }
 .relay-detail-chip .relay-detail-send svg { width: var(--ico-1); height: var(--ico-1); }
 .list-bar {
   display: flex; align-items: stretch; gap: 6px;
@@ -342,6 +358,13 @@ svg { width: 24px; height: 24px; display: block; }
   .bar-btn:hover { background: var(--bg-hover); }
 }
 .bar-btn.active { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 8px 8px 0 0; }
+/* #456 follow-up: the Loop bar button carries the brand mark (drawer logo);
+   a subtle accent tint shows when local chat is ON (the active-view state
+   still uses .active). The mark keeps the same 22x22 box as the other bar
+   icons (.bar-btn svg) — the non-square glyph letterboxes inside it, so no
+   button reads shorter than its neighbours. */
+.bar-btn.loop-on svg { color: var(--accent); }
+.bar-btn.loop-on svg { color: var(--accent); }
 .bar-btn.bar-accent { background: var(--accent); color: var(--on-accent); }
 /* #109: .bar-btn.active squares the bottom corners for the view tabs. The + is not a tab. */
 .bar-btn.bar-accent.active { border-radius: 8px; }
@@ -619,7 +642,7 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
 /* flex-wrap lets the 100%-width day chip take its own line inside the row */
 .msg-row { display: flex; flex-wrap: wrap; padding: 2px 6px; position: relative; }
 .msg-row.out { justify-content: flex-end; }
-.msg-row.service { justify-content: flex-start; padding-right: 34px; }
+.msg-row.service { justify-content: flex-start; }
 .msg-row.selectable { cursor: pointer; border-radius: 8px; }
 .msg-row.selected { background: color-mix(in srgb, var(--accent-tint) 16%, transparent); }
 
@@ -841,9 +864,10 @@ body.chat-read-only .msg-hover-more { display: flex; }
 .msg-row.selectable .msg-action-bar { display: none; }
 
 /* Diagnostics entries render as console lines (Chrome DevTools look):
-   monospace, left-aligned, in a soft pill, with a hover copy button
-   in the row's top-right corner. */
+   monospace, left-aligned, in a soft pill. Hover lays "Copy text" over
+   the leading timestamp so the row does not grow. */
 .service-msg {
+  position: relative;
   font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
   font-size: 12.5px; line-height: 1.5;
   color: #d7d7de;
@@ -862,19 +886,21 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
 .service-msg.webxdc-info { cursor: pointer; }
 .service-msg.webxdc-info:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .service-msg .webxdc-info-icon { width: 1.25em; height: 1.25em; border-radius: 4px; object-fit: cover; vertical-align: -0.25em; margin-right: .35em; }
-.diag-copy {
-  position: absolute; top: 5px; right: 7px;
-  width: var(--ico-4); height: var(--ico-4); padding: 0; border: none; border-radius: 6px;
-  background: transparent; color: var(--text-dim);
-  display: none; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 12px;
+.diag-copy-btn {
+  position: absolute; left: 8px; top: 4px;
+  margin: 0; padding: 0 4px; border: 0; border-radius: 4px;
+  background: var(--bg-chat); color: #d7d7de;
+  font: inherit; line-height: 1.5; cursor: pointer;
+  display: none;
 }
-.diag-copy svg { width: var(--ico-1); height: var(--ico-1); }
+html[data-theme="light"] .diag-copy-btn { color: #464b55; }
+.diag-copy-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 @media (hover: hover) and (pointer: fine) {
-  .msg-row.service:hover .diag-copy { display: flex; }
+  .msg-row.service:hover .diag-copy-btn,
+  .msg-row.service:focus-within .diag-copy-btn { display: inline; }
 }
-@media (hover: hover) and (pointer: fine) {
-  .diag-copy:hover { background: var(--bg-hover); color: var(--text); }
+@media (hover: none), (pointer: coarse) {
+  .diag-copy-btn { display: inline; }
 }
 
 .msg-sender {
@@ -954,6 +980,155 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
   -webkit-touch-callout: none;
 }
 .msg-text .msg-code:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 4px; }
+/* #470: iroh file transfer card — renders in place of the ticket text.
+   #519: a file row, not a wrapping flex line. Two grid rows inside the 44px
+   tile (one-line name that keeps its extension; size + Dash chip + action),
+   then a foot row where the status sentence shares the timestamp with
+   .msg-meta. The card overrides the bubble's pre-wrap/anywhere/hyphens:
+   the name is truncated, never broken mid-token. */
+.xfer-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-areas: "glyph name" "sub sub";
+  column-gap: 10px;
+  row-gap: 2px; /* 2px grid. 1px is not an amber exception. */
+  align-items: center;
+  width: 100%;
+  max-width: 320px; /* same cap as .msg-audio */
+  min-width: min(240px, var(--bubble-inner-max));
+  box-sizing: border-box;
+  padding: 2px 0 0;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  -webkit-hyphens: manual;
+  hyphens: manual;
+}
+/* File-type tile uses the same accent fill + ink as .msg-file .file-ico:
+   --accent-text on --bg-hover over the outgoing bubble missed AA (2.62
+   dark, 4.39 light, 1.28 brutal). --on-accent on --accent is guaranteed.
+   44px + --radius-media matches .msg-file .file-ico; the composer thumb
+   keeps the bare 30px class below. */
+.xfer-card .xfer-glyph { width: 44px; height: 44px; border-radius: var(--radius-media); }
+.xfer-card .xfer-glyph svg { width: var(--ico-4); height: var(--ico-4); }
+.xfer-glyph { width: 30px; height: 30px; flex: none; display: grid; place-items: center;
+  border-radius: 8px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.xfer-name {
+  grid-area: name;
+  display: flex; min-width: 0;
+  font-size: 14.5px; font-weight: 600; line-height: 1.25;
+}
+.xfer-name-base {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  unicode-bidi: isolate;
+}
+.xfer-name-ext { flex: none; white-space: nowrap; unicode-bidi: isolate; }
+.xfer-sub {
+  grid-area: sub;
+  display: flex; align-items: center; gap: 6px;
+  min-width: 0; flex-wrap: nowrap;
+}
+/* Air between the byte count and the Dash chip (#519 feedback): the row's
+   base gap is 6px, the chip reads better with double that before it. */
+.xfer-route { margin-left: 6px; }
+/* The row's verb (Show in folder / Open / Retry / Ask) hugs the far end —
+   the size + chip stay a compact pair on the left (#519 feedback). */
+.xfer-actions, .xfer-folder, .xfer-open, .xfer-retry, .xfer-ask, .xfer-save, .xfer-share { margin-left: auto; }
+.xfer-actions { display: inline-flex; align-items: center; gap: 2px; flex: none; min-width: 0; }
+.xfer-actions .xfer-folder, .xfer-actions .xfer-save, .xfer-actions .xfer-share { margin-left: 0; }
+.xfer-meta { display: inline; flex: none; font-weight: 400; font-size: 12.5px; }
+.xfer-state {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12.5px; max-width: none;
+}
+.xfer-foot {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; margin-top: 2px;
+}
+.xfer-foot .xfer-state { flex: 1 1 auto; min-width: 0; font-size: 11.5px; line-height: 1.3; }
+.xfer-foot .msg-meta { float: none; margin: 0; flex: none; }
+.xfer-state.is-error { white-space: normal; }
+/* Open / Retry / Ask / Show in folder share one tight box (default
+   .btn-text padding plus the inherited 1.36 line-height is ~41px tall and
+   would grow the card on a one-line insert): 14px / line-height 1 /
+   4px 8px is about 22px, so name row + gap + button stays inside the 44px
+   tile. No fill, no border, no pill. */
+.xfer-open.btn-text, .xfer-ask.btn-text, .xfer-retry.btn-text, .xfer-folder.btn-text, .xfer-save.btn-text, .xfer-share.btn-text {
+  font-size: 14px; font-weight: 600; line-height: 1;
+  padding: 4px 8px; text-decoration: none;
+}
+.xfer-card .btn-text > svg { width: 14px; height: 14px; }
+.xfer-save.is-busy svg, .xfer-share.is-busy svg { display: none; }
+.xfer-save.is-busy, .xfer-share.is-busy { cursor: progress; }
+.xfer-save.is-busy::before, .xfer-share.is-busy::before {
+  content: ""; width: 14px; height: 14px; flex: none;
+  border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
+  animation: ob-spin .8s linear infinite;
+}
+/* Fetched image/video cards lead with a frame that opens the lightbox —
+   same treatment as regular media bubbles, never a browser window.
+   The preview replaces the tile: it takes its own full-width row above
+   the name. Natural ratio capped at 260px; object-fit crops the overflow. */
+.xfer-card.is-media { grid-template-columns: minmax(0, 1fr); grid-template-areas: "lead" "name" "sub"; }
+.xfer-preview-btn { grid-area: lead; flex: none; position: relative; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 8px; }
+.xfer-preview { display: block; width: 100%; height: auto; max-height: 260px; object-fit: cover; border-radius: 8px; background: var(--bg-hover); }
+.xfer-card.is-media .xfer-name { margin-top: 6px; }
+/* Play glyph over video previews: neutral white glyph on the solid clamped
+   ink — a translucent disc failed worst-case contrast (white frame under a
+   45% ink blend left the glyph at ~1.9:1); solid #10131a gives 14.9:1 with
+   #f1f1f1 over any frame. */
+.xfer-play { position: absolute; inset: 0; margin: auto; width: 34px; height: 34px; display: grid; place-items: center;
+  border-radius: 50%; background: #10131a; color: #f1f1f1; }
+.xfer-play svg { width: 18px; height: 18px; }
+/* Preview the webview cannot decode (codec, evicted file): placeholder tile.
+   Ink is --text, not --text-dim: measured on the composited tile surface
+   (bubble + bg-hover) dim lands at 4.33 dark / 4.32 brutal — under AA;
+   --text holds 13.1 / 14.6 / 9.7 across the three themes. */
+.xfer-preview-dead { display: grid; place-items: center; width: 100%; height: 120px; padding: 8px;
+  border-radius: 8px; background: var(--bg-hover); color: var(--text); font-size: 12.5px; text-align: center; }
+/* Velta Dash route badge on the card: which path the file took — a passive
+   status chip on the meta tokens, never accent, never a pill. The
+   chat-header .dash-badge is a different control and stays as it is. */
+.xfer-route { display: inline-flex; align-items: center; gap: 4px; flex: none;
+  color: var(--text-dim); font-size: 12.5px; font-weight: 600; }
+/* In-bubble meta ink. --text-dim is the canvas secondary pair, not the
+   published in-bubble pair; incoming moves to --text-meta-in (published
+   5.29 on the dark incoming bubble). --fs-2 is not defined on the chat
+   page; 12.5px is the meta band size (.file-size). */
+.msg-row:not(.out) .xfer-meta,
+.msg-row:not(.out) .xfer-state,
+.msg-row:not(.out) .xfer-route { color: var(--text-meta-in); }
+/* Outgoing bubbles sit on --bg-bubble-out: silver --text-dim does not
+   reach AA there (2.41 dark, 1.32 brutal). Same token as .msg-file .file-size. */
+.msg-row.out .xfer-meta,
+.msg-row.out .xfer-state,
+.msg-row.out .xfer-route { color: var(--text-meta-out); }
+.xfer-route svg { width: 14px; height: 14px; flex: none; }
+/* Open is a verb, not status: .msg-row.out .btn-text paints the status
+   token (raw accent fails AA on the outgoing bubble), which would sink
+   Open into the meta ink. Open overrides only itself; Retry and Ask keep
+   the .btn-text colors, including outgoing --text-meta-out. */
+.msg-row.out .xfer-open.btn-text, .msg-row.out .xfer-save.btn-text, .msg-row.out .xfer-share.btn-text, .msg-row.out .xfer-folder.btn-text { color: var(--out-link); }
+html[data-theme="brutal"] .msg-row.out .xfer-open.btn-text, html[data-theme="brutal"] .msg-row.out .xfer-save.btn-text, html[data-theme="brutal"] .msg-row.out .xfer-share.btn-text, html[data-theme="brutal"] .msg-row.out .xfer-folder.btn-text { color: var(--nb-main-ink); }
+/* Velta Dash chat-header badge: an icon button like #btn-call beside it —
+   the mark alone, tinted accent ink (accent-text is the AA token for accent
+   on app surfaces in every theme) to read as "on"; it is only shown when
+   Dash is on with this contact. Tap = the explainer. */
+.dash-badge { width: 40px; height: 40px; flex: none;
+  display: grid; place-items: center; margin: 0; border: 0;
+  border-radius: 50%; background: none; color: var(--accent-text); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: background .15s; }
+.dash-badge[hidden] { display: none; }
+.dash-badge svg { width: 20px; height: 19px; flex: none; }
+/* Loop shares .dash-badge with the Dash mark. That 20px box is the Dash
+   logo. The Loop mark sits beside Search, whose glyph is the 24px svg rule. */
+#btn-loop svg { width: 24px; height: 24px; }
+@media (hover: hover) and (pointer: fine) { .dash-badge:hover { background: var(--bg-hover); } }
+.dash-badge:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.dash-explainer-text { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
+.dash-explainer-text svg { width: 20px; height: 20px; flex: none; color: var(--accent-text); margin-top: 1px; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
@@ -1589,65 +1764,10 @@ button.reaction-chip { font: inherit; color: inherit; }
   padding: 6px 14px calc(10px + env(safe-area-inset-bottom));
   width: 100%;
 }
-/* Expanded composer (both skins): the field spans the full row and the
-   tools drop to their own row below — attach cluster left, send cluster
-   right, empty `mid` between. Sticker stays tucked in the field's edge and
-   only exists while the field is empty. */
-.composer.expanded {
-  display: grid;
-  grid-template-columns: auto auto auto 1fr auto auto;
-  grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
-}
-.composer.expanded .composer-input-wrap { grid-area: wrap; }
-.composer.expanded #btn-attach { grid-area: attach; }
-.composer.expanded #btn-apps { grid-area: apps; }
-.composer.expanded #btn-commands { grid-area: cmds; }
-.composer.expanded #btn-send-later { grid-area: slater; }
-.composer.expanded #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
-/* Desktop-only quick tools (Apps/Commands/Send later): phones keep them in
-   the attach menu — the rest row has no room for six buttons. Captioned
-   pills must out-rank `#main-composer .icon-btn`'s fixed 48px box. */
-.desktop-tool { display: none; }
-.desktop-tool[hidden] { display: none; }
-#main-composer .icon-btn.desktop-tool[hidden] { display: none; }
-@media (min-width: 600px) {
-  #main-composer .icon-btn.desktop-tool {
-    display: grid;
-    width: auto;
-    height: 48px;
-    grid-auto-flow: column;
-    align-items: center;
-    gap: 7px;
-    padding: 0 14px 0 10px;
-    border-radius: 24px;
-  }
-}
-#main-composer .icon-btn.desktop-tool .tool-caption {
-  font-size: 13px; line-height: 1; white-space: nowrap; color: inherit;
-}
-/* The drop only animates where the buttons actually move (under the desktop
-   width). On desktop the grid below is permanent, so nothing ever moves. */
-@media (max-width: 599.98px) {
-  .composer.expanded > .icon-btn { animation: composer-drop .18s ease-out; }
-}
-@keyframes composer-drop {
-  from { opacity: 0; transform: translateY(-4px); }
-}
-/* Desktop: always expanded — send lives in one spot, typing never reflows
-   the tools. Mirrors .composer.expanded above; keep the two in sync. */
-@media (min-width: 600px) {
-  #main-composer.composer {
-    display: grid;
-    grid-template-columns: auto auto auto 1fr auto auto;
-    grid-template-areas: "wrap wrap wrap wrap wrap wrap" "attach apps cmds mid slater send";
-  }
-  #main-composer .composer-input-wrap { grid-area: wrap; }
-  #main-composer #btn-attach { grid-area: attach; }
-  #main-composer #btn-apps { grid-area: apps; }
-  #main-composer #btn-commands { grid-area: cmds; }
-  #main-composer #btn-send-later { grid-area: slater; }
-  #main-composer #btn-send { grid-area: send; justify-self: end; margin-bottom: 0; }
-}
+/* One flex row at every width: attach, field, send. Apps/Commands/Send
+   later live in the attach menu (appendAttachLists + the Send later row),
+   not on the row — the labeled pills are gone. Send keeps its slot through
+   typing, growth and clear; only its fill changes (armed, below). */
 /* Lens plate. The list scrolls underneath; at rest the last row sits
    above it (padding), and a drag carries bubbles through the curve.
    Skipped while a strip sits between the list and the field, and while
@@ -1705,6 +1825,7 @@ button.reaction-chip { font: inherit; color: inherit; }
 /* 96x64 box, object-fit: contain — the real aspect ratio shows letterboxed
    instead of being cropped to a square. */
 #media-preview-thumb {
+  position: relative;
   width: 96px; height: 64px; flex: none;
   display: grid; place-items: center;
   border-radius: 8px; background: var(--bg-hover); overflow: hidden;
@@ -1719,9 +1840,83 @@ button.reaction-chip { font: inherit; color: inherit; }
   font-size: 13.5px; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
+.media-preview-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.media-preview-actions .btn-text { padding: 6px 10px; }
+/* WebP/2k photo toggles on the strip (same keys as Settings): pressed is
+   the audited accent fill (--on-accent ink on --accent), like gcb-mute. */
+.media-preview-actions .mp-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+/* Image cropper: the stage fills the modal body and the canvas fits the
+   measured box (cropFitScale, DPR-sharp backing) — no hardcoded cap. */
+.crop-body { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
+.crop-stage { flex: 1; min-height: 120px; display: flex; align-items: center; justify-content: center; background: var(--bg-hover); border-radius: 8px; overflow: hidden; }
+.crop-stage canvas { display: block; max-width: 100%; touch-action: none; }
+.crop-wrap { position: relative; }
+.crop-sel { position: absolute; border: 2px solid var(--text); box-shadow: 0 0 0 9999px rgba(11,11,16,.55); pointer-events: none; }
+.crop-handle { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border: 2px solid var(--text); border-radius: 5px; background: rgba(11,11,16,.6); cursor: nwse-resize; touch-action: none; }
+.crop-acts { display: flex; gap: 8px; justify-content: center; }
+/* Staged video: 16:9 poster button that plays in Velta's lightbox. The box
+   drops overflow: hidden so the focus ring draws outside, on the strip. */
+#media-preview-thumb.is-video { width: 128px; height: 72px; overflow: visible; background: none; }
+.mp-video {
+  position: relative; width: 100%; height: 100%; padding: 0; border: 0;
+  border-radius: 8px; overflow: hidden; cursor: pointer;
+  display: grid; place-items: center;
+  background: var(--bg-hover); color: var(--text-dim);
+}
+.mp-video .mp-poster { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mp-video-glyph svg { width: 28px; height: 28px; }
+.mp-play {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 34px; height: 34px; border-radius: 50%; padding: 8px 7px 8px 9px;
+  background: var(--media-scrim); color: var(--media-on-scrim);
+  display: none;
+}
+.mp-play svg { width: 100%; height: 100%; }
+.mp-video.ready .mp-play { display: block; }
+.mp-dur {
+  position: absolute; right: 4px; bottom: 4px;
+  background: var(--media-scrim); color: var(--media-on-scrim);
+  border-radius: 4px; font-size: 11px; line-height: 1; padding: 3px 4px;
+  font-variant-numeric: tabular-nums;
+}
+.mp-dur[hidden] { display: none; }
+/* Loader while the first frame is painted. */
+.mp-spinner {
+  position: absolute; top: 50%; left: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px;
+  border: 2px solid var(--text-dim); border-right-color: transparent; border-radius: 50%;
+  animation: ticks-spin .8s linear infinite;
+}
+.mp-video[aria-busy="true"] .mp-video-glyph { visibility: hidden; }
+.mp-video[aria-busy="false"] .mp-spinner { display: none; }
+@media (prefers-reduced-motion: reduce) { .mp-spinner { animation-duration: 2.4s; } }
 .media-preview .icon-btn { margin-left: auto; }
+/* Velta Dash pre-send route (#470): which way the attachment will go.
+   Same tokens as .media-preview-name / .xfer-state (AA on the composer). */
+.media-route { font-size: var(--fs-2); color: var(--text-dim); max-width: 100%; }
+.media-route[data-route="blocked"] { color: var(--text); font-weight: 600; }
+/* Busy ring for every Dash wait (#470): the route check and the offer in the
+   composer, waiting for the sender / fetching on a received card, and Send
+   itself. The .btn-loading ring in currentColor, so it carries the label's
+   or icon's own AA colour (tests/bubble-label-contrast.test.mjs). */
+.media-route.is-busy::before,
+.xfer-state.is-busy::before {
+  content: ""; display: inline-block; width: .9em; height: .9em; margin-right: 6px; vertical-align: -.12em;
+  border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite;
+}
+.send-btn.is-busy { cursor: progress; }
+.send-btn.is-busy svg { display: none; }
+.send-btn.is-busy::before {
+  content: ""; width: var(--ico-3); height: var(--ico-3);
+  border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .media-route.is-busy::before, .xfer-state.is-busy::before, .send-btn.is-busy::before, .xfer-save.is-busy::before, .xfer-share.is-busy::before { animation-duration: 2.4s; }
+}
 .voice-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; }
 #voice-rec-label { flex: 1; font-size: 14px; }
+/* Destructive choice gets danger ink, no fill; the strip's Send stays a
+   text button — the filled accent is the composer arrow (_stopVoice(true)). */
+#btn-voice-cancel { color: var(--danger); }
 .lp-draft-body { flex: 1; min-width: 0; }
 .composer-input-wrap {
   flex: 1; display: flex; align-items: flex-end;
@@ -1744,27 +1939,8 @@ button.reaction-chip { font: inherit; color: inherit; }
 @supports (field-sizing: content) {
   #composer-input { field-sizing: content; }
 }
-/* Sticker picker trigger: tucked inside the input wrap's right edge like the
-   official clients' emoji/sticker button — not a separate composer column. */
-#btn-sticker {
-  flex: none; align-self: center; width: 34px; height: 34px;
-  margin-right: 8px; padding: 0; border: 0; border-radius: 50%;
-  background: none; color: var(--text-dim); cursor: pointer; overflow: hidden;
-  transition: width .18s ease-out, margin .18s ease-out, opacity .18s ease-out, transform .18s ease-out;
-}
-/* Typing hides the sticker trigger: a sticker send is a message of its own,
-   never an accompaniment to drafted text. */
-.composer.has-text #btn-sticker {
-  width: 0; margin-right: 0; opacity: 0; transform: scale(.7); pointer-events: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  #btn-sticker, .composer.expanded > .icon-btn { transition: none; animation: none; }
-}
-#btn-sticker svg { width: var(--ico-4); height: var(--ico-4); }
-#btn-sticker:active { color: var(--accent); }
-@media (hover: hover) and (pointer: fine) {
-  #btn-sticker:hover { color: var(--text); }
-}
+/* Stickers open from the attach menu (Attach → Stickers, gated on non-local
+   groups in chat-view); the picker is anchored bottom-right of the view. */
 .sticker-pop {
   position: fixed; z-index: 930;
   right: 10px; bottom: calc(78px + env(safe-area-inset-bottom));
@@ -1789,13 +1965,30 @@ button.reaction-chip { font: inherit; color: inherit; }
 .sticker-note { grid-column: 1 / -1; color: var(--text-dim); font-size: 13px; padding: 8px; line-height: 1.4; }
 /* Demo (mock-core) stickers are emoji text, not files. */
 .sticker-emoji { font-size: 96px; line-height: 1; padding: 6px 10px; }
-.send-btn { color: var(--accent-text); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
-/* Armed send: accent fill while there's text to send — the same
+/* Unarmed send is a dim glyph, not a verb. The (1,1,0) lock beats brutal's
+   html[data-theme="brutal"] .icon-btn:hover (0,3,1), so the hover/active
+   rules below must own the surface: --bg-hover, never --bg-active (that is
+   brutal's gold — it must not sit under a --text-dim glyph). */
+#main-composer .send-btn { color: var(--text-dim); }
+/* Armed send — trimmed text, an open #media-preview, or #voice-rec (see
+   syncComposerState): the one accent fill in the chat column, same
    accent/--on-accent pairing as the primary buttons, AA on every theme. */
-#main-composer.has-text .send-btn:not(:disabled) {
+#main-composer.armed .send-btn:not(:disabled) {
   background: var(--accent);
   color: var(--on-accent);
+}
+@media (hover: hover) and (pointer: fine) {
+  #main-composer.armed .send-btn:not(:disabled):hover { background: var(--accent-hover); }
+}
+#main-composer.armed .send-btn:not(:disabled):active { background: var(--accent-active); }
+@media (hover: hover) and (pointer: fine) {
+  #main-composer:not(.armed) .send-btn:hover { background: var(--bg-hover); }
+}
+#main-composer:not(.armed) .send-btn:active { background: var(--bg-hover); }
+#main-composer .composer-input-wrap:focus-within {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 /* Composer buttons sized to the input line (bottom-aligned like the input,
    no extra offset — a 48px button centers its icon on the text line), with
@@ -1894,8 +2087,9 @@ velta-chat-item { display: block; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
 .ci-lock { width: var(--ico-1); height: var(--ico-1); color: var(--green); flex: none; }
 .ci-lock.open { color: var(--text-dim); }
-.ci-wifi { width: var(--ico-1); height: var(--ico-1); color: var(--green); flex: none; }
 .ci-time { font-size: 12px; color: var(--text-dim); flex: none; }
+.ci-loop { display: inline-flex; vertical-align: middle; margin-inline-end: 4px; }
+.ci-loop svg { width: 16px; height: 16px; }
 .ci-bottom { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .ci-last { flex: 1; min-width: 0; font-size: 14px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci-last .draft { color: var(--danger); }
@@ -1925,6 +2119,37 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .cht-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cht-status { font-size: 13px; color: var(--text-dim); }
 .cht-status.online { color: var(--accent-text); }
+/* #519 follow-up: a 1:1 header wears the contact's Prism hue — the drawer
+   fingerprint gradient rotated to their color, lightness pinned at 30/33%
+   (the drawer sweep holds #f4f4f4 at >=4.79:1 on the worst hue — that IS
+   the dim version; both themes share the gradient and the light ink).
+   Full-bleed: the gradient is the whole header bar, edge to edge, and the
+   header controls switch to light ink (the accent Dash badge would vanish
+   on a same-hue gradient). */
+.chat-head.prism-bar {
+  background: linear-gradient(135deg,
+    hsl(var(--prism-h, 215) 45% 30%),
+    hsl(calc(var(--prism-h, 215) + 40) 30% 33%));
+  border-bottom-color: transparent;
+}
+.chat-head.prism-bar .cht-name,
+.chat-head.prism-bar .cht-name-text,
+.chat-head.prism-bar .icon-btn,
+.chat-head.prism-bar .dash-badge { color: rgba(244, 244, 244, .88); }
+.chat-head.prism-bar .cht-status { color: rgba(244, 244, 244, .95); }
+.chat-head.prism-bar .cht-status.online { color: #f4f4f4; }
+.chat-head.prism-bar .ci-badge { background: rgba(244, 244, 244, .2); color: #f4f4f4; }
+html[data-theme="brutal"] .chat-head.prism-bar,
+html[data-theme="light"] .chat-head.prism-bar {
+  background: linear-gradient(135deg,
+    hsl(var(--prism-h, 215) 45% 30%),
+    hsl(calc(var(--prism-h, 215) + 40) 30% 33%));
+}
+velta-chat-head.prism-head { color: #f4f4f4; }
+velta-chat-head.prism-head .cht-name,
+velta-chat-head.prism-head .cht-name-text { color: #f4f4f4; }
+velta-chat-head.prism-head .cht-status { color: rgba(244, 244, 244, .95); }
+velta-chat-head.prism-head .cht-status.online { color: #f4f4f4; }
 
 /* ---------- Popups / menus / modals ---------- */
 .pop-overlay {
@@ -2791,6 +3016,44 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .app.list-collapsed .list-toggle { left: 12px; }
 .app.list-collapsed .list-toggle svg { transform: rotate(180deg); }
 @media (max-width: 820px) { .list-toggle { display: none; } }
+
+/* #456: the + left the bottom bar — a floating chip under the list-collapse
+   chevron (two-pane) / above the bar (narrow), visible only on the chats
+   view while the sidebar is expanded. */
+.list-new {
+  position: fixed; z-index: 6;
+  /* Anchored to --list-bar-h (the bar's REAL height incl. safe area), not a
+     hand-sum — the hand sum 46+16+inset sat 2px INSIDE the 64px+ bar and
+     the chip overlapped it (owner screenshot). */
+  left: calc(clamp(300px, calc(var(--vw) * .33), 420px) - 52px);
+  bottom: calc(var(--list-bar-h) + 24px + 40px + 12px + env(safe-area-inset-bottom, 0px));
+  /* Desktop two-pane: 44px circle stacking with the 40px circular chevron
+     (house 44px touch-target audit; also WCAG 2.5.5). */
+  width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent);
+  border: none; box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: transform .12s ease-out, filter .15s;
+}
+.list-new[hidden] { display: none; }
+.list-new svg { width: var(--ico-4, 22px); height: var(--ico-4, 22px); }
+@media (hover: hover) and (pointer: fine) { .list-new:hover { filter: brightness(1.1); } }
+/* Material FAB press state: the chip shrinks a touch, like the FAB's
+   pressed elevation. Pair of the hover brightness. */
+.list-new:active { transform: scale(.94); }
+.list-new:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* Phone: WhatsApp-style FAB — 56px Material FAB, M3 squircle (16px
+   radius), 24px icon, 24px clear of the bar, 16px off the edge. */
+@media (max-width: 820px) {
+  .list-new {
+    left: auto; right: 16px;
+    bottom: calc(var(--list-bar-h) + 24px);
+    width: 56px; height: 56px; border-radius: 16px;
+  }
+  .list-new svg { width: 24px; height: 24px; }
+}
+@media (prefers-reduced-motion: reduce) { .list-new { transition: none; } .list-new:active { transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .sidebar, .list-toggle, .list-toggle svg { transition: none; }
 }
@@ -2921,13 +3184,20 @@ html[data-theme="light"] .acct-pop .ctx-item {
 }
 
 /* ---------- failed media placeholder ---------- */
+/* In-bubble meta pair, same as .msg-meta. --text-dim is the canvas pair:
+   2.41 on the dark outgoing bubble, 1.32 on brutal yellow. Opaque bubble
+   fill so the image hover tint and the video's #101010 are not the surface.
+   The icon is the same ink at full strength — .55 opacity missed 3:1. */
 .media-fail {
   width: 100%; min-height: 130px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; padding: 18px 12px;
-  color: var(--text-dim); font-size: 13px; text-align: center;
+  background: var(--bg-bubble-in); color: var(--text-meta-in);
+  font-size: 13px; text-align: center; text-shadow: none;
 }
-.media-fail-ico svg { width: 30px; height: 30px; opacity: .55; }
+.msg-row.out .media-fail { background: var(--bg-bubble-out); color: var(--text-meta-out); }
+.msg-video .media-fail { height: 100%; }
+.media-fail-ico svg { width: 30px; height: 30px; }
 
 /* ===== Boot error banner (pre-app.js safety net, see js/boot-net.js) ===== */
 #boot-error {
@@ -3306,7 +3576,7 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
 }
 .webxdc-title { font-weight: 600; font-size: 14px; }
 .webxdc-frame {
-  flex: 1; border: 0; width: 100%;
+  flex: 1; border: 0; width: 100%; min-height: 0;
   background: var(--bg); /* no white flash before the app paints itself */
   color-scheme: dark; /* dark canvas + dark scrollbars; app can override */
 }
@@ -3335,7 +3605,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: var(--
 .lc-row-name { flex: 1; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lc-row-queued { font-size: 12px; opacity: .7; }
 .lc-dot { width: 9px; height: 9px; border-radius: 50%; background: #7a7a85; flex: none; }
-.lc-dot.on { background: #2ecc71; }
+.lc-dot.on { background: var(--status-ok); }
 
 /* node id suffix on the device line — secondary info stays dim */
 .lc-nodeid { font-size: 12px; color: var(--text-dim); }
@@ -3376,12 +3646,21 @@ progress.mfp-bar::-webkit-progress-value,
 progress.pair-bar::-webkit-progress-value { background: var(--accent); border-radius: 2px; }
 progress.mfp-bar::-moz-progress-bar,
 progress.pair-bar::-moz-progress-bar { background: var(--accent); border-radius: 2px; }
-progress.pair-bar.is-fail { color: #ff6b6b; }
-progress.pair-bar.is-fail::-webkit-progress-value { background: #ff6b6b; }
-progress.pair-bar.is-fail::-moz-progress-bar { background: #ff6b6b; }
+progress.pair-bar.is-fail { color: var(--danger); }
+progress.pair-bar.is-fail::-webkit-progress-value { background: var(--danger); }
+progress.pair-bar.is-fail::-moz-progress-bar { background: var(--danger); }
 .update-progress { flex: 1 0 100%; height: 6px; }
-.mfp-pct { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-align: right; }
-.mfp-fail { font-size: 12.5px; color: #e5484d; margin-top: 6px; }
+.mfp-pct { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.mfp-pct span:last-child { margin-left: auto; white-space: nowrap; }
+/* The pct line sits inside the tinted outgoing bubble, where --text-dim fails AA. */
+.msg-row.out .mfp-pct { color: var(--text-meta-out); }
+.mfp-fail { font-size: 12.5px; color: var(--danger); margin-top: 6px; }
+.msg-row.out .mfp-fail { color: color-mix(in srgb, var(--danger) 40%, var(--text)); }
+html[data-theme="brutal"] .msg-row.out .mfp-fail { color: var(--nb-main-ink); }
+.mfp-wait { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--text-dim); }
+.msg-row.out .mfp-wait { color: var(--text-meta-out); }
+.mfp-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(127, 127, 127, .35); border-top-color: var(--accent); animation: ticks-spin .8s linear infinite; flex: none; }
+@media (prefers-reduced-motion: reduce) { .mfp-spin { animation: none; } }
 /* Inline in-bubble / hint actions share one size (AGENTS 6.4 in-bubble rules). */
 .msg-transfer.is-failed .btn-text, .msg-settings-act .btn-text, .md-note-acts .btn-text { padding: 2px 8px; font-size: 13px; }
 .msg-transfer.is-failed .btn-text { margin-top: 4px; }
@@ -3412,6 +3691,8 @@ html[data-theme="brutal"] {
   --text-meta-out: #55480a;
   --green: #3ecf5a;
   --danger: #f47c79; /* 4.9:1 on #313139 (was #ef6461, 4.1) */
+  --status-down: #f47c79; /* 5.4:1 on #2a2a35 (#e05252 was 3.7) */
+  --status-local: #6a9fff; /* 5.4:1 (#4c8dff was 4.4) */
   --border: #45434f;
   --shadow: 4px 4px 0 #121017;
   --radius-bubble: 6px;
@@ -3483,7 +3764,8 @@ html[data-theme="brutal"] .msg-row.out .bubble { background: var(--nb-main); }
 html[data-theme="brutal"] .msg-row.out .bubble .msg-text,
 html[data-theme="brutal"] .msg-row.out .msg-fwd,
 html[data-theme="brutal"] .msg-row.out .reaction-chip,
-html[data-theme="brutal"] .msg-row.out .msg-file { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .msg-row.out .msg-file,
+html[data-theme="brutal"] .msg-row.out .xfer-card { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-meta { color: var(--text-meta-out); }
 html[data-theme="brutal"] .msg-meta .ticks.read { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-text a,
@@ -3645,6 +3927,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
   position: relative; inset: auto; z-index: 5;
   flex: 0 0 var(--webxdc-panel-h);
   height: var(--webxdc-panel-h);
+  overflow: hidden;
   border-bottom: 1px solid rgba(255,255,255,.12);
   box-shadow: 0 4px 12px rgba(0,0,0,.25);
 }

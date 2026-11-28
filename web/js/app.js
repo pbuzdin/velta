@@ -30,7 +30,7 @@ import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified 
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, notifyThrottled, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
 import { installGlassComposer } from "./glass-composer.js";
 import { createNotifyQueue } from "./notify-queue.js";
-import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
+import { p2pAvailable, p2pEnabled, setP2pEnabled, applyP2pSeal, p2pSealOn, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
 import { openInAppBrowser } from "./inapp-browser.js";
@@ -91,20 +91,22 @@ import { bindInviteCards, parseRelayInviteInput, relayClaimResult } from "./invi
 import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTransportStatus, wsTransportStatus, wsDrawerLabel, testHostFor } from "./ws-transport.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
-import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
+import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl, shellProxy } from "./link-preview.js";
 import { clearReveals, textOnlyMode, setTextOnlyMode, TEXT_ONLY_LABELS } from "./text-only-mode.js";
 import { shouldAskRoaming, dismissRoamingHintForever } from "./roaming-hint.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
-import { isAndroid, tauriInvoke, rustLog } from "./tauri.js";
+import { isAndroid, isTauri, tauriInvoke, rustLog } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
-import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { DASH_SVG, ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { dashState, dashExplainer, irohXferEnabled, peerCapabilityKey, xferVisibleText } from "./iroh-xfer.js";
 import { startCoreWatchdog } from "./core-watchdog.js";
+import { createMediaCatchup } from "./media-catchup.js";
 
 // #286: module-top so boot-time relay status refreshes never hit a TDZ.
 const relayFailoverLog = createFailoverLog();
@@ -120,6 +122,16 @@ window.__veltaDiagnostics = diagnostics;
 function errToast(text, ms = 3000) {
   diagnosticsSink.append("error", text);
   toast(text, ms);
+}
+
+// Reload AFTER the core's state reached durable storage. The wasm core
+// reaches OPFS only through a checkpoint (8 s interval); a reload fired on a
+// timer comes back to an older snapshot, where a just-imported backup shows
+// the welcome screen with an empty account (#331). No-op checkpoint on Tauri;
+// a failing checkpoint must not strand the user on the progress modal, so
+// the page still reloads (it reports the error on load).
+function reloadAfterPersist() {
+  Promise.resolve(core._persist?.()).catch(() => {}).then(() => location.reload());
 }
 let core = null;
 // Multi-device switch state (see ensureMultiDevice). Declared up here, not
@@ -431,9 +443,15 @@ function openDiagnosticsChat() {
   $("diagnostic-actions").hidden = false;
   $("reply-preview").hidden = true;
   // Logging / DevTools switches reflect their runtime state on every open —
-  // the persisted flag is the source of truth, the checkbox follows.
+  // the persisted flag is the source of truth, the checkbox follows. Both
+  // are shell-only (#458): the PWA has no velta.log file and no DevTools
+  // target behind them, so showing them would be placebo — hidden there.
   const loggingSw = $("sw-logging");
   const devtoolsSw = $("sw-devtools");
+  if (!tauriInvoke()) {
+    loggingSw?.closest(".diag-switch")?.setAttribute("hidden", "");
+    devtoolsSw?.closest(".diag-switch")?.setAttribute("hidden", "");
+  }
   if (loggingSw) {
     // Default OFF: missing key is off; only an explicit "1" writes velta.log
     // (boot: heartbeats still write). About Velta has the same switch.
@@ -842,6 +860,9 @@ if (window.__TAURI__) {
         invoke("get_db_hello_state").catch(() => false),
       ]).then(([pinOn, helloOn]) => {
         if (!pinOn && !helloOn) return;
+        // Android locks natively (VeltaLock, PIN or biometric); lock_now is
+        // desktop-only, so there is nothing for the page to arm here.
+        if (isAndroid()) return;
         let hiddenAt = 0;
         const limitMs = () => (Number(localStorage.getItem("velta-autolock-mins")) || 0) * 60_000;
         const lockIfOver = () => {
@@ -1093,8 +1114,13 @@ async function probeRelayReachable(domain) {
   const invoke = tauriInvoke();
   if (!invoke) return true;
   try {
-    return !!(await invoke("probe_relay", { domain }));
-  } catch {
+    // Through the configured proxy; no signal (not a failure) when the proxy
+    // setting is unknown or can't be applied — the probe is skipped, never
+    // sent direct.
+    const proxy = await shellProxy();
+    return !!(await invoke("probe_relay", { domain, proxy }));
+  } catch (e) {
+    if (/skipped|proxy setting not known|core not ready/.test(String(e?.message || e))) return true;
     return false;
   }
 }
@@ -1565,8 +1591,7 @@ function refreshAfterSettingsApply(keys) {
   // Strings are baked at render. Boot reapplies theme, scale and core copies.
   if (has("language")) { location.reload(); return; }
   if (has("theme") || has("amoled")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
-  if (has("stickers-in-attach")) window.dispatchEvent(new Event("velta-stickers-pref"));
-  if (has("send-later") || has("commands-button")) window.dispatchEvent(new Event("velta-composer-pref"));
+  if (has("loop-seal-media")) applyP2pSeal(p2pSealOn());
   if (has("glass-composer")) window.dispatchEvent(new Event("velta-glass-pref"));
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
@@ -1583,7 +1608,7 @@ function refreshAfterSettingsApply(keys) {
     renderChatList();
   }
   // Per-account core mirrors (same calls as the drawer handlers).
-  const cfg = [["image-quality", "media_quality", "velta-media-quality", "0"], ["auto-download-limit", "download_limit", "velta-download-limit", "0"], ["read-receipts", "mdns_enabled", "velta-mdns", null]];
+  const cfg = [["image-quality", "media_quality", "velta-media-quality", "0"], ["auto-download-limit", "download_limit", "velta-download-limit", "204800"], ["read-receipts", "mdns_enabled", "velta-mdns", null]];
   for (const [k, coreKey, lsKey, dflt] of cfg) {
     if (!has(k)) continue;
     const v = lsKey === "velta-mdns" ? (localStorage.getItem(lsKey) === "0" ? "0" : "1") : (localStorage.getItem(lsKey) || dflt);
@@ -1629,7 +1654,7 @@ async function flushIncomingNotify(groups, epoch) {
     }
     notifyIncoming(
       msg?.fromContact?.name || msg?.fwdFrom || t("New message"),
-      (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || t("New message"),
+      xferVisibleText(msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || t("New message"),
       {
         chatName: chat?.name || null,
         senderName: msg?.fromContact?.name || null,
@@ -1704,6 +1729,21 @@ function refreshAfterBackground() {
   // A sync message from another device may have turned bcc_self back on
   // while we were in the background.
   ensureMultiDevice();
+  // The refetch may have brought placeholder attachments with it — drain.
+  mediaCatchup().schedule();
+}
+
+// #478: the background placeholder queue (media-catchup.js). Created lazily
+// against the module-scoped core; the chat list order drives newest-first.
+let _mediaCatchup = null;
+function mediaCatchup() {
+  if (!_mediaCatchup) _mediaCatchup = createMediaCatchup({
+    core,
+    getChatIds: () => (state.chats || []).map(c => c.id),
+    getCurrentChatId: () => state.activeChatId,
+    limitOn: () => savedDownloadLimit() !== "0",
+  });
+  return _mediaCatchup;
 }
 function reportUiVisible() {
   try {
@@ -1880,86 +1920,89 @@ async function refreshChatList({ fromDirty = false } = {}) {
 
 // Local chat hub card: lives at the top of the chat list while local chat
 // is on. Replaces the old hub modal — pairing/invite stay as small modals.
-let lcCardSeq = 0;
-let lcCardOpen = true;
-let lcCardSig = null; // last rendered model — skip DOM writes when unchanged
+let lcCardSeq = 0; // render epoch for the Loop view (superseded-render guard)
+// #456: the hub lives in the Loop bar view; the in-list card is retired.
+// Event listeners keep calling this — it refreshes the loop view when it is
+// on screen and keeps the retired container hidden otherwise.
 async function renderLocalChatCard() {
   const el = $("lc-card");
-  if (!el) return;
+  if (el) el.hidden = true;
+  if (listView === "loop") await renderLoopView();
+}
+
+// The Loop bar view: the old hub card, lifted into the side-view shell.
+// Same model (hubModel), same actions, re-rendered on the same events.
+async function renderLoopView() {
   const seq = ++lcCardSeq;
   const model = await hubModel().catch(() => null);
   if (seq !== lcCardSeq) return; // superseded by a newer render
-  if (!model) { el.hidden = true; lcCardSig = null; return; }
-  // Rebuild only when the model changed — chat-list refreshes fire on every
-  // msg-state event and a DOM rewrite eats taps on the card's buttons.
-  const sig = JSON.stringify(model);
-  if (sig === lcCardSig) { el.hidden = false; return; }
-  lcCardSig = sig;
-  el.hidden = false;
-  const loopSvg = LOOP_SVG;
+  if (!model || listView !== "loop") {
+    // #456 follow-up: local chat is off (or the engine is gone) — the view
+    // explains itself and offers the switch, instead of an empty shell.
+    if (listView === "loop" && !model) {
+      const rows = sideViewShell(t("Velta Loop"), t("Local chat on the same network"));
+      rows.innerHTML = `<div class="side-view-sub">${escapeHtml(t("Local chat is off. Turn it on to pair nearby devices and use local groups — everything stays on your network."))}</div>
+        <button type="button" class="chat-item side-option" data-loop-on><span class="side-option-label">${escapeHtml(t("Turn on local chat"))}</span>${svg(P.chevronRight, "side-option-arrow")}</button>`;
+      rows.querySelector("[data-loop-on]").addEventListener("click", async () => {
+        await setP2pEnabled(true);
+        toast(t("Velta Loop is on — local chat on the same network"));
+        rebuildDrawer();
+        renderLoopView();
+      });
+    }
+    return;
+  }
+  const rows = sideViewShell(t("Velta Loop"), t("Local chat on the same network"));
   const short = (model.device.nodeId || "").slice(0, 8);
-  const peerRows = model.peers.map(p => `
+  rows.innerHTML = `
+    <div class="lc-device">${escapeHtml(t("This device:"))} <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>${escapeHtml(t("Edit name"))}</button></div>
+    <div class="lc-actions">
+      <button type="button" class="btn-text" data-invite>${escapeHtml(t("Show invite"))}</button>
+      <button type="button" class="btn-text" data-add>${escapeHtml(t("Add contact"))}</button>
+      <button type="button" class="btn-text" data-new-group>${escapeHtml(t("New group"))}</button>
+    </div>
+    ${(model.nearby || []).map(n => `
+    <div class="lc-row" data-pair="${escapeAttr(n.id)}">
+      <span class="lc-dot on"></span>
+      <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
+      <button type="button" class="btn-text" data-pair="${escapeAttr(n.id)}">${escapeHtml(t("Pair"))}</button>
+    </div>`).join("")}
+    ${model.peers.map(p => `
     <div class="lc-row" data-open="${escapeAttr(p.id)}">
       <span class="lc-dot ${p.online ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(p.name)}</span>
       ${p.queued ? `<span class="lc-row-queued">${escapeHtml(t("{n} queued", { n: p.queued }))}</span>` : ""}
       <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="${escapeHtml(t("Open chat"))}" aria-label="${escapeAttr(t("Open chat with {name}", { name: p.name }))}">${escapeHtml(t("Chat"))}</button>
       <button type="button" class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="${escapeHtml(t("Remove device"))}" aria-label="${escapeAttr(t("Remove {name}", { name: p.name }))}">${ICON.close}</button>
-    </div>`).join("");
-  const nearbyRows = model.nearby.map(n => `
-    <div class="lc-row" data-pair="${escapeAttr(n.id)}">
-      <span class="lc-dot on"></span>
-      <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
-      <button type="button" class="btn-text" data-pair="${escapeAttr(n.id)}">${escapeHtml(t("Pair"))}</button>
-    </div>`).join("");
-  const groupRows = (model.groups || []).map(g => `
+    </div>`).join("")}
+    ${(model.groups || []).map(g => `
     <div class="lc-row" data-open="${escapeAttr(g.id)}">
       <span class="lc-dot ${g.removed ? "" : g.online > 1 ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(g.name)}</span>
       <span class="lc-row-queued">${escapeHtml(g.removed ? t("closed") : t("{members} members · {online} online", { members: g.members, online: g.online }))}</span>
       <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(g.id)}" title="${escapeHtml(t("Open group"))}" aria-label="${escapeAttr(t("Open group {name}", { name: g.name }))}">${escapeHtml(t("Chat"))}</button>
-    </div>`).join("");
-  el.innerHTML = `
-    <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
-      ${loopSvg}
-      <span class="lc-card-title">${escapeHtml(t("Velta Loop"))}</span>
-      <span class="lc-card-chevron">${svg(P.chevronDown, "", 'width="16" height="16"')}</span>
-    </div>
-    <div class="bar-opts-hint ctx-hint">${t("Local chat on the same network")}</div>
-    <div class="lc-card-body">
-      <div class="lc-device">${escapeHtml(t("This device:"))} <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>${escapeHtml(t("Edit name"))}</button></div>
-      <div class="lc-actions">
-        <button type="button" class="btn-text" data-invite>${escapeHtml(t("Show invite"))}</button>
-        <button type="button" class="btn-text" data-add>${escapeHtml(t("Add contact"))}</button>
-        <button type="button" class="btn-text" data-new-group>${escapeHtml(t("New group"))}</button>
-      </div>
-      ${nearbyRows ? `<div class="lc-sec">${escapeHtml(t("Nearby on the same network"))}</div>${nearbyRows}` : ""}
-      ${peerRows ? `<div class="lc-sec">${escapeHtml(t("Paired devices"))}</div>${peerRows}` : ""}
-      ${groupRows ? `<div class="lc-sec">${escapeHtml(t("Groups"))}</div>${groupRows}` : ""}
-    </div>`;
-  if (lcCardOpen) el.classList.add("open");
-  el.querySelector("[data-toggle]").addEventListener("click", () => { lcCardOpen = !lcCardOpen; el.classList.toggle("open"); });
+    </div>`).join("")}`;
   const invoke = tauriInvoke();
   const renderQr = text => core.createQrSvg(text);
-  el.querySelector("[data-invite]").addEventListener("click", () => {
+  rows.querySelector("[data-invite]").addEventListener("click", () => {
     if (!invoke) return toast(t("Pairing needs the Velta app shell"));
     showInviteModal(invoke, renderQr).catch(err => toast(String(err?.message || err)));
   });
-  el.querySelector("[data-add]").addEventListener("click", () => {
+  rows.querySelector("[data-add]").addEventListener("click", () => {
     if (!invoke) return toast(t("Pairing needs the Velta app shell"));
     addContact(invoke).catch(err => toast(String(err?.message || err)));
   });
-  el.querySelector("[data-new-group]").addEventListener("click", () => newLocalGroupFlow());
-  el.querySelector("[data-rename]").addEventListener("click", async () => {
+  rows.querySelector("[data-new-group]").addEventListener("click", () => newLocalGroupFlow());
+  rows.querySelector("[data-rename]").addEventListener("click", async () => {
     const name = await askText(t("Device name"), model.device.name, t("Save"));
     if (!name || !name.trim()) return;
     try {
       await renameDevice(name.trim());
       toast(t("Device renamed"));
-      renderLocalChatCard();
+      renderLoopView();
     } catch (err) { toast(String(err?.message || err)); }
   });
-  el.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", async e => {
+  rows.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", async e => {
     e.stopPropagation();
     const peerId = btn.dataset.remove;
     const name = btn.closest(".lc-row")?.querySelector(".lc-row-name")?.textContent || "this device";
@@ -1967,20 +2010,20 @@ async function renderLocalChatCard() {
     try {
       await removePeer(peerId);
       toast(t("Device removed"));
-      renderLocalChatCard();
+      renderLoopView();
       refreshChatList();
       closeVanishedGroupChat();
     } catch (err) { toast(String(err?.message || err)); }
   }));
-  el.querySelectorAll("[data-pair]").forEach(btn => btn.addEventListener("click", e => {
+  rows.querySelectorAll("[data-pair]").forEach(btn => btn.addEventListener("click", e => {
     e.stopPropagation();
     pairNearbyFlow(invoke, btn.dataset.pair).catch(err => toast(String(err?.message || err)));
   }));
-  el.querySelectorAll("[data-chat]").forEach(btn => btn.addEventListener("click", e => {
+  rows.querySelectorAll("[data-chat]").forEach(btn => btn.addEventListener("click", e => {
     e.stopPropagation(); // row click opens too — don't open twice
     openChat(btn.dataset.chat);
   }));
-  el.querySelectorAll("[data-open]").forEach(row => row.addEventListener("click", () =>
+  rows.querySelectorAll("[data-open]").forEach(row => row.addEventListener("click", () =>
     openChat(row.dataset.open)));
 }
 
@@ -2011,11 +2054,13 @@ async function newLocalGroupFlow() {
 function applyBarVisibility() {
   const bar = document.querySelector(".list-bar");
   let any = false;
-  for (const key of ["chats", "contacts", "calls", "qr"]) {
+  for (const key of ["chats", "contacts", "calls", "qr", "loop"]) {
     const btn = document.getElementById(`bar-${key}`);
     if (!btn) continue;
-    const show = !barHidden.includes(key);
+    // #456: Loop needs the p2p engine — no dead icon without the shell.
+    const show = !barHidden.includes(key) && (key !== "loop" || (p2pAvailable() && isTauri()));
     btn.hidden = !show;
+    if (key === "loop") btn.classList.toggle("loop-on", show && p2pEnabled());
     any = any || show;
   }
   // Menu button can't be hidden; with everything else hidden the bar loses
@@ -2053,12 +2098,24 @@ function setListView(view) {
   }
   syncHeaderButtons();
   syncChatCategoryBar();
-  if (listView === "chats") { renderChatList(); return; }
-  if (listView === "contacts") { renderContactsView(); return; }
-  if (listView === "calls") { renderCallsView(); return; }
-  if (listView === "qr") { renderQrView(); return; }
-  if (listView === "search") { renderSearchView(); return; }
-  if (listView === "new") { renderNewChatView(); return; }
+  if (listView === "chats") { renderChatList(); renderLocalChatCard(); syncPlusChip(); return; }
+  if (listView === "contacts") { renderContactsView(); syncPlusChip(); return; }
+  if (listView === "calls") { renderCallsView(); syncPlusChip(); return; }
+  if (listView === "qr") { renderQrView(); syncPlusChip(); return; }
+  if (listView === "search") { renderSearchView(); syncPlusChip(); return; }
+  if (listView === "new") { renderNewChatView(); syncPlusChip(); return; }
+  if (listView === "loop") { renderLoopView(); syncPlusChip(); return; }
+}
+
+// #456: the + left the bar — it is a floating chip beside the chat list,
+// visible only while a list-replacing view is NOT hiding the list... i.e.
+// only on the chats view (the list IS the chats there). Hidden on every
+// other view and whenever the two-pane sidebar is collapsed.
+function syncPlusChip() {
+  const plus = document.getElementById("btn-new-chat");
+  if (!plus) return;
+  const collapsed = document.getElementById("app")?.classList.contains("list-collapsed");
+  plus.hidden = listView !== "chats" || collapsed;
 }
 
 // The header search button doubles as the search view toggle: magnifier
@@ -2917,6 +2974,8 @@ async function openChat(chatId) {
   videoBtn.hidden = callBtn.hidden;
   videoBtn.onclick = callBtn.onclick ? () => startCallIfMicOk(chat, { video: true }) : null;
   refreshChannelAuthorButton(chat, current);
+  refreshDashBadge(chat, current);
+  refreshLoopBadge(chat);
   // Device messages are read-only system posts — no composer. Every open
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
   // rights check: members without posting rights get no composer either.
@@ -2988,9 +3047,68 @@ function closeChatUI() {
   $("main-composer").hidden = false;
   if (chatView) chatView.readOnly = false;
   $("chat-head-actions").style.visibility = "";
+  hideDashBadge();
+  hideLoopBadge();
   hideChannelAuthorButton();
   renderChatList();
 }
+
+// #470 Velta Dash: the chat header badge shows only in a 1:1 chat with Dash
+// on AND the contact's capability proven (core patch #31 stores
+// ui.velta.xfer.peer.<id> from their encrypted, signed messages). Tapping it
+// opens a short explainer; the same explainer (with the "not yet" hint) is
+// the "Velta Dash" row of the contact profile.
+async function chatDashState(chat) {
+  let proven = false;
+  if (chat?.contactId != null && chat.contactId !== 1 && core.getConfig) {
+    try { proven = !!(await core.getConfig(peerCapabilityKey(chat.contactId))); } catch {}
+  }
+  return dashState({ kind: chat?.kind, isP2p: !!chat?.isP2p, contactId: chat?.contactId ?? null, shell: !!tauriInvoke(), enabled: irohXferEnabled(), proven });
+}
+let dashBadgeChat = null;
+async function refreshDashBadge(chat, current = () => true) {
+  const btn = $("btn-dash");
+  if (!btn) return;
+  dashBadgeChat = chat;
+  const st = await chatDashState(chat);
+  if (!current() || dashBadgeChat !== chat) return;
+  btn.hidden = st !== "on";
+  btn.onclick = st === "on" ? () => showDashExplainer("on") : null;
+}
+function hideDashBadge() {
+  dashBadgeChat = null;
+  const btn = $("btn-dash");
+  if (btn) { btn.hidden = true; btn.onclick = null; }
+}
+function refreshLoopBadge(chat) {
+  const btn = $("btn-loop");
+  if (btn) btn.hidden = !chat?.isP2p;
+}
+function hideLoopBadge() {
+  const btn = $("btn-loop");
+  if (btn) btn.hidden = true;
+}
+function showDashExplainer(st) {
+  const body = document.createElement("div");
+  body.className = "dash-explainer";
+  body.innerHTML = `<p class="dash-explainer-text">${DASH_SVG}<span>${escapeHtml(dashExplainer(st))}</span></p>`;
+  const foot = document.createElement("div");
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "btn-text";
+  open.textContent = t("Velta Dash setting");
+  foot.append(open);
+  const m = showModal({ title: t("Velta Dash"), body, foot, compact: true });
+  open.addEventListener("click", () => { m.close(); openDashSetting(); });
+}
+function openDashSetting() {
+  drawer?.open();
+  const row = drawer?.el?.querySelector('[data-setting="dash"]');
+  if (!row) return;
+  row.scrollIntoView?.({ block: "center" });
+  row.querySelector("input")?.focus({ preventScroll: true });
+}
+if (typeof window !== "undefined") window.addEventListener?.("velta-dash", () => { if (dashBadgeChat) refreshDashBadge(dashBadgeChat); });
 
 // Issue #132: "Message author" in an incoming channel's header opens (or
 // creates) the 1:1 chat with its one author. Hidden until the core names an
@@ -3310,6 +3428,7 @@ async function showChatInfo(chat) {
     ${!chat.isP2p && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? mediaSectionsHtml() : ""}
     ${chat.isP2pGroup ? `<div class="profile-description" data-pg-hint style="font-size:13px;opacity:.75;padding:6px 2px" hidden></div>` : ""}
     ${contactRows}
+    ${isContactProfile && !chat.isP2p && tauriInvoke() ? `<div class="info-row" data-dash role="button" tabindex="0" style="cursor:pointer"><span class="k">${escapeHtml(t("Velta Dash"))}</span><span class="v" data-dash-val>…</span></div>` : ""}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v" data-muted-val>${escapeHtml(chat.muted ? t("Muted") : t("On"))}</span></div>` : `<div class="info-row"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? (caps.canSetTimer
       ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>`
@@ -3326,6 +3445,19 @@ async function showChatInfo(chat) {
     </details>` : ""}`;
   // Name sits below the avatar now, so the head bar carries only the close.
   const modal = showModal({ title: "", body });
+  // #470 Velta Dash row: On / Not yet / Off; tap for the explainer.
+  const dashRow = body.querySelector("[data-dash]");
+  if (dashRow) {
+    const dashChat = { kind: "single", isP2p: false, contactId: chat.contactId };
+    chatDashState(dashChat).then(st => {
+      const v = dashRow.querySelector("[data-dash-val]");
+      if (!st) { dashRow.remove(); return; }
+      if (v) v.textContent = st === "on" ? t("On") : st === "waiting" ? t("Not yet") : t("Off");
+      const open = () => showDashExplainer(st);
+      dashRow.addEventListener("click", open);
+      dashRow.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+    }).catch(() => dashRow.remove());
+  }
 
   // Apps / Photos / Videos / Audio / Files: counts now, contents on open.
   // Contact profiles carry no chat id — scope their sections to the 1:1
@@ -4031,7 +4163,7 @@ function bindChatHeadMenu() {
           const b = document.createElement("button");
           b.type = "button";
           b.className = "ctx-item";
-          b.innerHTML = `<span><b>${escapeHtml(m.fromContact?.name || "")}</b>: ${escapeHtml((m.text || "").slice(0, 80))}</span>`;
+          b.innerHTML = `<span><b>${escapeHtml(m.fromContact?.name || "")}</b>: ${escapeHtml(xferVisibleText(m.text || "").slice(0, 80))}</span>`;
           b.addEventListener("click", () => { closeAllPopups(); chatView._jumpToMessage(m.id); });
           results.appendChild(b);
         }
@@ -4881,7 +5013,7 @@ function openProfileManagement() {
       prog.update(t("Profile restored — restarting"));
       localStorage.setItem("velta-ask-notifications", "1");
       core._proxyReapply?.();
-      setTimeout(() => location.reload(), 800);
+      reloadAfterPersist();
     };
     const finishErr = async (msg) => {
       if (settled) return;
@@ -5612,7 +5744,14 @@ async function deliverShare(chat, items, epoch) {
     errToast(t("Couldn't open {name}", { name: chat.name }));
     return;
   }
-  const result = await chatView.receiveShare({ text, files });
+  // #444: resolveAttachmentPath now fails fast — a share-in copy failure must
+  // toast the real error, not escape as an unhandled rejection.
+  let result = null;
+  try {
+    result = await chatView.receiveShare({ text, files });
+  } catch (err) {
+    errToast(t("Could not send file: ") + (err?.message || err));
+  }
   if (result === "sent" && accountIsCurrent(epoch)) {
     toast(t("Sent to {name}", { name: chat.name }));
     refreshChatList();
@@ -5859,7 +5998,7 @@ async function runIdentityRestore(file, pass, onPhase) {
   onPhase(t("Saving profile…"));
   await core.transport.checkpoint?.();
   onPhase(t("Done — reloading…"));
-  setTimeout(() => location.reload(), 800);
+  reloadAfterPersist();
 }
 
 function openIdentityBackup({ restoreOnly = false } = {}) {
@@ -6032,7 +6171,9 @@ async function setMultiDevice(on, { quick = false } = {}) {
 
 function savedDownloadLimit() {
   const raw = localStorage.getItem("velta-download-limit");
-  const v = raw == null || raw === "" ? "0" : raw === "655360" ? "1048576" : String(raw);
+  // #478: unset = 200KB (placeholders + background catch-up), not unlimited;
+  // an explicit "none" is honored, and the retired 640KB preset maps to 1MB.
+  const v = raw == null || raw === "" ? "204800" : raw === "655360" ? "1048576" : String(raw);
   if (raw != null && raw !== v) localStorage.setItem("velta-download-limit", v);
   return v;
 }
@@ -6880,7 +7021,7 @@ function showSplash() {
         addStep(t("Profile restored — restarting"));
         core.removeEventListener("imex-progress", onProg);
         localStorage.setItem("velta-ask-notifications", "1");
-        setTimeout(() => location.reload(), 800);
+        reloadAfterPersist();
       } else if (p > 0) {
         seenProgress = true;
         prog.textContent = t("Restoring profile… {n}%", { n: Math.round(p / 10) });
@@ -7789,6 +7930,9 @@ async function boot() {
       } catch (err) {
         diagnostics.append("error", `boot: chat list failed: ${err?.message || err}`);
       }
+      // Cold open with a download limit: drain leftover placeholders after
+      // the text is in (#478), then again on every chat-list/new-mail event.
+      mediaCatchup().schedule();
     }
 
     appLog("boot: bind ui");
@@ -7797,6 +7941,9 @@ async function boot() {
       // context menu as before (anchored to its button), QR shows this
       // profile's invite code, scan opens the camera join flow.
       listCollapse = initListCollapse({ getChats: () => state.chats });
+      // #456: the + chip hides while the two-pane sidebar is collapsed.
+      document.getElementById("app")?.addEventListener("transitionend", () => syncPlusChip());
+      document.getElementById("app")?.addEventListener("velta-list-collapse", () => syncPlusChip());
       $("bar-menu").addEventListener("click", () => {
         if (drawer?.el?.classList.contains("open")) drawer.close();
         else drawer?.open();
@@ -7812,7 +7959,7 @@ async function boot() {
         btn.innerHTML = e.detail.open ? BAR_MENU_ICONS.open : BAR_MENU_ICONS.closed;
         btn.title = e.detail.open ? t("Close menu") : t("Menu");
       });
-      for (const view of ["chats", "contacts", "calls", "qr"]) {
+      for (const view of ["chats", "contacts", "calls", "qr", "loop"]) {
         $(`bar-${view}`).addEventListener("click", () => setListView(view));
       }
       // Boot lands on the chats view without going through setListView —
@@ -7820,7 +7967,13 @@ async function boot() {
       for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
         b.classList.toggle("active", b.dataset.view === listView);
       }
+      // #456 follow-up: the bar carries the REAL Loop brand mark (the same
+      // logo the drawer row uses), not the 24-grid stroke glyph — at bar
+      // size that one read as a scribble.
+      const loopBtn = document.getElementById("bar-loop");
+      if (loopBtn) loopBtn.innerHTML = LOOP_SVG;
       applyBarVisibility();
+      syncPlusChip();
       bindChatHeadMenu();
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
@@ -7855,13 +8008,20 @@ async function boot() {
     // cores (mock) keep the full refresh on the coarse events.
     core.addEventListener("chatlist-changed", () => scheduleChatListUpdate({ order: true }));
     core.addEventListener("chatlist-item-changed", ev => scheduleChatListUpdate({ chatId: ev?.detail?.chatId || 0 }));
+    // New mail may bring placeholder attachments over the download limit —
+    // the #478 queue drains them newest-chat-first (5s debounce, coalesced).
+    core.addEventListener("chatlist-changed", () => mediaCatchup().schedule());
     core.addEventListener("incoming-msg", ev => {
       if (!incrementalChatList()) scheduleChatListRefresh(); // coalesced (one trailing refresh)
       const msg = ev?.detail?.msg;
+      // A message from the open 1:1 contact may have just proved Velta Dash.
+      if (dashBadgeChat && msg?.chatId === dashBadgeChat.id && $("btn-dash")?.hidden) refreshDashBadge(dashBadgeChat);
       // Toasts are throttled to one per 4 s: skip the per-message work
       // outright while throttled, otherwise group the burst per chat.
       if (notifyThrottled()) return;
       queueIncomingNotify(msg);
+      // A new message can carry a placeholder attachment — the queue checks.
+      mediaCatchup().schedule();
     });
     core.addEventListener("call-ended", ev => {
       recordCallEnded(ev?.detail?.chatId);

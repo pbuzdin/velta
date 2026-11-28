@@ -108,8 +108,8 @@ export function createTransferTracker({ core, kind, invoke = null, onPillClick =
   };
   const onProg = (e) => {
     if (st.ended) return;
-    const p = e.detail?.progress || 0;
-    if (p >= 1000) return api.finish(true);
+    const p = Math.max(0, Math.min(1000, e.detail?.progress || 0));
+    if (p >= 1000) { st.permille = 1000; return api.finish(true); }
     if (p > 0) { st.seen = true; st.permille = p; st.stage = stageFor(kind, p, true); render(); }
     else if (st.seen) api.finish(false, st.error);
   };

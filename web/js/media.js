@@ -31,12 +31,19 @@ function blobfileBase() {
 //      interception even when images through the same scheme work.
 //   3. Tauri's asset protocol — plain GETs (posters) still work everywhere.
 // The HTTP server stays running; it is the fallback, not the primary.
-try {
-  const probe = new Image();
-  probe.onload = () => { window.veltaBlobfileOk = true; };
-  probe.onerror = () => {};
-  probe.src = `${blobfileBase()}/__velta-probe`;
-} catch {}
+// Shell-only (#458 class): the blobfile scheme exists only inside the
+// Tauri WebView. In the browser PWA the probe is a guaranteed-failing
+// http:// element on an https:// page — a mixed-content console warning
+// per boot — so it is skipped there and resolution falls through to the
+// PWA's own pipeline.
+if (tauriInvoke()) {
+  try {
+    const probe = new Image();
+    probe.onload = () => { window.veltaBlobfileOk = true; };
+    probe.onerror = () => {};
+    probe.src = `${blobfileBase()}/__velta-probe`;
+  } catch {}
+}
 
 // opts.thumb: ask the blobfile server for a downscaled JPEG (?w=720) —
 // chat bubbles decode at bubble size instead of full camera resolution.

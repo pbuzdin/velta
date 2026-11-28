@@ -5,20 +5,32 @@
 // does the same job at the same size limits with a ~25–35 % smaller result and
 // strips EXIF as a side effect of re-encoding. Policy:
 //
-//  * Only STATIC JPEG, STATIC opaque WebP and OPAQUE PNG are candidates; format
+//  * Only STATIC JPEG, STATIC WebP and STATIC PNG are candidates; format
 //    is sniffed from the bytes, not trusted from a MIME type or extension.
-//    GIF, animated WebP (byte-exact, see the core's is_animated_webp patch),
-//    WebP/PNG with transparency, and everything unknown are never touched.
+//    GIF and animated WebP (byte-exact, see the core's is_animated_webp patch)
+//    and everything unknown are never touched.
 //  * Size gate: bytes must exceed min(MIN_BYTES, the core's limit for the
 //    current Image quality) — small photos go out unchanged. Opaque PNG is
 //    lossless and often a screenshot, so it is only converted when it exceeds
 //    the core's byte limit, i.e. when the core would turn it into a lossy JPEG
 //    anyway.
+//  * HEIC/HEIF stills are always converted when this WebView can decode them
+//    (macOS; Windows with the HEIF codec), always within the core's budget and
+//    with transparency kept: unconverted they are files to most receivers and
+//    the core cannot recode them. Android does not rely on the WebView: it
+//    converts at pick time with the platform decoder (convert_heic_photo).
 //  * When the original is over the core limit, the image is scaled to the
 //    core's pixel budget (maxWh² pixels, the same rule as blob.rs) and the WebP
 //    is accepted only if it fits the byte limit, so the core then leaves it
 //    alone instead of recoding it a second time. Otherwise the original goes
 //    out and the core does what it does today.
+//  * The 2k cap rescues what the codec-only rules refuse: canvas WebP and PNG
+//    carry alpha, so an oversized STATIC PNG/WebP — transparent or not — is
+//    resized when the 2k setting is on (WebP when the Compress setting is on,
+//    else the same format back; alpha kept either way). Transparency is still
+//    never converted for size alone, and an oversized opaque PNG under the
+//    core's byte limit now gets its cap too. The bar is "smaller" — the
+//    dimension cap is the point (#560 follow-up).
 //  * Under the limit, the WebP must be at least MIN_SAVING (10 %) smaller than
 //    the original, else the original is sent: no generation loss for nothing.
 //  * Any failure (no createImageBitmap, WebP encode unsupported — WebKit falls
@@ -52,7 +64,7 @@ const ascii = (b, off, s) => {
   return true;
 };
 
-// → { format: "jpeg"|"png"|"webp"|"gif"|null, animated, alpha }
+// → { format: "jpeg"|"png"|"webp"|"gif"|"heic"|null, animated, alpha }
 export function sniffImage(bytes) {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const info = { format: null, animated: false, alpha: false };
@@ -67,8 +79,17 @@ export function sniffImage(bytes) {
     Object.assign(info, webpFlags(b));
   } else if (b.length >= 6 && (ascii(b, 0, "GIF87a") || ascii(b, 0, "GIF89a"))) {
     info.format = "gif";
+  } else if (heicBrand(b)) {
+    info.format = "heic";
   }
   return info;
+}
+
+// ISO BMFF: bytes 4..8 are "ftyp", then the major brand. These brands are
+// HEIC/HEIF stills; AVIF has its own brand and decodes everywhere.
+const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1"];
+function heicBrand(b) {
+  return b.length >= 12 && ascii(b, 4, "ftyp") && HEIC_BRANDS.includes(String.fromCharCode(b[8], b[9], b[10], b[11]));
 }
 
 // Walk PNG chunks up to the first IDAT: color types 4/6 carry alpha, a tRNS
@@ -131,6 +152,15 @@ export function decideTranscode({ bytes, info, quality = "0", enabled = true }) 
   if (!info?.format) return skip("unknown-format");
   if (info.format === "gif") return skip("gif");
   if (info.animated) return skip("animated");
+  // HEIC is converted whenever this WebView can decode it (macOS; Windows
+  // with the HEIF codec): unconverted it is a file to most receivers, and
+  // the core cannot recode it. No size gate, always within the core's
+  // budget, transparency kept (WebP carries it).
+  if (info.format === "heic") {
+    if (bytes > MAX_INPUT_BYTES) return skip("too-big");
+    const { maxBytes, maxWh } = coreLimits(quality);
+    return { try: true, limited: true, maxPixels: maxWh * maxWh, targetBytes: maxBytes };
+  }
   if (info.alpha) return skip("alpha");
   if (bytes > MAX_INPUT_BYTES) return skip("too-big");
   const { maxBytes, maxWh } = coreLimits(quality);
@@ -147,6 +177,9 @@ export function decideTranscode({ bytes, info, quality = "0", enabled = true }) 
 export function webpWins(origBytes, webpBytes, plan) {
   if (!(webpBytes > 0)) return false;
   if (plan?.targetBytes != null) return webpBytes <= plan.targetBytes && webpBytes < origBytes;
+  // The 2k cap shrank the picture on purpose: "smaller" is enough, the
+  // MIN_SAVING bar is for conversions that only change the codec.
+  if (plan?.scaled) return webpBytes < origBytes;
   return webpBytes <= origBytes * MIN_SAVING;
 }
 
@@ -155,6 +188,32 @@ export function scaledSize(w, h, maxPixels) {
   if (!(w > 0 && h > 0)) return { width: 1, height: 1 };
   const k = Math.min(1, Math.sqrt(maxPixels / (w * h)));
   return { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) };
+}
+
+// Largest scale <= 1 that fits an image into a measured box (the crop
+// modal's stage); never upscales. Degenerate inputs fall back to 1.
+export function cropFitScale(imgW, imgH, availW, availH) {
+  if (!(imgW > 0 && imgH > 0 && availW > 0 && availH > 0)) return 1;
+  return Math.min(1, availW / imgW, availH / imgH);
+}
+
+// "Resize photos to 2k": the longest side never exceeds RESIZE_MAX_SIDE when
+// the setting is on. Independent of the WebP setting — with WebP off, an
+// oversized photo re-encodes as JPEG once, at RESIZE_JPEG_QUALITY.
+export const RESIZE_KEY = "velta-resize-photos"; // "0" = off, unset = on
+export const RESIZE_MAX_SIDE = 2048;
+export const RESIZE_JPEG_QUALITY = 0.92;
+
+export function resizeEnabled() {
+  try { return localStorage.getItem(RESIZE_KEY) !== "0"; } catch { return true; }
+}
+
+// Longest-side cap; never upscales. Null when the image already fits.
+export function scaledSideCap(w, h, maxSide = RESIZE_MAX_SIDE) {
+  if (!(w > 0 && h > 0)) return null;
+  if (Math.max(w, h) <= maxSide) return null;
+  const k = maxSide / Math.max(w, h);
+  return { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)), scaled: true };
 }
 
 export function webpName(name) {
@@ -172,36 +231,80 @@ async function defaultDecode(blob) {
   return { width: bmp.width, height: bmp.height, source: bmp, close: () => bmp.close?.() };
 }
 
-async function defaultEncode(decoded, width, height, quality) {
+async function defaultEncode(decoded, width, height, quality, type = "image/webp") {
   if (typeof OffscreenCanvas === "function") {
     const c = new OffscreenCanvas(width, height);
     c.getContext("2d").drawImage(decoded.source, 0, 0, width, height);
-    return c.convertToBlob({ type: "image/webp", quality });
+    return c.convertToBlob({ type, quality });
   }
   const c = document.createElement("canvas");
   c.width = width; c.height = height;
   c.getContext("2d").drawImage(decoded.source, 0, 0, width, height);
-  return new Promise(res => c.toBlob(res, "image/webp", quality));
+  return new Promise(res => c.toBlob(res, type, quality));
 }
 
 // → { blob, name, transcoded, reason?, from?, to? } — always usable: on any
 // problem it returns the input blob unchanged (transcoded: false).
-export async function compressImage(blob, { name = null, quality = "0", enabled = true, deps = {} } = {}) {
+export async function compressImage(blob, { name = null, quality = "0", enabled = true, webp = true, resize = true, deps = {} } = {}) {
   const decode = deps.decode || defaultDecode;
   const encode = deps.encode || defaultEncode;
   const same = reason => ({ blob, name, transcoded: false, reason });
   try {
-    if (!enabled) return same("disabled");
+    if (!enabled || (!webp && !resize)) return same("disabled");
     if (!blob || blob.size > MAX_INPUT_BYTES) return same("too-big");
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const info = sniffImage(bytes);
+    // WebP off: only the dimension cap acts — the 2k resample comes back in
+    // the SAME format (JPEG stays JPEG q0.92; WebP and PNG keep alpha
+    // natively, so transparency is no longer a refusal here). Only animated
+    // frames are refused — a resample would drop them.
+    if (!webp && resize) {
+      const outType = info.format === "jpeg" ? "image/jpeg" : info.format === "webp" ? "image/webp" : info.format === "png" ? "image/png" : null;
+      if (info.animated || !outType) return same(info.format === "heic" ? "heic-needs-webp" : "no-resize-format");
+      const decoded = await decode(blob);
+      try {
+        const at = scaledSideCap(decoded.width, decoded.height);
+        if (!at) return same("within-2k");
+        const out = await encode(decoded, at.width, at.height, outType === "image/jpeg" ? RESIZE_JPEG_QUALITY : undefined, outType);
+        if (!out || !(out.size < bytes.length)) return same("not-smaller");
+        return { blob: out, name, transcoded: true, from: bytes.length, to: out.size };
+      } finally { decoded.close?.(); }
+    }
     const plan = decideTranscode({ bytes: bytes.length, info, quality, enabled });
-    if (!plan.try) return same(plan.reason);
+    if (!plan.try) {
+      // The 2k cap rescues what the codec-only rules refuse: canvas keeps
+      // alpha in WebP, so an oversized STATIC png/webp is resized even when
+      // a pure codec conversion would be refused (transparency; lossless
+      // PNG under the core's byte limit). The bar is "smaller" — the cap is
+      // the point (#560 follow-up: transparency no longer blocks 2k).
+      if (resize && (plan.reason === "alpha" || plan.reason === "png-lossless")) {
+        const decoded = await decode(blob);
+        try {
+          const at = scaledSideCap(decoded.width, decoded.height);
+          if (!at) return same("within-2k");
+          const out = await encode(decoded, at.width, at.height, QUALITIES[0]);
+          if (!out || out.type !== "image/webp" || !(out.size < bytes.length)) return same("not-smaller");
+          return { blob: out, name: webpName(name), transcoded: true, from: bytes.length, to: out.size };
+        } finally { decoded.close?.(); }
+      }
+      return same(plan.reason);
+    }
+    if (resize && plan.maxPixels !== Infinity) {
+      const cap = RESIZE_MAX_SIDE * RESIZE_MAX_SIDE;
+      if (cap < plan.maxPixels) plan.maxPixels = cap;
+    } else if (resize) {
+      plan.maxPixels = RESIZE_MAX_SIDE * RESIZE_MAX_SIDE;
+    }
     const decoded = await decode(blob);
     try {
-      const { width, height } = scaledSize(decoded.width, decoded.height, plan.maxPixels);
+      const at = scaledSize(decoded.width, decoded.height, plan.maxPixels);
+      // The pixel budget is area-based (the core's rule); the 2k setting is
+      // about the longest side, so clamp it too when resize is on.
+      const side = resize ? scaledSideCap(at.width, at.height) : null;
+      if (side) { at.width = side.width; at.height = side.height; }
+      if (at.width * at.height < decoded.width * decoded.height) plan.scaled = true;
       for (const q of plan.targetBytes != null ? QUALITIES : QUALITIES.slice(0, 1)) {
-        const out = await encode(decoded, width, height, q);
+        const out = await encode(decoded, at.width, at.height, q);
         if (!out || out.type !== "image/webp") return same("no-webp-encoder");
         if (webpWins(bytes.length, out.size, plan)) {
           return { blob: out, name: webpName(name), transcoded: true, from: bytes.length, to: out.size };
