@@ -168,6 +168,7 @@ fn keychain_lookup(entry: Option<&keyring::Entry>) -> Lookup {
 /// must return the same key. A store that accepts the write but does not
 /// keep it (shared/foreign credential store, #527) must never lead to a
 /// re-key.
+#[cfg(not(target_os = "android"))]
 fn persist_verified(
     set: impl FnOnce(&str) -> Result<(), String>,
     get: impl FnOnce() -> Option<String>,
@@ -407,6 +408,7 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
 
 /// Scan, migrate and decide whether the sidecar may get the key. Called
 /// once per desktop startup, before the sidecar exists.
+#[cfg(any(target_os = "android", test))]
 pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
     prepare_dbs(account_dbs(accounts_root), key_hex)
 }
