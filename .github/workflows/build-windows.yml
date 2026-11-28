@@ -58,7 +58,7 @@ jobs:
       - name: Record bundle cache key
         id: bundle-key
         shell: bash
-        run: echo "hash=${{ hashFiles('velta-app/src-tauri/**', 'app/**', 'core/**', 'packages/attachment-crypto/**', '.github/workflows/build-windows.yml') }}" >> "$GITHUB_OUTPUT"
+        run: echo "hash=${{ hashFiles('velta-app/src-tauri/**', 'app/**', 'core/**', 'packages/attachment-crypto/**', 'velta-kmp/native/rpc-shim/**', '.github/workflows/build-windows.yml') }}" >> "$GITHUB_OUTPUT"
 
       # Hash sidecar inputs BEFORE rust-cache restores core/target/, which
       # would change hashFiles('core/**'). Restore the exe AFTER rust-cache

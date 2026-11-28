@@ -60,7 +60,7 @@ jobs:
       # same unsigned sidecar, so a hit is safe. Signed installers are not cached.
       - name: Record sidecar cache key
         id: sidecar-key
-        run: echo "hash=${{ hashFiles('core/**', 'packages/attachment-crypto/**', '.github/workflows/build-linux.yml') }}" >> "$GITHUB_OUTPUT"
+        run: echo "hash=${{ hashFiles('core/**', 'packages/attachment-crypto/**', 'velta-kmp/native/rpc-shim/**', '.github/workflows/build-linux.yml') }}" >> "$GITHUB_OUTPUT"
 
       # Record the bundle cache key BEFORE rust-cache restores core/target/
       # and src-tauri/target/ — build outputs inside those paths would change
@@ -68,7 +68,7 @@ jobs:
       # the sidecar key record above).
       - name: Record bundle cache key
         id: bundle-key
-        run: echo "hash=${{ hashFiles('velta-app/src-tauri/**', 'app/**', 'core/**', 'packages/attachment-crypto/**', '.github/workflows/build-linux.yml') }}" >> "$GITHUB_OUTPUT"
+        run: echo "hash=${{ hashFiles('velta-app/src-tauri/**', 'app/**', 'core/**', 'packages/attachment-crypto/**', 'velta-kmp/native/rpc-shim/**', '.github/workflows/build-linux.yml') }}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
