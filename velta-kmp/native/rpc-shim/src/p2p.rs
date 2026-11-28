@@ -1442,7 +1442,7 @@ impl P2p {
                 }
                 let mut rows = Vec::new();
                 for msg in peer.msgs.iter_mut() {
-                    if msg.dir != "out" || msg.state != "sent" || msg.retries >= ACK_RESEND_MAX {
+                    if msg.dir != "out" || msg.state != "sent" || msg.retries >= ACK_RESEND_MAX || msg.file.is_some() {
                         continue;
                     }
                     if now.saturating_sub(msg.ts) < ACK_RESEND_MS {
@@ -6980,6 +6980,37 @@ mod tests {
     #[test]
     fn no_fixed_file_cap_below_a_tb() {
         assert!(MAX_FILE_BYTES > 2 * 1024 * 1024 * 1024, "no 2 GB cap any more");
+    }
+
+    /// A file row is never re-sent as a text message by the ack sweep.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ack_sweep_leaves_file_rows_alone() {
+        let (alice, alice_rx) = start("alice11").await;
+        let (bob, _bob_rx) = start("bob11").await;
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+        let bob_id = bob.node_id();
+        let id = random_id();
+        {
+            let mut inner = alice.inner.lock().unwrap();
+            let peer = inner.peers.get_mut(&bob_id).unwrap();
+            peer.msgs.push(StoredMsg {
+                id: id.clone(),
+                ts: now_ms() - ACK_RESEND_MS - 5_000,
+                dir: "out".into(),
+                state: "sent".into(),
+                text: "caption".into(),
+                reply_to: None,
+                reply_text: None,
+                file: Some(StoredFile { name: "a.bin".into(), size: 1, mime: String::new(), path: "/x/a.bin".into() }),
+                retries: 0,
+            });
+        }
+        alice.ack_sweep();
+        let inner = alice.inner.lock().unwrap();
+        let row = inner.peers.get(&bob_id).unwrap().msgs.iter().find(|m| m.id == id).unwrap();
+        assert_eq!((row.state.as_str(), row.retries), ("sent", 0));
     }
 
     /// #544: a "sent" text whose frame died with its session is re-sent by
