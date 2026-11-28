@@ -36,7 +36,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')))
       || (github.event_name == 'workflow_run'
       && github.event.workflow_run.conclusion == 'success'
-      && github.event.workflow_run.event == 'push'
+      && (github.event.workflow_run.event == 'push'
+      || github.event.workflow_run.event == 'workflow_dispatch')
       && github.event.workflow_run.head_branch == 'master'
       && github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: ubuntu-latest
@@ -56,17 +57,23 @@ jobs:
             echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           elif [ -n "$RUN_ID_INPUT" ]; then
             # Manual dispatch: demand the same provenance the workflow_run
-            # path guarantees — only a master push run may ever reach
-            # velta.cc/web, and the checkout must be the run's own commit
-            # (#260). The input rides env, never straight into the shell.
+            # path guarantees — only a wasm run built from a master commit
+            # by a maintainer (push, or workflow_dispatch from master —
+            # wasm-core's own push trigger covers wasm-core/** branches
+            # only, so a master deploy is always dispatch-initiated) may
+            # ever reach velta.cc/web, and the checkout must be the run's
+            # own commit (#260). The input rides env, never straight into
+            # the shell.
             meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID_INPUT" --jq '{branch: .head_branch, event: .event, sha: .head_sha}')
             echo "$meta" | grep -q '"branch":"master"' || { echo "::error::run $RUN_ID_INPUT is not a master run"; exit 1; }
-            echo "$meta" | grep -q '"event":"push"' || { echo "::error::run $RUN_ID_INPUT was not a push"; exit 1; }
+            echo "$meta" | grep -Eq '"event":"(push|workflow_dispatch)"' || { echo "::error::run $RUN_ID_INPUT is neither a push nor a master dispatch"; exit 1; }
             echo "id=$RUN_ID_INPUT" >> "$GITHUB_OUTPUT"
             echo "sha=$(echo "$meta" | grep -o '"sha":"[^"]*"' | cut -d'"' -f4)" >> "$GITHUB_OUTPUT"
           else
-            id=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -e push -s success -L 1 --json databaseId --jq '.[0].databaseId')
-            sha=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -e push -s success -L 1 --json headSHA --jq '.[0].headSHA')
+            # Latest successful master run, push or maintainer dispatch.
+            lookup() { gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -e "$1" -s success -L 1 --json "$2" --jq '.[0].'"$2"; }
+            id=$(lookup push databaseId); [ -n "$id" ] || id=$(lookup workflow_dispatch databaseId)
+            sha=$(lookup push headSHA); [ -n "$sha" ] || sha=$(lookup workflow_dispatch headSHA)
             echo "id=$id" >> "$GITHUB_OUTPUT"
             echo "sha=$sha" >> "$GITHUB_OUTPUT"
           fi
