@@ -5,12 +5,14 @@ import { readFileSync } from "node:fs";
 const src = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
 // #126: identity restore reloaded 800 ms after the key import without saving,
-// so the next load had no login or keys.
+// so the next load had no login or keys. #331: the reload itself goes through
+// reloadAfterPersist() — the wasm core's OPFS checkpoint, not a timer — and
+// the explicit checkpoint await stays ahead of it.
 test("identity restore saves before it reloads", () => {
   const app = src("app/js/app.js");
   const fn = app.slice(app.indexOf("async function runIdentityRestore"), app.indexOf("function openIdentityBackup"));
   const save = fn.indexOf("await core.transport.checkpoint?.()");
-  const reload = fn.indexOf("location.reload()");
+  const reload = fn.indexOf("reloadAfterPersist()");
   assert.ok(save > 0 && reload > save, "checkpoint is awaited before the reload");
   assert.ok(fn.indexOf("importSelfKeys") < save, "after the keys are in");
 });
