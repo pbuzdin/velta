@@ -241,6 +241,7 @@ internal object LangFr {
         "File" to "Fichier",
         "Files" to "Fichiers",
         "Finalizing account" to "Finalisation du compte",
+        "Fingerprints changed. Unlock with your PIN, then turn the biometric lock on again." to "Les empreintes ont changé. Déverrouillez avec votre PIN, puis réactivez le verrouillage biométrique.",
         "Forget \"{name}\"? Its chat history and received files will be deleted. The device can re-pair with a new invite." to "Oublier « {name} » ? Son historique et les fichiers reçus seront supprimés. L'appareil pourra se réassocier avec une nouvelle invitation.",
         "Forward" to "Transférer",
         "Forward to…" to "Transférer vers…",
