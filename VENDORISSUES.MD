@@ -760,3 +760,13 @@ account is selected (headless/tests). The read now yields a `String`, so
 the `parse_vcard` op also covers the call line (`parse_vcard(&vcard)`); left
 outside the op at first, it showed up as tree-check drift. Velta-only
 sealing, so nothing goes upstream.
+
+### #478. Sync timing log (core/src/imap.rs)
+
+**Status: patched locally (quilt op "#478 sync timing log", 1 op, 1 file).** The
+measure-first instrument for the sync-speed track (#478-#483): `fetch_new_messages`
+now emits one `VELTA-SYNC-TIMING` info line per folder fetch run — transport id,
+folder, message count, wall seconds — so a cold-open backlog's cost is visible in
+Diagnostics without a debugger. Deliberately minimal: the newest-first (#479) and
+batch-insert/event-coalescing (#480) ops will anchor on the same loop and need this
+baseline to prove their win. A pure log line; nothing to take upstream.

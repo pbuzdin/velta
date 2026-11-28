@@ -535,11 +535,18 @@ impl Imap {
         }
 
         let mut read_cnt = 0;
+        // VELTA-SYNC-TIMING (#478): wall time for one folder's fetch run.
+        let velta_fetch_started = std::time::Instant::now();
         loop {
             let (n, fetch_more) =
                 Box::pin(self.fetch_new_msg_batch(context, session, folder)).await?;
             read_cnt += n;
             if !fetch_more {
+                info!(
+                    context,
+                    "VELTA-SYNC-TIMING {transport_id} {folder}: {read_cnt} messages in {:.2}s",
+                    velta_fetch_started.elapsed().as_secs_f64()
+                );
                 return Ok(read_cnt > 0);
             }
         }

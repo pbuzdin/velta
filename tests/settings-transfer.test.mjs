@@ -31,8 +31,14 @@ test("serialize: header with date, one key: value line per setting, stable order
   assert.match(text, /^message-corners: default$/m);
   assert.match(text, /^accent-color: default$/m);
   assert.match(text, /^bottom-bar-buttons: chats, contacts, calls, qr$/m);
-  assert.match(text, /^auto-download-limit: none$/m);
-  assert.match(UI, /"1048576", "1 MB"/);
+  // #478: the fresh-device default is 200KB (placeholders + background
+  // catch-up); "none" stays an explicit choice.
+  assert.match(text, /^auto-download-limit: 200KB$/m);
+  assert.match(UI, /"204800", "200 KB \(default\)"/);
+  assert.match(UI, /\["0", "No limit"\]/);
+  assert.match(APP, /savedDownloadLimit/);
+  assert.match(APP, /raw === "" \? "204800"/);
+  assert.doesNotMatch(UI, /No limit \(default\)/);
   assert.doesNotMatch(UI, /655360|640 KB/);
   assert.doesNotMatch(text, /#/, "no '#': it would render as a hashtag button");
   assert.match(text, /^loop-seal-media: on$/m);

@@ -1,4 +1,5 @@
 {
+  "Files above the limit are not downloaded automatically: tap them to download. Until then they stay on the relay (until the relay purges them, usually after about 7 days) and use relay storage. Leftover placeholders drain in the background afterwards, newest chat first.": "Файлы больше лимита сами не скачиваются: нажмите, чтобы загрузить. До тех пор они лежат на релеях (пока релей их не сотрёт, обычно примерно через 7 дней) и занимают там место. Оставшиеся заглушки докачаются в фоне позже, сначала последние чаты.",
   "Account changed; reopen the invite": "Профиль сменился; откройте приглашение заново",
   "Chat closed": "Чат закрыт",
   "Copy to clipboard": "Скопировать в буфер обмена",
@@ -152,7 +153,6 @@
   "Export settings to Saved Messages": "Экспорт настроек в Избранное",
   "File": "Файл",
   "Files": "Файлы",
-  "Files above the limit are not downloaded automatically: tap them to download. Until then they stay on the relay (until the relay purges them, usually after about 7 days) and use relay storage.": "Файлы больше лимита сами не скачиваются: нажмите, чтобы загрузить. До тех пор они лежат на релеях (пока релей их не сотрёт, обычно примерно через 7 дней) и занимают там место.",
   "Force background connection": "Держать фоновое соединение",
   "Force keeps background fetching alive under battery restrictions (asks Android for exemption).": "«Держать» не даёт батарее остановить фоновую загрузку (просит у Android исключение).",
   "Forward": "Переслать",
@@ -215,7 +215,6 @@
   "No catalog reachable": "Ни одно зеркало каталога не отвечает",
   "No commands yet": "Команд пока нет",
   "No files found": "Файлов нет",
-  "No limit (default)": "Без лимита (по умолчанию)",
   "No matching apps": "Нет подходящих приложений",
   "No photos": "Фото нет",
   "No videos": "Видео нет",
@@ -1814,5 +1813,7 @@
   "unknown error": "неизвестная ошибка",
   "Preparing for Velta Dash…": "Подготовка к Velta Dash…",
   "Preparing file…": "Подготовка файла…",
-  "Velta Dash didn't work, so the file went by email": "Velta Dash не сработал, поэтому файл ушёл по почте"
+  "Velta Dash didn't work, so the file went by email": "Velta Dash не сработал, поэтому файл ушёл по почте",
+  "200 KB (default)": "200 КБ (по умолчанию)",
+  "No limit": "Без лимита"
 }
