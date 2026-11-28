@@ -782,14 +782,19 @@ pub fn pin_wrap_write(path: &Path, pin: &str, dek_hex: &str) -> Result<(), Strin
     };
     let mut file = head;
     file.extend_from_slice(&ct);
-    write_atomic(path, &file)
+    write_atomic(path, &file)?;
+    // A fresh wrap starts from zero attempts.
+    let _ = std::fs::remove_file(pin_counter_path(path));
+    Ok(())
 }
 
 /// tmp + fsync + rename: a crash or full disk never leaves a torn or empty
 /// wrap, and an existing wrap is replaced only by a complete one.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
-    let tmp = path.with_extension("tmp");
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = path.with_file_name(tmp_name);
     let r = (|| -> std::io::Result<()> {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(bytes)?;
@@ -806,13 +811,45 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     })
 }
 
-/// Patch the clear-text attempts counter (offset 6..10) without rewrapping.
-fn pin_counter_store(path: &Path, counter: u32) {
-    if let Ok(mut bytes) = std::fs::read(path) {
-        if bytes.len() >= 10 {
-            bytes[6..10].copy_from_slice(&counter.to_le_bytes());
-            let _ = std::fs::write(path, bytes);
+/// The wrong-attempts counter lives in its own file next to the wrap
+/// (`dbkey.wrap.attempts`). An attempt never rewrites the wrap: it is the
+/// only copy of the key once the keychain item is gone, so a crash during an
+/// attempt must not be able to tear it. The header counter (bytes 6..10) is
+/// only read, for wraps written before this file existed.
+pub fn pin_counter_path(wrap: &Path) -> PathBuf {
+    let mut name = wrap.file_name().unwrap_or_default().to_os_string();
+    name.push(".attempts");
+    wrap.with_file_name(name)
+}
+
+/// Current counter: the side file when it is a complete record, else the
+/// legacy header value. A torn side file costs only the counter.
+fn pin_counter_load(wrap: &Path, header: u32) -> u32 {
+    match std::fs::read(pin_counter_path(wrap)) {
+        Ok(b) if b.len() == 4 => u32::from_le_bytes(b[..4].try_into().unwrap()),
+        _ => header,
+    }
+}
+
+/// Persist the counter via temp + fsync + rename; the wrap is not touched.
+/// A failed write is logged, not swallowed silently.
+fn pin_counter_store(wrap: &Path, counter: u32) {
+    let side = pin_counter_path(wrap);
+    if counter == 0 {
+        // A success clears the counter. The legacy header value is ignored
+        // once the side file says 0, so write 0 rather than delete when the
+        // header still holds an old count.
+        let header_zero = std::fs::read(wrap)
+            .ok()
+            .filter(|b| b.len() >= 10)
+            .is_some_and(|b| b[6..10] == [0, 0, 0, 0]);
+        if header_zero {
+            let _ = std::fs::remove_file(&side);
+            return;
         }
+    }
+    if let Err(e) = write_atomic(&side, &counter.to_le_bytes()) {
+        log(&format!("pin attempt counter not saved: {e}"));
     }
 }
 
@@ -844,7 +881,7 @@ pub fn pin_wrap_open(path: &Path, pin: &str) -> PinOpen {
     if bytes.len() != 86 || &bytes[0..5] != b"VLTDW" || bytes[5] != 1 {
         return PinOpen::Corrupt;
     }
-    let attempts = u32::from_le_bytes(bytes[6..10].try_into().unwrap());
+    let attempts = pin_counter_load(path, u32::from_le_bytes(bytes[6..10].try_into().unwrap()));
     let (salt, nonce, ct) = (&bytes[10..26], &bytes[26..38], &bytes[38..]);
     let mut aad = Vec::with_capacity(34);
     aad.extend_from_slice(&bytes[0..6]);
@@ -1578,13 +1615,55 @@ mod tests {
         assert!(persist_verified(|_| Ok(()), || Some(KEY.to_string()), KEY));
     }
 
+    /// An attempt must never rewrite the file that holds the only key wrap:
+    /// a crash mid-write would leave the profile keyless.
+    #[test]
+    fn wrong_attempt_never_rewrites_the_wrap() {
+        let dir = tmpdir();
+        let wrap = pin_wrap_path(&dir);
+        pin_wrap_write(&wrap, "123456", KEY).unwrap();
+        let before = std::fs::read(&wrap).unwrap();
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 1, .. }));
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 2, .. }));
+        assert_eq!(std::fs::read(&wrap).unwrap(), before, "wrap bytes changed on a wrong attempt");
+        assert!(matches!(pin_wrap_open(&wrap, "123456"), PinOpen::Dek(d) if d == KEY));
+        assert_eq!(std::fs::read(&wrap).unwrap(), before, "wrap bytes changed on a right attempt");
+    }
+
+    /// A torn/garbage counter file costs at most the counter, never the key.
+    #[test]
+    fn torn_counter_file_does_not_lose_the_key() {
+        let dir = tmpdir();
+        let wrap = pin_wrap_path(&dir);
+        pin_wrap_write(&wrap, "123456", KEY).unwrap();
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 1, .. }));
+        std::fs::write(pin_counter_path(&wrap), b"\x01").unwrap(); // torn
+        assert!(matches!(pin_wrap_open(&wrap, "123456"), PinOpen::Dek(d) if d == KEY));
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 1, .. }));
+    }
+
+    /// A legacy wrap with a non-zero in-header counter keeps backing off,
+    /// and re-wrapping (PIN change) starts from zero.
+    #[test]
+    fn legacy_header_counter_is_honoured_and_rewrap_resets() {
+        let dir = tmpdir();
+        let wrap = pin_wrap_path(&dir);
+        pin_wrap_write(&wrap, "123456", KEY).unwrap();
+        let mut b = std::fs::read(&wrap).unwrap();
+        b[6..10].copy_from_slice(&3u32.to_le_bytes());
+        std::fs::write(&wrap, &b).unwrap();
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 4, .. }));
+        pin_wrap_write(&wrap, "654321", KEY).unwrap();
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 1, .. }));
+    }
+
     #[test]
     fn wrap_write_is_atomic_and_replaces() {
         let dir = tmpdir();
         let wrap = pin_wrap_path(&dir);
         pin_wrap_write(&wrap, "123456", KEY).unwrap();
         pin_wrap_write(&wrap, "654321", OTHER).unwrap();
-        assert!(!wrap.with_extension("tmp").exists());
+        assert!(!wrap.with_file_name("dbkey.wrap.tmp").exists());
         assert!(matches!(pin_wrap_open(&wrap, "654321"), PinOpen::Dek(d) if d == OTHER));
     }
 
