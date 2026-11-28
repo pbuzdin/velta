@@ -64,7 +64,13 @@ impl AttachmentKey {
         let mut nonce = [0u8; NONCE_LEN];
         rand::fill(&mut nonce);
         let ct = cipher
-            .encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad })
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|_| anyhow::anyhow!("record encryption failed"))?;
         let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
         out.extend_from_slice(&nonce);
@@ -933,10 +939,20 @@ mod tests {
     fn records_round_trip_and_fail_closed() {
         let k = key();
         let rec = k.seal_record(b"messages-a", b"{\"x\":1}").unwrap();
-        assert!(!rec.windows(3).any(|w| w == b"\"x\""), "ciphertext, not plaintext");
+        assert!(
+            !rec.windows(3).any(|w| w == b"\"x\""),
+            "ciphertext, not plaintext"
+        );
         assert_eq!(k.open_record(b"messages-a", &rec).unwrap(), b"{\"x\":1}");
-        assert!(k.open_record(b"messages-b", &rec).is_err(), "bound to its aad");
-        assert!(AttachmentKey::from_bytes([8; 32]).open_record(b"messages-a", &rec).is_err());
+        assert!(
+            k.open_record(b"messages-b", &rec).is_err(),
+            "bound to its aad"
+        );
+        assert!(
+            AttachmentKey::from_bytes([8; 32])
+                .open_record(b"messages-a", &rec)
+                .is_err()
+        );
         let mut bad = rec.clone();
         *bad.last_mut().unwrap() ^= 1;
         assert!(k.open_record(b"messages-a", &bad).is_err());
