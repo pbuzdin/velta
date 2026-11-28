@@ -322,12 +322,14 @@ impl FileRx {
     }
 }
 
-/// Cap for one local-chat media transfer — the same 2 GB the Dash (iroh)
-/// fetch path enforces in [`crate::xfer::MAX_FILE`]. A larger offer must be
-/// refused at accept (clear message), not after the receiver's fetch fails
-/// with `TooLarge` (the old 1 TiB bound let a 1:1 sender spool a file no
-/// Dash receiver accepts — #557).
-const MAX_FILE_BYTES: u64 = crate::xfer::MAX_FILE;
+/// Cap for one local-chat media transfer.
+// #454: the 1:1 path streams from disk with session credits, so this is a
+// sanity bound, not a RAM guard: the real limit is free space, checked by
+// both ends before a byte is written (see `require_space`). Releases up to
+// 1.5.x still refuse anything over 2 GB. The receiver discards torn
+// partials by the size check on FileEnd. Loop never goes through
+// `xfer::fetch`, so the Dash cap (`xfer::MAX_FILE`) does not apply here.
+const MAX_FILE_BYTES: u64 = 1 << 40;
 /// Head room kept free on top of a transfer (the OS, the database, logs).
 const FREE_SPACE_MARGIN: u64 = 256 * 1024 * 1024;
 /// How long a resuming sender waits for the receiver's FileResume before
@@ -1472,15 +1474,15 @@ impl P2p {
         self.persist_messages(&node, &[row]);
     }
 
-fn fail_send(&self, node: &NodeId, id: &str, reason: &str) {
-    // #557: a spool/launch failure must not leave the cancel handle in
-    // out_files — the card stays "Sending" with no terminal state.
-    self.out_files.lock().unwrap().remove(id);
-    self.sink.emit(json!({
-        "kind": "file-progress", "peerId": node.to_string(), "id": id, "dir": "send",
-        "failed": true, "reason": reason,
-    }));
-}
+    fn fail_send(&self, node: &NodeId, id: &str, reason: &str) {
+        // Defensive: every caller today has already removed (or never
+        // inserted) the out_files entry; keep the terminal state self-contained.
+        self.out_files.lock().unwrap().remove(id);
+        self.sink.emit(json!({
+            "kind": "file-progress", "peerId": node.to_string(), "id": id, "dir": "send",
+            "failed": true, "reason": reason,
+        }));
+    }
 
     fn file_link(&self, node: &NodeId) -> Option<FileLink> {
         let inner = self.inner.lock().unwrap();
@@ -8350,8 +8352,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fail_send_drops_the_out_files_cancel_handle() {
-        // #557: a spool/launch failure must not leave a dangling cancel handle
-        // in out_files — the card stays "Sending" with no terminal state.
+        // fail_send clears the out_files entry itself. No caller leaves one
+        // behind today (launch removes it first), so the entry is inserted by
+        // hand: this pins the defensive cleanup, not a reproduced bug.
         let (a, _ev) = start("failout1").await;
         let peer = add_fake_peer(&a, PeerKind::Paired, 2);
         let id = "failout-id".to_string();
@@ -8362,7 +8365,7 @@ mod tests {
 
     #[test]
     fn free_space_refusal_and_new_cap() {
-        assert_eq!(MAX_FILE_BYTES, 2 * 1024 * 1024 * 1024, "the 1:1 cap matches the 2 GB Dash cap (#557)");
+        assert!(MAX_FILE_BYTES > 2 * 1024 * 1024 * 1024, "no 2 GB cap any more");
         let d = std::env::temp_dir();
         assert!(require_space(&d, 1).is_ok());
         let err = require_space(&d, u64::MAX / 2).unwrap_err().to_string();

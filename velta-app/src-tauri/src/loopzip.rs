@@ -652,10 +652,14 @@ pub fn extract_to<R: Read + Seek>(r: &mut R, dest: &mut dyn Dest, mut progress: 
     let mut done = 0u64;
     let mut wrote = 0usize;
     let mut buf = vec![0u8; BUF];
-    for e in entries {
-        let Some(rel) = safe_rel(&e.name) else { continue };
-        if e.is_dir() {
-            dest.mkdir(&rel)?;
+    // #557: check every local header (signature, method) before the first
+    // byte is written, so a refusal leaves nothing half-extracted behind.
+    // Velta's own zips are STORE-only (#454); `list` already refuses a
+    // non-STORE central entry, this catches a local header that disagrees.
+    let mut starts = Vec::with_capacity(entries.len());
+    for e in &entries {
+        if e.is_dir() || safe_rel(&e.name).is_none() {
+            starts.push(0);
             continue;
         }
         r.seek(SeekFrom::Start(e.offset))?;
@@ -664,16 +668,19 @@ pub fn extract_to<R: Read + Seek>(r: &mut R, dest: &mut dyn Dest, mut progress: 
         if le32(&h, 0) != LOCAL_SIG {
             bail!("{}: bad local header", e.name);
         }
-        let skip = le16(&h, 26) as i64 + le16(&h, 28) as i64;
-        r.seek(SeekFrom::Current(skip))?;
-        // Velta's own zips are STORE-only (#454). A deflate (or any other
-        // method) entry must be refused up front with a clear error — never
-        // copied as plaintext and never left as a silently-empty/garbage
-        // file (#557).
         let method = le16(&h, 8);
         if method != 0 {
             bail!("{}: unsupported compression method {method} (Velta zips are STORE-only)", e.name);
         }
+        starts.push(e.offset + 30 + le16(&h, 26) as u64 + le16(&h, 28) as u64);
+    }
+    for (e, data_at) in entries.into_iter().zip(starts) {
+        let Some(rel) = safe_rel(&e.name) else { continue };
+        if e.is_dir() {
+            dest.mkdir(&rel)?;
+            continue;
+        }
+        r.seek(SeekFrom::Start(data_at))?;
         let res: Result<()> = (|| {
             let mut out = std::io::BufWriter::with_capacity(BUF, dest.create(&rel)?);
             let mut left = e.size;
@@ -771,22 +778,35 @@ mod tests {
 
     #[test]
     fn deflate_entry_is_refused_not_copied() {
-        // Velta zips are STORE-only (#454); an older/foreign zip carrying a
-        // deflate local header must be refused up front (#557), never copied
-        // as plaintext. Twist one STORE entry's method byte to 8.
+        // Velta zips are STORE-only (#454); a local header that claims
+        // deflate must be refused before anything is written (#557), never
+        // copied as plaintext. Twist only the LAST file entry, so files
+        // ahead of it in the archive would be extracted by a lazy check.
         let src = tree();
         let z = FolderZip::plan(src.path()).unwrap();
         let mut bytes = zip_bytes(&z);
-        // Velta zips are STORE-only (#454); an older/foreign zip carrying a
-        // deflate local header must be refused up front (#557), never copied
-        // as plaintext. Twist every STORE entry's method byte to 8.
-        for i in 0..bytes.len().saturating_sub(4) {
-            if bytes[i..i + 4] == [0x50, 0x4b, 0x03, 0x04] { bytes[i + 8] = 8; }
-        }
+        let entries = list(&mut std::io::Cursor::new(&bytes)).unwrap();
+        let last = entries.iter().rev().find(|e| !e.is_dir()).unwrap();
+        let at = last.offset as usize;
+        assert_eq!(le32(&bytes, at), LOCAL_SIG);
+        bytes[at + 8] = 8;
         let out = tempfile::tempdir().unwrap();
-        let err = extract(&mut std::io::Cursor::new(&bytes), &out.path().join("x"), |_, _| {}).unwrap_err();
+        let x = out.path().join("x");
+        let err = extract(&mut std::io::Cursor::new(&bytes), &x, |_, _| {}).unwrap_err();
         assert!(err.to_string().contains("unsupported compression method 8"), "{err}");
-        assert!(!out.path().join("x").join("top.txt").exists(), "no file was written before the refusal");
+        assert!(err.to_string().contains(&last.name), "{err}");
+        let left: Vec<_> = walk(&x);
+        assert!(left.is_empty(), "nothing written before the refusal: {left:?}");
+    }
+
+    fn walk(d: &Path) -> Vec<PathBuf> {
+        let mut v = Vec::new();
+        let Ok(rd) = std::fs::read_dir(d) else { return v };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() { v.extend(walk(&p)); } else { v.push(p); }
+        }
+        v
     }
 
     #[test]

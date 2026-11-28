@@ -61,7 +61,9 @@ test("tracker: 0 after progress = failed", () => {
   assert.equal(tr.state.stage, "failed");
 });
 
-test("tracker: terminal permille wins and stale events can't regress it (#557)", () => {
+test("tracker: terminal permille wins and stale events can't regress it (pins existing behaviour)", () => {
+  // finish(true) sets permille 1000 and `st.ended` drops later events; this
+  // was already so before #557 and the test only keeps it that way.
   const listeners = new Set();
   const core = { addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f) };
   const tr = createTransferTracker({ core, kind: "receive" });

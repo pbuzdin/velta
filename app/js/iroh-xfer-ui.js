@@ -58,6 +58,7 @@ const cardsStore = () => jsonStore(`velta-xfer-cards:${account}`);
 function loadCards() {
   cardState.clear();
   validatedCopies.clear();
+  checkingCopies.clear();
   for (const [h, st] of Object.entries(cardsStore().load())) if (st && typeof st === "object") cardState.set(h, st);
 }
 function saveCards() {
@@ -78,26 +79,37 @@ function saveCards() {
  *  stored copy once per session against the live key (xfer_file_size opens
  *  the VLTA header) and drop it on failure: incoming cards fetch again,
  *  outgoing cards just lose the dead preview. */
-const validatedCopies = new Set();
+const validatedCopies = new Set(); // hashes whose stored copy opened this session
+const checkingCopies = new Set();  // hashes with a size read still in flight
 function revalidateStoredCopy(hash, st, incomingText) {
-  // The guard must FOLLOW the async check, not precede it: a same-hash
-  // resend in one session (peer resent while our stale outgoing state is
-  // still in cardState) has to revalidate each time, or the stale "done"
-  // flag suppresses the re-fetch and the card shows a phantom "Received"
-  // over a dead copy. The set is per-account (useAccount clears it) and a
-  // direction flip rebuilds the state, so the fetch never stays blocked.
   if (!env?.invoke) return;
-  if (validatedCopies.has(hash) && !st.outgoing && st.path) return;
+  // Direction flip: the peer resent the same content (same hash) while the
+  // known state is OUR old outgoing offer whose copy is already gone — after
+  // a profile recreate the engine even lost the offer itself (its
+  // offers.json was sealed under the old key, so the sweep reports it
+  // "missing"). The dead outgoing state must not block the incoming card:
+  // the peer's fresh ticket is fetchable. Checked before the dedupe below,
+  // so a hash seen earlier in the session can still flip.
   if (incomingText && st.outgoing && !st.path) { convertToIncoming(hash, st, incomingText); return; }
-  if (!st.path) return;
-  withTimeout(env.invoke("xfer_file_size", { path: st.path }), limits.metaMs, "xfer_file_size").then((len) => {
-    if (st.size == null && Number.isFinite(len)) { st.size = len; saveCards(); }
-    validatedCopies.add(hash); // size read worked under the live key: revalidated
+  // noteCard runs on every render: one size read per copy per session, and
+  // none while one is already running.
+  if (!st.path || validatedCopies.has(hash) || checkingCopies.has(hash)) return;
+  const path = st.path;
+  checkingCopies.add(hash);
+  withTimeout(env.invoke("xfer_file_size", { path }), limits.metaMs, "xfer_file_size").then((len) => {
+    checkingCopies.delete(hash);
+    const cur = cardState.get(hash);
+    if (!cur || cur.path !== path) return; // the card moved on meanwhile
+    if (cur.size == null && Number.isFinite(len)) { cur.size = len; saveCards(); }
+    validatedCopies.add(hash);
   }).catch(() => {
+    checkingCopies.delete(hash);
     const cur = cardState.get(hash);
     if (!cur) return;
     if (cur.outgoing && incomingText) { convertToIncoming(hash, cur, incomingText); return; }
-    if (!cur.path) return;
+    // A fetch or a restage wrote a new copy while this read was pending: the
+    // failure is about the old path and must not wipe the new one.
+    if (cur.path !== path) return;
     sink("info", `stored copy of ${cur.name || hash.slice(0, 8)} is gone or unreadable — ${cur.outgoing ? "dropping the preview" : "fetching again"}`);
     cur.path = undefined;
     if (!cur.outgoing) { cur.done = false; cur.error = undefined; }
@@ -654,8 +666,6 @@ function useAccount(id) {
   peerCache.clear();
   health = { at: 0, value: null };
   resendSeen.clear();
-  validatedCopies.clear(); // per-account like the card store: a same-hash
-                           // resend after switching profiles must revalidate
   loadCards();
   transport?.setStore?.(jsonStore(`velta-xfer-pending:${account}`));
 }
