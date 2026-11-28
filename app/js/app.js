@@ -123,6 +123,16 @@ function errToast(text, ms = 3000) {
   diagnosticsSink.append("error", text);
   toast(text, ms);
 }
+
+// Reload AFTER the core's state reached durable storage. The wasm core
+// reaches OPFS only through a checkpoint (8 s interval); a reload fired on a
+// timer comes back to an older snapshot, where a just-imported backup shows
+// the welcome screen with an empty account (#331). No-op checkpoint on Tauri;
+// a failing checkpoint must not strand the user on the progress modal, so
+// the page still reloads (it reports the error on load).
+function reloadAfterPersist() {
+  Promise.resolve(core._persist?.()).catch(() => {}).then(() => location.reload());
+}
 let core = null;
 // Multi-device switch state (see ensureMultiDevice). Declared up here, not
 // next to its functions: event callbacks (imex-progress, resume) can run
@@ -5003,7 +5013,7 @@ function openProfileManagement() {
       prog.update(t("Profile restored — restarting"));
       localStorage.setItem("velta-ask-notifications", "1");
       core._proxyReapply?.();
-      setTimeout(() => location.reload(), 800);
+      reloadAfterPersist();
     };
     const finishErr = async (msg) => {
       if (settled) return;
@@ -5988,7 +5998,7 @@ async function runIdentityRestore(file, pass, onPhase) {
   onPhase(t("Saving profile…"));
   await core.transport.checkpoint?.();
   onPhase(t("Done — reloading…"));
-  setTimeout(() => location.reload(), 800);
+  reloadAfterPersist();
 }
 
 function openIdentityBackup({ restoreOnly = false } = {}) {
@@ -7011,7 +7021,7 @@ function showSplash() {
         addStep(t("Profile restored — restarting"));
         core.removeEventListener("imex-progress", onProg);
         localStorage.setItem("velta-ask-notifications", "1");
-        setTimeout(() => location.reload(), 800);
+        reloadAfterPersist();
       } else if (p > 0) {
         seenProgress = true;
         prog.textContent = t("Restoring profile… {n}%", { n: Math.round(p / 10) });
