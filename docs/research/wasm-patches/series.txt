@@ -24,3 +24,10 @@
 # 0012 (#331): wasm has no sqlcipher_export. Empty-passphrase export uses
 # VACUUM INTO + MemVfs→memfs copy; import uses import_db. Passphrase and
 # SQLCipher-format files fail with a clear error. Native path unchanged.
+
+0013-wasm-imex-export_backup_stream-blob-loop-read_bytes.patch
+# 0013 (#331): export_backup_stream blob loop used SyncIoBridge +
+# spawn_blocking, which call Handle::current() — no Tokio runtime on
+# wasm32, so any profile with a blob panicked at the first entry. The
+# wasm32 branch reads the blob and appends the bytes to the tar directly.
+# Native path unchanged.
