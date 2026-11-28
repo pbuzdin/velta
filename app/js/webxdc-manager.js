@@ -79,6 +79,7 @@ export function initWebxdc(coreInstance) {
     closeWebxdc();
     serials.clear();
     infoCache.clear(); // msg ids are per-account
+    trustCache.clear(); // so is the trust verdict keyed by msg id
   });
 }
 
@@ -106,8 +107,8 @@ async function fetchUpdates(msgId, since) {
   return { updates, serial: maxSerial };
 }
 
-function post(payload) {
-  try { active?.iframe?.contentWindow?.postMessage(payload, "*"); } catch {}
+function post(payload, target = active) {
+  try { target?.iframe?.contentWindow?.postMessage(payload, "*"); } catch {}
 }
 
 // The whole update object goes to core verbatim (both hosts: native shim
@@ -203,7 +204,7 @@ function trustFor(msgId) {
   if (!trustCache.has(msgId)) {
     const p = readAppBytes(msgId).then((b) => trustedAppName(b), () => null);
     trustCache.set(msgId, p);
-    p.then((v) => { if (v === null) trustCache.delete(msgId); }); // retry later (file not there yet)
+    p.then((v) => { if (v === null && trustCache.get(msgId) === p) trustCache.delete(msgId); }); // retry later (file not there yet)
   }
   return trustCache.get(msgId);
 }
@@ -645,9 +646,14 @@ function onWindowMessage(e) {
   if (e.source !== active.iframe?.contentWindow) return;
   const d = e.data || {};
   if (d.type !== "velta-webxdc-call") return;
+  // The answer goes back to the app that asked. A call that outlives its
+  // app (a file picker, a slow RPC) must not reach whichever app is open
+  // when it settles.
+  const asker = active;
+  const reply = (payload) => { if (active === asker) post(payload, asker); };
   handleCall(d)
-    .then((result) => post({ type: "velta-webxdc-response", id: d.id, result }))
-    .catch((error) => post({ type: "velta-webxdc-response", id: d.id, error: String(error?.message || error) }));
+    .then((result) => reply({ type: "velta-webxdc-response", id: d.id, result }))
+    .catch((error) => reply({ type: "velta-webxdc-response", id: d.id, error: String(error?.message || error) }));
 }
 
 // BACK pops the entry pushed by openWebxdc; ✕/programmatic closes consume
