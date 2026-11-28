@@ -21,8 +21,7 @@ on:
         required: false
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 concurrency:
   group: pwa-web
@@ -30,8 +29,20 @@ concurrency:
 
 jobs:
   publish:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request') }}
+    # Publishing runs only on pbuzdin/velta, for a manual dispatch from master
+    # or a tag, or for a successful master push run of this repository.
+    if: >-
+      ${{ github.repository == 'pbuzdin/velta' && (
+      (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')))
+      || (github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'master'
+      && github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -54,8 +65,8 @@ jobs:
             echo "id=$RUN_ID_INPUT" >> "$GITHUB_OUTPUT"
             echo "sha=$(echo "$meta" | grep -o '"sha":"[^"]*"' | cut -d'"' -f4)" >> "$GITHUB_OUTPUT"
           else
-            id=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -s success -L 1 --json databaseId --jq '.[0].databaseId')
-            sha=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -s success -L 1 --json headSHA --jq '.[0].headSHA')
+            id=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -e push -s success -L 1 --json databaseId --jq '.[0].databaseId')
+            sha=$(gh run list -R "$GITHUB_REPOSITORY" -w 'wasm-core (opt-in)' -b master -e push -s success -L 1 --json headSHA --jq '.[0].headSHA')
             echo "id=$id" >> "$GITHUB_OUTPUT"
             echo "sha=$sha" >> "$GITHUB_OUTPUT"
           fi
