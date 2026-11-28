@@ -379,7 +379,7 @@ async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), Strin
     let dir = accounts_dir(&app);
     let raw = {
         let dir = dir.clone();
-        tauri::async_runtime::spawn_blocking(move || db_key::pin_unlock(&dir, &dir.join("accounts"), &pin))
+        tauri::async_runtime::spawn_blocking(move || db_key::pin_unlock(&dir, &pin))
             .await
             .map_err(|e| e.to_string())??
     };
@@ -494,7 +494,7 @@ async fn unlock_with_hello(app: tauri::AppHandle) -> Result<(), String> {
         let dir = accounts_dir(&app);
         let identity = app.config().identifier.clone();
         let raw = tauri::async_runtime::spawn_blocking(move || {
-            db_key::hello_unlock(&dir, &dir.join("accounts"), &identity)
+            db_key::hello_unlock(&dir, &identity)
         })
         .await
         .map_err(|e| e.to_string())??;

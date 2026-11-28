@@ -164,14 +164,38 @@ fn keychain_lookup(entry: Option<&keyring::Entry>) -> Lookup {
     }
 }
 
-/// Generate and store a new DEK. `None` = the keychain refused the write.
+/// Store `hex` and prove it stuck: the write must succeed AND a fresh read
+/// must return the same key. A store that accepts the write but does not
+/// keep it (shared/foreign credential store, #527) must never lead to a
+/// re-key.
+fn persist_verified(
+    set: impl FnOnce(&str) -> Result<(), String>,
+    get: impl FnOnce() -> Option<String>,
+    hex: &str,
+) -> bool {
+    if let Err(e) = set(hex) {
+        log(&format!("keychain write failed: {e}"));
+        return false;
+    }
+    if get().as_deref() != Some(hex) {
+        log("keychain read-back mismatch after write; not using the new key");
+        return false;
+    }
+    true
+}
+
+/// Generate and store a new DEK. `None` = the keychain refused or lost it.
 #[cfg(not(target_os = "android"))]
 fn create_dek(entry: Option<&keyring::Entry>) -> Option<String> {
     let entry = entry?;
     let bytes = crate::random_bytes::<32>();
     let hex: String = data_encoding::HEXLOWER.encode(&bytes);
-    if let Err(e) = entry.set_password(&hex) {
-        log(&format!("keychain write failed: {e}"));
+    let ok = persist_verified(
+        |h| entry.set_password(h).map_err(|e| e.to_string()),
+        || entry.get_password().ok(),
+        &hex,
+    );
+    if !ok {
         return None;
     }
     log("generated a new database key");
@@ -384,6 +408,10 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
 /// Scan, migrate and decide whether the sidecar may get the key. Called
 /// once per desktop startup, before the sidecar exists.
 pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
+    prepare_dbs(account_dbs(accounts_root), key_hex)
+}
+
+fn prepare_dbs(mut dbs: Vec<PathBuf>, key_hex: Option<&str>) -> Prepare {
     let mut state = Prepare {
         use_key: false,
         migrated: 0,
@@ -391,8 +419,6 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
         locked: 0,
     };
     let mut failed = 0;
-
-    let mut dbs = account_dbs(accounts_root);
 
     // Crash between the two swap renames: dc.db gone, plaintext backup
     // present. Restore it first — otherwise the core would create a fresh
@@ -500,22 +526,45 @@ fn has_encrypted_any(data_dir: &Path) -> bool {
     core_roots(data_dir).iter().any(|r| has_encrypted(r))
 }
 
-/// `prepare` over every candidate root, results summed.
+/// The databases of THIS identity's core accounts under `root`: only a root
+/// that holds `accounts.toml`, and only child dirs the toml names. Anything
+/// else under the data dir (a nested accounts tree, p2p-blobs, stray files)
+/// is never encrypted by us.
+#[cfg(not(target_os = "android"))]
+fn listed_account_dbs(root: &Path) -> Vec<PathBuf> {
+    let Ok(toml) = std::fs::read_to_string(root.join("accounts.toml")) else {
+        return Vec::new();
+    };
+    account_dbs(root)
+        .into_iter()
+        .filter(|db| {
+            db.parent()
+                .and_then(|d| d.file_name())
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| toml.contains(n))
+        })
+        .collect()
+}
+
+/// `prepare` over every candidate root (core accounts only), results summed.
 #[cfg(not(target_os = "android"))]
 pub fn prepare_all(data_dir: &Path, key_hex: Option<&str>) -> Prepare {
     let mut total = Prepare { use_key: false, migrated: 0, already: 0, locked: 0 };
     let mut any_key = false;
+    let mut any_db = false;
     for r in core_roots(data_dir) {
-        if !r.is_dir() {
+        let dbs = listed_account_dbs(&r);
+        if dbs.is_empty() {
             continue;
         }
-        let p = prepare(&r, key_hex);
+        any_db = true;
+        let p = prepare_dbs(dbs, key_hex);
         any_key |= p.use_key;
         total.migrated += p.migrated;
         total.already += p.already;
         total.locked += p.locked;
     }
-    total.use_key = any_key || (key_hex.is_some() && core_roots(data_dir).iter().all(|r| account_dbs(r).is_empty()));
+    total.use_key = any_key || (key_hex.is_some() && !any_db);
     total
 }
 
@@ -695,7 +744,28 @@ pub fn pin_wrap_write(path: &Path, pin: &str, dek_hex: &str) -> Result<(), Strin
     };
     let mut file = head;
     file.extend_from_slice(&ct);
-    std::fs::write(path, file).map_err(|e| format!("wrap write failed: {e}"))
+    write_atomic(path, &file)
+}
+
+/// tmp + fsync + rename: a crash or full disk never leaves a torn or empty
+/// wrap, and an existing wrap is replaced only by a complete one.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let tmp = path.with_extension("tmp");
+    let r = (|| -> std::io::Result<()> {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        if let Some(d) = path.parent() {
+            sync_dir(d);
+        }
+        Ok(())
+    })();
+    r.map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("wrap write failed: {e}")
+    })
 }
 
 /// Patch the clear-text attempts counter (offset 6..10) without rewrapping.
@@ -839,7 +909,7 @@ pub fn pin_clear(data_dir: &Path, pin: &str, identity: &str) -> Result<(), Strin
 /// Verify `pin` and migrate any plaintext databases — returns the raw key
 /// for the respawned sidecar env. The wrap's counter resets on success.
 #[cfg(not(target_os = "android"))]
-pub fn pin_unlock(data_dir: &Path, accounts_root: &Path, pin: &str) -> Result<String, String> {
+pub fn pin_unlock(data_dir: &Path, pin: &str) -> Result<String, String> {
     let path = pin_wrap_path(data_dir);
     let hex = match pin_wrap_open(&path, pin) {
         PinOpen::Dek(hex) => hex,
@@ -849,7 +919,11 @@ pub fn pin_unlock(data_dir: &Path, accounts_root: &Path, pin: &str) -> Result<St
         }
         PinOpen::Corrupt => return Err("corrupt".to_string()),
     };
-    let _ = accounts_root; // callers pass a single level; cover both
+    // #527: never re-key unless the wrap that holds this DEK is durably on
+    // disk where startup() reads it.
+    if !pin_wrap_path(data_dir).is_file() {
+        return Err("wrap-missing".to_string());
+    }
     let report = prepare_all(data_dir, Some(&hex));
     if !report.use_key {
         return Err("prepare-failed".to_string());
@@ -962,7 +1036,7 @@ pub fn hello_set(data_dir: &Path, pin: Option<&str>, identity: &str) -> Result<(
     file.push(1);
     file.extend_from_slice(&ct);
     let path = hello_wrap_path(data_dir);
-    std::fs::write(&path, &file).map_err(|e| format!("wrap write failed: {e}"))?;
+    write_atomic(&path, &file)?;
     drop_keychain(identity);
     log("Windows Hello is now a key root; keychain item removed");
     Ok(())
@@ -993,9 +1067,8 @@ pub fn hello_clear(data_dir: &Path, identity: &str) -> Result<(), String> {
 /// Prompt Hello and migrate any plaintext databases. Returns the raw key
 /// for the respawned sidecar env.
 #[cfg(windows)]
-pub fn hello_unlock(data_dir: &Path, accounts_root: &Path, identity: &str) -> Result<String, String> {
+pub fn hello_unlock(data_dir: &Path, identity: &str) -> Result<String, String> {
     let hex = hello_dek(data_dir)?;
-    let _ = accounts_root;
     let report = prepare_all(data_dir, Some(&hex));
     if !report.use_key {
         return Err("prepare-failed".to_string());
@@ -1316,24 +1389,25 @@ mod tests {
     fn pin_unlock_migrates_and_returns_the_key() {
         let dir = tmpdir();
         let db = plant_plain_db(&dir.join("acc1"), 2);
+        std::fs::write(dir.join("accounts.toml"), "acc1").unwrap();
         pin_wrap_write(&pin_wrap_path(&dir), "654321", KEY).unwrap();
         assert!(pin_locked(&dir));
 
-        let raw = pin_unlock(&dir, &dir, "654321").unwrap();
+        let raw = pin_unlock(&dir, "654321").unwrap();
         assert_eq!(raw, format!("x'{KEY}'"));
         assert_eq!(keyed_count(&db, KEY, "SELECT count(*) FROM msgs"), 2);
         assert!(!opens(&db, None));
 
         // Wrong PIN: retry backoff, data untouched.
         assert!(matches!(
-            pin_unlock(&dir, &dir, "000000"),
+            pin_unlock(&dir, "000000"),
             Err(e) if e.starts_with("retry:")
         ));
         assert!(opens(&db, Some(KEY)));
         assert_eq!(keyed_count(&db, KEY, "SELECT count(*) FROM msgs"), 2);
 
         // Second unlock: already encrypted, same key back.
-        assert_eq!(pin_unlock(&dir, &dir, "654321").unwrap(), raw);
+        assert_eq!(pin_unlock(&dir, "654321").unwrap(), raw);
     }
 
     /// #541: shallow layout (`<data>/<uuid>/dc.db`, what the sidecar uses).
@@ -1373,11 +1447,75 @@ mod tests {
     fn pin_unlock_migrates_shallow_layout() {
         let dir = tmpdir();
         let db = plant_plain_db(&dir.join("acc1"), 3);
+        std::fs::write(dir.join("accounts.toml"), "acc1").unwrap();
         pin_wrap_write(&pin_wrap_path(&dir), "654321", KEY).unwrap();
         // callers used to pass <data>/accounts, which is empty here
-        let raw = pin_unlock(&dir, &dir.join("accounts"), "654321").unwrap();
+        let raw = pin_unlock(&dir, "654321").unwrap();
         assert_eq!(raw, format!("x'{KEY}'"));
         assert!(opens(&db, Some(KEY)));
+    }
+
+    /// Nested layout: root is <data>/accounts, wrap is in <data>.
+    #[test]
+    fn pin_unlock_migrates_nested_layout() {
+        let dir = tmpdir();
+        let root = dir.join("accounts");
+        let db = plant_plain_db(&root.join("acc1"), 3);
+        std::fs::write(root.join("accounts.toml"), "acc1").unwrap();
+        pin_wrap_write(&pin_wrap_path(&dir), "654321", KEY).unwrap();
+        pin_unlock(&dir, "654321").unwrap();
+        assert!(opens(&db, Some(KEY)));
+    }
+
+    /// #527: no wrap, no re-key. A keyless plaintext store must stay
+    /// plaintext when unlock has nothing durable to stand on.
+    #[test]
+    fn pin_unlock_without_wrap_never_rekeys() {
+        for nested in [false, true] {
+            let dir = tmpdir();
+            let root = if nested { dir.join("accounts") } else { dir.clone() };
+            let db = plant_plain_db(&root.join("acc1"), 2);
+            std::fs::write(root.join("accounts.toml"), "acc1").unwrap();
+            assert!(pin_unlock(&dir, "654321").is_err());
+            assert!(opens(&db, None), "store must stay plaintext (nested={nested})");
+        }
+    }
+
+    /// A credential store that accepts the write but does not keep it must
+    /// not yield a key (the shared-store loss behind #527).
+    #[test]
+    fn persist_verified_rejects_lost_writes() {
+        assert!(!persist_verified(|_| Ok(()), || None, KEY));
+        assert!(!persist_verified(|_| Ok(()), || Some(OTHER.to_string()), KEY));
+        assert!(!persist_verified(|_| Err("denied".into()), || Some(KEY.to_string()), KEY));
+        assert!(persist_verified(|_| Ok(()), || Some(KEY.to_string()), KEY));
+    }
+
+    #[test]
+    fn wrap_write_is_atomic_and_replaces() {
+        let dir = tmpdir();
+        let wrap = pin_wrap_path(&dir);
+        pin_wrap_write(&wrap, "123456", KEY).unwrap();
+        pin_wrap_write(&wrap, "654321", OTHER).unwrap();
+        assert!(!wrap.with_extension("tmp").exists());
+        assert!(matches!(pin_wrap_open(&wrap, "654321"), PinOpen::Dek(d) if d == OTHER));
+    }
+
+    /// (b) prepare_all only encrypts dbs the core's accounts.toml names, at
+    /// a root that has one: a stray dc.db, an unlisted dir and a nested
+    /// tree under a shallow root stay untouched.
+    #[test]
+    fn prepare_all_touches_only_listed_core_accounts() {
+        let dir = tmpdir();
+        let mine = plant_plain_db(&dir.join("uuid-mine"), 1);
+        let stray = plant_plain_db(&dir.join("p2p-blobs"), 1);
+        let nested = plant_plain_db(&dir.join("accounts").join("uuid-n"), 1); // no toml at that level
+        std::fs::write(dir.join("accounts.toml"), "uuid-mine").unwrap();
+        let p = prepare_all(&dir, Some(KEY));
+        assert_eq!(p.migrated, 1);
+        assert!(opens(&mine, Some(KEY)));
+        assert!(opens(&stray, None), "unlisted dir untouched");
+        assert!(opens(&nested, None), "nested tree without its own toml untouched");
     }
 
     #[cfg(target_os = "android")]
