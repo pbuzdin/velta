@@ -2666,7 +2666,19 @@ impl P2p {
                 });
                 let row = peer.msgs.last().cloned();
                 drop(inner);
-                self.persist_messages(&node_id, row.as_slice());
+                if !self.persist_messages(&node_id, row.as_slice()) {
+                    // Not stored: no Ack. The row leaves memory so the sender's
+                    // retry (FileQuery/FileEnd) is not answered as already stored.
+                    if let Some(peer) = self.inner.lock().unwrap().peers.get_mut(&node_id) {
+                        if let Some(i) = peer.msgs.iter().rposition(|m| m.dir == "in" && m.id == id) {
+                            peer.msgs.remove(i);
+                        }
+                    }
+                    self.rx_finishing.lock().unwrap().remove(&(node_id, id.clone()));
+                    let _ = std::fs::remove_file(&final_path);
+                    fail("could not store the message");
+                    return;
+                }
             } else {
                 drop(inner);
             }
@@ -2786,7 +2798,16 @@ impl P2p {
                         });
                         let row = peer.msgs.last().cloned();
                         drop(inner);
-                        self.persist_messages(&node_id, row.as_slice());
+                        if !self.persist_messages(&node_id, row.as_slice()) {
+                            // Not stored: no Ack, no event, and the in-memory row goes
+                            // again so the sender's resend is not taken for a duplicate.
+                            if let Some(peer) = self.inner.lock().unwrap().peers.get_mut(&node_id) {
+                                if let Some(i) = peer.msgs.iter().rposition(|m| m.dir == "in" && m.id == id) {
+                                    peer.msgs.remove(i);
+                                }
+                            }
+                            return;
+                        }
                     } else {
                         drop(inner);
                     }
@@ -3087,7 +3108,6 @@ impl P2p {
         // is QR proof (the joiner scanned it) — accept. An empty token is a
         // discovery-based request and needs explicit user approval. Anything
         // else is a stale/forged credential and is rejected without a prompt.
-        let expected_token = self.inner.lock().unwrap().token.clone();
         let mut framer = pre_framer;
         let hello = match pre_hello {
             Some(h) => Ok(Ok(h)),
@@ -3097,7 +3117,19 @@ impl P2p {
             Ok(Ok(Hello::Hello { token, name, addrs })) => (token, name, addrs),
             _ => bail!("bad pairing handshake"),
         };
-        if token != expected_token {
+        // The invite token is single-use: the hello that matches it consumes it
+        // (compare and rotate under one lock, so two racing hellos cannot both
+        // win), and the next device needs a fresh invite.
+        let qr_proof = !token.is_empty() && {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.token == token {
+                inner.token = random_id();
+                true
+            } else {
+                false
+            }
+        };
+        if !qr_proof {
             if !token.is_empty() {
                 bail!("wrong pairing token");
             }
@@ -3336,7 +3368,9 @@ impl P2p {
     /// rewrite cloned and re-serialized the whole history under the engine
     /// lock on every message: O(n) per send, O(n²) per conversation, and a
     /// stalled receive loop on slow disks.
-    fn persist_messages(&self, node_id: &NodeId, append: &[StoredMsg]) {
+    /// Appends rows; false when the write failed (callers that acknowledge
+    /// a message to its sender must not do so then).
+    fn persist_messages(&self, node_id: &NodeId, append: &[StoredMsg]) -> bool {
         let mut text = String::new();
         for msg in append {
             if let Ok(line) = serde_json::to_string(msg) {
@@ -3344,8 +3378,15 @@ impl P2p {
                 text.push('\n');
             }
         }
-        if !text.is_empty() {
-            let _ = vault::append(&self.messages_path(node_id), text.as_bytes());
+        if text.is_empty() {
+            return true;
+        }
+        match vault::append(&self.messages_path(node_id), text.as_bytes()) {
+            Ok(_) => true,
+            Err(e) => {
+                crate::log(&format!("loop: could not store messages for {node_id}: {e}"));
+                false
+            }
         }
     }
 
@@ -6299,6 +6340,50 @@ mod tests {
                 return event;
             }
         }
+    }
+
+    /// The invite token is single-use: the first device that presents it
+    /// pairs, a second one holding the same ticket is turned away, and a fresh
+    /// invite works again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_invite_pairs_one_device_only() {
+        let (alice, alice_rx) = start("alice-once").await;
+        let (bob, _bob_rx) = start("bob-once").await;
+        let (carol, _carol_rx) = start("carol-once").await;
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+        assert!(carol.accept_invite(&ticket).await.is_err(), "the used ticket must not pair again");
+        assert_eq!(alice.status()["peers"].as_array().unwrap().len(), 1);
+        let fresh = alice.create_invite().await.unwrap();
+        carol.accept_invite(&fresh).await.unwrap();
+    }
+
+    /// A message whose history write failed is neither acknowledged nor
+    /// reported as received; the sender's resend is stored and acknowledged.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_message_that_could_not_be_stored_is_not_acknowledged() {
+        let (alice, alice_rx) = start("alice-ack").await;
+        let (bob, _bob_rx) = start("bob-ack").await;
+        let bob_id = bob.node_id();
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+        while alice_rx.try_recv().is_ok() {}
+
+        let path = alice.messages_path(&bob_id);
+        let _ = std::fs::remove_file(&path);
+        std::fs::create_dir_all(&path).unwrap(); // appending to a directory fails
+        let (tx, mut frames) = mpsc::unbounded_channel();
+        let msg = || Frame::Msg { id: "m1".into(), ts: 1, text: "hello".into(), reply_to: None, reply_text: None };
+        alice.handle_frame(bob_id, msg(), &tx);
+        assert!(frames.try_recv().is_err(), "no Ack for an unstored message");
+        assert!(alice_rx.try_recv().is_err(), "no message event either");
+
+        std::fs::remove_dir_all(&path).unwrap();
+        alice.handle_frame(bob_id, msg(), &tx);
+        assert!(matches!(frames.try_recv(), Ok(Frame::Ack { ref id }) if id == "m1"), "the resend is stored and acked");
+        assert_eq!(wait_for(&alice_rx, 5, |e| e["kind"] == "message")["text"], "hello");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
