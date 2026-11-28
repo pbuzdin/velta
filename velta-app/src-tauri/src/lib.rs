@@ -4295,18 +4295,35 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
             .map_err(|e| e.to_string())?;
         let _ = env.exception_clear();
         if !cursor.is_null() {
-            if let Err(e) = env.call_method(&cursor, "moveToFirst", "()Z", &[]) {
-                log(&format!("cursor moveToFirst: {e}"));
-            }
+            // An empty cursor (no row) must not reach getString, which throws;
+            // the cursor is closed on every path, never abandoned by an early
+            // return.
+            let has_row = match env.call_method(&cursor, "moveToFirst", "()Z", &[]).and_then(|v| v.z()) {
+                Ok(b) => b,
+                Err(e) => {
+                    log(&format!("cursor moveToFirst: {e}"));
+                    false
+                }
+            };
             let _ = env.exception_clear();
-            let name_obj = env
-                .call_method(&cursor, "getString", "(I)Ljava/lang/String;", &[jni::objects::JValue::Int(0)])
-                .map_err(|e| e.to_string())?
-                .l()
-                .map_err(|e| e.to_string())?;
-            if !name_obj.is_null() {
-                let name_jstr = jni::objects::JString::from(name_obj);
-                display_name = env.get_string(&name_jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
+            if has_row {
+                match env
+                    .call_method(&cursor, "getString", "(I)Ljava/lang/String;", &[jni::objects::JValue::Int(0)])
+                    .and_then(|v| v.l())
+                {
+                    Ok(name_obj) if !name_obj.is_null() => {
+                        let name_jstr = jni::objects::JString::from(name_obj);
+                        // Bind to a local: a tail-expression temporary would outlive
+                        // the JVM guard's borrow (E0597).
+                        let name = env.get_string(&name_jstr).map(|n| n.to_string_lossy().into_owned());
+                        if let Ok(name) = name {
+                            display_name = name;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => log(&format!("cursor getString: {e}")),
+                }
+                let _ = env.exception_clear();
             }
             if let Err(e) = env.call_method(&cursor, "close", "()V", &[]) {
                 log(&format!("cursor close: {e}"));
@@ -4316,11 +4333,10 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
 
         // Keep the real filename (with extension) so the attachment is typed as
         // image/video rather than a generic file.
-        let base_name = if display_name.is_empty() {
-            if filename.is_empty() { "attachment.bin".to_string() } else { filename.clone() }
-        } else {
-            display_name.replace(['/', '\\'], "_")
-        };
+        // The provider (or the renderer) chooses this name: reduce it to a
+        // plain file name before it becomes a path under uploads/.
+        let raw_name = if display_name.is_empty() { filename.as_str() } else { display_name.as_str() };
+        let base_name = safe_open_name(Some(raw_name).filter(|n| !n.is_empty()), std::path::Path::new("attachment.bin"));
         let dest = app
             .path()
             .resolve(format!("uploads/{}", base_name), BaseDirectory::AppLocalData)

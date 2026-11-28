@@ -13,10 +13,24 @@ import java.io.File
 // the system "install unknown apps" authorization on first use; Velta stays
 // in the foreground behind the installer sheet.
 object UpdateInstall {
+    /**
+     * Only the APK the in-app updater downloaded (Velta-<v>-arm64.apk under
+     * the app cache dir; Tauri's app_cache_dir is cacheDir/<identifier>) goes
+     * to the installer; any other path is refused.
+     */
+    @JvmStatic
+    fun isDownloadedApk(cacheDir: File, file: File): Boolean {
+        if (!file.isFile) return false
+        val name = file.name
+        if (!name.startsWith("Velta-") || !name.endsWith("-arm64.apk")) return false
+        val root = cacheDir.canonicalPath + File.separator
+        return file.canonicalPath.startsWith(root)
+    }
+
     @JvmStatic
     fun install(context: Context, path: String): Boolean {
         val file = File(path)
-        if (!file.exists()) return false
+        if (!isDownloadedApk(context.cacheDir, file)) return false
         val uri: Uri = FileProvider.getUriForFile(
             context,
             context.packageName + ".fileprovider",

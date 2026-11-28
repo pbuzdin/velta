@@ -223,6 +223,9 @@ object VeltaLock {
     @Volatile
     private var currentDek: String = ""
 
+    private const val UNLOCK_WAIT_POLL_MS = 200L
+    private const val UNLOCK_WAIT_POLLS = 100
+
     @JvmStatic
     fun request(activity: FragmentActivity, on: Boolean) {
         // BiometricPrompt must be built and shown on the main thread; the
@@ -233,6 +236,10 @@ object VeltaLock {
             } catch (e: Exception) {
                 Log.e(TAG, "biometric request failed", e)
                 report(on, false, "${e.javaClass.simpleName}: ${e.message}")
+            } finally {
+                // requestOnMain reads the key synchronously; do not keep it
+                // in a static afterwards.
+                currentDek = ""
             }
         }
     }
@@ -448,9 +455,28 @@ object VeltaLock {
                 Log.e(TAG, "auth wrap decrypt failed", e)
                 return@prompt
             }
-            VeltaCore.startWithDek(hex(dek))
-            if (VeltaCore.running()) hideLock()
+            if (!VeltaCore.startWithDek(hex(dek))) {
+                Log.e(TAG, "core refused the unlocked key — staying locked")
+                return@prompt
+            }
+            hideWhenRunning()
         }
+    }
+
+    /**
+     * startWithDek only hands the key over: the core's init loop picks it up
+     * on its own thread, so running() is still false right after the call.
+     * Check once now and then poll briefly, so the overlay goes away with
+     * this one confirmation instead of waiting for a second tap. If the core
+     * never comes up the persistent Unlock action stays on the overlay.
+     */
+    private fun hideWhenRunning(attempt: Int = 0) {
+        if (VeltaCore.running()) {
+            hideLock()
+            return
+        }
+        if (attempt >= UNLOCK_WAIT_POLLS) return
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ hideWhenRunning(attempt + 1) }, UNLOCK_WAIT_POLL_MS)
     }
 
     /** Auto-lock re-entry: a plain (no-crypto) confirmation prompt. */
