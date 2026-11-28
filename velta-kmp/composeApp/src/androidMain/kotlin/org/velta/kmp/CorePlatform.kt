@@ -165,16 +165,17 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
         }
     }
 
-    /** MUST be called inside the auth window a successful prompt just opened. */
+    /** Seals with the cipher the just-finished prompt authenticated (CryptoObject). */
     override fun enableAppLock(): Boolean {
+        val cipher = VeltaKeystore.takeCipher() ?: return false
         // A PIN root has no plain wrap. The running core's DEK is the one to seal.
         val dek = liveDek ?: VeltaKeystore.getOrCreateDek(context) ?: return false
-        return VeltaKeystore.enableAppLock(context, dek)
+        return VeltaKeystore.enableAppLock(context, dek, cipher)
     }
 
-    /** The DEK for the plain wrap comes from the bio wrap's auth window. */
+    /** The DEK for the plain wrap: opened by the prompt's cipher, or (older wrap) the auth window. */
     override fun disableAppLock(): Boolean {
-        val dek = VeltaKeystore.unlockDek(context) ?: return false
+        val dek = VeltaKeystore.takeDek() ?: VeltaKeystore.unlockDek(context) ?: return false
         if (VeltaKeystore.pinFile(context).exists()) {
             VeltaLock.bioFile(context).delete()
             VeltaLock.setOn(context, false)

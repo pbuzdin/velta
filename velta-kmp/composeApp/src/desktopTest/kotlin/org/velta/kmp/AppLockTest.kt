@@ -80,6 +80,21 @@ class AppLockTest {
     }
 
     @Test
+    fun cryptoPromptNeverOffersTheCredentialBeforeApi30() {
+        // A CryptoObject cannot be combined with the device credential
+        // before API 30: the prompt would throw instead of showing.
+        for (sdk in 26..29) {
+            val a = LockPolicy.authenticators(sdk, withCrypto = true)
+            assertTrue(a.strongBiometric, "sdk $sdk")
+            assertFalse(a.deviceCredential, "sdk $sdk")
+            assertTrue(a.needsNegativeButton, "sdk $sdk")
+        }
+        for (sdk in 30..36) {
+            assertEquals(LockPolicy.authenticators(sdk), LockPolicy.authenticators(sdk, withCrypto = true), "sdk $sdk")
+        }
+    }
+
+    @Test
     fun shouldAutoLockEdges() {
         assertFalse(LockPolicy.shouldAutoLock(null, 10_000_000, 1))
         assertFalse(LockPolicy.shouldAutoLock(0, 10_000_000, 0), "0 = off")
