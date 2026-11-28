@@ -23,6 +23,7 @@ const NONCE_LEN: usize = 12;
 const TAG_LEN: usize = 16;
 const CHUNK_OVERHEAD: u64 = (NONCE_LEN + TAG_LEN) as u64;
 const KEY_INFO: &[u8] = b"velta/attachments/v1";
+const RECORD_INFO: &[u8] = b"velta/records/v1";
 
 /// A profile-specific attachment master key. Its Debug output is redacted.
 #[derive(Clone)]
@@ -53,6 +54,46 @@ impl AttachmentKey {
         hkdf.expand(KEY_INFO, key.as_mut())
             .map_err(|_| anyhow::anyhow!("attachment HKDF expansion failed"))?;
         Ok(Some(Self(Arc::new(key))))
+    }
+
+    /// Seals one small record (an append-only log entry) under a subkey of
+    /// this key: `nonce(12) | ciphertext | tag(16)`. `aad` binds the record
+    /// to its place (file name), so it cannot be replayed into another file.
+    pub fn seal_record(&self, aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
+        let cipher = self.record_cipher()?;
+        let mut nonce = [0u8; NONCE_LEN];
+        rand::fill(&mut nonce);
+        let ct = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
+            .map_err(|_| anyhow::anyhow!("record encryption failed"))?;
+        let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&ct);
+        Ok(out)
+    }
+
+    /// Opens a record made by [`AttachmentKey::seal_record`]; fails closed on
+    /// a wrong key, wrong `aad` or any modification.
+    pub fn open_record(&self, aad: &[u8], record: &[u8]) -> Result<Vec<u8>> {
+        ensure!(record.len() >= NONCE_LEN + TAG_LEN, "record too short");
+        let (nonce, ct) = record.split_at(NONCE_LEN);
+        self.record_cipher()?
+            .decrypt(Nonce::from_slice(nonce), Payload { msg: ct, aad })
+            .map_err(|_| anyhow::anyhow!("record authentication failed"))
+    }
+
+    fn record_cipher(&self) -> Result<Aes256Gcm> {
+        let hkdf = Hkdf::<Sha256>::new(None, self.0.as_slice());
+        let mut sub = Zeroizing::new([0u8; 32]);
+        hkdf.expand(RECORD_INFO, sub.as_mut())
+            .map_err(|_| anyhow::anyhow!("record HKDF expansion failed"))?;
+        Aes256Gcm::new_from_slice(sub.as_slice()).map_err(|_| anyhow::anyhow!("invalid record key"))
     }
 
     #[cfg(test)]
@@ -892,5 +933,29 @@ mod tests {
         reader.seek(SeekFrom::Start(2 * CHUNK_LEN as u64)).unwrap();
         reader.read_exact(&mut buf).unwrap();
         assert_eq!(buf, plaintext[2 * CHUNK_LEN..2 * CHUNK_LEN + 16]);
+    }
+
+    #[test]
+    fn records_round_trip_and_fail_closed() {
+        let k = key();
+        let rec = k.seal_record(b"messages-a", b"{\"x\":1}").unwrap();
+        assert!(
+            !rec.windows(3).any(|w| w == b"\"x\""),
+            "ciphertext, not plaintext"
+        );
+        assert_eq!(k.open_record(b"messages-a", &rec).unwrap(), b"{\"x\":1}");
+        assert!(
+            k.open_record(b"messages-b", &rec).is_err(),
+            "bound to its aad"
+        );
+        assert!(
+            AttachmentKey::from_bytes([8; 32])
+                .open_record(b"messages-a", &rec)
+                .is_err()
+        );
+        let mut bad = rec.clone();
+        *bad.last_mut().unwrap() ^= 1;
+        assert!(k.open_record(b"messages-a", &bad).is_err());
+        assert!(k.open_record(b"messages-a", &rec[..10]).is_err());
     }
 }

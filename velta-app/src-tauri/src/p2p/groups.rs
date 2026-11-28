@@ -298,7 +298,7 @@ fn groups_path(dir: &Path) -> std::path::PathBuf {
 /// at all is moved aside to `groups.json.corrupt` instead of being lost.
 pub fn load_groups(dir: &Path) -> BTreeMap<String, GroupRec> {
     let mut out = BTreeMap::new();
-    let Ok(data) = std::fs::read(groups_path(dir)) else {
+    let Some(data) = super::vault::read(&groups_path(dir)) else {
         return out;
     };
     let Ok(file) = serde_json::from_slice::<GroupsFile>(&data) else {
@@ -317,10 +317,7 @@ pub fn load_groups(dir: &Path) -> BTreeMap<String, GroupRec> {
 /// Rewrites `groups.json` atomically (tmp + rename). The file is small.
 pub fn save_groups(dir: &Path, groups: &BTreeMap<String, GroupRec>) -> Result<()> {
     let file = GroupsFile { groups: groups.values().cloned().collect() };
-    let tmp = dir.join("groups.json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec(&file)?)?;
-    std::fs::rename(&tmp, groups_path(dir))?;
-    Ok(())
+    super::vault::write(&groups_path(dir), &serde_json::to_vec(&file)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -446,17 +443,14 @@ fn log_path(dir: &Path, gid: &str) -> std::path::PathBuf {
 
 /// Appends one record (a single `write_all` of one line).
 pub fn append_log(dir: &Path, gid: &str, rec: &GroupLogRec) -> Result<()> {
-    use std::io::Write;
     let mut line = serde_json::to_vec(rec)?;
     line.push(b'\n');
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(log_path(dir, gid))?;
-    f.write_all(&line)?;
-    Ok(())
+    super::vault::append(&log_path(dir, gid), &line)
 }
 
 /// Every parsable record, oldest first (a torn last line is skipped).
 pub fn read_log(dir: &Path, gid: &str) -> Vec<GroupLogRec> {
-    let Ok(data) = std::fs::read_to_string(log_path(dir, gid)) else {
+    let Some(data) = super::vault::read_log(&log_path(dir, gid)) else {
         return Vec::new();
     };
     data.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
