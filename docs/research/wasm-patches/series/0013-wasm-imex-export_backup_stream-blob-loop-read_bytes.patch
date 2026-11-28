@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pavel <pbuzdin@gmail.com>
+Date: Sat, 28 Nov 2026 19:00:00 +0300
+Subject: [PATCH] wasm(imex): blob loop of export_backup_stream without a
+ Tokio runtime (#331)
+
+SyncIoBridge::new and spawn_blocking call Handle::current(), and there
+is no Tokio runtime on wasm32 - any profile with at least one blob
+(avatar, attachment) panicked at the first entry, so export produced
+no file at all. On wasm32 the loop now reads the blob with
+BlobObject::read_bytes and appends the bytes to the tar directly (one
+blob buffered at a time; wasm profiles keep attachments at the sync
+limit, 200 KB by default). Native path unchanged.
+
+WASM-CORE: imex.
+Native impact: none (cfg(target_arch = "wasm32") only).
+---
+ src/imex.rs | 56 ++++++++++++++++++++++++++++++++++++++++--------
+
+diff --git a/src/imex.rs b/src/imex.rs
+--- a/src/imex.rs
++++ b/src/imex.rs
+@@ -591,19 +591,38 @@ where
+         .await?;
+ 
+     for blob in blobdir.iter() {
+-        let mut source = blob.open(context)?;
+-        let plaintext_len = source.len();
+-        let (writer, mut reader) = tokio::io::duplex(64 * 1024);
+-        let mut writer = tokio_util::io::SyncIoBridge::new(writer);
+-        let copy = tokio::task::spawn_blocking(move || std::io::copy(&mut source, &mut writer));
+-        let mut header = tokio_tar::Header::new_gnu();
+-        header.set_size(plaintext_len);
+-        header.set_mode(0o644);
+-        let path_in_archive = PathBuf::from(BLOBS_BACKUP_NAME).join(blob.as_name());
+-        builder
+-            .append_data(&mut header, path_in_archive, &mut reader)
+-            .await?;
+-        copy.await??;
++        #[cfg(target_arch = "wasm32")]
++        {
++            // #331: SyncIoBridge::new and spawn_blocking call
++            // Handle::current(), and there is no Tokio runtime on wasm32 —
++            // any profile with a blob could not export. Buffers one blob at
++            // a time; wasm profiles keep attachments at the sync limit
++            // (200 KB default), so this stays well inside wasm memory.
++            let bytes = blob.read_bytes(context)?;
++            let mut header = tokio_tar::Header::new_gnu();
++            header.set_size(bytes.len() as u64);
++            header.set_mode(0o644);
++            let path_in_archive = PathBuf::from(BLOBS_BACKUP_NAME).join(blob.as_name());
++            builder
++                .append_data(&mut header, path_in_archive, &bytes[..])
++                .await?;
++        }
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            let mut source = blob.open(context)?;
++            let plaintext_len = source.len();
++            let (writer, mut reader) = tokio::io::duplex(64 * 1024);
++            let mut writer = tokio_util::io::SyncIoBridge::new(writer);
++            let copy = tokio::task::spawn_blocking(move || std::io::copy(&mut source, &mut writer));
++            let mut header = tokio_tar::Header::new_gnu();
++            header.set_size(plaintext_len);
++            header.set_mode(0o644);
++            let path_in_archive = PathBuf::from(BLOBS_BACKUP_NAME).join(blob.as_name());
++            builder
++                .append_data(&mut header, path_in_archive, &mut reader)
++                .await?;
++            copy.await??;
++        }
+     }
+ 
+     builder.finish().await?;
