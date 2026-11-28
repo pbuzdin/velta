@@ -386,6 +386,11 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
 
     // Same-volume renames do not copy. Windows has no std directory fsync;
     // the .bak survives until the next startup verifies the swap anyway.
+    let marker = sibling(db, "migrating");
+    if let Err(e) = std::fs::write(&marker, b"1").and_then(|()| sync_file(&marker)) {
+        let _ = std::fs::remove_file(&enc);
+        return Err(format!("marker write failed: {e}"));
+    }
     let swapped = std::fs::rename(db, sibling(db, "plain.bak")).is_ok()
         && match std::fs::rename(&enc, db) {
             Ok(()) => true,
@@ -398,10 +403,30 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
     sync_dir(dir);
     if !swapped {
         let _ = std::fs::remove_file(&enc);
+        let _ = std::fs::remove_file(&marker);
         return Err("swap failed".to_string());
     }
+    let _ = std::fs::remove_file(&marker);
     let _ = std::fs::remove_file(sibling(db, "wal"));
     let _ = std::fs::remove_file(sibling(db, "shm"));
+    Ok(())
+}
+
+/// Interrupted-migration rollback, only reached with the marker present.
+/// The unreadable live file is quarantined, never deleted; errors surface.
+fn rollback_unfinished(db: &Path, bak: &Path, marker: &Path) -> Result<(), String> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let locked = sibling(db, &format!("locked-{ts}"));
+    std::fs::rename(db, &locked).map_err(|e| format!("quarantine: {e}"))?;
+    if let Err(e) = std::fs::rename(bak, db) {
+        let _ = std::fs::rename(&locked, db);
+        return Err(format!("restore backup: {e}"));
+    }
+    let _ = std::fs::remove_file(marker);
+    log(&format!("rolled back unfinished migration; live db kept as {}", locked.display()));
     Ok(())
 }
 
@@ -456,6 +481,7 @@ fn prepare_dbs(mut dbs: Vec<PathBuf>, key_hex: Option<&str>) -> Prepare {
                 }
                 Kind::Ours => {
                     state.already += 1;
+                    let _ = std::fs::remove_file(sibling(db, "migrating"));
                     // The encrypted copy opens with the key. Drop the
                     // migration backup only once it is proven to hold the
                     // same data (never a fresh db over a lost file).
@@ -475,18 +501,30 @@ fn prepare_dbs(mut dbs: Vec<PathBuf>, key_hex: Option<&str>) -> Prepare {
                     false
                 }
                 Kind::Foreign => {
+                    // Foreign = "did not open with THIS key": a healthy
+                    // encrypted db with a missing/other key lands here too.
+                    // Never replace it with the plaintext backup. Only the
+                    // migration marker proves an unfinished swap, and even
+                    // then the live file is quarantined, never deleted.
                     let bak = sibling(db, "plain.bak");
-                    // An interrupted swap (live db unreadable, plaintext
-                    // backup present) is rolled back rather than left locked.
-                    if bak.exists() && opens(&bak, None) {
-                        log(&format!(
-                            "restoring plaintext backup over unreadable {}",
-                            db.display()
-                        ));
-                        let _ = std::fs::remove_file(db);
-                        let _ = std::fs::rename(&bak, db);
-                        true
+                    let marker = sibling(db, "migrating");
+                    if marker.exists() && bak.exists() && opens(&bak, None) {
+                        match rollback_unfinished(db, &bak, &marker) {
+                            Ok(()) => true,
+                            Err(e) => {
+                                log(&format!("rollback FAILED for {}: {e}", db.display()));
+                                state.locked += 1;
+                                false
+                            }
+                        }
                     } else {
+                        if bak.exists() {
+                            log(&format!(
+                                "LOCKED {} (keeping {} untouched)",
+                                db.display(),
+                                bak.display()
+                            ));
+                        }
                         state.locked += 1;
                         false
                     }
@@ -1180,8 +1218,14 @@ mod tests {
         let db = plant_plain_db(&dir.join("acc1"), 2);
         std::fs::rename(&db, dir.join("acc1").join("dc.db.plain.bak")).unwrap();
         std::fs::write(&db, b"not a database at all").unwrap();
+        // Without the migration marker nothing proves a swap was interrupted:
+        // the unreadable file is left alone and the backup kept.
+        let p = prepare(&dir, Some(KEY));
+        assert_eq!((p.locked, p.migrated), (1, 0));
+        assert!(dir.join("acc1").join("dc.db.plain.bak").exists());
+        std::fs::write(dir.join("acc1").join("dc.db.migrating"), b"1").unwrap();
 
-        // The interrupted swap is rolled back to the plaintext backup and
+        // The marked interrupted swap is rolled back to the plaintext backup and
         // the migration is redone in the same run.
         let p = prepare(&dir, Some(KEY));
         assert_eq!((p.locked, p.migrated, p.already), (0, 1, 0));
@@ -1208,6 +1252,49 @@ mod tests {
         let p = prepare(&dir2, None);
         assert_eq!((p.migrated, p.use_key), (0, false));
         assert!(opens(&db2, None));
+    }
+
+    /// H3: a healthy encrypted db plus a leftover plain.bak must survive a
+    /// start with no key or another key (the old branch deleted the live db).
+    #[test]
+    fn foreign_start_never_replaces_live_db_with_plain_bak() {
+        for start in [None, Some(OTHER)] {
+            let dir = tmpdir();
+            let acc = dir.join("acc1");
+            let db = plant_plain_db(&acc, 3);
+            std::fs::copy(&db, acc.join("dc.db.plain.bak")).unwrap();
+            assert!(migrate(&db, KEY).is_ok());
+            // migrate() renamed the plain copy to .plain.bak; re-plant an old one
+            std::fs::write(acc.join("dc.db.plain.bak"), b"").unwrap();
+            let bak = plant_plain_db(&dir.join("old"), 1);
+            std::fs::rename(&bak, acc.join("dc.db.plain.bak")).unwrap();
+
+            let _ = prepare(&dir, start);
+
+            assert_eq!(
+                keyed_count(&db, KEY, "SELECT count(*) FROM msgs"),
+                3,
+                "live encrypted db destroyed (start key {start:?})"
+            );
+        }
+    }
+
+    /// Marker (proof of an unfinished swap) => quarantine, never delete.
+    #[test]
+    fn marker_rollback_quarantines_instead_of_deleting() {
+        let dir = tmpdir();
+        let acc = dir.join("acc1");
+        let db = plant_plain_db(&acc, 2);
+        std::fs::rename(&db, acc.join("dc.db.plain.bak")).unwrap();
+        std::fs::write(&db, b"torn garbage not a database").unwrap();
+        std::fs::write(acc.join("dc.db.migrating"), b"1").unwrap();
+
+        let _ = prepare(&dir, Some(KEY));
+
+        assert!(std::fs::read_dir(&acc).unwrap().flatten().any(|e| e
+            .file_name()
+            .to_string_lossy()
+            .starts_with("dc.db.locked-")));
     }
 
     #[test]

@@ -145,6 +145,11 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
     }
     let dir = db.parent().unwrap_or(Path::new("."));
 
+    let marker = sibling(db, "migrating");
+    if let Err(e) = fs::write(&marker, b"1").and_then(|()| sync_file(&marker)) {
+        let _ = fs::remove_file(&enc);
+        return Err(format!("marker write failed: {e}"));
+    }
     let swapped = fs::rename(db, sibling(db, "plain.bak")).is_ok()
         && match fs::rename(&enc, db) {
             Ok(()) => true,
@@ -157,8 +162,10 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
     sync_dir(dir);
     if !swapped {
         let _ = fs::remove_file(&enc);
+        let _ = fs::remove_file(&marker);
         return Err("swap failed".to_string());
     }
+    let _ = fs::remove_file(&marker);
     let _ = fs::remove_file(sibling(db, "wal"));
     let _ = fs::remove_file(sibling(db, "shm"));
     Ok(())
@@ -190,6 +197,24 @@ fn bak_superseded(db: &Path, bak: &Path, key_hex: &str) -> Result<(), String> {
     if addr(&plain) != addr(&enc) {
         return Err("identity (addr) differs from backup".to_string());
     }
+    Ok(())
+}
+
+/// Interrupted-migration rollback, only reached with the marker present.
+/// The unreadable live file is quarantined, never deleted; errors surface.
+fn rollback_unfinished(db: &Path, bak: &Path, marker: &Path) -> Result<(), String> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let locked = sibling(db, &format!("locked-{ts}"));
+    fs::rename(db, &locked).map_err(|e| format!("quarantine: {e}"))?;
+    if let Err(e) = fs::rename(bak, db) {
+        let _ = fs::rename(&locked, db);
+        return Err(format!("restore backup: {e}"));
+    }
+    let _ = fs::remove_file(marker);
+    crate::log(&format!("rolled back unfinished migration; live db kept as {}", locked.display()));
     Ok(())
 }
 
@@ -259,6 +284,7 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
                 }
                 Kind::Ours => {
                     state.already += 1;
+                    let _ = fs::remove_file(sibling(db, "migrating"));
                     // The encrypted copy opens with the key. Drop the
                     // migration backup only once it is proven to hold the
                     // same data (never a fresh db over a lost file).
@@ -275,18 +301,31 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
                     false
                 }
                 Kind::Foreign => {
+                    // Foreign = "did not open with THIS key". That includes a
+                    // healthy encrypted db when the key is missing or another
+                    // one. Never replace it with the plaintext backup. The
+                    // only proof of an interrupted migration is the marker
+                    // `dc.db.migrating`; even then the live file is moved
+                    // aside (`.locked-<ts>`), never deleted.
                     let bak = sibling(db, "plain.bak");
-                    // An interrupted swap (live db unreadable, plaintext
-                    // backup present) is rolled back rather than left locked.
-                    if bak.exists() && opens(&bak, None) {
-                        crate::log(&format!(
-                            "restoring plaintext backup over unreadable {}",
-                            db.display()
-                        ));
-                        let _ = fs::remove_file(db);
-                        let _ = fs::rename(&bak, db);
-                        true
+                    let marker = sibling(db, "migrating");
+                    if marker.exists() && bak.exists() && opens(&bak, None) {
+                        match rollback_unfinished(db, &bak, &marker) {
+                            Ok(()) => true,
+                            Err(e) => {
+                                crate::log(&format!("rollback FAILED for {}: {e}", db.display()));
+                                state.locked += 1;
+                                false
+                            }
+                        }
                     } else {
+                        if bak.exists() {
+                            crate::log(&format!(
+                                "LOCKED {} (keeping {} untouched)",
+                                db.display(),
+                                bak.display()
+                            ));
+                        }
                         state.locked += 1;
                         false
                     }
@@ -310,4 +349,27 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
     // locked for this session and retry next start.
     state.use_key = key_hex.is_some() && (state.already + state.migrated > 0 || failed == 0);
     state
+}
+
+/// The one place the DEK format is decided. Accepts the bare 64-hex form
+/// (Android shell) or the raw SQLCipher `x'<hex>'` form (desktop shell) and
+/// returns lower-case bare hex, or None when it is not a 256-bit key.
+pub fn canonical_dek(s: &str) -> Option<String> {
+    let s = s.trim();
+    let hex = s
+        .strip_prefix("x'")
+        .or_else(|| s.strip_prefix("X'"))
+        .and_then(|r| r.strip_suffix('\''))
+        .unwrap_or(s);
+    if hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(hex.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+
+/// The value the core gets in `VELTA_DB_KEY`: always `x'<hex>'`, the only
+/// form the core treats as a raw key and `AttachmentKey::from_db_key` accepts.
+pub fn core_env_key(hex: &str) -> String {
+    format!("x'{hex}'")
 }

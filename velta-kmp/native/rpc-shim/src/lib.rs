@@ -207,17 +207,23 @@ pub fn start_core(accounts_dir: String, db_key: String) -> i32 {
         let _ = prev.join();
     }
     if !db_key.is_empty() {
+        // One canonical DEK form: bare hex and `x'hex'` both accepted here,
+        // the migration gets bare hex, the core gets `x'hex'`.
+        let Some(hex) = db_key::canonical_dek(&db_key) else {
+            crate::log("start refused: db key is not a 256-bit hex key");
+            return -3;
+        };
         // #259 step 2: convert pre-#20 plaintext databases first (patch #20
         // never falls back — an unmigrated profile would stay closed). When
         // a migration fails with nothing already encrypted, the key stays
         // off this start and the retry happens next boot.
-        let prep = db_key::prepare(std::path::Path::new(&accounts_dir), Some(&db_key));
+        let prep = db_key::prepare(std::path::Path::new(&accounts_dir), Some(&hex));
         crate::log(&format!(
             "db-key prepare: migrated {} already {} locked {}",
             prep.migrated, prep.already, prep.locked
         ));
         if prep.use_key {
-            std::env::set_var("VELTA_DB_KEY", &db_key);
+            std::env::set_var("VELTA_DB_KEY", db_key::core_env_key(&hex));
         } else {
             crate::log("running keyless this start; retrying migration next boot");
         }
@@ -580,6 +586,119 @@ mod tests {
             "the plaintext db is untouched"
         );
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn tmp_root(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "velta-shim-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ))
+    }
+
+    const SCHEMA: &str = "CREATE TABLE msgs (id INTEGER PRIMARY KEY, txt TEXT);
+         CREATE TABLE chats (id INTEGER PRIMARY KEY);
+         CREATE TABLE contacts (id INTEGER PRIMARY KEY);
+         CREATE TABLE config (keyname TEXT PRIMARY KEY, value TEXT);
+         CREATE TABLE keypairs (id INTEGER PRIMARY KEY);";
+
+    fn make_db(path: &std::path::Path, key_hex: Option<&str>, txt: &str) {
+        let conn = rusqlite::Connection::open(path).expect("open");
+        if let Some(k) = key_hex {
+            conn.pragma_update(None, "key", format!("x'{k}'")).expect("key");
+        }
+        conn.execute_batch(SCHEMA).expect("schema");
+        conn.execute("INSERT INTO msgs (txt) VALUES (?)", [txt]).expect("insert");
+    }
+
+    fn live_text(path: &std::path::Path, key_hex: Option<&str>) -> Option<String> {
+        let conn = rusqlite::Connection::open(path).ok()?;
+        if let Some(k) = key_hex {
+            conn.pragma_update(None, "key", format!("x'{k}'")).ok()?;
+        }
+        conn.query_row("SELECT txt FROM msgs LIMIT 1", [], |r| r.get(0)).ok()
+    }
+
+    /// H3 (A4): a correctly encrypted live db plus a leftover plain.bak must
+    /// survive a start with no key or another key.
+    #[test]
+    fn foreign_start_never_replaces_live_db_with_plain_bak() {
+        for start_key in [None, Some("c".repeat(64))] {
+            let root = tmp_root("h3");
+            let account = root.join("1");
+            std::fs::create_dir_all(&account).unwrap();
+            let db = account.join("dc.db");
+            let key = "a".repeat(64);
+            make_db(&db, Some(&key), "SECRET-LIVE");
+            make_db(&account.join("dc.db.plain.bak"), None, "old-plain");
+
+            let _ = db_key::prepare(&root, start_key.as_deref());
+
+            assert_eq!(
+                live_text(&db, Some(&key)).as_deref(),
+                Some("SECRET-LIVE"),
+                "live encrypted db was destroyed (start key {start_key:?})"
+            );
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    /// H2 (A3): the desktop sidecar hands the shim `x'<hex>'`; the shim must
+    /// still recognise its own keyed databases.
+    #[test]
+    fn prepare_accepts_both_dek_forms() {
+        let key = "a".repeat(64);
+        for form in [key.clone(), format!("x'{key}'")] {
+            let root = tmp_root("h2");
+            let account = root.join("1");
+            std::fs::create_dir_all(&account).unwrap();
+            make_db(&account.join("dc.db"), Some(&key), "enc");
+            let hex = db_key::canonical_dek(&form).expect("canonical");
+            let prep = db_key::prepare(&root, Some(&hex));
+            assert_eq!((prep.already, prep.locked), (1, 0), "form {form}");
+            std::fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    /// H2 (A3): whatever form the shell passes, the env value for the core is
+    /// the canonical `x'<hex>'`, which derives an attachment key.
+    #[test]
+    fn core_env_key_is_canonical_for_both_forms() {
+        let hex = "ab".repeat(32);
+        for form in [hex.clone(), format!("x'{hex}'"), format!("X'{}'", hex.to_uppercase())] {
+            let h = db_key::canonical_dek(&form).expect("canonical");
+            assert_eq!(h, hex);
+            let env = db_key::core_env_key(&h);
+            assert_eq!(env, format!("x'{hex}'"));
+            assert!(velta_attachment::AttachmentKey::from_db_key(&env).unwrap().is_some());
+        }
+        assert!(velta_attachment::AttachmentKey::from_db_key(&hex).unwrap().is_none(), "bare hex is the old bug");
+        assert!(db_key::canonical_dek("nothex").is_none());
+        assert!(db_key::canonical_dek(&"a".repeat(63)).is_none());
+    }
+
+    /// With the migration marker (proof of an unfinished swap) the unreadable
+    /// live file is quarantined, not deleted, and the backup is restored.
+    #[test]
+    fn marker_rollback_quarantines_instead_of_deleting() {
+        let root = tmp_root("h3m");
+        let account = root.join("1");
+        std::fs::create_dir_all(&account).unwrap();
+        let db = account.join("dc.db");
+        std::fs::write(&db, b"torn garbage not a database").unwrap();
+        make_db(&account.join("dc.db.plain.bak"), None, "old-plain");
+        std::fs::write(account.join("dc.db.migrating"), b"1").unwrap();
+
+        let _ = db_key::prepare(&root, Some(&"a".repeat(64)));
+
+        assert!(std::fs::read_dir(&account).unwrap().flatten().any(|e| e
+            .file_name()
+            .to_string_lossy()
+            .starts_with("dc.db.locked-")));
         std::fs::remove_dir_all(&root).ok();
     }
 
