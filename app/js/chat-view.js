@@ -4615,6 +4615,11 @@ export class ChatView {
           else localStorage.setItem(key, "0");
         } catch {}
         this._renderMediaPreview();
+        // A chip flip can change the as-is verdict — recompute the note.
+        const cur = this.pendingMedia;
+        this._photoSkipNote(cur).then((note) => {
+          if (cur && this.pendingMedia === cur) { cur.photoNote = note; this._renderMediaRoute(); }
+        });
       });
     }
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
@@ -4787,6 +4792,8 @@ export class ChatView {
         pm.staging = null;
         this._renderMediaPreview();
       }
+      pm.photoNote = await this._photoSkipNote(pm);
+      if (this.pendingMedia === pm) this._renderMediaRoute();
       await this._planPendingRoute(pm);
     })();
     this._renderMediaPreview();
@@ -4917,6 +4924,40 @@ export class ChatView {
   // it is too big for email and Dash cannot deliver right now. Send waits
   // on this, so every wait here is bounded: a stalled call (dead network,
   // a core lock) must not turn the send button into a no-op.
+  // Why a staged photo will leave as-is despite the WebP/2k chips: the part
+  // of the #509/#560 policy that is already certain at stage time, one level
+  // above the send-time Diagnostics row. Uncertain verdicts (a WebP that may
+  // miss the 10% saving bar) stay silent — the send decides those.
+  async _photoSkipNote(pm) {
+    if (pm?.kind !== "image" || !pm.blob) return "";
+    try {
+      const ic = await import("./image-compress.js"); // lazy (fix 5)
+      const webp = ic.compressEnabled(), resize = ic.resizeEnabled();
+      if (!webp && !resize) return ""; // both chips off on purpose
+      const bytes = new Uint8Array(await pm.blob.arrayBuffer());
+      const info = ic.sniffImage(bytes);
+      const { maxBytes } = ic.coreLimits(mediaQualitySetting());
+      if (info.animated || info.format === "gif") return t("Animated — sends as is");
+      if (!info.format) return t("Unsupported format — sends as is");
+      if (bytes.length <= Math.min(ic.MIN_BYTES, maxBytes)) return t("Under 256 KB — sends as is");
+      if (bytes.length > ic.MAX_INPUT_BYTES) return t("Over 64 MB — sends as is");
+      let over2k = null;
+      try {
+        const bmp = await createImageBitmap(pm.blob);
+        over2k = Math.max(bmp.width, bmp.height) > ic.RESIZE_MAX_SIDE;
+        bmp.close?.();
+      } catch { return ""; } // no dimensions here: the send-time verdict stands
+      if (resize) {
+        if (!over2k) return t("Already within 2k — sends as is");
+        if (info.format === "heic" && !webp) return t("HEIC needs WebP on to resize — sends as is");
+        return ""; // over 2k: png/webp are rescued (alpha kept), jpeg transcodes
+      }
+      if (info.alpha) return t("Has transparency — sends as is");
+      if (info.format === "png" && bytes.length <= maxBytes) return t("Lossless PNG — sends as is");
+      return "";
+    } catch { return ""; }
+  }
+
   async _planPendingRoute(pm) {
     pm.checking = true;
     if (this.pendingMedia === pm) this._renderMediaRoute();
@@ -4957,7 +4998,7 @@ export class ChatView {
     // check is running all the same, so say so.
     const checking = pm?.checking && (pm.size == null || Number(pm.size) > XFER_THRESHOLD);
     const stage = pm?.staging ? t("Preparing file…") : pm?.stage === "dash" ? t("Preparing for Velta Dash…") : "";
-    el.textContent = [pm?.size != null ? formatBytes(pm.size) : "", stage || plan?.text || (checking ? t("Checking how to send…") : "")]
+    el.textContent = [pm?.size != null ? formatBytes(pm.size) : "", stage || plan?.text || (checking ? t("Checking how to send…") : ""), pm?.photoNote || ""]
       .filter(Boolean).join(" · ");
     el.dataset.route = plan?.route || "";
     el.classList.toggle("is-busy", !!(stage || (checking && !plan)));
@@ -5045,18 +5086,23 @@ export class ChatView {
         diagnosticsSink.append("info", r.transcoded
           ? `media: photo transcoded ${r.from} → ${r.to} bytes`
           : `media: photo sent as is (${r.reason})`);
-        if (r.transcoded) { sendBlob = r.blob; filePath = null; }
+        if (r.transcoded) { sendBlob = r.blob; filePath = null; pm.size = sendBlob.size; }
       }
       if (filePath) {
         filename = filePath.replace(/\\/g, "/").split("/").pop();
       } else {
         if (!sendBlob) throw new Error(t("Nothing to send"));
-        const t = sendBlob.type;
-        const fromName = String(pm.name || "").split(".").pop();
-        const ext = t === "image/jpeg" ? "jpg" : t === "image/webp" ? "webp" : t === "image/gif" ? "gif" : t?.startsWith("video/") ? "mp4" : (fromName || "png");
-        const safeExt = String(ext).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-        const stored = sendBlob !== pm.blob ? `${pm.kind}-${Date.now()}.webp` : `${pm.kind}-${Date.now()}.${safeExt}`;
-        filename = pm.name || stored;
+        const ty = sendBlob.type;
+        const transcoded = sendBlob !== pm.blob;
+        // The visible name must match the BYTES: a transcoded photo leaves
+        // with its real extension (webp for the codec path, the original
+        // for a same-format 2k resample) — the picked name's extension was
+        // a lie the bubble showed on both sides (#561 follow-up).
+        const extFor = (ty2) => ty2 === "image/jpeg" ? "jpg" : ty2 === "image/webp" ? "webp" : ty2 === "image/gif" ? "gif" : ty2?.startsWith("video/") ? "mp4" : String(pm.name || "").split(".").pop() || "png";
+        const safeExt = String(extFor(ty)).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+        const stored = `${pm.kind}-${Date.now()}.${safeExt}`;
+        const base = String(pm.name || "").replace(/\.[^.]*$/, "") || stored.replace(/\.[^.]*$/, "");
+        filename = transcoded ? `${base}.${safeExt}` : (pm.name || stored);
         const bytes = new Uint8Array(await sendBlob.arrayBuffer());
         filePath = await this._writeBlobForSend(stored, bytes);
         diagnosticsSink.append("info", `media: wrote ${bytes.length} bytes to ${filePath}`);

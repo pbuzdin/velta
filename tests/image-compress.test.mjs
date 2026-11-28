@@ -159,10 +159,10 @@ function fakes({ w = 4000, h = 3000, sizes = [300_000], type = "image/webp", fai
     calls,
     deps: {
       decode: async () => { calls.decode++; if (fail === "decode") throw new Error("boom"); return { width: w, height: h, close: () => calls.closed++ }; },
-      encode: async (_d, width, height, q) => {
-        calls.encode.push({ width, height, q });
+      encode: async (_d, width, height, q, outType) => {
+        calls.encode.push({ width, height, q, type: outType });
         const size = sizes[Math.min(calls.encode.length - 1, sizes.length - 1)];
-        return { size, type };
+        return { size, type: outType || type };
       },
     },
   };
@@ -201,15 +201,40 @@ test("compressImage: 40 KB JPEG is returned unchanged and never decoded", async 
   assert.equal(f.calls.decode, 0);
 });
 
-test("compressImage: animated WebP, GIF, transparent PNG/WebP stay byte-exact", async () => {
+test("compressImage: animated WebP and GIF stay byte-exact; alpha only rescues on the 2k cap", async () => {
   const f = fakes();
-  for (const head of [webpAnimatedChunk(), webpVp8x(0x02), gif(), pngFile(6), webpVp8x(0x10)]) {
+  // Animated/unknown: never touched, not even decoded.
+  for (const head of [webpAnimatedChunk(), webpVp8x(0x02), gif(), bytesOf("not-an-image")]) {
     const input = blobOf(big(2_000_000, head), "image/whatever");
     const r = await compressImage(input, { deps: f.deps });
     assert.equal(r.transcoded, false);
     assert.equal(r.blob, input);
   }
   assert.equal(f.calls.decode, 0);
+  // Codec-only mode (resize off): transparency is never converted for size
+  // alone — the old #509 rule stands there.
+  for (const head of [pngFile(6), webpVp8x(0x10)]) {
+    const input = blobOf(big(2_000_000, head), "image/whatever");
+    const r = await compressImage(input, { resize: false, deps: f.deps });
+    assert.equal(r.transcoded, false);
+    assert.equal(r.blob, input);
+  }
+  // 2k on: an oversized transparent PNG is RESCUED — WebP keeps alpha, the
+  // bar is "smaller" (#560 follow-up).
+  const g = fakes({ sizes: [300_000] });
+  const r = await compressImage(blobOf(big(2_000_000, pngFile(6))), { name: "shot.png", deps: g.deps });
+  assert.equal(r.transcoded, true);
+  assert.equal(r.name, "shot.webp");
+  assert.equal(r.blob.type, "image/webp");
+  assert.deepEqual([g.calls.encode[0].width, g.calls.encode[0].height], [2048, 1536]);
+  assert.equal(g.calls.encode[0].q, 0.8);
+  // …and a transparent image already within 2k stays byte-exact.
+  const w2k = fakes({ w: 1500, h: 1000 });
+  const in2k = blobOf(big(2_000_000, pngFile(6)), "image/png");
+  const r2 = await compressImage(in2k, { deps: w2k.deps });
+  assert.equal(r2.transcoded, false);
+  assert.equal(r2.blob, in2k);
+  assert.equal(r2.reason, "within-2k");
 });
 
 test("compressImage: moderate JPEG needs a 10 % saving, else the original is sent", async () => {
@@ -364,13 +389,56 @@ test("compressImage: WebP off, image already within 2k → untouched", async () 
   assert.equal(f.calls.encode.length, 0, "nothing re-encoded");
 });
 
-test("compressImage: WebP off skips alpha PNGs, GIFs and unknown formats", async () => {
-  for (const bytes of [pngFile(6, {}), gif(), bytesOf("not-an-image")]) {
+test("compressImage: WebP off resizes in the SAME format — alpha kept, GIF/unknown refused", async () => {
+  // GIF and unknown formats are still refused outright.
+  for (const bytes of [gif(), bytesOf("not-an-image")]) {
     const f = fakes({});
     const r = await compressImage(blobOf(bytes), { webp: false, deps: f.deps });
     assert.equal(r.transcoded, false, bytes.length + " bytes");
     assert.equal(f.calls.decode, 0);
   }
+  // Oversized alpha PNG over 2k: PNG → PNG resample, alpha natively kept,
+  // name unchanged (no codec change when WebP is off).
+  const f = fakes({ sizes: [300_000] });
+  const r = await compressImage(blobOf(big(2_000_000, pngFile(6)), "image/png"), { name: "shot.png", webp: false, deps: f.deps });
+  assert.equal(r.transcoded, true);
+  assert.equal(r.blob.type, "image/png");
+  assert.equal(r.name, "shot.png");
+  assert.equal(f.calls.encode[0].type, "image/png");
+  assert.deepEqual([f.calls.encode[0].width, f.calls.encode[0].height], [2048, 1536]);
+  // Opaque PNG likewise (was refused as png-lossless before #560).
+  const f2 = fakes({ sizes: [300_000] });
+  const r2 = await compressImage(blobOf(big(2_000_000, pngFile(2)), "image/png"), { name: "flat.png", webp: false, deps: f2.deps });
+  assert.equal(r2.transcoded, true);
+  assert.equal(r2.blob.type, "image/png");
+  // Alpha WebP over 2k: WebP → WebP.
+  const f3 = fakes({ sizes: [300_000] });
+  const r3 = await compressImage(blobOf(big(2_000_000, webpVp8x(0x10))), { name: "t.webp", webp: false, deps: f3.deps });
+  assert.equal(r3.transcoded, true);
+  assert.equal(r3.blob.type, "image/webp");
+  // Within 2k: untouched.
+  const f4 = fakes({ w: 1500, h: 1000 });
+  const in4 = blobOf(big(2_000_000, pngFile(6)), "image/png");
+  const r4 = await compressImage(in4, { webp: false, deps: f4.deps });
+  assert.equal(r4.transcoded, false);
+  assert.equal(r4.blob, in4);
+  assert.equal(r4.reason, "within-2k");
+});
+
+test("compressImage: oversized opaque PNG under the core limit gets its 2k cap (webp on)", async () => {
+  // Was skipped as png-lossless (#509); the cap is the point now.
+  const f = fakes({ sizes: [300_000] });
+  const r = await compressImage(blobOf(big(500_000, pngFile(2)), "image/png"), { name: "scan.png", deps: f.deps });
+  assert.equal(r.transcoded, true);
+  assert.equal(r.name, "scan.webp");
+  assert.deepEqual([f.calls.encode[0].width, f.calls.encode[0].height], [2048, 1536]);
+  // Not smaller → original sent.
+  const f2 = fakes({ sizes: [900_000] });
+  const in2 = blobOf(big(500_000, pngFile(2)), "image/png");
+  const r2 = await compressImage(in2, { deps: f2.deps });
+  assert.equal(r2.transcoded, false);
+  assert.equal(r2.blob, in2);
+  assert.equal(r2.reason, "not-smaller");
 });
 
 test("compressImage: both settings off → disabled, nothing decoded", async () => {

@@ -60,3 +60,28 @@ test("cropper fills the modal: measured fit, DPR-sharp backing, tokens", () => {
   assert.match(css, /\.mp-toggle\[aria-pressed="true"\] \{ background: var\(--accent\); color: var\(--on-accent\); \}/);
   assert.match(css, /\.crop-sel \{[^}]*border: 2px solid var\(--text\);/);
 });
+
+test("the strip explains WHY a photo sends as-is, at stage time", () => {
+  assert.match(cv, /_photoSkipNote\(pm\) \{/);
+  assert.match(cv, /sniffImage\(bytes\)/, "verdict from the bytes, like the send path");
+  assert.match(cv, /createImageBitmap\(pm\.blob\)/, "dimensions decide the 2k verdict");
+  // Computed during staging, joined into the route line, recomputed on a chip flip.
+  assert.match(cv, /pm\.photoNote = await this\._photoSkipNote\(pm\)/);
+  assert.match(cv, /pm\?\.photoNote \|\| ""/);
+  assert.match(cv, /this\._photoSkipNote\(cur\)\.then/);
+  // Every verdict string is a wired key (i18n gate covers fr/ru parity).
+  for (const s of ["Animated — sends as is", "Unsupported format — sends as is", "Under 256 KB — sends as is", "Over 64 MB — sends as is", "Already within 2k — sends as is", "Has transparency — sends as is", "Lossless PNG — sends as is", "HEIC needs WebP on to resize — sends as is"]) {
+    assert.match(cv, new RegExp(`t\\("${s}"\\)`));
+  }
+});
+
+test("the sent filename matches the BYTES, not the picked name (#561)", () => {
+  // The transcode wins the extension: photo.jpg transcoded → photo.webp on
+  // both sides; a same-format 2k resample keeps its name.
+  assert.match(cv, /filename = transcoded \? `\$\{base\}\.\$\{safeExt\}` : \(pm\.name \|\| stored\)/);
+  assert.doesNotMatch(cv, /filename = pm\.name \|\| stored/, "the picked name must not mask a transcode");
+  // The disk-stored name derives from the actual blob type (a JPEG resample
+  // is no longer stored as .webp), and the Dash offer learns the new size.
+  assert.match(cv, /const stored = `\$\{pm\.kind\}-\$\{Date\.now\(\)\}\.\$\{safeExt\}`/);
+  assert.match(cv, /pm\.size = sendBlob\.size/);
+});
