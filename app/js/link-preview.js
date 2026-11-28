@@ -8,6 +8,7 @@ import { escapeHtml, escapeAttr } from "./components.js";
 import { parseInviteLink } from "./invites.js";
 import { LruCache } from "./lru.js";
 import { tauriInvoke } from "./tauri.js";
+import { setLinkPreviewProxySource, shellProxy } from "./shell-proxy.js";
 
 // Bounded (lru.js): 100 URLs / 2 MB; size = JSON length*2 (image may be a data URL).
 const CACHE = new LruCache({ maxItems: 100, maxBytes: 2 * 1024 * 1024,
@@ -134,16 +135,7 @@ const inFlight = new Map(); // url -> Promise (dedupe concurrent renders); remov
 // selected SOCKS5/WebSocket proxy, written into the core's proxy_url). app.js
 // registers a reader for the active account. Fail closed: no reader yet, or
 // a reader that throws, means no fetch — never a direct one.
-let proxySource = null;
-export function setLinkPreviewProxySource(fn) { proxySource = typeof fn === "function" ? fn : null; }
-
-// Same reader for other shell-side network features (Large file, #138):
-// the proxy URL or null for direct. Throws while the setting is unknown —
-// callers must not fall back to a direct connection then (fail closed).
-export async function shellProxy() {
-  if (!proxySource) throw new Error("proxy setting not known yet");
-  return (await proxySource()) || null;
-}
+export { setLinkPreviewProxySource, shellProxy };
 
 // proxy_enabled + proxy_url as the core stores them -> the URL to pass, or null.
 export function activeProxyUrl(enabled, url) {
@@ -175,8 +167,7 @@ export async function linkPreview(text, chatId = null, accountId = null) {
     .then(async () => {
       let proxy;
       try {
-        if (!proxySource) throw new Error("proxy setting not known yet");
-        proxy = (await proxySource()) || null;
+        proxy = await shellProxy();
       } catch (err) { proxyUnknown = true; throw err; }
       return invoke("fetch_link_preview", { url, proxy });
     })

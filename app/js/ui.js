@@ -9,6 +9,7 @@ import { APP_VERSION } from "./version.gen.js";
 import { formatSplashVersion } from "./format.js";
 import { searchEmoji } from "./emoji.js";
 import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
+import { shellProxy } from "./shell-proxy.js";
 import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
 import { parseColor, rgbToHsl, nameColor } from "./name-color.js";
 import { canShareLink, shareLink } from "./qr-actions.js";
@@ -996,7 +997,8 @@ export async function checkForUpdate() {
     const tauri = window.__TAURI__;
     if (tauri?.core?.invoke) {
       // Shell-side: no CORS, and CSP carries no github hosts (AGENTS.md §8).
-      remote = (await tauri.core.invoke("get_latest_version")) || "";
+      // Through the configured proxy; an unknown proxy setting skips the check.
+      remote = (await tauri.core.invoke("get_latest_version", { proxy: await shellProxy() })) || "";
     } else {
       const res = await fetch(UPDATE_CHECK_URL, { cache: "no-store" });
       if (!res.ok) return;
@@ -1087,7 +1089,7 @@ async function inAppApkUpdate(btn, tauri) {
     });
     if (!updateInfo.apkPath) {
       setPct(0, 0);
-      updateInfo.apkPath = await tauri.core.invoke("download_update", { version: updateInfo.version });
+      updateInfo.apkPath = await tauri.core.invoke("download_update", { version: updateInfo.version, proxy: await shellProxy() });
     }
     btn.textContent = t("Opening installer…");
     await tauri.core.invoke("install_update", { path: updateInfo.apkPath });
@@ -1108,7 +1110,9 @@ async function selfUpdate(btn) {
   const tauri = window.__TAURI__;
   btn.disabled = true;
   try {
-    const update = await tauri.updater.check();
+    // Same proxy as the other shell checks; unknown/unusable = no request.
+    const proxy = await shellProxy();
+    const update = await tauri.updater.check(proxy ? { proxy } : undefined);
     if (!update?.available) {
       btn.textContent = t("No update");
       btn.disabled = false;

@@ -82,7 +82,7 @@ fn ident_ok(s: &str) -> bool {
 }
 
 /// TCP to host:port, through the proxy when one is set (fail closed).
-fn tcp_connect(host: &str, port: u16, proxy: Option<&str>) -> Result<TcpStream, String> {
+pub(crate) fn tcp_connect(host: &str, port: u16, proxy: Option<&str>) -> Result<TcpStream, String> {
     let proxy = crate::link_preview_proxy(proxy).map_err(|_| "unsupported proxy for large-file uploads".to_string())?;
     let tcp = match proxy {
         None => {
