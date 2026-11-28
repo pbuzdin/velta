@@ -21,6 +21,7 @@ import { t } from "./i18n.js";
 import { escapeHtml } from "./format.js";
 import { withTimeout } from "./load-retry.js";
 import { isAndroid } from "./tauri.js";
+import { textOnlyMode } from "./text-only-mode.js";
 
 let env = null;  // { core, invoke } — invoke null in the PWA
 let transport = null;
@@ -110,9 +111,48 @@ function revalidateStoredCopy(hash, st, incomingText) {
     cur.path = undefined;
     if (!cur.outgoing) { cur.done = false; cur.error = undefined; }
     saveCards();
-    if (!cur.outgoing && cur.text) startFetch(hash, 0);
+    if (!cur.outgoing && cur.text) autoStart(hash);
     else refresh(hash);
   }).finally(() => revalidating.delete(hash));
+}
+
+/** Whether an arriving card may start its transfer on its own: Dash is on,
+ *  Text-only mode is not covering everything, and the chat is an accepted
+ *  one (not a contact request). Anything else waits for a tap on Download.
+ *  Fails closed when the chat cannot be read. */
+async function autoAllowed(chatId) {
+  if (!irohXferEnabled() || textOnlyMode() === "all") return false;
+  try {
+    const chat = await env.core?.getChat?.(chatId);
+    if (!chat || chat.isContactRequest || chat.kind === "deaddrop") return false;
+    return true;
+  } catch { return false; }
+}
+/** Start the transfer for an arriving card when the gate allows it, else
+ *  leave the card waiting for the user (Download). Nothing is sent to the
+ *  chat and nothing dials out in the waiting state. */
+function autoStart(hash) {
+  const st = cardState.get(hash);
+  if (!st || !st.text) return;
+  st.hold = undefined;
+  st.receiving = !!env.invoke; // reads "Waiting for sender…" while the gate resolves
+  autoAllowed(st.chatId).then((ok) => {
+    const cur = cardState.get(hash);
+    if (!cur || cur !== st) return;
+    // No shell, no Dash: the only way to the file is the email copy, which is a
+    // message into the chat, so it waits for the user's tap here too.
+    if (ok && env.invoke) { startFetch(hash, 0, false); return; }
+    st.receiving = false;
+    st.hold = true;
+    refresh(hash);
+  });
+}
+/** Card action: the user asked for this file. */
+export function downloadCard(hash) {
+  const st = cardState.get(hash);
+  if (!st || !st.hold || !st.text || st.done) return;
+  st.hold = undefined;
+  startFetch(hash, 0, true);
 }
 
 /** Replace a dead outgoing state with a fresh incoming one and fetch. */
@@ -120,7 +160,7 @@ function convertToIncoming(hash, st, text) {
   sink("info", `the peer resent ${st.name || hash.slice(0, 8)} — fetching their fresh copy`);
   cardState.set(hash, { chatId: st.chatId, size: st.size, name: st.name, text });
   saveCards();
-  startFetch(hash, 0);
+  autoStart(hash);
 }
 
 /** True when the contact has proved it runs Velta with the transfer: core
@@ -214,6 +254,8 @@ function stateText(st) {
   if (st.error && ERRORS[st.error]) return ERRORS[st.error](st);
   if (st.asked && !st.done) return st.dashFailed ? t("Couldn't fetch via Velta Dash: asked for the email copy") : t("Asked for the email copy");
   if (st.outgoing) return st.mailed ? t("Sent by email") : routeLabel("iroh");
+  if (st.hold && !st.done) return t("Tap Download to receive this file");
+  if (st.needsAsk && !st.done && !st.receiving) return t("Not available over Velta Dash");
   if (st.done) return t("Received with Velta Dash");
   if (st.pct != null) return t("Fetching via Velta Dash {n}%", { n: st.pct });
   if (st.receiving) return t("Waiting for sender…");
@@ -225,7 +267,7 @@ function isErrorState(st) {
 }
 /** A card still waiting on something (sender, fetch): shows the busy ring. */
 function isBusy(st) {
-  return !st.outgoing && !st.done && !st.error && !st.asked && (!!st.receiving || st.pct != null);
+  return !st.outgoing && !st.done && !st.error && !st.asked && !st.hold && (!!st.receiving || st.pct != null);
 }
 /** Incoming card that failed over Dash and can try again (both online). */
 function canRetry(st) {
@@ -394,6 +436,7 @@ function actionsHtml(hash, name, st, platform = xferPlatformActions()) {
     return platform === "folder" ? open : open + extras;
   }
   let out = "";
+  if (st.hold && st.text && !st.done) out += `<button type="button" class="xfer-download btn-text" data-xfer-download="${escapeAttr(hash)}">${escapeHtml(t("Download"))}</button>`;
   if (canRetry(st)) out += `<button type="button" class="xfer-retry btn-text" data-xfer-retry="${escapeAttr(hash)}">${escapeHtml(t("Retry"))}</button>`;
   if (canAsk(st) && cardState.has(hash)) out += `<button type="button" class="xfer-ask btn-text" data-xfer-ask="${escapeAttr(hash)}">${escapeHtml(t("Ask for the email copy"))}</button>`;
   return out;
@@ -480,7 +523,7 @@ export function noteCard(chatId, text, outgoing) {
     cardState.set(hash, st);
     const expired = Number(card.tk.exp) * 1000 <= Date.now();
     if (!env.invoke && expired) { if (card.size > EMAIL_MAX) st.error = "too-big-recv"; return; } // PWA, old card: the sender mails expired offers itself
-    startFetch(hash, 0);
+    autoStart(hash);
     return;
   }
   if (parseResendRequest(text)) handleResend(chatId, text, outgoing);
@@ -501,7 +544,7 @@ async function peersOf(chatId) {
   peerCache.set(chatId, doms);
   return doms;
 }
-function startFetch(hash, attempt) {
+function startFetch(hash, attempt, userAction = false) {
   const st = cardState.get(hash);
   if (!st || st.done || !st.text) return;
   const name = parseFileCard(st.text)?.name || "file";
@@ -516,12 +559,13 @@ function startFetch(hash, attempt) {
   // indefinitely. Past the cap the card errors (Retry resumes from the
   // .part); ~2 MB/s floor plus 5 min of slack.
   const budget = limits.fetchMs + Math.ceil((Number(st.size) || 0) / 1048576) * limits.fetchPerMbMs;
-  withTimeout((async () => transport.receive({ chatId: st.chatId, text: st.text, peers: env.invoke ? await peersOf(st.chatId) : [] }))(), budget, "xfer_fetch").then((r) => {
+  withTimeout((async () => transport.receive({ chatId: st.chatId, text: st.text, peers: env.invoke ? await peersOf(st.chatId) : [], allowResend: userAction }))(), budget, "xfer_fetch").then((r) => {
     const cur = cardState.get(hash);
     if (!cur) return;
     cur.receiving = false;
     cur.pct = undefined;
     if (r?.path) { cur.path = r.path; cur.done = true; validatedCopies.add(hash); sink("info", `received ${name} via Velta Dash`); }
+    else if (r?.needsAsk) { cur.needsAsk = true; sink("info", `${name}: not available over Velta Dash${r.code && r.code !== "no-iroh" ? ` (${r.error || r.code})` : ""} — waiting for the user to ask for the email copy`); }
     else if (r?.asked) { cur.asked = true; cur.dashFailed = r.code !== "no-iroh"; sink(r.code === "no-iroh" ? "info" : "error", `asked for the email copy (${r.error || r.code || "unknown"})`); }
     else if (r?.tooBig) { cur.error = "too-big-recv"; sink("error", `Dash fetch failed and ${name} is too big for email (${r.error || r.code})`); }
     else if (r?.code === "no-space" || r?.code === "too-large") { cur.error = r.code; sink("error", `fetch refused: ${r.error}`); }
@@ -529,7 +573,7 @@ function startFetch(hash, attempt) {
       if (attempt < RETRY_DELAYS_MS.length) {
         sink("info", `fetch interrupted — resuming in ${RETRY_DELAYS_MS[attempt] / 1000} s (${r.error})`);
         cur.receiving = true;
-        setTimeout(() => startFetch(hash, attempt + 1), RETRY_DELAYS_MS[attempt])?.unref?.();
+        setTimeout(() => startFetch(hash, attempt + 1, userAction), RETRY_DELAYS_MS[attempt])?.unref?.();
       } else { cur.error = "interrupted"; sink("error", `fetch interrupted ${attempt + 1} times — tap Retry (${r.error})`); }
     }
     saveCards();
@@ -544,7 +588,7 @@ function startFetch(hash, attempt) {
 /** Card action: try the Dash fetch again (resumes the partial). */
 export function retryFetch(hash) {
   const st = cardState.get(hash);
-  if (st && canRetry(st)) startFetch(hash, 0);
+  if (st && canRetry(st)) startFetch(hash, 0, true);
 }
 
 const resendSeen = new Set();
@@ -617,7 +661,7 @@ function paintCard(card, st) {
     have.remove();
   }
   if (sub) {
-    for (const old of card.querySelectorAll(".xfer-route, .xfer-actions, .xfer-open, .xfer-ask, .xfer-retry, .xfer-folder, .xfer-save, .xfer-share")) old.remove();
+    for (const old of card.querySelectorAll(".xfer-route, .xfer-actions, .xfer-open, .xfer-ask, .xfer-retry, .xfer-download, .xfer-folder, .xfer-save, .xfer-share")) old.remove();
     sub.insertAdjacentHTML("beforeend", routeBadgeHtml(st) + actionsHtml(hash, name, st));
   }
 }
@@ -723,6 +767,8 @@ export function initXferUi({ core, invoke, sendText, sendFile, metadata, listen,
   }
   if (typeof document !== "undefined") {
     document.addEventListener("click", (e) => {
+      const dl = e.target.closest?.("[data-xfer-download]");
+      if (dl) { downloadCard(dl.getAttribute("data-xfer-download")); return; }
       const retry = e.target.closest?.("[data-xfer-retry]");
       if (retry) { retryFetch(retry.getAttribute("data-xfer-retry")); return; }
       const view = e.target.closest?.("[data-xfer-view]");

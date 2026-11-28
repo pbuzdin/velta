@@ -1206,7 +1206,39 @@ pub async fn xfer_status(
     Ok(serde_json::Value::Object(out))
 }
 
+/// A received file name made safe to create under a directory on every
+/// platform: one plain component, no separators, drive or stream markers,
+/// control characters, Windows reserved device names, or trailing dots and
+/// spaces. Unsafe characters become `_`; an empty result becomes `file`.
+pub(crate) fn sanitize_file_name(name: &str) -> String {
+    let mut s: String = name
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .collect();
+    // Trailing dots and spaces are dropped by Windows; leading spaces and
+    // dots would hide the file or make a relative component.
+    let trimmed = s.trim_matches(|c| c == ' ' || c == '.').to_string();
+    s = trimmed;
+    // Reserved device names, with or without an extension (CON, con.txt).
+    let stem = s.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || ((stem.len() == 4) && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        s.insert(0, '_');
+    }
+    if s.is_empty() {
+        return "file".into();
+    }
+    // Keep to the 255-byte component limit on a char boundary.
+    while s.len() > 255 {
+        s.pop();
+    }
+    s
+}
+
 fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    let name = sanitize_file_name(name);
+    let name = name.as_str();
     let p = dir.join(name);
     if !p.exists() {
         return p;
@@ -1303,6 +1335,47 @@ pub async fn xfer_health(state: tauri::State<'_, XferState>, app: tauri::AppHand
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn received_file_names_are_one_safe_component() {
+        for (raw, want) in [
+            ("photo.raw", "photo.raw"),
+            ("C:x", "C_x"),
+            ("C:\\Windows\\a.dll", "C__Windows_a.dll"),
+            ("\\\\host\\share\\f", "__host_share_f"),
+            ("../../etc/passwd", "_.._etc_passwd"),
+            ("a.txt:evil.exe", "a.txt_evil.exe"),
+            ("a.txt::$DATA", "a.txt__$DATA"),
+            ("CON", "_CON"),
+            ("nul.txt", "_nul.txt"),
+            ("Com1", "_Com1"),
+            ("lpt9.log", "_lpt9.log"),
+            ("com10.txt", "com10.txt"),
+            ("report. ", "report"),
+            ("  lead.txt", "lead.txt"),
+            (".", "file"),
+            ("..", "file"),
+            ("...", "file"),
+            ("a\u{0}b\u{7}c", "a_b_c"),
+            ("what?*.txt", "what__.txt"),
+        ] {
+            let got = sanitize_file_name(raw);
+            assert_eq!(got, want, "{raw:?}");
+            assert!(!got.contains(['/', '\\', ':']));
+        }
+        assert!(sanitize_file_name(&"x".repeat(400)).len() <= 255);
+    }
+
+    #[test]
+    fn unique_path_stays_inside_the_directory() {
+        let d = tmp("sanitize");
+        for name in ["C:x", "a.txt:s", "CON", "..", "\\\\h\\s\\f"] {
+            let p = unique_path(&d, name);
+            assert_eq!(p.parent(), Some(d.as_path()), "{name:?} -> {p:?}");
+        }
+        std::fs::write(d.join("dup.txt"), b"x").unwrap();
+        assert_eq!(unique_path(&d, "dup.txt"), d.join("dup (1).txt"));
+    }
 
     fn tmp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("velta-xfer-{tag}-{}", std::process::id()));

@@ -1794,6 +1794,8 @@
   "Couldn't fetch via Velta Dash: asked for the email copy": "Не удалось получить через Velta Dash: запрошена копия по почте",
   "Fetching via Velta Dash {n}%": "Получение через Velta Dash {n}%",
   "Waiting for sender…": "Ожидание отправителя…",
+  "Tap Download to receive this file": "Нажмите «Скачать», чтобы получить файл",
+  "Not available over Velta Dash": "Недоступно через Velta Dash",
   "Velta Dash: direct to {name} (same network only — your relay has no Dash relay)": "Velta Dash: напрямую для {name} (только в одной сети — у вашего релея нет релея Dash)",
   "Velta Dash: direct to {name}": "Velta Dash: напрямую для {name}",
   "Checking how to send…": "Уточняю способ отправки…",
