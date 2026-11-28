@@ -486,6 +486,60 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
     state
 }
 
+/// #527/#541: the core's accounts root is `<data>/` (shallow: uuid dirs
+/// directly under it) on current layouts but `<data>/accounts/` on legacy
+/// ones. Key decisions must see BOTH, or `has_encrypted` is blind to the
+/// real databases and a fresh DEK is minted over them.
+#[cfg(not(target_os = "android"))]
+pub fn core_roots(data_dir: &Path) -> Vec<PathBuf> {
+    vec![data_dir.to_path_buf(), data_dir.join("accounts")]
+}
+
+#[cfg(not(target_os = "android"))]
+fn has_encrypted_any(data_dir: &Path) -> bool {
+    core_roots(data_dir).iter().any(|r| has_encrypted(r))
+}
+
+/// `prepare` over every candidate root, results summed.
+#[cfg(not(target_os = "android"))]
+pub fn prepare_all(data_dir: &Path, key_hex: Option<&str>) -> Prepare {
+    let mut total = Prepare { use_key: false, migrated: 0, already: 0, locked: 0 };
+    let mut any_key = false;
+    for r in core_roots(data_dir) {
+        if !r.is_dir() {
+            continue;
+        }
+        let p = prepare(&r, key_hex);
+        any_key |= p.use_key;
+        total.migrated += p.migrated;
+        total.already += p.already;
+        total.locked += p.locked;
+    }
+    total.use_key = any_key || (key_hex.is_some() && core_roots(data_dir).iter().all(|r| account_dbs(r).is_empty()));
+    total
+}
+
+/// Pure key decision for startup: (key, create, issue, adopted-legacy).
+#[cfg(not(target_os = "android"))]
+fn startup_decision(
+    data_dir: &Path,
+    scoped: Lookup,
+    legacy_hex: Option<String>,
+) -> (Option<String>, bool, Option<KeyIssue>, bool) {
+    let mut lookup = scoped;
+    let mut adopted = false;
+    if let (true, Some(l)) = (matches!(lookup, Lookup::NoEntry | Lookup::Unavailable), legacy_hex) {
+        let ours = core_roots(data_dir)
+            .iter()
+            .flat_map(|r| account_dbs(r))
+            .any(|db| opens(&db, Some(l.as_str())));
+        lookup = startup_lookup(lookup, Some(l), ours);
+        adopted = matches!(lookup, Lookup::Found(_));
+    }
+    let (hex, create, issue) = decide_key(lookup, has_encrypted_any(data_dir));
+    (hex, create, issue, adopted)
+}
+
 /// Desktop startup entry point: load/create the DEK, migrate plaintext
 /// databases, and return the raw key for the sidecar env — `None` runs the
 /// session without encryption. The third element is true when a PIN wrap or
@@ -500,25 +554,23 @@ pub fn startup(accounts_data_dir: &Path, identity: &str) -> (Option<String>, Opt
         log("app-lock wrap present; starting locked");
         return (None, None, true);
     }
-    let root = accounts_data_dir.join("accounts");
     let entry = keychain_entry(identity);
-    let mut lookup = keychain_lookup(entry.as_ref());
-    if matches!(lookup, Lookup::NoEntry | Lookup::Unavailable) {
-        // #527: adopt the pre-scoping shared DEK only when it opens this
-        // identity's databases — the shared item may belong to another
-        // Velta build on this machine.
-        if let Lookup::Found(legacy_hex) = keychain_lookup(keychain_entry_legacy().as_ref()) {
-            let ours = account_dbs(&root).iter().any(|db| opens(db, Some(legacy_hex.as_str())));
-            lookup = startup_lookup(lookup, Some(legacy_hex.clone()), ours);
-            if let Lookup::Found(_) = lookup {
-                if let Some(e) = entry.as_ref() {
-                    let _ = e.set_password(&legacy_hex);
-                    log("adopted the legacy shared DEK into this identity's scoped item");
-                }
-            }
+    let scoped = keychain_lookup(entry.as_ref());
+    let legacy = if matches!(scoped, Lookup::NoEntry | Lookup::Unavailable) {
+        match keychain_lookup(keychain_entry_legacy().as_ref()) {
+            Lookup::Found(h) => Some(h),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let (mut hex, create, mut issue, adopted) = startup_decision(accounts_data_dir, scoped, legacy);
+    if adopted {
+        if let (Some(e), Some(h)) = (entry.as_ref(), hex.as_ref()) {
+            let _ = e.set_password(h);
+            log("adopted the legacy shared DEK into this identity's scoped item");
         }
     }
-    let (mut hex, create, mut issue) = decide_key(lookup, has_encrypted(&root));
     if create {
         hex = create_dek(entry.as_ref());
         if hex.is_none() {
@@ -528,7 +580,7 @@ pub fn startup(accounts_data_dir: &Path, identity: &str) -> (Option<String>, Opt
     if let Some(i) = issue {
         log(&format!("key issue: {i:?}"));
     }
-    let report = prepare(&root, hex.as_deref());
+    let report = prepare_all(accounts_data_dir, hex.as_deref());
     log(&format!(
         "prepare: {} newly encrypted, {} already encrypted, {} locked, key {} ({} ms)",
         report.migrated,
@@ -797,7 +849,8 @@ pub fn pin_unlock(data_dir: &Path, accounts_root: &Path, pin: &str) -> Result<St
         }
         PinOpen::Corrupt => return Err("corrupt".to_string()),
     };
-    let report = prepare(accounts_root, Some(&hex));
+    let _ = accounts_root; // callers pass a single level; cover both
+    let report = prepare_all(data_dir, Some(&hex));
     if !report.use_key {
         return Err("prepare-failed".to_string());
     }
@@ -942,7 +995,8 @@ pub fn hello_clear(data_dir: &Path, identity: &str) -> Result<(), String> {
 #[cfg(windows)]
 pub fn hello_unlock(data_dir: &Path, accounts_root: &Path, identity: &str) -> Result<String, String> {
     let hex = hello_dek(data_dir)?;
-    let report = prepare(accounts_root, Some(&hex));
+    let _ = accounts_root;
+    let report = prepare_all(data_dir, Some(&hex));
     if !report.use_key {
         return Err("prepare-failed".to_string());
     }
@@ -1280,6 +1334,50 @@ mod tests {
 
         // Second unlock: already encrypted, same key back.
         assert_eq!(pin_unlock(&dir, &dir, "654321").unwrap(), raw);
+    }
+
+    /// #541: shallow layout (`<data>/<uuid>/dc.db`, what the sidecar uses).
+    /// A foreign-keyed db must make startup refuse to mint a DEK.
+    #[test]
+    fn startup_does_not_mint_over_shallow_encrypted_dbs() {
+        let dir = tmpdir();
+        let db = plant_plain_db(&dir.join("acc1"), 2);
+        let p = prepare(&dir, Some(OTHER)); // foreign key encrypts it
+        assert_eq!(p.migrated, 1);
+        assert!(opens(&db, Some(OTHER)));
+        // the old startup looked only here and saw nothing (root cause)
+        assert!(!has_encrypted(&dir.join("accounts")));
+        let (hex, create, issue, _) = startup_decision(&dir, Lookup::NoEntry, None);
+        assert_eq!((hex, create, issue), (None, false, Some(KeyIssue::KeyMissing)));
+    }
+
+    #[test]
+    fn startup_does_not_mint_over_nested_encrypted_dbs() {
+        let dir = tmpdir();
+        let root = dir.join("accounts");
+        let db = plant_plain_db(&root.join("acc1"), 2);
+        prepare(&root, Some(OTHER));
+        assert!(opens(&db, Some(OTHER)));
+        let (hex, create, issue, _) = startup_decision(&dir, Lookup::NoEntry, None);
+        assert_eq!((hex, create, issue), (None, false, Some(KeyIssue::KeyMissing)));
+    }
+
+    #[test]
+    fn startup_mints_on_truly_fresh_dir() {
+        let dir = tmpdir();
+        assert_eq!(startup_decision(&dir, Lookup::NoEntry, None), (None, true, None, false));
+    }
+
+    /// #527: unlock on a shallow store must migrate/see the real dbs.
+    #[test]
+    fn pin_unlock_migrates_shallow_layout() {
+        let dir = tmpdir();
+        let db = plant_plain_db(&dir.join("acc1"), 3);
+        pin_wrap_write(&pin_wrap_path(&dir), "654321", KEY).unwrap();
+        // callers used to pass <data>/accounts, which is empty here
+        let raw = pin_unlock(&dir, &dir.join("accounts"), "654321").unwrap();
+        assert_eq!(raw, format!("x'{KEY}'"));
+        assert!(opens(&db, Some(KEY)));
     }
 
     #[cfg(target_os = "android")]
