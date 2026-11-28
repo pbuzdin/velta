@@ -1,6 +1,7 @@
 package org.velta.kmp.ui
 
 import android.annotation.SuppressLint
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -17,7 +19,8 @@ import org.velta.kmp.ui.AppModel
 
 /**
  * P3a webxdc runtime: the archive is served per-file from the core
- * (`get_webxdc_blob`, base64) over the virtual host `https://xdc.local/<msgId>/`,
+ * (`get_webxdc_blob`, base64) over a per-instance virtual host `https://a<account>m<msgId>.xdc.local/`
+ * (own origin, own storage; only that host is served, see WebxdcRules.kt),
  * and the app's `window.webxdc` is injected at document start backed by a
  * blocking JS bridge (`WebxdcBridge.request`) — apps that ship the official
  * webxdc.js detect the existing API and use it directly, no iframe needed.
@@ -26,11 +29,13 @@ import org.velta.kmp.ui.AppModel
 @Composable
 actual fun WebxdcScreen(model: AppModel, screen: AppModel.Screen.Webxdc) {
     val context = LocalContext.current
+    // One origin per app instance (account + message): storage is not shared.
+    val host = remember(screen.msgId) { webxdcHost(model.callAccountId() ?: 0L, screen.msgId) }
     AndroidView(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars),
         factory = { ctx ->
             WebView(ctx).apply {
-                configureWebxdc(this, model, screen.msgId)
+                configureWebxdc(this, model, screen.msgId, host)
                 model.webxdcRealtimeSink = { dataMsgId, data ->
                     if (dataMsgId == screen.msgId) {
                         post {
@@ -41,7 +46,7 @@ actual fun WebxdcScreen(model: AppModel, screen: AppModel.Screen.Webxdc) {
                         }
                     }
                 }
-                loadUrl("https://xdc.local/${screen.msgId}/")
+                loadUrl("https://$host/")
             }
         },
         onRelease = {
@@ -129,12 +134,13 @@ actual fun WebxdcScreen(model: AppModel, screen: AppModel.Screen.Webxdc) {
 """
 
 @SuppressLint("SetJavaScriptEnabled")
-private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
+private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long, host: String) {
     with(web.settings) {
         javaScriptEnabled = true
         domStorageEnabled = true
         mediaPlaybackRequiresUserGesture = false
         allowFileAccess = false
+        allowContentAccess = false
         databaseEnabled = false
     }
     web.addJavascriptInterface(WebxdcBridge(model, msgId), "AndroidWebxdcBridge")
@@ -144,10 +150,11 @@ private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
             request: WebResourceRequest,
         ): WebResourceResponse? {
             val url = request.url
-            if (url.host != "xdc.local") return null
-            val segments = url.pathSegments
-            if (segments.isEmpty() || segments.first() != msgId.toString()) return null
-            val path = segments.drop(1).joinToString("/").ifEmpty { "index.html" }
+            // Only this app's own origin (and data:/blob:) is served; every
+            // other request is refused here instead of reaching the network.
+            if (!webxdcRequestAllowed(url.scheme, url.host, host)) return blocked()
+            if (!url.scheme.equals("https", ignoreCase = true)) return null
+            val path = webxdcArchivePath(url.pathSegments)
             val b64 = runBlocking {
                 runCatching { model.callWebxdcBlob(msgId, path) }.getOrNull()
             } ?: return notFound()
@@ -161,28 +168,40 @@ private fun configureWebxdc(web: WebView, model: AppModel, msgId: Long) {
                 val withApi = if (html.contains("<head>", ignoreCase = true)) {
                     html.replaceFirst(Regex("<head>", RegexOption.IGNORE_CASE), "<head>$INJECTED_API")
                 } else INJECTED_API + html
-                return WebResourceResponse(
-                    "text/html", "utf-8", java.io.ByteArrayInputStream(withApi.toByteArray(Charsets.UTF_8)),
-                )
+                return served("text/html", withApi.toByteArray(Charsets.UTF_8))
             }
-            return WebResourceResponse(mimeFor(path), "utf-8", java.io.ByteArrayInputStream(bytes))
+            return served(mimeFor(path), bytes)
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-            // Apps open external links outside the app canvas (web parity).
+            // Navigation stays on the app's own origin. A user tap on an http(s)
+            // link goes to the system chooser; anything else (scripts, redirects,
+            // intent:/file:/content: and other schemes) is dropped.
             val url = request.url
-            if (url.host != "xdc.local") {
+            if (webxdcRequestAllowed(url.scheme, url.host, host)) return false
+            if (webxdcLinkLeaves(url.scheme, request.hasGesture())) {
                 try {
-                    view.context.startActivity(
-                        android.content.Intent(android.content.Intent.ACTION_VIEW, url),
-                    )
+                    val open = android.content.Intent(android.content.Intent.ACTION_VIEW, url)
+                        .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                    val chooser = android.content.Intent.createChooser(open, null)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    web.context.startActivity(chooser)
                 } catch (_: android.content.ActivityNotFoundException) {}
-                return true
             }
-            return false
+            return true
         }
     }
 }
+
+private fun served(mime: String, bytes: ByteArray): WebResourceResponse =
+    WebResourceResponse(
+        mime, "utf-8", 200, "OK",
+        mapOf("Content-Security-Policy" to WEBXDC_CSP, "X-Content-Type-Options" to "nosniff"),
+        java.io.ByteArrayInputStream(bytes),
+    )
+
+private fun blocked(): WebResourceResponse =
+    WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", null, java.io.ByteArrayInputStream(ByteArray(0)))
 
 private fun notFound(): WebResourceResponse =
     WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, java.io.ByteArrayInputStream(ByteArray(0)))
@@ -192,6 +211,7 @@ private fun notFound(): WebResourceResponse =
  *  pattern — the methods answer from the core in microseconds). */
 private class WebxdcBridge(private val model: AppModel, private val msgId: Long) {
 
+    @JavascriptInterface
     fun request(json: String): String {
         val response = runBlocking {
             runCatching { handle(json) }.getOrElse {
