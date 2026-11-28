@@ -3,7 +3,6 @@ package org.velta
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import java.io.File
@@ -48,14 +47,9 @@ object Share {
             }
             val chooser = Intent.createChooser(send, title)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            val matches = context.packageManager.queryIntentActivities(send, PackageManager.MATCH_DEFAULT_ONLY)
-            for (ri in matches) {
-                context.grantUriPermission(
-                    ri.activityInfo.packageName,
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
+            // No per-package grants: the chooser intent carries the read
+            // grant (ClipData + FLAG_GRANT_READ_URI_PERMISSION) and Android gives it
+            // to the app the user picks, not to every candidate.
             context.startActivity(chooser)
             true
         } catch (e: Exception) {
