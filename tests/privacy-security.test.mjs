@@ -66,8 +66,8 @@ test("Android lock: PIN over the unlocked app verifies in place (auto-lock bypas
   // button must NOT dismiss: it verifies the PIN in place via
   // VeltaCore.verifyAppPin (same wrap, same backoff, no key material).
   assert.match(lock, /showLock\(activity, allowPinFallback = !VeltaCore\.running\(\)\)/);
-  assert.match(lock, /showLock\(activity, allowPinFallback = false\)/);
-  assert.match(lock, /visibility = if \(VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
+  assert.match(lock, /showLock\(activity, allowPinFallback = false, pinOnly = pinOnly\)/);
+  assert.match(lock, /visibility = if \(VeltaKeystore\.pinOn\(activity\) && !pinOnly\) View\.VISIBLE else View\.GONE/);
   assert.match(lock, /if \(allowPinFallback\) hideLock\(\) else showPinEntry\(activity\)/);
   assert.match(lock, /VeltaCore\.verifyAppLockPin\(pin\)/);
   // A cancelled/failed prompt leaves the persistent Unlock action; that
