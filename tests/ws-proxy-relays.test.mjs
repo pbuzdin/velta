@@ -18,6 +18,8 @@ import asyncio, importlib.util, json, os, sys
 bridge, registry = sys.argv[1:3]
 spec = importlib.util.spec_from_file_location("bridge", bridge)
 b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+real_opener = b._OPENER
+real_getaddrinfo = b.socket.getaddrinfo
 b.ALLOW_HOSTS = {"local.example.org"}
 b.RELAYS_FILE = registry
 out = {}
@@ -89,24 +91,52 @@ out["dns"] = asyncio.run(dns())
 
 class MintResponse(Response):
     pass
+class Opener:
+    def __init__(self, fn): self.fn = fn
+    def open(self, req, timeout=None): return self.fn(req, timeout)
 mint_calls = []
 def mint_urlopen(req, timeout):
     mint_calls.append((req.full_url, req.get_method()))
     return MintResponse("https://mail.example.org/new", '{"email":"random@mail.example.org","password":"synthetic"}')
 async def ws_signup():
-    b.urlopen = mint_urlopen
+    b._OPENER = Opener(mint_urlopen)
     ws = Ws(); await b.handler(ws, "/cm-new/Mail.Example.Org.")
     assert isinstance(ws.sent[0], str)
     assert json.loads(ws.sent[0])["email"] == "random@mail.example.org"
     before = len(mint_calls)
     denied = Ws(); await b.handler(ws=denied, path="/cm-new/not-allowed.example.org")
     assert denied.closed[0] == 1008 and len(mint_calls) == before
-    b.urlopen = lambda req, timeout: MintResponse("https://other.example.org/new", '{"email":"random@mail.example.org","password":"synthetic"}')
+    b._OPENER = Opener(lambda req, timeout: MintResponse("https://other.example.org/new", '{"email":"random@mail.example.org","password":"synthetic"}'))
     redirected = Ws(); await b.handler(redirected, "/cm-new/mail.example.org")
     assert redirected.closed[0] == 1011
 asyncio.run(ws_signup())
 assert mint_calls[0] == ("https://mail.example.org/new", "POST")
 out["chatmail_ws_signup"] = True
+
+# A 3xx from the approved host is never followed: the redirect target must
+# not receive any request.
+import http.server, threading
+b.socket.getaddrinfo = real_getaddrinfo
+hits = []
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        hits.append(self.path)
+        if self.path == "/new":
+            self.send_response(307); self.send_header("Location", "/elsewhere"); self.end_headers()
+        else:
+            self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+import urllib.error, urllib.request
+try:
+    real_opener.open(urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/new", data=b"", method="POST"), timeout=5)
+    raise AssertionError("redirect was followed")
+except urllib.error.HTTPError as e:
+    assert e.code == 307
+srv.shutdown()
+assert hits == ["/new"], hits
+out["signup_redirect_not_followed"] = True
 print(json.dumps(out))
 `;
 
@@ -128,4 +158,5 @@ test("relay registry is normalized, dynamic, fail-closed, and Chatmail-checked",
   assert.equal(out.chatmail_validation, true);
   assert.deepEqual(out.dns, [["93.184.216.34"]]);
   assert.equal(out.chatmail_ws_signup, true);
+  assert.equal(out.signup_redirect_not_followed, true);
 });
