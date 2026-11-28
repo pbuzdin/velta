@@ -872,6 +872,106 @@ test("receiver card: a same-content resend flips a dead outgoing state to a fres
   assert.equal(stored[H2]?.error, undefined, "the swept missing error is gone");
 });
 
+test("a live stored copy is size-checked once per session, not once per render", async () => {
+  // noteCard runs on every bubble render. #558 re-validated outgoing cards
+  // on every render (the once-per-session exit excluded `st.outgoing`),
+  // firing an xfer_file_size IPC per render per card.
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?reval1");
+  const core = fakeCore();
+  core.accountId = 58;
+  const H = "e7".repeat(32);
+  localStorage.setItem("velta-xfer-cards:58", JSON.stringify({ [H]: { chatId: 9, path: "/acc/uploads/live.bin", done: true, outgoing: true, size: tk.size, name: "live.bin" } }));
+  let sizeCalls = 0;
+  ui.initXferUi({
+    core,
+    invoke: async (cmd) => { if (cmd === "xfer_file_size") sizeCalls++; return 1234; }, // copy opens fine
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+  });
+  const card = fileCardText({ name: "live.bin", size: tk.size, ticket: offerOf({ hash: H, name: "live.bin" }) });
+  ui.noteCard(9, card, true);
+  await tick(); await tick();
+  ui.noteCard(9, card, true); // second render of the same bubble
+  ui.noteCard(9, card, true); // third render
+  await tick(); await tick();
+  assert.equal(sizeCalls, 1, "one size check per session for a validated copy");
+  assert.ok(!JSON.parse(localStorage.getItem("velta-xfer-cards:58"))[H].error, "the live copy is left untouched");
+});
+
+test("renders of one card during an in-flight size check do not race a second check", async () => {
+  // #558 dropped the in-flight guard together with the early exit: until the
+  // size read settled, every render re-entered the check for the same copy.
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?reval2");
+  const core = fakeCore();
+  core.accountId = 61;
+  const H = "83".repeat(32);
+  localStorage.setItem("velta-xfer-cards:61", JSON.stringify({ [H]: { chatId: 9, path: "/acc/xfer-in/live.bin", done: true, size: tk.size, name: "live.bin" } }));
+  let sizeCalls = 0; let settle;
+  ui.initXferUi({
+    core,
+    invoke: async (cmd) => {
+      if (cmd === "xfer_file_size") { sizeCalls++; return new Promise((res) => { settle = res; }); }
+      return null;
+    },
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+  });
+  const card = fileCardText({ name: "live.bin", size: tk.size, ticket: offerOf({ hash: H, name: "live.bin" }) });
+  ui.noteCard(9, card, false); // first render: check starts, hangs
+  ui.noteCard(9, card, false); // second render while the check is in flight
+  await tick();
+  assert.equal(sizeCalls, 1, "the in-flight check dedupes parallel renders");
+  settle(4096);
+  await tick(); await tick();
+  ui.noteCard(9, card, false); // render after validation: still no new check
+  await tick(); await tick();
+  assert.equal(sizeCalls, 1, "a validated copy is not re-checked on later renders");
+});
+
+test("a failed size check of a stale path must not wipe a path a retry already replaced", async () => {
+  // The catch ran without comparing the card's current path to the probed
+  // one: while a stale-path check was in flight, a Retry could fetch a
+  // fresh copy — the stale failure then wiped the fresh path and started
+  // the download over.
+  globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
+  globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
+  const ui = await import("../app/js/iroh-xfer-ui.js?race");
+  const core = fakeCore();
+  core.accountId = 60;
+  core.getChat = async (id) => ({ id, chatType: "Single", contactId: 12 });
+  core.getContact = async () => ({ id: 12, addr: "kay@their-relay.example" });
+  const H = "9a".repeat(32);
+  localStorage.setItem("velta-xfer-cards:60", JSON.stringify({ [H]: { chatId: 9, path: "/old/xfer-in/stale.bin", error: "interrupted", size: tk.size, name: "race.bin" } }));
+  let fetchCalls = 0; let failStaleCheck;
+  ui.initXferUi({
+    core,
+    invoke: async (cmd, args) => {
+      if (cmd === "xfer_file_size") return new Promise((_, rej) => { failStaleCheck = () => rej(new Error("attachment key authentication failed")); }); // the stale check hangs
+      if (cmd === "xfer_fetch") { fetchCalls++; return { path: "/acc/xfer-in/fresh.bin" }; }
+      return null;
+    },
+    sendText: async () => ({}), sendFile: async () => {},
+    metadata: async () => null,
+    listen: async () => {},
+  });
+  const card = fileCardText({ name: "race.bin", size: tk.size, ticket: offerOf({ hash: H, name: "race.bin" }) });
+  ui.noteCard(9, card, false); // incoming render: stale-path check starts, hangs
+  await tick();
+  ui.retryFetch(H); // the user retries while the stale check is still in flight → fresh copy lands
+  await tick(); await tick();
+  failStaleCheck(); // the stale-path check finally fails
+  await tick(); await tick();
+  assert.equal(fetchCalls, 1, "the fresh fetch is not repeated");
+  assert.equal(JSON.parse(localStorage.getItem("velta-xfer-cards:60"))[H]?.path, "/acc/xfer-in/fresh.bin", "the fresh path survives the stale failure");
+  assert.match(ui.xferCardHtml(card), /Received with Velta Dash/, "the card keeps the fresh copy");
+});
+
 test("#546: a failed fetch on an un-mailable file blames the offer only when it expired", async t => {
   globalThis.window = Object.assign(new EventTarget(), { __veltaDiagnostics: { append: () => {} } });
   globalThis.localStorage = { m: new Map(), getItem(k) { return this.m.get(k) ?? null; }, setItem(k, v) { this.m.set(k, String(v)); }, removeItem(k) { this.m.delete(k); } };
