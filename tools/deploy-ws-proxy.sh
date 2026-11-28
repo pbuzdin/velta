@@ -181,7 +181,7 @@ ids seen per invite persist in $STATE_DIRECTORY/uses.json."""
 import asyncio, base64, fcntl, hashlib, hmac, ipaddress, json, os, re, secrets, socket, sys, time
 from http import HTTPStatus
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 import websockets
 
 ALLOW_HOSTS = {h.strip().lower().rstrip(".") for h in os.environ.get("ALLOW_HOSTS", "").split(",") if h.strip()}
@@ -504,11 +504,20 @@ async def pipe_tcp_to_ws(reader, ws):
     await ws.close()
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    """A 3xx from the approved host is an error: nothing is followed."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = build_opener(_NoRedirect)
+
+
 def chatmail_new(host):
     """Empty POST to an approved host's stock signup endpoint; no open HTTP relay."""
     req = Request(f"https://{host}/new", data=b"", method="POST",
                   headers={"User-Agent": "Velta-PWA-signup/1.0"})
-    with urlopen(req, timeout=20) as response:
+    with _OPENER.open(req, timeout=20) as response:
         final = urlsplit(response.geturl())
         if final.scheme != "https" or normalize_host(final.hostname or "") != host:
             raise ValueError("cross-origin signup redirect")
